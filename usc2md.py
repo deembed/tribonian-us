@@ -54,6 +54,44 @@ TEX_ESCAPES = {
     "\u00a0": "~", "\u202f": r"\,", "\u2009": r"\,", "\u2007": "~",
 }
 
+# Characters pdflatex (inputenc utf8 + T1) has no definition for. Found by
+# scanning every title's XML and compiling one test line per character.
+_FRACS = {"⅓": (1, 3), "⅔": (2, 3), "⅕": (1, 5), "⅖": (2, 5), "⅗": (3, 5), "⅘": (4, 5),
+          "⅙": (1, 6), "⅚": (5, 6), "⅐": (1, 7), "⅛": (1, 8), "⅜": (3, 8), "⅝": (5, 8),
+          "⅞": (7, 8), "⅑": (1, 9), "⅒": (1, 10)}
+TEX_ESCAPES.update({c: r"\vfrac{%d}{%d}" % nd for c, nd in _FRACS.items()})   # \vfrac: see PREAMBLE
+TEX_ESCAPES.update({
+    "\u2032": r"\ensuremath{'}", "\u2033": r"\ensuremath{''}",       # prime, double prime (33°27.8′)
+    "\u2212": r"\ensuremath{-}", "≤": r"\ensuremath{\leq}", "≥": r"\ensuremath{\geq}",
+    "α": r"\ensuremath{\alpha}", "β": r"\ensuremath{\beta}", "η": r"\ensuremath{\eta}",
+    "μ": r"\ensuremath{\mu}", "Φ": r"\ensuremath{\Phi}", "ϕ": r"\ensuremath{\phi}",
+    "\u02bb": r"\textquoteleft{}",                                   # Hawaiian okina
+    "☐": r"{\fboxsep0pt\fbox{\rule{0pt}{.6em}\rule{.6em}{0pt}}}",      # ballot box on court forms
+    "Ⓜ": r"\textcircled{\scriptsize M}",                             # mask-work symbol, 17 U.S.C. 909
+    "\ue0e9": "", "\ue1ab": "",                                       # private-use junk inside tables
+})
+# Combining marks that survive NFC (no precomposed letter, e.g. A + overline in
+# HALEAKALA): LaTeX wants the accent command BEFORE the letter.
+TEX_ACCENTS = {"\u0300": r"\`", "\u0301": r"\'", "\u0302": r"\^", "\u0303": r"\~",
+               "\u0304": r"\=", "\u0305": r"\=", "\u0308": r'\"', "\u030c": r"\v"}
+
+
+def tex_chars(s):
+    """Escape a string for LaTeX, character by character."""
+    out, i = [], 0
+    while i < len(s):
+        c = s[i]
+        nxt = s[i + 1] if i + 1 < len(s) else ""
+        if nxt in TEX_ACCENTS:
+            out.append("%s{%s}" % (TEX_ACCENTS[nxt], TEX_ESCAPES.get(c, c)))
+            i += 2
+            continue
+        if c not in TEX_ACCENTS:             # a stray mark with no letter before it is dropped
+            out.append(TEX_ESCAPES.get(c, c))
+        i += 1
+    return "".join(out)
+
+
 ODD_SPACES = {0x202F: 0xA0, 0x2009: 0xA0, 0x2007: 0xA0}
 
 
@@ -85,7 +123,7 @@ def gather_text(el, mode):
 
     def esc(s):
         if mode == "tex":
-            return "".join(TEX_ESCAPES.get(c, c) for c in s)
+            return tex_chars(s)
         return s
 
     def walk(node, first=True):
@@ -117,7 +155,7 @@ def gather_text(el, mode):
 def gather_text_str(s, mode):
     """Escape and space-collapse a bare string the way gather_text does."""
     if mode == "tex":
-        s = "".join(TEX_ESCAPES.get(c, c) for c in s)
+        s = tex_chars(s)
     return re.sub(r"\s+", " ", s).strip()
 
 
@@ -171,7 +209,7 @@ def note_blocks(note, mode):
             q = ch.find("quotedContent")
             if q is not None:
                 # inline run before the quote (citation refs and all), the quote, then the tail
-                esc = (lambda t: "".join(TEX_ESCAPES.get(c, c) for c in t)) if mode == "tex" else (lambda t: t)
+                esc = (lambda t: tex_chars(t)) if mode == "tex" else (lambda t: t)
                 pre = [esc(ch.text or "")]
                 for sib in ch:
                     if sib is q:
@@ -218,7 +256,7 @@ def quoted_lines(q, mode, depth=0):
     (text, <ref>, <date>, <inline>...) merge into one line; a level element or
     <p> starts a new one, with the (a)(1)(A) structure kept by walking the level
     elements and prefixing their num."""
-    esc = (lambda t: "".join(TEX_ESCAPES.get(c, c) for c in t)) if mode == "tex" else (lambda t: t)
+    esc = (lambda t: tex_chars(t)) if mode == "tex" else (lambda t: t)
     out, buf = [], []
 
     def flush():
@@ -489,6 +527,10 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \usepackage[normalem]{ulem}    % \sout for repealed text; normalem keeps \emph italic
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}   % skins -> "enhanced"; breakable -> page splits
+% PDF outline (the reMarkable shows it as the table of contents). hidelinks: no
+% coloured/boxed links. hyperfootnotes=false: marks and \footnotetext are paired
+% by hand here, and hyperref's footnote links assume \footnote.
+\usepackage[unicode,hidelinks,bookmarksopen,hyperfootnotes=false,pdftitle={__DOCTITLE__}]{hyperref}
 
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0.0\baselineskip}
@@ -496,6 +538,11 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 % Notes block (--notes): set small, unboxed, under a rule.
 \newcommand{\notesrule}{\par\vspace{5pt}\hrule height 0.3pt\vspace{3pt}}
 \newenvironment{quoted}{\par\begingroup\small\advance\leftskip by 1.4em\advance\rightskip by 1em\ignorespaces}{\par\endgroup}
+
+% Fractions the font has no glyph for (66 2/3 percent): small raised numerator,
+% slash, small denominator. In a PDF outline title it degrades to "2/3".
+\newcommand{\vfrac}[2]{\kern.08em\textsuperscript{#1}\kern-.12em/\kern-.08em{\scriptsize #2}}
+\AtBeginDocument{\pdfstringdefDisableCommands{\def\vfrac#1#2{#1/#2}}}
 
 % Bold label hangs at the left; wrapped lines align under the body text.
 \newsavebox{\labbox}
@@ -634,7 +681,27 @@ def render_tex(docs, doctitle, dochead, fontpkg, style, release, credits=False, 
             sechead = "\\sout{%s}" % sechead
         if i:
             body.append("\\vspace{10pt}\n")
+        # outline: one entry per section, one per top-level item under it
+        sectitle = "%s. %s" % (secpath, gather_text_str(meta["heading"], "tex"))
+        if meta["repealed"]:
+            sectitle += " [repealed]"
+        body.append("\\pdfbookmark[1]{%s}{sec%d}" % (sectitle, i))
         body.append("\\recordpath{%s}{\\large\\bfseries %s\\par}\n" % (secpath, sechead))
+        marks = [0]
+
+        def bookmark(n, secno=i):
+            """\\pdfbookmark for a top-level item: "(a) Heading", or its first words."""
+            src, k = n, n
+            while not (k.heading[0] or k.chapeau[0] or k.content[0]) and k.children:
+                k = k.children[0]            # 552a(g): the heading sits on (g)(1)
+            src = k
+            text = strip_fn(src.heading[0] or src.chapeau[0] or src.content[0])
+            words = re.sub(r"\.?\s*\u2014$", "", text).split()   # drop the ".—" that ends a run-in heading
+            title = " ".join(words[:9]) + ("\u2026" if len(words) > 9 else "")
+            marks[0] += 1
+            return "\\pdfbookmark[2]{%s}{sec%d-%d}" % (
+                gather_text_str(("%s %s" % (n.tail, title)).strip(), "tex"), secno, marks[0])
+
         if credits and meta["credit_tex"]:
             body.append("{\\footnotesize\\itshape %s\\par}\n" % meta["credit_tex"])
         body.append("\\vspace{2pt}\n\n")
@@ -672,7 +739,7 @@ def render_tex(docs, doctitle, dochead, fontpkg, style, release, credits=False, 
             item = "\\lab{%s}%s %s" % (n.tail, head, lead)
             if n.repealed:
                 item = "\\sout{%s}" % item
-            paras = ["\\recordpath{%s%s}%s\\par" % (secpath, n.label, item)]
+            paras = ["\\recordpath{%s%s}%s%s\\par" % (secpath, n.label, bookmark(n) if depth == 0 else "", item)]
             paras += ["%s\\par" % tx(t) for _, t in n.more]
             if depth == 0:
                 parts.append("\n".join(paras) + "\n\n")
@@ -758,7 +825,7 @@ def release_of(root):
 
 
 def tex_esc(t):
-    return "".join(TEX_ESCAPES.get(c, c) for c in t)
+    return tex_chars(t)
 
 
 def ancestor(el, tags):
