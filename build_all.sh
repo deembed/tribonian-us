@@ -24,7 +24,9 @@ built=0; failed=0
 build_one() {                       # $1 = xml path, $2.. = generator selection args
     local xml=$1; shift
     local sel="$*" out base
-    if ! out=$(python3 usc2md.py "$xml" "$@" --out build --style "$STYLE" --font "$FONT" $EXTRA 2>&1); then
+    out=$(python3 usc2md.py "$xml" "$@" --out build --style "$STYLE" --font "$FONT" $EXTRA 2>&1); local rc=$?
+    if [[ $rc -eq 3 ]]; then echo "skip $xml $sel   (nothing the generator handles)"; return; fi
+    if [[ $rc -ne 0 ]]; then
         echo "FAIL generate  $sel"; echo "$out" | tail -3 | sed 's/^/     /'; failed=$((failed+1)); return
     fi
     # the generator names the file; read it back rather than guessing

@@ -18,6 +18,7 @@ import re
 import sys
 from datetime import date
 
+import unicodedata
 from lxml import etree
 
 # USLM hierarchy levels, outermost first. Anything in this set is a "level node".
@@ -26,6 +27,21 @@ LEVELS = [
     "subclause", "item", "subitem", "subsubitem",
 ]
 LEVEL_SET = set(LEVELS)
+
+# What gets one markdown note each, and what groups them into one PDF.
+UNIT_TAGS = ("section", "courtRule")
+CONTAINER_TAGS = ("chapter", "courtRules", "compiledAct")
+
+# Federal court rule sets, keyed by a word in the <courtRules> heading:
+# (set key, citation form, short form)
+RULE_SETS = [
+    ("APPELLATE",  "App",   "Fed. R. App. P.",   "FRAP"),
+    ("CIVIL",      "Civil", "Fed. R. Civ. P.",   "FRCP"),
+    ("CRIMINAL",   "Crim",  "Fed. R. Crim. P.",  "FRCrP"),
+    ("EVIDENCE",   "Evid",  "Fed. R. Evid.",     "FRE"),
+    ("BANKRUPTCY", "Bankr", "Fed. R. Bankr. P.", "FRBP"),
+]
+DOC_TITLE = "?"      # title number of the file in hand ("5", "28a"); set in main()
 
 # Inline elements that carry text but are not structure.
 INLINE = {"ref", "i", "b", "inline", "date", "term", "span", "quote", "sup", "sub"}
@@ -50,9 +66,9 @@ def strip_ns(tree):
         # no-break space here, once, so no later path can leak one to pdflatex
         # (which has no U+202F) or into markdown headings and file names.
         if el.text:
-            el.text = el.text.translate(ODD_SPACES)
+            el.text = unicodedata.normalize("NFC", el.text.translate(ODD_SPACES))
         if el.tail:
-            el.tail = el.tail.translate(ODD_SPACES)
+            el.tail = unicodedata.normalize("NFC", el.tail.translate(ODD_SPACES))
         if isinstance(el.tag, str) and "}" in el.tag:
             el.tag = el.tag.split("}", 1)[1]
         for k in list(el.attrib):
@@ -266,6 +282,11 @@ def collect_footnotes(el):
     return fns
 
 
+def strip_fn(text):
+    """Remove footnote placeholders (for titles, YAML, listings, file names)."""
+    return re.sub("\x00FN:[^\x00]*\x00", "", text).strip()
+
+
 def resolve_fn(text, fns, mode, sink=None):
     """Turn footnote placeholders into footnotes; drop the ones we can't resolve.
     md: an Obsidian [^id] reference.
@@ -386,15 +407,11 @@ def md_notes(notes, fns):
 
 def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
     lines = []
-    aliases = [
-        "%s U.S.C. %s %s" % (meta["title_num"], "\u00a7", meta["sec_num"]),
-        "%s USC %s" % (meta["title_num"], meta["sec_num"]),
-        "\u00a7 %s" % meta["sec_num"],
-    ]
+    aliases = meta["aliases"]
     lines.append("---")
-    lines.append('title: "%s U.S.C. \u00a7 %s"' % (meta["title_num"], meta["sec_num"]))
+    lines.append('title: "%s"' % meta["cite"])
     lines.append('heading: "%s"' % meta["heading"].replace('"', "'"))
-    lines.append('citation: "%s U.S.C. \u00a7 %s"' % (meta["title_num"], meta["sec_num"]))
+    lines.append('citation: "%s"' % meta["cite"])
     lines.append("identifier: %s" % meta["identifier"])
     lines.append("source: uscode.house.gov (USLM)")
     lines.append("release_point: %s" % meta["release"])
@@ -411,7 +428,7 @@ def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
             lines.append("  - %s" % r)
     lines.append("---")
     lines.append("")
-    h1 = "%s U.S.C. \u00a7 %s \u2014 %s" % (meta["title_num"], meta["sec_num"], meta["heading"])
+    h1 = "%s \u2014 %s" % (meta["cite"], resolve_fn(meta["heading_raw"], fns, "md"))
     lines.append("# " + ("~~%s~~" % h1 if meta["repealed"] else h1))
     lines.append("")
     if credits and meta["credit"]:
@@ -422,7 +439,7 @@ def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
 
     def emit(n):
         lead = md(n.chapeau[0] or n.content[0])
-        if n.tag == "section":
+        if n.tag in UNIT_TAGS:
             if lead:
                 lines.append(lead); lines.append("")
             for t, _ in n.more:
@@ -611,8 +628,8 @@ def render_tex(docs, doctitle, dochead, fontpkg, style, release, credits=False, 
         def tx(t, fns=fns):
             return resolve_fn(t, fns, "tex", sink)
 
-        secpath = "\\S\\ %s" % meta["sec_num"]
-        sechead = "%s. %s" % (secpath, meta["heading_tex"])
+        secpath = meta["path_tex"]
+        sechead = "%s. %s" % (secpath, tx(meta["heading_tex"]))
         if meta["repealed"]:
             sechead = "\\sout{%s}" % sechead
         if i:
@@ -636,7 +653,7 @@ def render_tex(docs, doctitle, dochead, fontpkg, style, release, credits=False, 
         def emit(n, depth=0, first=False):
             """Emit n and its subtree; return the last record emitted (or None)."""
             lead = tx(n.chapeau[1] or n.content[1])
-            if n.tag == "section":
+            if n.tag in UNIT_TAGS:
                 if lead:
                     parts.append("%s\\par\n\n" % lead)
                 for _, t in n.more:
@@ -740,23 +757,85 @@ def release_of(root):
     return release
 
 
+def tex_esc(t):
+    return "".join(TEX_ESCAPES.get(c, c) for c in t)
+
+
+def ancestor(el, tags):
+    p = el.getparent()
+    while p is not None and p.tag not in tags:
+        p = p.getparent()
+    return p
+
+
+def rule_set(cr):
+    """(key, citation form, short form) for a <courtRules> element."""
+    h = strip_fn(gather_text(cr.find("heading"), "md")) if cr is not None else ""
+    for word, key, cite, short in RULE_SETS:
+        if word in h.upper():
+            return key, cite, short
+    return safe(h) or "rules", (titlecase(h) or "Rule").rstrip(".") + ", Rule", safe(h) or "rules"
+
+
+def titlecase(h):
+    small = {"of", "on", "the", "and", "for", "in", "to", "or", "a", "an"}
+    ws = h.lower().split()
+    return " ".join(w if (i and w in small) else w[:1].upper() + w[1:] for i, w in enumerate(ws))
+
+
 def section_meta(sec, root):
+    """Everything the renderers need to name and cite one unit (a Code section,
+    a court rule, or a section of an act set out in an appendix)."""
     ident = sec.get("identifier", "")
     num = sec.find("num")
     sec_num = (num.get("value") if num is not None and num.get("value")
-               else re.sub(r"[^0-9A-Za-z\-, ]", "", gather_text(num, "md")))
+               else re.sub(r"[^0-9A-Za-z\-, .]", "", gather_text(num, "md")))
     m = re.match(r"/us/usc/t([0-9A-Za-z]+)/", ident)
-    title_num = m.group(1) if m else "?"
+    title_num = (m.group(1) if m else DOC_TITLE).lower()
     heading_el = sec.find("heading")
-    heading = gather_text(heading_el, "md")
+    heading_raw = gather_text(heading_el, "md")
+    heading = strip_fn(heading_raw)
     sc = sec.find("sourceCredit")
+
+    act = ancestor(sec, ("compiledAct",))
+    if sec.tag == "courtRule":
+        key, cite_form, short = rule_set(ancestor(sec, ("courtRules",)))
+        slug_mid = short.lower()
+        # Supplemental rules restart at Rule 1 inside the same set; keep them apart.
+        lvl = ancestor(sec, ("level",))
+        lh = strip_fn(gather_text(lvl.find("heading"), "md")).upper() if lvl is not None else ""
+        if lh.startswith("SUPPLEMENTAL"):
+            sk, sc_form = (("ss", "Supp. Soc. Sec. R.") if "SOCIAL SECURITY" in lh else
+                           ("adm", "Supp. Adm. R.") if "ADMIRALTY" in lh else ("supp", "Supp. R."))
+            cite_form, short, slug_mid = sc_form, sc_form, "%s-supp-%s" % (slug_mid, sk)
+        cite = "%s %s" % (cite_form, sec_num)
+        aliases = [cite] + (["%s %s" % (short, sec_num)] if short != cite_form else [])
+        path_tex = "Rule %s" % tex_esc(sec_num)
+        slug_ = "%s-%s-rule-%s" % (title_num, slug_mid, safe(sec_num))
+    elif act is not None:
+        actname = titlecase(strip_fn(gather_text(act.find("heading"), "md")))
+        cite = "%s § %s" % (actname, sec_num)
+        aliases = [cite]
+        path_tex = "\\S\\ %s" % tex_esc(sec_num)
+        slug_ = "%s-%s-%s" % (title_num, safe(actname), safe(sec_num))
+    else:
+        cite = "%s U.S.C. § %s" % (title_num, sec_num)
+        aliases = [cite, "%s USC %s" % (title_num, sec_num), "§ %s" % sec_num]
+        path_tex = "\\S\\ %s" % tex_esc(sec_num)
+        slug_ = "%s-usc-%s" % (title_num, safe(sec_num))
     return {
         "credit": gather_text(sc, "md") if sc is not None else "",
         "credit_tex": gather_text(sc, "tex") if sc is not None else "",
         "identifier": ident,
         "sec_num": sec_num,
         "title_num": title_num,
+        "cite": cite,
+        "cite_tex": tex_esc(cite).replace("§", "\\S").replace(". ", ".\\ ").replace("\\S ", "\\S\\ "),
+        "aliases": aliases,
+        "path_tex": path_tex,
+        "slug": slug_,
         "heading": heading,
+        "heading_raw": heading_raw,
         "heading_tex": gather_text(heading_el, "tex"),
         "release": release_of(root),
         "repealed": is_repealed(sec, heading),
@@ -768,7 +847,7 @@ def safe(s):
 
 
 def slug(meta):
-    return "%s-usc-%s" % (meta["title_num"], safe(meta["sec_num"]))
+    return meta["slug"]
 
 
 def main():
@@ -798,49 +877,68 @@ def main():
     tree = strip_ns(etree.parse(args.xml, parser))
     root = tree.getroot()
 
+    # The file's own title number ("28a"), for identifiers that omit it (11a does).
+    global DOC_TITLE
+    for el in root.iter("title", "appendix"):
+        m = re.match(r"/us/usc/t([0-9A-Za-z]+)$", el.get("identifier") or "")
+        if m:
+            DOC_TITLE = m.group(1).lower()
+            break
+    # A rule set with no identifier of its own (11a again) gets one, so it can be selected.
+    for cr in root.iter("courtRules"):
+        if not cr.get("identifier"):
+            cr.set("identifier", "/us/usc/t%s/courtRules/%s" % (DOC_TITLE, rule_set(cr)[0]))
+
+    def units(el):
+        return [x for x in el.iter(*UNIT_TAGS) if x.get("identifier")]
+
     if args.list:
-        for sec in root.iter("section"):
-            if sec.get("identifier"):
-                print("%s\t%s" % (sec.get("identifier"), gather_text(sec.find("heading"), "md")[:70]))
+        for sec in units(root):
+            print("%s\t%s" % (sec.get("identifier"), strip_fn(gather_text(sec.find("heading"), "md"))[:70]))
         return 0
     if args.list_chapters:
-        for ch in root.iter("chapter"):
-            if ch.get("identifier"):
-                n = sum(1 for _ in ch.iter("section"))
-                print("%s\t%s\t%d sections" % (ch.get("identifier"),
-                      gather_text(ch.find("heading"), "md")[:60], n))
+        for ch in root.iter(*CONTAINER_TAGS):
+            if ch.get("identifier") and units(ch):
+                print("%s\t%s\t%d %s" % (ch.get("identifier"),
+                      strip_fn(gather_text(ch.find("heading"), "md"))[:60], len(units(ch)),
+                      "rules" if ch.tag == "courtRules" else "sections"))
         return 0
 
     # ---- select sections -------------------------------------------------
-    dochead = ""
+    dochead, container = "", None
+    if args.section and len(args.section) == 1 and any(
+            x.get("identifier") == args.section[0] for x in root.iter(*CONTAINER_TAGS)):
+        args.chapter, args.section = args.section[0], None     # a container named as a section
     if args.section:
         secs = []
         for ident in args.section:
-            sec = find_by_identifier(root, ident, "section")
+            sec = next((x for x in units(root) if x.get("identifier") == ident), None)
             if sec is None:
                 print("section %s not found" % ident, file=sys.stderr)
                 return 1
             secs.append(sec)
     elif args.chapter:
-        ch = find_by_identifier(root, args.chapter, "chapter")
+        ch = container = next((x for x in root.iter(*CONTAINER_TAGS)
+                               if x.get("identifier") == args.chapter), None)
         if ch is None:
             print("chapter %s not found" % args.chapter, file=sys.stderr)
             return 1
-        secs = [x for x in ch.iter("section") if x.get("identifier")]
-        dochead = gather_text(ch.find("heading"), "tex")
-        chnum = gather_text(ch.find("num"), "tex").rstrip("\u2014\u2013- .")   # USLM's num already ends in a dash
-        dochead = ("%s \\textemdash\\ %s" % (chnum, dochead)).strip()
+        secs = units(ch)
+        dochead = strip_fn(gather_text(ch.find("heading"), "tex"))
+        chnum = gather_text(ch.find("num"), "tex").rstrip("—–- .")   # USLM's num already ends in a dash
+        if chnum:
+            dochead = ("%s \\textemdash\\ %s" % (chnum, dochead)).strip()
     elif args.all:
-        secs = [x for x in root.iter("section") if x.get("identifier")]
+        secs = units(root)
         t = root.find(".//title")
         if t is not None:
             dochead = "%s \\textemdash\\ %s" % (gather_text(t.find("num"), "tex"),
-                                             gather_text(t.find("heading"), "tex"))
+                                             strip_fn(gather_text(t.find("heading"), "tex")))
     else:
         ap.error("choose --section, --chapter, --all, or --list")
     if not secs:
         print("no sections selected", file=sys.stderr)
-        return 1
+        return 3
 
     docs = []
     for sec in secs:
@@ -855,13 +953,21 @@ def main():
     # ---- names ------------------------------------------------------------
     first, last = docs[0][0], docs[-1][0]
     if len(docs) == 1:
-        doctitle = "%s U.S.C. \\S\\ %s" % (first["title_num"], first["sec_num"])
+        doctitle = first["cite_tex"]
         if not dochead:
-            dochead = first["heading_tex"]
+            dochead = strip_fn(first["heading_tex"])
         base = slug(first)
     else:
         doctitle = "%s U.S.C. \\S\\S\\ %s\\textendash %s" % (first["title_num"], first["sec_num"], last["sec_num"])
-        if args.chapter:
+        if container is not None and container.tag == "courtRules":
+            key, cite_form, short = rule_set(container)
+            doctitle = tex_esc(cite_form).replace(". ", ".\\ ")
+            base = "%s-%s" % (first["title_num"], short.lower())
+        elif container is not None and container.tag == "compiledAct":
+            actname = titlecase(strip_fn(gather_text(container.find("heading"), "md")))
+            doctitle = "%s \\S\\S\\ %s\\textendash %s" % (tex_esc(actname), first["sec_num"], last["sec_num"])
+            base = "%s-%s" % (first["title_num"], safe(actname))
+        elif args.chapter:
             base = "%s-usc-%s" % (first["title_num"], safe(args.chapter.rsplit("/", 1)[-1]))
         elif args.all:
             base = "%s-usc-all" % first["title_num"]
