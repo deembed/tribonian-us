@@ -136,7 +136,12 @@ def gather_text(el, mode):
                     idref = child.get("idref") or ""
                     out.append("\x00FN:%s\x00" % idref)   # placeholder, resolved later
                 else:
-                    out.append(esc("".join(child.itertext())))
+                    txt = "".join(child.itertext())
+                    hit = usc_ref(child.get("href")) if mode == "md" else None
+                    if hit and hit[0] != CUR_SLUG and txt.strip():
+                        out.append("[[%s|%s]]" % (hit[0], txt.replace("|", "/")))
+                    else:
+                        out.append(esc(txt))
             elif tag in INLINE:
                 walk(child, first=False)
             elif tag == "note" or tag == "notes":
@@ -349,18 +354,40 @@ class FnSink(list):
     counter = 0
 
 
+USC_SEC_RE = re.compile(r"^/us/usc/t([0-9A-Za-z]+)/s([0-9][0-9A-Za-z.\-\u2010-\u2015]*)")
+# The section number must start with a digit: USLM writes subtitles as
+# /us/usc/t26/stA, which would otherwise read as section "tA". Dashes in
+# section numbers (15 U.S.C. 80a-1) are en dashes in the source hrefs.
+
+CUR_SLUG = ""   # slug of the section being rendered, so it never links to itself
+
+
+def usc_ref(href):
+    """(vault slug, citation) for a US Code href, else None.
+
+    Only /us/usc/... targets have a note in the vault. Public Law, Statutes at
+    Large and session-act hrefs stay plain text -- the source credit already
+    carries them in readable form.
+    """
+    m = USC_SEC_RE.match(href or "")
+    if not m:
+        return None
+    title_num, sec_num = m.group(1).lower(), m.group(2).rstrip(".")
+    return ("%s-usc-%s" % (title_num, safe(sec_num)),
+            "%s U.S.C. \u00a7 %s" % (title_num, sec_num))
+
+
 def collect_refs(el, section_id):
-    """Cross references, for the Obsidian front matter."""
-    refs = []
+    """US Code cross references for the note's References section, deduped."""
+    seen, out = set(), []
     for r in el.iter("ref"):
         href = r.get("href")
-        if href and href != section_id and not href.startswith(section_id + "/"):
-            refs.append(href)
-    seen, out = set(), []
-    for r in refs:
-        if r not in seen:
-            seen.add(r)
-            out.append(r)
+        if not href or href == section_id or href.startswith(section_id + "/"):
+            continue
+        hit = usc_ref(href)
+        if hit and hit[0] != CUR_SLUG and hit[0] not in seen:
+            seen.add(hit[0])
+            out.append(hit)
     return out
 
 
@@ -460,10 +487,6 @@ def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
     lines.append("aliases:")
     for a in aliases:
         lines.append('  - "%s"' % a)
-    if refs:
-        lines.append("xrefs:")
-        for r in refs[:40]:
-            lines.append("  - %s" % r)
     lines.append("---")
     lines.append("")
     h1 = "%s \u2014 %s" % (meta["cite"], resolve_fn(meta["heading_raw"], fns, "md"))
@@ -505,6 +528,12 @@ def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
         emit(n)
     if notes:
         lines += md_notes(notes, fns)
+    if refs:
+        lines.append("")
+        lines.append("## References")
+        lines.append("")
+        for target, cite in refs:
+            lines.append("- [[%s|%s]]" % (target, cite))
     if fns:
         lines.append("")
         for k, (mdtext, _) in fns.items():
@@ -850,6 +879,24 @@ def titlecase(h):
     return " ".join(w if (i and w in small) else w[:1].upper() + w[1:] for i, w in enumerate(ws))
 
 
+def md_subdir(sec, title_num):
+    """Vault folder for one section: t05/ch07 -- one level per Code division."""
+    m = re.match(r"([0-9]+)(.*)", title_num)
+    tdir = "t%s%s" % (m.group(1).zfill(2), m.group(2)) if m else "t%s" % title_num
+    ch = ancestor(sec, ("chapter", "courtRules", "compiledAct"))
+    if ch is None:
+        return tdir
+    if ch.tag == "chapter":
+        last = (ch.get("identifier") or "").rsplit("/", 1)[-1]
+        m = re.match(r"ch([0-9]+)(.*)", last)
+        sub_ = "ch%s%s" % (m.group(1).zfill(2), m.group(2)) if m else (last or "ch")
+    elif ch.tag == "courtRules":
+        sub_ = safe(rule_set(ch)[2])
+    else:
+        sub_ = safe(titlecase(strip_fn(gather_text(ch.find("heading"), "md"))))[:60]
+    return os.path.join(tdir, sub_ or "misc")
+
+
 def section_meta(sec, root):
     """Everything the renderers need to name and cite one unit (a Code section,
     a court rule, or a section of an act set out in an appendix)."""
@@ -887,7 +934,7 @@ def section_meta(sec, root):
         slug_ = "%s-%s-%s" % (title_num, safe(actname), safe(sec_num))
     else:
         cite = "%s U.S.C. § %s" % (title_num, sec_num)
-        aliases = [cite, "%s USC %s" % (title_num, sec_num), "§ %s" % sec_num]
+        aliases = [cite, "%s USC %s" % (title_num, sec_num)]
         path_tex = "\\S\\ %s" % tex_esc(sec_num)
         slug_ = "%s-usc-%s" % (title_num, safe(sec_num))
     return {
@@ -901,6 +948,7 @@ def section_meta(sec, root):
         "aliases": aliases,
         "path_tex": path_tex,
         "slug": slug_,
+        "mdsubdir": md_subdir(sec, title_num),
         "heading": heading,
         "heading_raw": heading_raw,
         "heading_tex": gather_text(heading_el, "tex"),
@@ -1009,7 +1057,9 @@ def main():
 
     docs = []
     for sec in secs:
+        globals()["CUR_SLUG"] = ""
         meta = section_meta(sec, root)
+        globals()["CUR_SLUG"] = meta["slug"]
         # The section's own text (chapeau, content, continuation) comes through as
         # a root node with no label; its children are the subsections.
         nodes = [build(sec, meta["identifier"])]
@@ -1046,7 +1096,9 @@ def main():
     # ---- write ------------------------------------------------------------
     os.makedirs(args.out, exist_ok=True)
     for meta, nodes, fns, refs, nmd, _ in docs:   # markdown: always one file per section
-        md_path = os.path.join(args.out, slug(meta) + ".md")
+        md_dir = os.path.join(args.out, meta["mdsubdir"])
+        os.makedirs(md_dir, exist_ok=True)
+        md_path = os.path.join(md_dir, slug(meta) + ".md")
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(render_md(None, nodes, meta, refs, fns, nmd, args.credits))
         print("wrote %s" % md_path)

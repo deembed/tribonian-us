@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Mirror the generated section notes into the USC Obsidian vault.
+#
+#   ./sync_vault.sh                      md/ -> ~/Obsidian/usc-vault/08-Reference/USC
+#   VAULT=/path/to/vault ./sync_vault.sh
+#   DRY=1 ./sync_vault.sh                show what would change, touch nothing
+#
+# 08-Reference/USC is generator-owned: anything in it that is not in md/ is
+# DELETED. Your own notes belong in 00-Inbox / 06-Zettelkasten / 06-Zettel MOC
+# and link into the statutes with [[5-usc-552a]].
+set -euo pipefail
+cd "$(dirname "$0")"
+
+VAULT="${VAULT:-$HOME/Obsidian/usc-vault}"
+DEST="$VAULT/08-Reference/USC"
+
+[[ -d $VAULT/.obsidian ]] || { echo "not an Obsidian vault: $VAULT" >&2; exit 1; }
+[[ -d md ]]               || { echo "no md/ here -- run ./build_all.sh first" >&2; exit 1; }
+
+mkdir -p "$DEST"
+rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
+      --include='*/' --include='*.md' --exclude='*' \
+      md/ "$DEST/" | tail -20
+
+if [[ -z ${DRY:-} ]]; then
+    echo "synced $(find "$DEST" -name '*.md' | wc -l) notes -> $DEST"
+else
+    echo "(dry run -- nothing changed)"
+fi
