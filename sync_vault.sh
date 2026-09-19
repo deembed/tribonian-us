@@ -22,6 +22,16 @@ rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
       --include='*/' --include='*.md' --exclude='*' \
       md/ "$DEST/" | tail -20
 
+# Case notes (case2md.py / casemap.py write md-cases/) -> 08-Reference/Cases.
+# Same rule: generator-owned, mirrored with --delete.
+if [[ -d md-cases ]]; then
+    mkdir -p "$VAULT/08-Reference/Cases"
+    rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
+          --include='*.md' --exclude='*' \
+          md-cases/ "$VAULT/08-Reference/Cases/" | tail -20
+    echo "cases: $(find md-cases -name '*.md' | wc -l) notes -> $VAULT/08-Reference/Cases"
+fi
+
 if [[ -z ${DRY:-} ]]; then
     echo "synced $(find "$DEST" -name '*.md' | wc -l) notes -> $DEST"
 else

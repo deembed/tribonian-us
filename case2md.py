@@ -4,6 +4,7 @@
     ./case2md.py fetch --cite "463 U.S. 29"      # -> cases/<cite>_<name>.json
     ./case2md.py fetch --cluster 110991
     ./case2md.py build cases/463-u-s-29_*.json   # -> md/, build/, pdf/
+The citation graph (stub notes, wikilinks, cited-by statistics) is casemap.py.
 
 build reuses the LaTeX preamble (page size, boxes, running header/footer) and
 the escaping table from usc2md.py; everything opinion-specific lives here.
@@ -14,14 +15,59 @@ by CourtListener in html_with_citations.
 Token: environment variable COURTLISTENER_TOKEN, else the GNOME keyring via
     secret-tool lookup service courtlistener
 """
-import argparse, json, os, re, shutil, subprocess, sys, tempfile, unicodedata
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, time, unicodedata
 from datetime import date
 from html.parser import HTMLParser
 import urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 API = "https://www.courtlistener.com/api/rest/v4"
-CASES = Path(__file__).resolve().parent / "cases"
+# Everything is read and written under ROOT (the folder this script sits in).
+# CASE2MD_ROOT overrides it, which is how the tests run without touching real output.
+ROOT = Path(os.environ.get("CASE2MD_ROOT") or Path(__file__).resolve().parent)
+CASES = ROOT / "cases"
+NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (sync_vault.sh mirrors both)
+# CourtListener API limits since May 2026, free tier: 5 a minute, 50 an hour,
+# 125 a day. A member sets CL_LIMITS, e.g. CL_LIMITS=10,75,300 for the $10 tier.
+LIMITS = [int(x) for x in (os.environ.get("CL_LIMITS") or "5,50,125").split(",")]
+WINDOWS = (60, 3600, 86400)
+PAUSE = 0               # extra seconds between requests, on top of the limits
+
+
+def throttle():
+    """Wait until one more request fits in every window; if the DAY is used up,
+    stop cleanly instead (everything is cached, so rerunning the same command
+    later picks up where this stopped). Request times persist in cases/_api_log.json."""
+    CASES.mkdir(parents=True, exist_ok=True)
+    logp = CASES / "_api_log.json"
+    while True:
+        now = time.time()
+        log = [t for t in (json.loads(logp.read_text()) if logp.exists() else []) if now - t < WINDOWS[-1]]
+        waits = []
+        for lim, win in zip(LIMITS, WINDOWS):
+            recent = [t for t in log if now - t < win]
+            if len(recent) >= lim:
+                waits.append((recent[-lim] + win - now + 1, win))
+        if not waits:
+            logp.write_text(json.dumps(log + [now]))
+            return
+        wait, win = max(waits)
+        if win == WINDOWS[-1]:
+            sys.exit("Daily API limit reached (%d requests in 24 h). Rerun the same command after %s; "
+                     "it resumes from the cache." % (LIMITS[-1], time.strftime("%a %H:%M", time.localtime(now + wait))))
+        if wait > 90:
+            print("  hourly API limit reached; sleeping %.0f min" % (wait / 60), file=sys.stderr)
+        time.sleep(wait)
+
+
+def budget_left():
+    logp = CASES / "_api_log.json"
+    log = json.loads(logp.read_text()) if logp.exists() else []
+    return LIMITS[-1] - sum(1 for t in log if time.time() - t < WINDOWS[-1])
+
+
+class Unsupported(Exception):
+    """The case has text, but not in a format build can parse yet."""
 
 
 def token():
@@ -39,23 +85,38 @@ def token():
     return t
 
 
-def call(url, tok, data=None):
-    """GET url (or POST when data is a dict); return parsed JSON."""
+def call(url, tok, data=None, soft=False):
+    """GET url (or POST when data is a dict); return parsed JSON.
+    Paces itself, waits and retries when rate-limited. soft=True: a 404 returns None."""
     body = urllib.parse.urlencode(data).encode() if data else None
-    req = urllib.request.Request(url, data=body, headers={
-        "Authorization": f"Token {tok}",
-        "Accept": "application/json",
-        "User-Agent": "case2md/0.1 (personal legal formatter)",
-    })
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        hint = {401: "token rejected", 403: "token rejected or not permitted",
-                404: "no such record", 429: "rate limited; wait and retry"}.get(e.code, "")
-        sys.exit(f"HTTP {e.code} from {url}  {hint}\n{e.read(500).decode(errors='replace')}")
-    except urllib.error.URLError as e:
-        sys.exit(f"Network error reaching {url}: {e.reason}")
+    for attempt in range(5):
+        throttle()
+        if PAUSE:
+            time.sleep(PAUSE)
+        req = urllib.request.Request(url, data=body, headers={
+            "Authorization": f"Token {tok}",
+            "Accept": "application/json",
+            "User-Agent": "case2md/0.2 (personal legal formatter)",
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.load(r)
+        except urllib.error.HTTPError as e:
+            if (e.code == 429 or e.code >= 500) and attempt < 4:
+                delay = int(e.headers.get("Retry-After") or 0) or 30 * (attempt + 1)
+                print(f"  HTTP {e.code}; waiting {delay}s then retrying", file=sys.stderr)
+                time.sleep(delay)
+                continue
+            if e.code == 404 and soft:
+                return None
+            hint = {401: "token rejected", 403: "token rejected or not permitted",
+                    404: "no such record", 429: "rate limited; wait and retry"}.get(e.code, "")
+            sys.exit(f"HTTP {e.code} from {url}  {hint}\n{e.read(500).decode(errors='replace')}")
+        except urllib.error.URLError as e:
+            if attempt < 4:
+                time.sleep(10)
+                continue
+            sys.exit(f"Network error reaching {url}: {e.reason}")
 
 
 def cite_str(c):
@@ -91,28 +152,98 @@ def lookup(cite, tok):
     return clusters[0]
 
 
+def fetch_cluster(cluster, tok):
+    """Download a cluster's opinions and docket; write cases/<cite>_<name>.json; return the path."""
+    opinions = [call(u, tok) for u in cluster.get("sub_opinions") or []]
+    docket = call(cluster["docket"], tok) if cluster.get("docket") else None
+    cite = best_cite(cluster)
+    name = cluster.get("case_name") or cluster.get("case_name_full") or "case"
+    CASES.mkdir(parents=True, exist_ok=True)
+    out = CASES / f"{slugify(cite)}_{slugify(name)}.json"
+    out.write_text(json.dumps({"cluster": cluster, "docket": docket, "opinions": opinions},
+                              indent=1, ensure_ascii=False), encoding="utf-8")
+    return out
+
+
 def fetch(args):
     tok = token()
     cluster = (call(f"{API}/clusters/{args.cluster}/", tok) if args.cluster
                else lookup(args.cite, tok))
-    opinions = [call(u, tok) for u in cluster.get("sub_opinions") or []]
-    docket = call(cluster["docket"], tok) if cluster.get("docket") else None
+    out = fetch_cluster(cluster, tok)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    index = load_index()
+    register(data, index, out)
+    save_index(index)
 
-    cite = best_cite(cluster)
-    name = cluster.get("case_name") or cluster.get("case_name_full") or "case"
-    CASES.mkdir(exist_ok=True)
-    out = CASES / f"{slugify(cite)}_{slugify(name)}.json"
-    out.write_text(json.dumps({"cluster": cluster, "docket": docket, "opinions": opinions},
-                              indent=1, ensure_ascii=False), encoding="utf-8")
-
-    print(f"{name}, {cite} ({cluster.get('date_filed')})  cluster {cluster.get('id')}")
+    print(f"{cluster.get('case_name')}, {best_cite(cluster)} ({cluster.get('date_filed')})  cluster {cluster.get('id')}")
     fields = ("html_with_citations", "xml_harvard", "html_lawbox", "html_columbia",
               "html", "plain_text")
-    for o in opinions:
+    for o in data["opinions"]:
         have = ", ".join(f"{f}={len(o.get(f) or '')}" for f in fields if o.get(f))
         print(f"  opinion {o.get('id')}  type={o.get('type')}  "
               f"author={o.get('author_str') or o.get('author_id')}  [{have}]")
-    print(f"saved {out.relative_to(Path.cwd()) if out.is_relative_to(Path.cwd()) else out}")
+    print(f"saved cases/{out.name}")
+
+
+# ---------------------------------------------------------------- index of known cases
+# cases/_index.json: cluster id -> {slug, name, short, cite, year, court, full}
+# "slug" is the note's filename, so it is what a [[wikilink]] points at; "full"
+# is the fetched JSON (relative to cases/) when the opinion text is on disk,
+# else the case is known only as a stub (cases/stubs/<id>.json: cluster + docket).
+
+def load_index():
+    p = CASES / "_index.json"
+    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def save_index(index):
+    CASES.mkdir(parents=True, exist_ok=True)
+    (CASES / "_index.json").write_text(json.dumps(index, indent=1, ensure_ascii=False), encoding="utf-8")
+
+
+def register(data, index, full_path=None):
+    """Record a case (full or stub) in the index; returns its entry."""
+    meta = case_meta(data)
+    cid = str(meta["cluster"])
+    ent = index.get(cid, {})
+    slug = ent.get("slug") or meta["slug"]
+    if not ent and any(e["slug"] == slug for k, e in index.items() if k != cid):
+        slug = "%s-%s" % (slug, cid)             # two records of one case: keep filenames distinct
+    ent.update({"slug": slug, "name": meta["name"], "short": meta["short"], "cite": meta["cite"],
+                "year": meta["year"], "court": meta["court"],
+                "cited_by": data["cluster"].get("citation_count")})
+    if full_path is not None:
+        ent["full"] = Path(full_path).name
+    index[cid] = ent
+    return ent
+
+
+def load_case(cid, index):
+    """-> (data, is_full) for a cluster id already in the index."""
+    ent = index[str(cid)]
+    if ent.get("full") and (CASES / ent["full"]).exists():
+        return json.loads((CASES / ent["full"]).read_text(encoding="utf-8")), True
+    return json.loads((CASES / "stubs" / ("%s.json" % cid)).read_text(encoding="utf-8")), False
+
+
+def usable_opinions(data):
+    """The Harvard-format opinions when there are any (the 'combined' copy would
+    double everything), else whatever there is."""
+    ops = data.get("opinions") or []
+    hv = [o for o in ops if "<opinion" in (o.get("html_with_citations") or o.get("xml_harvard") or "")]
+    return hv or ops
+
+
+def cited_clusters(data):
+    """{cluster id: times cited} from the citation links CourtListener put in the text."""
+    me = data["cluster"].get("id")
+    out = {}
+    for o in usable_opinions(data):
+        for m in re.finditer(r'href="/opinion/(\d+)/', o.get("html_with_citations") or ""):
+            cid = int(m.group(1))
+            if cid != me:
+                out[cid] = out.get(cid, 0) + 1
+    return out
 
 
 # ================================================================ build
@@ -196,6 +327,8 @@ class Ctx:
     def __init__(self, reporter, who, oi):
         self.reporter, self.who, self.oi = reporter, who, oi   # "463 U.S.", "White, J.", 0
         self.page, self.part, self.record = "", "", True
+        self.links = {}                          # cluster id -> note filename, for [[wikilinks]]
+        self.statutes = set()                    # US Code note names that exist (md/**/5-usc-552a.md)
 
     def path(self):
         bits = ["%s %s" % (self.reporter, self.page), self.who] + ([self.part] if self.part else [])
@@ -231,7 +364,13 @@ def inline(node, mode, ctx, marks):
         elif k.tag in ("b", "strong"):
             out.append(wrap(inline(k, mode, ctx, marks), *(("**", "**") if mode == "md" else ("\\textbf{", "}"))))
         elif k.tag == "a" and mode == "md" and k.attrs.get("href", "").startswith("/"):
-            out.append(wrap(inline(k, mode, ctx, marks), "[", "](%s%s)" % (CL, k.attrs["href"])))
+            m = re.match(r"/opinion/(\d+)/", k.attrs["href"])
+            if m and int(m.group(1)) in ctx.links:       # a case we have a note for
+                out.append(wrap(inline(k, mode, ctx, marks), "[[%s|" % ctx.links[int(m.group(1))], "]]"))
+            else:
+                out.append(wrap(inline(k, mode, ctx, marks), "[", "](%s%s)" % (CL, k.attrs["href"])))
+        elif k.tag == "span" and mode == "md" and "citation" in cls and statute_note(k.text()) in ctx.statutes:
+            out.append(wrap(inline(k, mode, ctx, marks), "[[%s|" % statute_note(k.text()), "]]"))
         elif k.tag == "br":
             out.append(" ")
         else:
@@ -246,6 +385,17 @@ def plain(el, words=7):
                        "" if k.tag in ("page-number", "footnotemark") else walk(k) for k in n.kids)
     w = clean(walk(el)).split()
     return " ".join(w[:words]) + ("…" if len(w) > words else "")
+
+
+def statute_note(text):
+    """'15 U. S. C. § 1392' -> '15-usc-1392', the name usc2md.py gives that section's note."""
+    m = re.match(r"\s*(\d+)\s*U\.\s?S\.\s?C\.\s*(?:A\.\s*)?§+\s*(\d+[A-Za-z]*(?:-\d+[A-Za-z]*)?)", text or "")
+    return "%s-usc-%s" % (m.group(1), m.group(2).lower()) if m else None
+
+
+def statute_notes():
+    md = ROOT / "md"
+    return {p.stem for p in md.rglob("*-usc-*.md")} if md.is_dir() else set()
 
 
 def clean(s):
@@ -449,17 +599,31 @@ def fn_md(o, ctx, label):
     return "[^%s]: %s" % (ctx.fnkey(label), "\n\n    ".join(paras))
 
 
-def render_md(meta, ops):
+def front_matter(meta, stub):
     L = ["---", 'title: "%s"' % meta["title"].replace('"', "'"), "aliases:"]
     L += ['  - "%s"' % a.replace('"', "'") for a in meta["aliases"]]
-    L += ['citation: "%s"' % meta["cite"], "citations:"]
+    L += ["type: case", "stub: %s" % ("true" if stub else "false"),
+          'citation: "%s"' % meta["cite"], "citations:"]
     L += ['  - "%s"' % c for c in meta["cites"]]
     L += ["court: %s" % meta["court"], 'docket: "%s"' % meta["docket"], "decided: %s" % meta["decided"]]
     if meta["argued"]:
         L.append('argued: "%s"' % meta["argued"])
-    L += ['judges: "%s"' % meta["judges"].replace('"', "'"), "courtlistener_cluster: %s" % meta["cluster"],
-          "source: %s" % meta["url"], "retrieved: %s" % date.today().isoformat(), "synthetic: false", "---", "",
+    L += ['judges: "%s"' % meta["judges"].replace('"', "'"), "courtlistener_cluster: %s" % meta["cluster"]]
+    if meta.get("cited_by") is not None:
+        L.append("cited_by_count: %s" % meta["cited_by"])
+    L += ["source: %s" % meta["url"], "retrieved: %s" % date.today().isoformat(), "synthetic: false", "---", "",
           "# %s, %s (%s)" % (esc(meta["name"], "md"), meta["cite"], meta["year"]), ""]
+    return L
+
+
+def render_stub(meta, tail, why="Text not fetched."):
+    L = front_matter(meta, True)
+    L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
+    return "\n".join(L) + "\n" + tail
+
+
+def render_md(meta, ops, tail=""):
+    L = front_matter(meta, False)
     notes = []
     for o in ops:
         ctx = o["ctx"]
@@ -481,7 +645,68 @@ def render_md(meta, ops):
             for c in part.children:
                 walk(c)
         walk(o["tree"])
-    return "\n".join(L + notes) + "\n"
+    return "\n".join(L) + "\n" + tail + ("\n" if tail else "") + "\n".join(notes) + "\n"
+
+
+def tail_sections(data, index):
+    """'## Cites' (from the links in this case's text) and '## Cited by' (written
+    by casemap.py citedby, if it has been run for this case)."""
+    L = []
+    cited = cited_clusters(data)
+    if cited:
+        L += ["## Cites", ""]
+        def key(kv):
+            e = index.get(str(kv[0]), {})
+            return (-kv[1], e.get("cite") or "~")
+        for cid, n in sorted(cited.items(), key=key):
+            e = index.get(str(cid))
+            times = " ×%d" % n if n > 1 else ""
+            if e:
+                L.append("- [[%s|%s, %s (%s)]]%s" % (e["slug"], esc(e["short"] or e["name"], "md"), e["cite"], e["year"], times))
+            else:
+                L.append("- [cluster %d](%s/opinion/%d/)%s" % (cid, CL, cid, times))
+        L.append("")
+    elif not data.get("opinions"):
+        L += ["## Cites", "", "*Unknown until the text is fetched.*", ""]
+    stat = {}
+    for o in usable_opinions(data):
+        for t in re.findall(r'<span class="citation[^"]*">([^<]*U\.\s?S\.\s?C\.[^<]*)</span>', o.get("html_with_citations") or ""):
+            if statute_note(t):
+                stat[statute_note(t)] = stat.get(statute_note(t), 0) + 1
+    if stat:
+        have = statute_notes()
+        L += ["## Statutes cited", ""]
+        for name, n in sorted(stat.items(), key=lambda kv: (-kv[1], kv[0])):
+            t, sec = name.split("-usc-")
+            label = "%s U.S.C. § %s" % (t, sec)
+            L.append("- %s%s" % ("[[%s|%s]]" % (name, label) if name in have else label + " (no note: not in the current Code)",
+                                 " ×%d" % n if n > 1 else ""))
+        L.append("")
+    frag = CASES / "citedby" / str(data["cluster"].get("id")) / "section.md"
+    if frag.exists():
+        L += [frag.read_text(encoding="utf-8").rstrip(), ""]
+    return "\n".join(L)
+
+
+def write_note(cid, index):
+    """(Re)write md/<slug>.md for a case in the index: full text when we have it
+    and can parse it, else a stub. Returns 'full', 'stub' or 'unparsed'."""
+    data, is_full = load_case(cid, index)
+    ent = index[str(cid)]
+    tail = tail_sections(data, index)
+    kind = "stub"
+    if is_full:
+        try:
+            meta, ops, _ = prepare(data, index)
+            body, kind = render_md(meta, ops, tail), "full"
+        except Unsupported as e:
+            meta = case_meta(data)
+            body, kind = render_stub(meta, tail, "text fetched, but %s" % e), "unparsed"
+    else:
+        body = render_stub(case_meta(data), tail)
+    NOTES.mkdir(exist_ok=True)
+    (NOTES / (ent["slug"] + ".md")).write_text(body, encoding="utf-8")
+    return kind
 
 
 # ---------------------------------------------------------------- LaTeX
@@ -632,7 +857,7 @@ def case_meta(data):
         "aliases": list(dict.fromkeys([short, cite, "%s (%s)" % (short, year), name])),
         "cites": [cite_str(x) for x in cites], "court": d.get("court_id") or "",
         "docket": d.get("docket_number") or "", "decided": c.get("date_filed") or "", "argued": argued,
-        "judges": c.get("judges") or "", "cluster": c.get("id"), "url": CL + (c.get("absolute_url") or ""),
+        "judges": c.get("judges") or "", "cluster": c.get("id"), "cited_by": c.get("citation_count"), "url": CL + (c.get("absolute_url") or ""),
         "srcline": ["No. " + d["docket_number"] if d.get("docket_number") else "", argued,
                     "Decided " + (c.get("date_filed") or ""),
                     "CourtListener cluster %s (Harvard CAP text)" % c.get("id"),
@@ -641,19 +866,21 @@ def case_meta(data):
     }
 
 
-def build(args):
-    here = Path(__file__).resolve().parent
-    sys.path.insert(0, str(here))
+def prepare(data, index=None):
+    """Fetched JSON -> (meta, opinions ready to render, warnings)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
     warnings = []
-    data = json.loads(Path(args.json).read_text(encoding="utf-8"))
     meta = case_meta(data)
+    if index and str(meta["cluster"]) in index:
+        meta["slug"] = index[str(meta["cluster"])]["slug"]
+    links = {int(k): e["slug"] for k, e in (index or {}).items()}
+    statutes = statute_notes()
 
     def harvard(o):
         return "<opinion" in (o.get("html_with_citations") or o.get("xml_harvard") or "")
     use = [o for o in data["opinions"] if harvard(o)]
     if not use:
-        sys.exit("No Harvard-format opinion text in this file (only CourtListener's 'combined' "
-                 "HTML). That format is not handled yet.")
+        raise Unsupported("it is only in CourtListener's 'combined' HTML, which is not handled yet.")
     reference = []
     for o in data["opinions"]:
         if not harvard(o):
@@ -672,6 +899,7 @@ def build(args):
         labels = [b[1] for b in o["flat"] if b[0] == "h"]
         o["tree"] = tree_of(o, assign_levels(labels))
         o["ctx"] = Ctx(meta["reporter"], short_author(o["author"], o["api"].get("author_str")), o["oi"])
+        o["ctx"].links, o["ctx"].statutes = links, statutes
         o["kindname"] = TYPE_NAMES.get(o["kind"], o["kind"].replace("-", " ") or "opinion")
         o["ctx"].record = False
         o["byline_md"] = clean(" ".join([esc(o["author"], "md")] + [inline(b, "md", o["ctx"], []) for b in o["byline"]]))
@@ -681,15 +909,28 @@ def build(args):
         for lab in o["footnotes"]:
             if lab not in used:
                 warnings.append("%s: footnote %s has no mark in the text" % (o["ctx"].who, lab))
+    return meta, ops, warnings
 
-    for d in ("md", "build", "pdf"):
-        (here / d).mkdir(exist_ok=True)
-    md_path = here / "md" / (meta["slug"] + ".md")
-    md_path.write_text(render_md(meta, ops), encoding="utf-8")
+
+def build(args):
+    here = ROOT
+    data = json.loads(Path(args.json).read_text(encoding="utf-8"))
+    index = load_index()
+    register(data, index, args.json)
+    save_index(index)
+    try:
+        meta, ops, warnings = prepare(data, index)
+    except Unsupported as e:
+        sys.exit("Cannot build: %s" % e)
+
+    for d in (NOTES, here / "build", here / "pdf"):
+        d.mkdir(exist_ok=True)
+    md_path = NOTES / (meta["slug"] + ".md")
+    md_path.write_text(render_md(meta, ops, tail_sections(data, index)), encoding="utf-8")
     tex = render_tex(meta, ops, args.font, args.style)
     tex_path = here / "build" / (meta["slug"] + ".tex")
     tex_path.write_text(tex, encoding="utf-8")
-    print("wrote md/%s\nwrote build/%s" % (md_path.name, tex_path.name))
+    print("wrote md-cases/%s\nwrote build/%s" % (md_path.name, tex_path.name))
 
     if not args.no_pdf:
         with tempfile.TemporaryDirectory() as work:

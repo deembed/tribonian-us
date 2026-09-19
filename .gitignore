@@ -4,6 +4,7 @@ md/
 build/
 usc2md.py.bak
 pdf/
-
-
+bulk/
+bulk
+md-cases/
 cases/

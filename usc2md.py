@@ -842,14 +842,29 @@ def find_by_identifier(root, identifier, tag=None):
     return None
 
 
+_RELEASE = {}
+
+
 def release_of(root):
+    """The release point ("119-108"), from the <meta> block's currency note.
+
+    <docNumber> is the TITLE number, not the release -- reading it there put
+    "release_point: 5" in every Title 5 note.  Memoized: section_meta calls
+    this once per section.
+    """
+    key = id(root)
+    if key in _RELEASE:
+        return _RELEASE[key]
     release = "unknown"
-    for p in root.iter("docNumber"):
-        release = gather_text(p, "md") or release
-        break
+    for n in root.iter("note"):
+        m = re.search(r"Current through\s+(\S+)", gather_text(n, "md"))
+        if m:
+            release = m.group(1).rstrip(".")
+            break
     for p in root.iter("property"):
         if p.get("role") in ("publicLawNumber", "releasePoint"):
             release = gather_text(p, "md") or release
+    _RELEASE[key] = release
     return release
 
 
