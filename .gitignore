@@ -1,0 +1,8 @@
+xml/
+__pycache__
+md/
+build/
+usc2md.py.bak
+pdf/
+
+
