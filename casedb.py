@@ -12,6 +12,13 @@ Where things live (both default to ./bulk next to this script):
     CL_BULK = folder holding the *.csv.bz2 downloads
     CL_DB   = the database file (default $CL_BULK/courtlistener.sqlite)
 
+Loading is append-only: rows go in in file order and every index is built after the
+last row. (The first version made id the table's key. The dumps are not sorted by id,
+so each insert landed on a random page; on a hard disk that fell from 1,987 rows/s to
+under 200 within three million opinions.) Opinion text goes in its own file,
+opinions.sqlite (in ./db/ when that folder exists), so the graph database stays small
+and the 110 GB of text can sit on whichever disk writes fastest.
+
 The files are PostgreSQL CSV dumps: every value quoted, NULL = nothing between the
 commas, a quote inside a value written as \\" (backslash), newlines allowed inside
 values. Checked against the 2026-06-30 files; Python's default CSV dialect
@@ -23,6 +30,11 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 BULK = Path(os.environ.get("CL_BULK") or HERE / "bulk")
 DB = Path(os.environ.get("CL_DB") or BULK / "courtlistener.sqlite")
+# The big one: compressed opinion text, about 110 GB. It is written once, in order, as fast as the
+# disk allows, so it goes on the fast disk: ./db/ next to this script if that folder exists
+# (CL_OPS_DB overrides), else beside the main database.
+OPS_DB = Path(os.environ.get("CL_OPS_DB") or (HERE / "db" / "opinions.sqlite" if (HERE / "db").is_dir()
+                                              else DB.with_name("opinions.sqlite")))
 csv.field_size_limit(1 << 31 - 1)
 
 TEXT_FIELDS = ("html_with_citations", "xml_harvard", "html_columbia", "html_lawbox",
@@ -53,29 +65,48 @@ TABLES = {
                      lambda r: (integer(r["citing_opinion_id"]), integer(r["cited_opinion_id"]), integer(r["depth"])),
                      ["CREATE INDEX edges_out ON edges(citing, cited, depth)",
                       "CREATE INDEX edges_in ON edges(cited, citing, depth)"]),
-    "parentheticals": ("parens", "id INTEGER PRIMARY KEY, described INTEGER, describing INTEGER, score REAL, group_id INTEGER, text TEXT",
+    "parentheticals": ("parens", "id INTEGER, described INTEGER, describing INTEGER, score REAL, group_id INTEGER, text TEXT",
                        lambda r: (integer(r["id"]), integer(r["described_opinion_id"]), integer(r["describing_opinion_id"]),
                                   float(r["score"] or 0), integer(r["group_id"]), r["text"]),
                        ["CREATE INDEX parens_by_described ON parens(described)"]),
-    "opinion-clusters": ("clusters", "id INTEGER PRIMARY KEY, case_name TEXT, case_name_short TEXT, case_name_full TEXT, "
+    "opinion-clusters": ("clusters", "id INTEGER, case_name TEXT, case_name_short TEXT, case_name_full TEXT, "
                          "date_filed TEXT, citation_count INTEGER, docket_id INTEGER, slug TEXT, judges TEXT, "
-                         "precedential_status TEXT, scdb_id TEXT, other_dates TEXT",
+                         "precedential_status TEXT, scdb_id TEXT, other_dates TEXT, summary TEXT, syllabus TEXT",
                          lambda r: (integer(r["id"]), r["case_name"], r["case_name_short"], r["case_name_full"], r["date_filed"],
                                     integer(r["citation_count"]), integer(r["docket_id"]), r["slug"], r["judges"],
-                                    r["precedential_status"], r["scdb_id"], r["other_dates"]), []),
-    "dockets": ("dockets", "id INTEGER PRIMARY KEY, court_id TEXT, docket_number TEXT",
-                lambda r: (integer(r["id"]), r["court_id"], r.get("docket_number")), []),
-    "opinions": ("opinions", "id INTEGER PRIMARY KEY, cluster_id INTEGER, type TEXT, author_str TEXT, field TEXT, text BLOB",
-                 keep_opinion, ["CREATE INDEX opinions_by_cluster ON opinions(cluster_id)"]),
+                                    r["precedential_status"], r["scdb_id"], r["other_dates"], r["summary"] or None, r["syllabus"] or None),
+                         ["CREATE UNIQUE INDEX clusters_by_id ON clusters(id)", "CREATE INDEX clusters_by_docket ON clusters(docket_id)"]),
+    "dockets": ("dockets", "id INTEGER, court_id TEXT, docket_number TEXT",
+                lambda r: (integer(r["id"]), r["court_id"], r.get("docket_number")),
+                ["CREATE UNIQUE INDEX dockets_by_id ON dockets(id)"]),
+    "opinions": ("opinions", "id INTEGER, cluster_id INTEGER, type TEXT, author_str TEXT, field TEXT, text BLOB",
+                 keep_opinion, ["CREATE UNIQUE INDEX opinions_by_id ON opinions(id)",
+                                "CREATE INDEX opinions_by_cluster ON opinions(cluster_id)"]),
 }
 ORDER = ["courts", "citations", "parentheticals", "citation-map", "opinion-clusters", "dockets", "opinions"]
 
 
+PRAGMAS = ("PRAGMA journal_mode=MEMORY; PRAGMA synchronous=OFF; PRAGMA cache_size=-400000; PRAGMA temp_store=FILE; "
+           "PRAGMA page_size=16384;")     # page_size only takes effect on a file that is still empty
+
+
 def connect():
     DB.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB)
-    con.executescript("PRAGMA journal_mode=MEMORY; PRAGMA synchronous=OFF; PRAGMA cache_size=-1000000; PRAGMA temp_store=MEMORY;"
-                      "CREATE TABLE IF NOT EXISTS loaded(name TEXT PRIMARY KEY, file TEXT, rows INTEGER, seconds REAL, finished TEXT);")
+    con = sqlite3.connect(DB, timeout=600)
+    con.executescript(PRAGMAS + "CREATE TABLE IF NOT EXISTS loaded(name TEXT PRIMARY KEY, file TEXT, rows INTEGER, seconds REAL, finished TEXT);")
+    return con
+
+
+def connect_ops():
+    ops = sqlite3.connect(OPS_DB, timeout=600)
+    ops.executescript(PRAGMAS)
+    return ops
+
+
+def attach_ops(con):
+    """Make the opinions table visible through a connection to the main database."""
+    if OPS_DB.exists():
+        con.execute("ATTACH DATABASE ? AS ops", (str(OPS_DB),))
     return con
 
 
@@ -120,12 +151,20 @@ def load(name, con, force=False, limit=None):
         return
     print("%-17s loading %s (%.1f GB compressed)" % (name, path.name, path.stat().st_size / 1e9))
     con.execute("DELETE FROM loaded WHERE name=?", (name,))
+    con.commit()
+    main = con
+    if name == "opinions":
+        main.execute("DROP TABLE IF EXISTS opinions")          # left over from the first version, if any
+        if OPS_DB.exists() and not limit:
+            OPS_DB.unlink()                                     # start the big file clean rather than DROP 90 GB
+        con = connect_ops()
     con.execute("DROP TABLE IF EXISTS %s" % table)
     con.execute("CREATE TABLE %s (%s)" % (table, body))
     ncol = body.count(",") + 1 - body.count("PRIMARY KEY,") * 0
     ncol = len([c for c in re.split(r",\s*(?![^()]*\))", body)])
-    sql = "INSERT OR REPLACE INTO %s VALUES (%s)" % (table, ",".join("?" * ncol))
+    sql = "INSERT INTO %s VALUES (%s)" % (table, ",".join("?" * ncol))
     t0, n, bad, batch = time.time(), 0, 0, []
+    t_mark = t0
     for r in rows_of(path):
         if r is None:
             bad += 1
@@ -141,19 +180,28 @@ def load(name, con, force=False, limit=None):
         if len(batch) >= 50000:
             con.executemany(sql, batch)
             batch = []
-            if n % 1000000 == 0:
+            if n % 200000 == 0:
                 con.commit()
-                print("  %s rows, %.0f rows/s" % (format(n, ","), n / (time.time() - t0)), flush=True)
+            if n % 1000000 == 0:
+                now = time.time()
+                print("  %s rows, %.0f rows/s overall, %.0f rows/s for the last million" % (
+                    format(n, ","), n / (now - t0), 1000000 / (now - t_mark)), flush=True)
+                t_mark = now
         if limit and n >= limit:
             break
     con.executemany(sql, batch)
     con.commit()
     for stmt in after:
-        print("  " + stmt.split(" ON ")[0].lower())
+        t1 = time.time()
         con.execute(stmt)
+        con.commit()
+        print("  %s: %.1f min" % (stmt.split(" ON ")[0].lower(), (time.time() - t1) / 60))
     if not limit:
-        con.execute("INSERT OR REPLACE INTO loaded VALUES (?,?,?,?,datetime('now'))", (name, path.name, n, time.time() - t0))
+        main.execute("INSERT OR REPLACE INTO loaded VALUES (?,?,?,?,datetime('now'))", (name, path.name, n, time.time() - t0))
     con.commit()
+    main.commit()
+    if con is not main:
+        con.close()
     print("  done: %s rows in %.1f min%s" % (format(n, ","), (time.time() - t0) / 60,
                                             ", %d unreadable rows skipped" % bad if bad else ""))
 
@@ -164,6 +212,8 @@ def have(con, table):
 
 def cmd_status(args):
     print("bulk files: %s\ndatabase:   %s%s" % (BULK, DB, "  (%.1f GB)" % (DB.stat().st_size / 1e9) if DB.exists() else "  (not created yet)"))
+    if OPS_DB.exists():
+        print("opinions:   %s  (%.1f GB)" % (OPS_DB, OPS_DB.stat().st_size / 1e9))
     con = connect()
     done = {r[0]: r for r in con.execute("SELECT name, file, rows, seconds FROM loaded")}
     for name in ORDER:
@@ -197,6 +247,7 @@ def cmd_case(args):
 
 
 def main():
+    sys.stdout.reconfigure(line_buffering=True)      # so progress shows up at once in a log file (nohup, > file)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("load")
@@ -209,8 +260,15 @@ def main():
     args = ap.parse_args()
     if args.cmd == "load":
         con = connect()
-        for name in (args.names or ORDER):
-            load(name, con, args.force, args.limit)
+        lock = Path(str(DB) + ".loading")          # casemap.py refuses to read while this exists
+        lock.write_text("casedb.py load, pid %d\n" % os.getpid())
+        try:
+            for name in (args.names or ORDER):
+                load(name, con, args.force, args.limit)
+        except KeyboardInterrupt:
+            print("\ninterrupted: the table being loaded is incomplete and not marked done; rerun the same command to redo it.")
+        finally:
+            lock.unlink(missing_ok=True)
     elif args.cmd == "status":
         cmd_status(args)
     else:

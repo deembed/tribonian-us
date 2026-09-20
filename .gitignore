@@ -8,3 +8,8 @@ bulk/
 bulk
 md-cases/
 cases/
+db/
+# never commit data, wherever it ends up
+*.sqlite
+*.sqlite-*
+*.csv.bz2

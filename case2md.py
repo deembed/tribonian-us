@@ -237,6 +237,8 @@ def usable_opinions(data):
 def cited_clusters(data):
     """{cluster id: times cited} from the citation links CourtListener put in the text."""
     me = data["cluster"].get("id")
+    if data.get("cites") is not None:            # from the local citation map (casemap.py): known even for a stub
+        return {int(k): v for k, v in data["cites"].items() if int(k) != me}
     out = {}
     for o in usable_opinions(data):
         for m in re.finditer(r'href="/opinion/(\d+)/', o.get("html_with_citations") or ""):
@@ -516,7 +518,7 @@ TYPE_NAMES = {"majority": "opinion of the Court", "plurality": "plurality opinio
 
 def short_author(author, fallback):
     a = clean(author).rstrip(",.:; ")
-    m = re.match(r"(?i)^(mr\.? )?(chief )?justice (.+)$", a)
+    m = re.match(r"(?i)^(m[re]\.? )?(chief )?justice (.+)$", a)      # "Me." = the scanner's misreading of "Mr."
     if m:
         return "%s, %s" % (m.group(3).title() if m.group(3).isupper() else m.group(3),
                            "C.J." if m.group(2) else "J.")
@@ -616,14 +618,33 @@ def front_matter(meta, stub):
     return L
 
 
-def render_stub(meta, tail, why="Text not fetched."):
-    L = front_matter(meta, True)
+def editorial(cluster):
+    """The reporter's summary and syllabus, when CourtListener has them, as Obsidian
+    callouts that say what they are. Neither is part of the opinion: for the US Supreme
+    Court the syllabus is the Reporter of Decisions' work (United States v. Detroit Timber
+    & Lumber Co., 200 U.S. 321, 337), so quote the opinion, not this. A few state courts
+    (Ohio, West Virginia, Kansas) do write their own syllabus; the data does not say which."""
+    import html as _html
+    L = []
+    for field, title in (("summary", "Reporter's summary"), ("syllabus", "Syllabus")):
+        raw = cluster.get(field) or ""
+        paras = [clean(_html.unescape(re.sub(r"<[^>]+>", " ", p))) for p in re.split(r"</p>|<br\s*/?>|\n\s*\n", raw)]
+        paras = [esc(p, "md") for p in paras if p]
+        if paras:
+            L += ["> [!abstract]- %s (editorial, not part of the opinion)" % title] + ["> " + p + "\n>" for p in paras]
+            L[-1] = L[-1][:-2]
+            L.append("")
+    return L
+
+
+def render_stub(meta, tail, why="Text not fetched.", cluster=None):
+    L = front_matter(meta, True) + editorial(cluster or {})
     L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
     return "\n".join(L) + "\n" + tail
 
 
-def render_md(meta, ops, tail=""):
-    L = front_matter(meta, False)
+def render_md(meta, ops, tail="", cluster=None):
+    L = front_matter(meta, False) + editorial(cluster or {})
     notes = []
     for o in ops:
         ctx = o["ctx"]
@@ -698,12 +719,12 @@ def write_note(cid, index):
     if is_full:
         try:
             meta, ops, _ = prepare(data, index)
-            body, kind = render_md(meta, ops, tail), "full"
+            body, kind = render_md(meta, ops, tail, data["cluster"]), "full"
         except Unsupported as e:
             meta = case_meta(data)
-            body, kind = render_stub(meta, tail, "text fetched, but %s" % e), "unparsed"
+            body, kind = render_stub(meta, tail, "text fetched, but %s" % e, data["cluster"]), "unparsed"
     else:
-        body = render_stub(case_meta(data), tail)
+        body = render_stub(case_meta(data), tail, cluster=data["cluster"])
     NOTES.mkdir(exist_ok=True)
     (NOTES / (ent["slug"] + ".md")).write_text(body, encoding="utf-8")
     return kind
@@ -926,7 +947,7 @@ def build(args):
     for d in (NOTES, here / "build", here / "pdf"):
         d.mkdir(exist_ok=True)
     md_path = NOTES / (meta["slug"] + ".md")
-    md_path.write_text(render_md(meta, ops, tail_sections(data, index)), encoding="utf-8")
+    md_path.write_text(render_md(meta, ops, tail_sections(data, index), data["cluster"]), encoding="utf-8")
     tex = render_tex(meta, ops, args.font, args.style)
     tex_path = here / "build" / (meta["slug"] + ".tex")
     tex_path.write_text(tex, encoding="utf-8")
