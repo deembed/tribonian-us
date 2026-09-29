@@ -19,7 +19,8 @@ by CourtListener in html_with_citations.
 Token: environment variable COURTLISTENER_TOKEN, else the GNOME keyring via
     secret-tool lookup service courtlistener
 """
-import argparse, json, os, re, shutil, subprocess, sys, tempfile, time, unicodedata
+import argparse, fcntl, json, os, re, shutil, subprocess, sys, tempfile, time, unicodedata
+from contextlib import contextmanager
 from collections import Counter
 from datetime import date
 from html.parser import HTMLParser
@@ -137,6 +138,27 @@ def best_cite(cluster):
     return cite_str(cites[0]) if cites else f"cluster {cluster.get('id')}"
 
 
+_SLUGS, _SLUG_DB = {}, []
+
+
+def opinion_url(cid, name=None):
+    """CourtListener's page for a cluster. The site needs the slug: /opinion/<id>/<slug>/ -- a bare
+    /opinion/<id>/ does not resolve. The slug comes from the local database, else from the name."""
+    cid = int(cid)
+    if cid not in _SLUGS:
+        if not _SLUG_DB:
+            _SLUG_DB.append(local_db())
+        con, slug = _SLUG_DB[0], None
+        if con is not None:
+            try:
+                r = con.execute("SELECT slug, case_name FROM clusters WHERE id=?", (cid,)).fetchone()
+                slug = r and (r[0] or (r[1] and slugify(r[1], 75)))
+            except Exception:
+                pass
+        _SLUGS[cid] = slug or (slugify(name, 75) if name else None) or "case"
+    return "%s/opinion/%d/%s/" % (CL, cid, _SLUGS[cid])
+
+
 def slugify(s, limit=60):
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
     s = re.sub(r"[^A-Za-z0-9]+", "-", s).strip("-").lower()
@@ -203,8 +225,21 @@ def load_index():
 
 
 def save_index(index):
+    """Atomic (write a temp file, rename over): a parallel build never reads half a file."""
     CASES.mkdir(parents=True, exist_ok=True)
-    (CASES / "_index.json").write_text(json.dumps(index, indent=1, ensure_ascii=False), encoding="utf-8")
+    tmp = CASES / ("_index.json.%d.tmp" % os.getpid())
+    tmp.write_text(json.dumps(index, indent=1, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, CASES / "_index.json")
+
+
+@contextmanager
+def index_lock():
+    """Hold while reading, changing and saving the index, so parallel builds
+    (build_all.sh) don't overwrite each other's entries."""
+    CASES.mkdir(parents=True, exist_ok=True)
+    with open(CASES / "_index.lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
 
 
 def register(data, index, full_path=None):
@@ -696,7 +731,7 @@ def tail_sections(data, index):
             if e:
                 L.append("- [[%s|%s, %s (%s)]]%s" % (e["slug"], esc(e["short"] or e["name"], "md"), e["cite"], e["year"], times))
             else:
-                L.append("- [cluster %d](%s/opinion/%d/)%s" % (cid, CL, cid, times))
+                L.append("- [cluster %d](%s)%s" % (cid, opinion_url(cid), times))
         L.append("")
     elif not data.get("opinions"):
         L += ["## Cites", "", "*Unknown until the text is fetched.*", ""]
@@ -949,9 +984,10 @@ def prepare(data, index=None):
 def build(args):
     here = ROOT
     data = json.loads(Path(args.json).read_text(encoding="utf-8"))
-    index = load_index()
-    register(data, index, args.json)
-    save_index(index)
+    with index_lock():
+        index = load_index()
+        register(data, index, args.json)
+        save_index(index)
     try:
         meta, ops, warnings = prepare(data, index)
     except Unsupported as e:
@@ -1812,8 +1848,8 @@ def recap_build(args):
             tail += ["## Cites", ""]
             for cid, nm, ct, cc, yr in named:
                 label = "%s, %s (%s %s)" % (esc(nm, "md"), ct, cc, yr) if ct else "%s (%s %s)" % (esc(nm, "md"), cc, yr)
-                tail.append("- [[%s|%s]]" % (links[cid], label) if cid in links else "- [%s](%s/opinion/%d/)%s (%s %s)" % (
-                    esc(nm, "md"), CL, cid, ", " + ct if ct else "", cc, yr))
+                tail.append("- [[%s|%s]]" % (links[cid], label) if cid in links else "- [%s](%s)%s (%s %s)" % (
+                    esc(nm, "md"), opinion_url(cid, nm), ", " + ct if ct else "", cc, yr))
             tail.append("")
         elif named is None:
             tail += ["## Cites", "", "*%d opinions (CourtListener opinion ids %s); names need the local database (casedb.py).*"

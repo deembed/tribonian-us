@@ -503,12 +503,19 @@ class Lineage:
 
 
 def case_label(name, cites, court, year, cluster_id):
-    return "[%s](%s/opinion/%s/)%s (%s %s)" % (c.esc(name or "case", "md"), c.CL, cluster_id,
+    return "[%s](%s)%s (%s %s)" % (c.esc(name or "case", "md"), c.opinion_url(cluster_id, name),
                                                ", " + cites if cites else "", court or "", year or "")
 
 
 def cmd_citedby(args):
     index = c.load_index()
+    if not args.json and (args.cite or args.cluster):      # a case already fetched: find its file in the index
+        want = re.sub(r"\s+", "", args.cite or "")
+        for k, e in index.items():
+            if e.get("full") and (str(args.cluster) == k or (want and want in
+                                  [re.sub(r"\s+", "", x) for x in [e.get("cite") or ""] + (e.get("cites") or [])])):
+                args.json = str(c.CASES / e["full"])
+                break
     if not args.json:
         sys.exit("citedby needs the fetched case file (cases/*.json): its text is what the citing courts are matched against.")
     data = json.loads(Path(args.json).read_text(encoding="utf-8"))
@@ -621,7 +628,7 @@ def cmd_citedby(args):
                 L.append("   Wording traced back %d step%s:" % (max(f["step"] for f in chain), "" if max(f["step"] for f in chain) == 1 else "s"))
                 for f in chain[:5]:
                     e = index.get(str(f["cluster"]))
-                    name = "[[%s|%s]]" % (e["slug"], c.esc(e["short"] or e["name"], "md")) if e else "[%s](%s/opinion/%s/)" % (c.esc(f["case"], "md"), c.CL, f["cluster"])
+                    name = "[[%s|%s]]" % (e["slug"], c.esc(e["short"] or e["name"], "md")) if e else "[%s](%s)" % (c.esc(f["case"], "md"), c.opinion_url(f["cluster"], f["case"]))
                     L.append("   - %s %s (%s; step %d): %d words, “%s”" % (f["date"][:4], name, f["court"], f["step"], f["words"], f["run"]))
                 if len(chain) > 5:
                     L.append("   - …and %d later cases carrying the same words, %s–%s (all in results.json)" % (
@@ -755,7 +762,26 @@ def cmd_citedby(args):
     print("  wrote the '## Cited by' section into md-cases/%s.md (raw numbers: cases/citedby/%d/results.json)" % (ent["slug"], cid))
 
 
+def cmd_fixlinks(args):
+    """Give every bare https://www.courtlistener.com/opinion/<id>/ link in md-cases/ and in the
+    saved Cited-by sections its slug, without rerunning anything."""
+    if c.local_db() is None:
+        sys.exit("fixlinks needs the local database for the slugs (./casedb.py status)")
+    rx = re.compile(r"\(%s/opinion/(\d+)/(?:case/)?\)" % re.escape(c.CL))    # bare, or the no-database stand-in
+    files = list(c.NOTES.rglob("*.md")) + list((c.CASES / "citedby").glob("*/section.md"))
+    changed = links = 0
+    for f in files:
+        s = f.read_text(encoding="utf-8")
+        t, n = rx.subn(lambda m: "(%s)" % c.opinion_url(m.group(1)), s)
+        if n:
+            f.write_text(t, encoding="utf-8")
+            changed, links = changed + 1, links + n
+    print("fixed %d links in %d files" % (links, changed))
+
+
 def main():
+    if sys.argv[1:2] == ["fixlinks"]:
+        return cmd_fixlinks(None)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn in (("get", cmd_get), ("map", cmd_map), ("citedby", cmd_citedby)):
