@@ -6,6 +6,7 @@
                                       #            opinion-clusters dockets opinions)
     ./casedb.py load --force courts   # reload a table that is already done
     ./casedb.py status
+    ./casedb.py index                 # full-text index of case names and parentheticals, for case2md.py find
     ./casedb.py case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
 
 Where things live (both default to ./bulk next to this script):
@@ -76,8 +77,15 @@ TABLES = {
                                     integer(r["citation_count"]), integer(r["docket_id"]), r["slug"], r["judges"],
                                     r["precedential_status"], r["scdb_id"], r["other_dates"], r["summary"] or None, r["syllabus"] or None),
                          ["CREATE UNIQUE INDEX clusters_by_id ON clusters(id)", "CREATE INDEX clusters_by_docket ON clusters(docket_id)"]),
-    "dockets": ("dockets", "id INTEGER, court_id TEXT, docket_number TEXT",
-                lambda r: (integer(r["id"]), r["court_id"], r.get("docket_number")),
+    # nature_of_suit / cause sort case notes into folders (case2md.py FOLDERS); the rest lets
+    # recap fetch skip its docket request
+    "dockets": ("dockets", "id INTEGER, court_id TEXT, docket_number TEXT, case_name TEXT, case_name_short TEXT, "
+                "nature_of_suit TEXT, cause TEXT, date_filed TEXT, date_terminated TEXT, assigned_to_str TEXT, "
+                "referred_to_str TEXT, jurisdiction_type TEXT, pacer_case_id TEXT, slug TEXT",
+                lambda r: (integer(r["id"]), r["court_id"], r.get("docket_number")) + tuple(
+                    r.get(k) or None for k in ("case_name", "case_name_short", "nature_of_suit", "cause", "date_filed",
+                                               "date_terminated", "assigned_to_str", "referred_to_str",
+                                               "jurisdiction_type", "pacer_case_id", "slug")),
                 ["CREATE UNIQUE INDEX dockets_by_id ON dockets(id)"]),
     "opinions": ("opinions", "id INTEGER, cluster_id INTEGER, type TEXT, author_str TEXT, field TEXT, text BLOB",
                  keep_opinion, ["CREATE UNIQUE INDEX opinions_by_id ON opinions(id)",
@@ -206,6 +214,52 @@ def load(name, con, force=False, limit=None):
                                             ", %d unreadable rows skipped" % bad if bad else ""))
 
 
+# ---------------------------------------------------------------- search index (case2md.py find)
+# Case names and the parentheticals other courts wrote about each case, in SQLite full-text (FTS5)
+# tables in their own file. A nickname like "Glomar" is in no case name, but courts write it in
+# their parentheticals about Phillippi v. CIA, so both are searched.
+SEARCH_DB = Path(os.environ.get("CL_SEARCH_DB") or DB.with_name("search.sqlite"))
+
+
+def search_stamp(con):
+    """What the index was built from: the finish times of the two source tables."""
+    return "|".join(str(r) for r in con.execute(
+        "SELECT name, finished FROM loaded WHERE name IN ('opinion-clusters', 'parentheticals') ORDER BY name"))
+
+
+def build_search(con):
+    t0 = time.time()
+    tmp = SEARCH_DB.with_suffix(".building")
+    tmp.unlink(missing_ok=True)
+    s = sqlite3.connect(tmp)
+    s.executescript("PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF;"
+                    "CREATE VIRTUAL TABLE names USING fts5(cluster_id UNINDEXED, name, tokenize='unicode61 remove_diacritics 2');"
+                    "CREATE VIRTUAL TABLE parens USING fts5(described UNINDEXED, text, tokenize='unicode61 remove_diacritics 2');"
+                    "CREATE TABLE meta(stamp TEXT);")
+    for table, sql, ins in (
+            ("names", "SELECT id, coalesce(case_name, '') || ' ' || coalesce(case_name_short, '') FROM clusters",
+             "INSERT INTO names VALUES (?, ?)"),
+            ("parens", "SELECT described, text FROM parens WHERE text IS NOT NULL", "INSERT INTO parens VALUES (?, ?)")):
+        n, cur = 0, con.execute(sql)
+        while True:
+            rows = cur.fetchmany(100000)
+            if not rows:
+                break
+            s.executemany(ins, rows)
+            n += len(rows)
+            if n % 1000000 == 0:
+                print("  %s: %s rows" % (table, format(n, ",")), flush=True)
+        s.commit()
+        print("  %s: %s rows indexed" % (table, format(n, ",")))
+    s.execute("INSERT INTO meta VALUES (?)", (search_stamp(con),))
+    s.execute("INSERT INTO names(names) VALUES ('optimize')")
+    s.execute("INSERT INTO parens(parens) VALUES ('optimize')")
+    s.commit()
+    s.close()
+    tmp.replace(SEARCH_DB)
+    print("search index: %s (%.1f GB) in %.1f min" % (SEARCH_DB, SEARCH_DB.stat().st_size / 1e9, (time.time() - t0) / 60))
+
+
 def have(con, table):
     return con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
 
@@ -255,6 +309,7 @@ def main():
     p.add_argument("--force", action="store_true")
     p.add_argument("--limit", type=int, help="testing: stop after this many rows (table is not marked done)")
     sub.add_parser("status")
+    sub.add_parser("index", help="(re)build the full-text index case2md.py find uses")
     p = sub.add_parser("case")
     p.add_argument("json")
     args = ap.parse_args()
@@ -271,6 +326,10 @@ def main():
             lock.unlink(missing_ok=True)
     elif args.cmd == "status":
         cmd_status(args)
+    elif args.cmd == "index":
+        if Path(str(DB) + ".loading").exists():
+            sys.exit("casedb.py load is running; a long read now can make it fail with 'database is locked'. Index after it finishes.")
+        build_search(sqlite3.connect("file:%s?mode=ro" % DB, uri=True))
     else:
         cmd_case(args)
 

@@ -72,8 +72,11 @@ def db_case(con, cid, with_text):
                "absolute_url": "/opinion/%d/%s/" % (cid, cl["slug"] or "x"),
                "citations": [{"volume": v, "reporter": rp, "page": pg, "type": t} for v, rp, pg, t in
                              con.execute("SELECT volume, reporter, page, type FROM cites WHERE cluster_id=? ORDER BY type, reporter", (cid,))]}
-    d = con.execute("SELECT court_id, docket_number FROM dockets WHERE id=?", (cl["docket_id"],)).fetchone()
-    docket = {"court_id": d[0], "docket_number": d[1] or ""} if d else None
+    d = con.execute("SELECT * FROM dockets WHERE id=?", (cl["docket_id"],)).fetchone()
+    docket = None
+    if d:           # older databases have only id, court_id, docket_number
+        docket = dict(zip([r[1] for r in con.execute("PRAGMA table_info(dockets)")], d))
+        docket["docket_number"] = docket.get("docket_number") or ""
     ops = con.execute("SELECT id, type, author_str, field, text FROM opinions WHERE cluster_id=? ORDER BY type, id", (cid,)).fetchall()
     ids = [o[0] for o in ops]
     cites = {}

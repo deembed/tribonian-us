@@ -76,6 +76,26 @@ TEX_ACCENTS = {"\u0300": r"\`", "\u0301": r"\'", "\u0302": r"\^", "\u0303": r"\~
                "\u0304": r"\=", "\u0305": r"\=", "\u0308": r'\"', "\u030c": r"\v"}
 
 
+# Safety net for characters neither table above knows. pdflatex (utf8 + T1) handles ASCII, Latin-1,
+# Latin Extended-A and these; anything else would stop the whole build with "Unicode character ...
+# not set up for use with LaTeX". Block and geometric shapes (U+2580-25FF, e.g. the "■" in scanned
+# opinions) are scanner specks: dropped. Any other unknown prints as a boxed question mark (a plain
+# "?" in PDF bookmarks), so the gap stays visible.
+# Every substitution is counted in UNMAPPED for the caller to report.
+TEX_OK = set("‐‑‒–—―‘’‚“”„†‡•…‰‹›€™№←↑→↓ȘșȚț")
+UNMAPPED = {}
+
+
+def tex_safe(c):
+    o = ord(c)
+    if (o < 0x180 and not 0x80 <= o < 0xA0) or c in TEX_OK:
+        return c
+    UNMAPPED[c] = UNMAPPED.get(c, 0) + 1
+    if 0x80 <= o < 0xA0 or 0x2580 <= o <= 0x25FF:
+        return ""
+    return r"\texorpdfstring{{\fboxsep0.6pt\fbox{\scriptsize ?}}}{?}"
+
+
 def tex_chars(s):
     """Escape a string for LaTeX, character by character."""
     out, i = [], 0
@@ -87,7 +107,7 @@ def tex_chars(s):
             i += 2
             continue
         if c not in TEX_ACCENTS:             # a stray mark with no letter before it is dropped
-            out.append(TEX_ESCAPES.get(c, c))
+            out.append(TEX_ESCAPES[c] if c in TEX_ESCAPES else tex_safe(c))
         i += 1
     return "".join(out)
 

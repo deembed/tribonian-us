@@ -3,7 +3,11 @@
 
     ./case2md.py fetch --cite "463 U.S. 29"      # -> cases/<cite>_<name>.json
     ./case2md.py fetch --cluster 110991
-    ./case2md.py build cases/463-u-s-29_*.json   # -> md/, build/, pdf/
+    ./case2md.py build cases/463-u-s-29_*.json   # -> md-cases/, build/, pdf/
+    ./case2md.py find glomar                     # search case names + courts' parentheticals
+    ./case2md.py find glomar --get 3             # fetch result 3 from the local database and build its PDF
+    ./case2md.py recap fetch --docket 4949363    # district-court filings (RECAP) -> cases/recap/*.json
+    ./case2md.py recap build cases/recap/laed-09-cv-06732_*.json   # one PDF, a note per order
 The citation graph (stub notes, wikilinks, cited-by statistics) is casemap.py.
 
 build reuses the LaTeX preamble (page size, boxes, running header/footer) and
@@ -16,6 +20,7 @@ Token: environment variable COURTLISTENER_TOKEN, else the GNOME keyring via
     secret-tool lookup service courtlistener
 """
 import argparse, json, os, re, shutil, subprocess, sys, tempfile, time, unicodedata
+from collections import Counter
 from datetime import date
 from html.parser import HTMLParser
 import urllib.error, urllib.parse, urllib.request
@@ -87,7 +92,8 @@ def token():
 
 def call(url, tok, data=None, soft=False):
     """GET url (or POST when data is a dict); return parsed JSON.
-    Paces itself, waits and retries when rate-limited. soft=True: a 404 returns None."""
+    Paces itself, waits and retries when rate-limited. soft=True: a 404 returns None;
+    soft=(403, 404): any of those codes does."""
     body = urllib.parse.urlencode(data).encode() if data else None
     for attempt in range(5):
         throttle()
@@ -107,7 +113,7 @@ def call(url, tok, data=None, soft=False):
                 print(f"  HTTP {e.code}; waiting {delay}s then retrying", file=sys.stderr)
                 time.sleep(delay)
                 continue
-            if e.code == 404 and soft:
+            if soft and e.code in (soft if isinstance(soft, tuple) else (404,)):
                 return None
             hint = {401: "token rejected", 403: "token rejected or not permitted",
                     404: "no such record", 429: "rate limited; wait and retry"}.get(e.code, "")
@@ -643,8 +649,8 @@ def render_stub(meta, tail, why="Text not fetched.", cluster=None):
     return "\n".join(L) + "\n" + tail
 
 
-def render_md(meta, ops, tail="", cluster=None):
-    L = front_matter(meta, False) + editorial(cluster or {})
+def render_md(meta, ops, tail="", cluster=None, head=None):
+    L = list(head) if head is not None else front_matter(meta, False) + editorial(cluster or {})
     notes = []
     for o in ops:
         ctx = o["ctx"]
@@ -653,9 +659,14 @@ def render_md(meta, ops, tail="", cluster=None):
             L += ["*%s*" % o["byline_md"], ""]
 
         def walk(part):
+            blocks = list(part.blocks)
             if part.level:
-                L.extend(["#" * (2 + part.level) + " " + part.label, ""])
-            for kind, el in part.blocks:
+                title = ""                       # RECAP: "I.   Background" -> "### I. Background"
+                if blocks and blocks[0][1].attrs.get("heading") == "title":
+                    title = ". " + esc(clean(blocks[0][1].text()), "md")
+                    blocks = blocks[1:]
+                L.extend(["#" * (2 + part.level) + " " + part.label + title, ""])
+            for kind, el in blocks:
                 marks = []
                 t = clean(inline(el, "md", ctx, marks))
                 L.extend([("> " if kind == "q" else "") + t, ""])
@@ -725,8 +736,7 @@ def write_note(cid, index):
             body, kind = render_stub(meta, tail, "text fetched, but %s" % e, data["cluster"]), "unparsed"
     else:
         body = render_stub(case_meta(data), tail, cluster=data["cluster"])
-    NOTES.mkdir(exist_ok=True)
-    (NOTES / (ent["slug"] + ".md")).write_text(body, encoding="utf-8")
+    (note_dir(ent["slug"], data.get("docket")) / (ent["slug"] + ".md")).write_text(body, encoding="utf-8")
     return kind
 
 
@@ -901,7 +911,10 @@ def prepare(data, index=None):
         return "<opinion" in (o.get("html_with_citations") or o.get("xml_harvard") or "")
     use = [o for o in data["opinions"] if harvard(o)]
     if not use:
-        raise Unsupported("it is only in CourtListener's 'combined' HTML, which is not handled yet.")
+        slip = [o for o in data["opinions"] if (o.get("plain_text") or o.get("html_with_citations") or "").strip()]
+        if not slip:
+            raise Unsupported("it has no opinion text.")
+        return prepare_slip(meta, slip, links, statutes)
     reference = []
     for o in data["opinions"]:
         if not harvard(o):
@@ -944,34 +957,1015 @@ def build(args):
     except Unsupported as e:
         sys.exit("Cannot build: %s" % e)
 
-    for d in (NOTES, here / "build", here / "pdf"):
-        d.mkdir(exist_ok=True)
-    md_path = NOTES / (meta["slug"] + ".md")
+    (here / "build").mkdir(exist_ok=True)
+    ndir = note_dir(meta["slug"], data.get("docket"))
+    md_path = ndir / (meta["slug"] + ".md")
     md_path.write_text(render_md(meta, ops, tail_sections(data, index), data["cluster"]), encoding="utf-8")
     tex = render_tex(meta, ops, args.font, args.style)
     tex_path = here / "build" / (meta["slug"] + ".tex")
     tex_path.write_text(tex, encoding="utf-8")
-    print("wrote md-cases/%s\nwrote build/%s" % (md_path.name, tex_path.name))
+    print("wrote %s\nwrote build/%s" % (md_path.relative_to(here), tex_path.name))
 
     if not args.no_pdf:
-        with tempfile.TemporaryDirectory() as work:
-            for _ in range(2):
-                r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
-                                    "-output-directory", work, str(tex_path)], capture_output=True, text=True)
-            pdf = Path(work) / (meta["slug"] + ".pdf")
-            if r.returncode or not pdf.exists():
-                shutil.copy(Path(work) / (meta["slug"] + ".log"), here / "build" / (meta["slug"] + ".log"))
-                print("FAIL pdflatex (see build/%s.log)\n%s" % (meta["slug"], "\n".join(
-                    l for l in r.stdout.splitlines() if l.startswith("!"))[:600]))
-            else:
-                shutil.copy(pdf, here / "pdf" / pdf.name)
-                print("wrote pdf/%s" % pdf.name)
+        pdf = run_pdflatex(tex_path, pdf_dir(ndir))
+        if pdf:
+            print("wrote %s" % pdf.relative_to(here))
+    unmapped_note()
     for o in ops:
         n = sum(1 for b in o["flat"] if b[0] != "h")
         print("  %-22s %-45s %3d paragraphs, %2d footnotes, starts at *%s" % (
             o["ctx"].who, o["kindname"][:45], n, len(o["footnotes"]), o["start"] or "?"))
     for w in warnings:
         print("  note:", w)
+
+
+# ================================================================ folders
+# Where a note goes. A note that already exists anywhere under md-cases/ is rewritten where it
+# is: moving it (inside md-cases/, not in the vault, which sync_vault.sh overwrites) is how you
+# override everything below. A RECAP document goes where its docket's note is. Otherwise the
+# first rule whose pattern matches that field of the docket wins; edit the table to change the
+# defaults. No match: md-cases/ itself.
+FOLDERS = [
+    ("nature_of_suit", r"freedom of information|privacy act", "FOIA"),
+    ("cause", r"\b0?5:552a?\b", "FOIA"),
+]
+_NOTE_DIRS = None
+
+
+def note_dir(slug, docket=None, near=None):
+    """-> the folder md-cases/<...>/ that the note <slug>.md belongs in (created)."""
+    global _NOTE_DIRS
+    if _NOTE_DIRS is None:
+        _NOTE_DIRS = {p.stem: p.parent for p in sorted(NOTES.rglob("*.md"))} if NOTES.is_dir() else {}
+    where = _NOTE_DIRS.get(slug) or (near and _NOTE_DIRS.get(near))
+    if not where:
+        where = NOTES
+        for field, pat, folder in FOLDERS:
+            if re.search(pat, (docket or {}).get(field) or "", re.I):
+                where = NOTES / folder
+                break
+    where.mkdir(parents=True, exist_ok=True)
+    _NOTE_DIRS[slug] = where
+    return where
+
+
+def pdf_dir(ndir):
+    """pdf/ mirrors the note folders: md-cases/FOIA/x.md -> pdf/FOIA/x.pdf."""
+    d = ROOT / "pdf" / ndir.relative_to(NOTES)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def unmapped_note():
+    """Say which characters the PDF could not print (usc2md.tex_safe dropped or marked them)."""
+    import usc2md
+    for ch, n in sorted(usc2md.UNMAPPED.items()):
+        print("  note: %s (U+%04X) x%d %s in the PDF" % (ch, ord(ch), n, "dropped (scan speck)" if 0x2580 <= ord(ch) <= 0x25FF
+                                                     or 0x80 <= ord(ch) < 0xA0 else "shown as a boxed ?"))
+    usc2md.UNMAPPED.clear()
+
+
+def run_pdflatex(tex_path, out_dir):
+    """Two passes (tcolorbox places split boxes on the second). -> the PDF's path, or None."""
+    stem = tex_path.stem
+    with tempfile.TemporaryDirectory() as work:
+        for _ in range(2):
+            r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
+                                "-output-directory", work, str(tex_path)], capture_output=True, text=True,errors="replace")
+        pdf = Path(work) / (stem + ".pdf")
+        if r.returncode or not pdf.exists():
+            shutil.copy(Path(work) / (stem + ".log"), tex_path.with_suffix(".log"))
+            print("FAIL pdflatex (see build/%s.log)\n%s" % (stem, "\n".join(
+                l for l in r.stdout.splitlines() if l.startswith("!"))[:600]))
+            return None
+        shutil.copy(pdf, out_dir / pdf.name)
+        return out_dir / pdf.name
+
+
+# ================================================================ RECAP (PACER filings)
+# A district court's orders are in CourtListener only as RECAP documents: the PDFs filed on
+# PACER, with the text pdftotext pulled out of them (plain_text). There are no Harvard tags, so
+# the structure is read back from the layout: page headers and numbers, double- versus single-
+# spacing, indents, short last lines, headings standing alone, footnote numbers on a line of
+# their own at the foot of the page.
+
+RECAP = CASES / "recap"
+STORAGE = "https://storage.courtlistener.com/"
+DOCKET_FIELDS = ("id", "court_id", "case_name", "case_name_short", "case_name_full", "docket_number",
+                 "nature_of_suit", "cause", "date_filed", "date_terminated", "assigned_to_str",
+                 "referred_to_str", "jurisdiction_type", "pacer_case_id", "absolute_url")
+KEEP = ("id", "docket_entry_id", "document_number", "entry_number", "attachment_number", "entry_date_filed",
+        "description", "short_description", "page_count", "cites", "is_available", "document_type",
+        "filepath_local", "absolute_url", "pacer_doc_id")
+# The court's own writing, by the start of the clerk's docket text. Everything else (motions,
+# briefs, exhibits) is left out unless named with --docs or --all.
+ORDER_RE = re.compile(r"^\s*(ORDER|OPINION|MEMORANDUM|JUDGMENT|FINAL JUDGMENT|REPORT AND RECOMMENDATION|"
+                      r"FINDINGS|RULING|DECISION|PER CURIAM)", re.I)
+
+
+def docket_slug(d):
+    num = re.sub(r"^\d+:", "", d.get("docket_number") or str(d.get("id")))
+    return "%s-%s-%s" % (d.get("court_id") or "court", slugify(num), slugify(d.get("case_name_short") or d.get("case_name") or "case", 30))
+
+
+def doc_slug(dslug, r):
+    att = r.get("attachment_number")
+    return "%s-ecf-%s%s" % (dslug, r.get("document_number"), "-%s" % att if att else "")
+
+
+def recap_file(did):
+    """The saved JSON for a docket id, if fetched before."""
+    for p in sorted(RECAP.glob("*.json")) if RECAP.is_dir() else []:
+        try:
+            if json.loads(p.read_text(encoding="utf-8"))["docket"]["id"] == did:
+                return p
+        except (ValueError, KeyError, TypeError):
+            pass
+    return None
+
+
+def doc_numbers(spec):
+    """'35,55,66' or '35 55-1' -> {'35', '55', '66'} / {'35', '55-1'}."""
+    return {x for x in re.split(r"[,\s]+", spec or "") if x}
+
+
+def doc_key(r):
+    att = r.get("attachment_number")
+    return "%s%s" % (r.get("document_number"), "-%s" % att if att else "")
+
+
+def pdf_text(r):
+    """No plain_text from the API: download the filed PDF (public storage, not an API request)
+    and run pdftotext -layout on it, which is what CourtListener does."""
+    if not r.get("filepath_local"):
+        return "", "no text and no PDF in RECAP"
+    out = RECAP / "pdf" / Path(r["filepath_local"]).name
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not out.exists():
+        try:
+            req = urllib.request.Request(STORAGE + r["filepath_local"], headers={"User-Agent": "case2md/0.2"})
+            with urllib.request.urlopen(req, timeout=120) as f:
+                out.write_bytes(f.read())
+        except (urllib.error.URLError, OSError) as e:
+            return "", "PDF download failed (%s)" % e
+    t = subprocess.run(["pdftotext", "-layout", str(out), "-"], capture_output=True, text=True).stdout
+    return t, "pdftotext -layout of the filed PDF"
+
+
+def recap_fetch(args):
+    tok = token()
+    m = re.search(r"(\d+)", args.docket)
+    if not m:
+        sys.exit("--docket takes a CourtListener docket id or URL, e.g. 4949363")
+    did = int(m.group(1))
+    RECAP.mkdir(parents=True, exist_ok=True)
+    old = recap_file(did)
+    data = json.loads(old.read_text(encoding="utf-8")) if old else {"docket": None, "documents": []}
+    if not data.get("docket"):
+        data["docket"] = local_docket(did) or call("%s/dockets/%d/?fields=%s" % (API, did, ",".join(DOCKET_FIELDS)), tok)
+    d = data["docket"]
+    out = old or RECAP / (docket_slug(d) + ".json")
+
+    def save():
+        out.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+
+    # every document RECAP holds for this docket (search API, 20 a page)
+    have = {r["id"]: r for r in data["documents"]}
+    url = "%s/search/?%s" % (API, urllib.parse.urlencode({"type": "rd", "q": "docket_id:%d" % did,
+                                                           "order_by": "entry_date_filed asc"}))
+    while url:
+        page = call(url, tok)
+        for r in page.get("results") or []:
+            have.setdefault(r["id"], {}).update({k: r.get(k) for k in KEEP})
+        url = page.get("next")
+    data["documents"] = sorted(have.values(), key=lambda r: (int(r.get("entry_number") or r.get("document_number") or 0),
+                                                             int(r.get("attachment_number") or 0)))
+    save()
+
+    want = doc_numbers(args.docs)
+    def wanted(r):
+        if want:
+            return doc_key(r) in want
+        if args.all:
+            return True
+        return not r.get("attachment_number") and bool(ORDER_RE.match(r.get("description") or r.get("short_description") or ""))
+
+    print("%s, No. %s (%s)  docket %d  nature of suit: %s" % (d.get("case_name"), d.get("docket_number"),
+                                                              d.get("court_id"), did, d.get("nature_of_suit") or "-"))
+    for r in data["documents"]:
+        mark = " "
+        if wanted(r):
+            if not r.get("is_available"):
+                mark = "-"                          # listed, but nobody has bought it from PACER yet
+            elif not r.get("plain_text"):
+                t = call("%s/recap-documents/%d/?fields=plain_text,ocr_status" % (API, r["id"]), tok, soft=(403, 404))
+                text, src = (t or {}).get("plain_text") or "", "CourtListener plain_text"
+                if not text.strip():
+                    text, src = pdf_text(r)
+                r["plain_text"], r["text_source"] = text, src
+                save()                              # after each: a stop at the daily limit loses nothing
+                mark = "*" if text.strip() else "!"
+            else:
+                mark = "*"
+        print("  %s %-6s %s %3s pp  %s" % (mark, doc_key(r), r.get("entry_date_filed") or "          ",
+                                           r.get("page_count") or "?", clean(r.get("description") or "")[:90]))
+    print("  (* text saved, - not in RECAP, ! no text; others not selected: --docs N,N or --all)")
+    print("saved %s" % out.relative_to(ROOT))
+    print("next:  ./case2md.py recap build %s" % out.relative_to(ROOT))
+
+
+# ---------------------------------------------------------------- layout text -> blocks
+
+SMALL = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "under",
+         "v", "vs", "with"}
+HEADER_RE = re.compile(r"^\s*Case:?\s+\S+.*?\bDoc(?:ument)?\.?\s*(?:#\s*)?:?\s*\d+.*?\bPage\s*(\d+)\s*of\s*\d+", re.I)
+PAGENUM_RE = re.compile(r"^\s*(?:-\s*)?\d{1,3}(?:\s*-)?\s*$")
+FNLABEL_RE = re.compile(r"^\s*(\d{1,3})\s*$")
+NUMHEAD_RE = re.compile(r"^([IVX]{1,6}|[A-Z]|\d{1,2})\.\s+(\S.{0,90})$")
+ENUM_RE = re.compile(r"^\((?:\d{1,2}|[a-z]|[ivx]{1,4})\)\s")
+STATUTE_RE = re.compile(r"\d+\s*U\.\s?S\.\s?C\.?\s*(?:A\.\s*)?§+\s*\d+[A-Za-z]*(?:-\d+[A-Za-z]*)?")
+# a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3"
+FNMARK = r"(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
+# the same number set off by a space after punctuation, not the start of a citation ("7(E), 5 U.S.C.")
+FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))"
+
+
+class Ln:
+    __slots__ = ("pi", "ind", "text", "end", "gap")
+
+    def __init__(self, pi, raw, gap):
+        self.pi, self.ind, self.end, self.gap = pi, len(raw) - len(raw.lstrip()), len(raw), gap
+        self.text = re.sub(r"\s{2,}", " ", raw.strip())
+
+
+def is_caps(t):
+    letters = [ch for ch in t if ch.isalpha()]
+    return len(letters) >= 4 and sum(ch.isupper() for ch in letters) >= 0.9 * len(letters)
+
+
+def titlecase(t):
+    if not is_caps(t):
+        return t
+    ws = t.split()
+    return " ".join(w.capitalize() if i == 0 or w.lower() not in SMALL else w.lower() for i, w in enumerate(ws))
+
+
+def headingish(t):
+    """Short, capitalized like a title, not a sentence."""
+    if len(t) > 90 or t.endswith((",", ";", ":")) or (t.endswith(".") and not is_caps(t)):
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z'’\-]*", t)
+    if words and words[-1].islower() and words[-1] in SMALL:     # "... February 25, 2009, the"
+        return False
+    big = [w for w in words if w.lower() not in SMALL]
+    return 0 < len(words) <= 12 and bool(big) and sum(w[0].isupper() for w in big) >= 0.75 * len(big)
+
+
+def join_lines(parts):
+    out = ""
+    for p in parts:
+        out += p if not out or (out.endswith(("-", "—")) and out[-2:-1].isalpha()) else " " + p
+    return out
+
+
+def split_footnotes(raw, nxt, prev_open):
+    """One page's lines -> (body lines, [(label or None, [[lines of a paragraph], ...])], next label).
+    The footnotes start at a line holding only the next footnote number. label None = the rest of
+    the previous page's last footnote (prev_open: that one does not end a sentence yet)."""
+    k = None
+    for j, l in enumerate(raw):
+        m = FNLABEL_RE.match(l)
+        if m and nxt <= int(m.group(1)) <= nxt + 2 and len(l) - len(l.lstrip()) <= 12 and any(x.strip() for x in raw[:j]) and any(x.strip() for x in raw[j + 1:]):
+            k, nxt = j, int(m.group(1))         # a skipped number (lost in the text layer) costs one footnote, not the rest
+            break
+    end = k if k is not None else len(raw)
+    fns, body_end = [], end
+    if prev_open:                   # its tail: the last group above, after 2+ blank lines, set wider than the body
+        j = end - 1
+        while j >= 0 and not raw[j].strip():
+            j -= 1
+        g_end = j + 1
+        while j >= 0 and raw[j].strip():
+            j -= 1
+        g_start, blanks = j + 1, 0
+        while j >= 0 and not raw[j].strip():
+            blanks, j = blanks + 1, j - 1
+        widths = sorted(len(x) for x in raw[:g_start] if len(x.strip()) > 30)
+        if g_start < g_end and j >= 0 and blanks >= 2 and widths and \
+                max(len(x) for x in raw[g_start:g_end]) > widths[len(widths) // 2] * 1.12:
+            fns.append((None, [[x.strip() for x in raw[g_start:g_end]]]))
+            body_end = g_start
+    if k is not None:
+        cur = None
+        for l in raw[k:]:
+            m = FNLABEL_RE.match(l)
+            if m and int(m.group(1)) == nxt:
+                cur = (m.group(1), [[]])
+                fns.append(cur)
+                nxt += 1
+            elif cur is None:
+                continue
+            elif not l.strip():
+                if cur[1][-1]:
+                    cur[1].append([])
+            else:
+                cur[1][-1].append(l.strip())
+        for lab, paras in fns:
+            while paras and not paras[-1]:
+                paras.pop()
+    return raw[:body_end], fns, nxt
+
+
+def layout_pages(text):
+    """-> (lines, footnotes [[label, page index, paragraphs]], page labels by page index)."""
+    lines, footnotes, labels, nxt = [], [], [], 1
+    for pi, pg in enumerate(text.replace("\r", "").split("\f")):
+        raw = [l.expandtabs(8).rstrip() for l in pg.split("\n")]
+        label = str(pi + 1)
+        for j, l in enumerate(raw):             # running header: "Case 2:09-cv-06732 ... Page 3 of 7"
+            if l.strip():
+                m = HEADER_RE.match(l)
+                if m:
+                    label, raw[j] = m.group(1), ""
+                elif PAGENUM_RE.match(l):       # slip opinion: the page number heads the page
+                    label, raw[j] = re.sub(r"\D", "", l), ""
+                break
+        for j in range(len(raw) - 1, -1, -1):   # page number at the foot
+            if raw[j].strip():
+                if PAGENUM_RE.match(raw[j]):
+                    raw[j] = ""
+                break
+        labels.append(label)
+        if not any(l.strip() for l in raw):
+            continue
+        margin = min(len(l) - len(l.lstrip()) for l in raw if l.strip())
+        raw = [l[margin:] if l.strip() else "" for l in raw]
+        prev_open = bool(footnotes) and not re.search(r"[.)”\"’]\s*$", join_lines(footnotes[-1][2][-1] if footnotes[-1][2] else []))
+        body, fns, nxt = split_footnotes(raw, nxt, prev_open)
+        for lab, paras in fns:
+            if lab is None:
+                footnotes[-1][2][-1] += paras[0]
+            else:
+                footnotes.append([lab, pi, paras])
+        gap, seen = 0, False
+        for l in body:
+            if not l.strip():
+                gap += 1
+                continue
+            lines.append(Ln(pi, l, gap if seen else None))
+            seen, gap = True, 0
+    return lines, footnotes, labels
+
+
+def split_caption(lns):
+    """The caption (court, parties, case number) ends at the document's title: the first line in
+    capitals, set off by blank lines, after the VERSUS line. -> (index where the text starts, title)."""
+    first = [i for i in range(min(40, len(lns))) if lns[i].pi == lns[0].pi]
+    vs = next((i for i in first if re.match(r"(?i)^(versus|vs?\.?|v\.)(\s|$)", lns[i].text)
+               or re.search(r"\s\*(\s|$)", lns[i].text)), None)
+    if vs is None:
+        return 0, None
+    for i in range(vs + 1, min(vs + 15, len(lns))):
+        l = lns[i]
+        if is_caps(l.text) and l.ind >= 5 and (l.gap is None or l.gap >= 2) and not re.search(r"\s\*(\s|$)", l.text):
+            j = i + 1
+            while j < len(lns) and lns[j].gap is not None and lns[j].gap <= 1 and is_caps(lns[j].text) \
+                    and lns[j].ind >= 5 and len(lns[j].text) < 60:
+                j += 1
+            return j, " ".join(x.text for x in lns[i:j])
+    return 0, None
+
+
+def recap_blocks(lines, labels):
+    """Lines -> blocks: dicts {kind: p|q|h|title|head|sig, pieces: [(text, page) | El], label}."""
+    # right margin: the median end of the longer lines (the max is thrown off by lines that
+    # pdftotext spreads out to justify them); a page with too few falls back on the document's
+    right, base = {}, {}
+    def median(xs):
+        xs = sorted(xs)
+        return xs[len(xs) // 2] if xs else None
+    whole = median([l.end for l in lines if len(l.text) >= 25]) or max((l.end for l in lines), default=80)
+    for pi in {l.pi for l in lines}:
+        mine = [l for l in lines if l.pi == pi]
+        ends = [l.end for l in mine if len(l.text) >= 25]
+        right[pi] = median(ends) if len(ends) >= 4 else whole
+        spaced = [l.ind for l in mine if l.gap != 0] or [l.ind for l in mine]
+        base[pi] = Counter(spaced).most_common(1)[0][0]
+    known = [l.gap for l in lines if l.gap is not None]
+    double = sum(g == 1 for g in known) > sum(g == 0 for g in known)
+
+    runs = []
+    for l in lines:
+        if runs and l.gap == 0 and l.pi == runs[-1][-1].pi:
+            runs[-1].append(l)
+        else:
+            runs.append([l])
+
+    blocks, st = [], {"pi": lines[0].pi if lines else 0}
+    cur = None                                  # the paragraph still open
+
+    def short(l):
+        return l.end < right[l.pi] - 12
+
+    def add(b, l):
+        if l.pi != st["pi"]:
+            b["pieces"].append(El("page-number", {"label": labels[l.pi]}))
+            st["pi"] = l.pi
+        prev = next((p[0] for p in reversed(b["pieces"]) if isinstance(p, tuple)), "")
+        sep = "" if not prev or (prev.endswith(("-", "—")) and prev[-2:-1].isalpha()) else " "
+        b["pieces"].append((sep + l.text, l.pi))
+        b["last"] = l
+
+    def new(kind, **kw):
+        b = dict(dict(kind=kind, pieces=[], last=None, cont=None), **kw)
+        blocks.append(b)
+        return b
+
+    sig = None
+    for run in runs:
+        if sig is not None:
+            for l in run:
+                add(sig, l)
+            continue
+        # the signature: a rule or /s/, or a judge's name and title in capitals
+        if re.fullmatch(r"_{5,}", run[0].text) or run[0].text.startswith("/s/") or \
+                (len(run) <= 3 and all(is_caps(l.text) for l in run) and re.search(r"JUDGE$", run[-1].text)):
+            cur, sig = None, new("sig")
+            for l in run:
+                if not re.fullmatch(r"_{5,}", l.text):
+                    add(sig, l)
+            continue
+        if len(run) == 1:
+            l, t = run[0], run[0].text
+            closed = cur is None or short(cur["last"])
+            m = NUMHEAD_RE.match(t)
+            if (closed or re.search(r"[.:;)”\"]$", cur["last"].text)) and m and headingish(m.group(2)):
+                cur = None
+                new("h", label=m.group(1))
+                new("title", pieces=[(m.group(2), l.pi)])
+                continue
+            if closed and l.ind >= 8 and valid_label(t) and abs(l.ind - (right[l.pi] - l.end)) <= 10:
+                cur = None
+                new("h", label=t)
+                continue
+            if closed and l.ind >= 8 and right[l.pi] - l.end >= 8 and abs(l.ind - (right[l.pi] - l.end)) <= 10 \
+                    and len(t) <= 70 and headingish(t):
+                cur = None
+                new("head", pieces=[(t, l.pi)])
+                continue
+        b = base[run[0].pi]
+        mi = min(l.ind for l in run)
+        if (len(run) >= 3 or (len(run) >= 2 and mi >= b + 4)) if double else (len(run) >= 2 and mi >= b + 4):
+            if run[0].gap is None and blocks and blocks[-1]["kind"] == "q":
+                q = blocks[-1]                  # a quotation running on from the previous page
+            else:
+                q = new("q")
+            for l in run:
+                add(q, l)
+            cur = None
+            continue
+        for i, l in enumerate(run):
+            glued = double and i > 0            # single-spaced pair inside double-spaced text: one paragraph
+            if cur is None or (not glued and (short(cur["last"]) or ENUM_RE.match(l.text)
+                                              or (cur["cont"] is not None and l.ind > cur["cont"] + 2))):
+                cur = new("p")
+            elif cur["cont"] is None:
+                cur["cont"] = l.ind
+            add(cur, l)
+        if not double:
+            cur = None                          # single-spaced text: a blank line ends the paragraph
+    return blocks
+
+
+def place_marks(blocks, footnotes, warn, spaced=False):
+    """Put a footnotemark where each footnote's number sits in the text, looking forward from the
+    previous mark, no further than the page the footnote is printed on."""
+    pos = [0, 0, 0]                             # block, piece, character
+    for lab, pi, _ in footnotes:
+        for pat in (FNMARK, FNMARK_SPACED) if spaced else (FNMARK,):   # slip opinions: "7(E). 1" too
+            rx = re.compile(pat % re.escape(lab))
+            found, last = None, None
+            bi, pj, ch = pos
+            while bi < len(blocks) and found is None:
+                pieces = blocks[bi]["pieces"]
+                while pj < len(pieces):
+                    p = pieces[pj]
+                    if isinstance(p, tuple) and blocks[bi]["kind"] in ("p", "q"):
+                        if p[1] > pi:
+                            break
+                        last = (bi, pj)
+                        m = rx.search(p[0], ch)
+                        if m:
+                            found = (bi, pj, m)
+                            break
+                    pj, ch = pj + 1, 0
+                if found is None:
+                    if pj < len(pieces):        # reached a later page
+                        break
+                    bi, pj, ch = bi + 1, 0, 0
+            if found:
+                break
+        mark = El("footnotemark")
+        mark.kids.append(lab)
+        if found:
+            bi, pj, m = found
+            text, page = blocks[bi]["pieces"][pj]
+            blocks[bi]["pieces"][pj:pj + 1] = [(text[:m.start()], page), mark, (text[m.end():], page)]
+            pos = [bi, pj + 2, 0]
+        elif last:
+            bi, pj = last
+            blocks[bi]["pieces"].insert(pj + 1, mark)
+            pos = [bi, pj + 2, 0]
+            warn("footnote %s: its number was not found in the text; marked at the end of page %s" % (lab, pi + 1))
+        else:
+            warn("footnote %s: nowhere to attach it; left out" % lab)
+
+
+def with_statutes(el):
+    """Wrap '5 U.S.C. § 552' in <span class="citation">, as CourtListener does in opinion HTML,
+    so inline() links it to the US Code note."""
+    kids = []
+    for k in el.kids:
+        if isinstance(k, str):
+            at = 0
+            for m in STATUTE_RE.finditer(k):
+                span = El("span", {"class": "citation"})
+                span.kids.append(m.group(0))
+                kids += [k[at:m.start()], span]
+                at = m.end()
+            kids.append(k[at:])
+        else:
+            kids.append(k)
+    el.kids = [k for k in kids if k != ""]
+    return el
+
+
+def element(tag, pieces, attrs=None):
+    e = El(tag, attrs)
+    for p in pieces:
+        if isinstance(p, tuple):
+            if e.kids and isinstance(e.kids[-1], str):
+                e.kids[-1] += p[0]
+            else:
+                e.kids.append(p[0])
+        else:
+            e.kids.append(p)
+    return with_statutes(e)
+
+
+def judge_of(r, d):
+    """'Signed by Magistrate Judge Joseph C. Wilkinson, Jr on 11/3/2010' -> 'Wilkinson, M.J.'"""
+    m = re.search(r"Signed by ((?:Chief |Senior |District |U\.S\. )*)(Magistrate )?Judge (.+?) on \d", r.get("description") or "")
+    name, mj = (m.group(3), bool(m.group(2))) if m else (d.get("assigned_to_str") or "", False)
+    name = re.sub(r",?\s+(Jr|Sr|II|III|IV)\.?$", "", name.strip())
+    last = name.split()[-1] if name.split() else ""
+    return "%s, %s" % (last, "M.J." if mj else "J.") if last else "Court"
+
+
+def read_recap(r, d, oi, warn):
+    """One RECAP document -> the same opinion dict read_opinion() makes, so render_md and
+    render_tex print it unchanged."""
+    lines, footnotes, labels = layout_pages(r.get("plain_text") or "")
+    start, title = split_caption(lines)
+    lines = lines[start:]
+    if not title:
+        m = ORDER_RE.match(r.get("description") or "")
+        title = m.group(1) if m else "Document %s" % doc_key(r)
+    blocks = recap_blocks(lines, labels)
+    place_marks(blocks, footnotes, warn)
+    o = {"oi": oi, "kind": "", "author": "", "byline": [], "flat": [], "footnotes": {}, "api": r,
+         "start": labels[lines[0].pi] if lines else "1", "title": titlecase(title), "who": judge_of(r, d)}
+    fill_opinion(o, blocks, footnotes)
+    desc = El("p")
+    desc.kids.append(clean(r.get("description") or ""))
+    o["byline"] = [desc]
+    return o
+
+
+def fill_opinion(o, blocks, footnotes):
+    """Layout blocks + footnotes -> o["flat"], o["footnotes"], o["summary"]."""
+    for b in blocks:
+        if b["kind"] == "h":
+            o["flat"].append(["h", b["label"]])
+        elif b["kind"] in ("title", "head"):
+            bold = element("b", b["pieces"])
+            o["flat"].append(["p", El("p", {"heading": "title" if b["kind"] == "title" else "yes"})])
+            o["flat"][-1][1].kids.append(bold)
+        elif b["kind"] == "sig":
+            if b["pieces"]:
+                o["flat"].append(["p", El("p")])
+                o["flat"][-1][1].kids.append(element("i", b["pieces"]))
+        elif any(isinstance(p, tuple) and p[0].strip() for p in b["pieces"]):
+            o["flat"].append(["q" if b["kind"] == "q" else "p", element("blockquote" if b["kind"] == "q" else "p", b["pieces"])])
+    for lab, pi, paras in footnotes:
+        fn = El("footnote", {"label": lab})
+        for para in paras:
+            fn.kids.append(element("p", [(join_lines(para), pi)]))
+        o["footnotes"][lab] = fn
+    heads = sum(1 for b in blocks if b["kind"] == "h")
+    o["summary"] = "%d paragraphs, %d quotations, %d headings, %d footnotes" % (
+        sum(1 for b in blocks if b["kind"] == "p"), sum(1 for b in blocks if b["kind"] == "q"), heads, len(footnotes))
+
+
+# ---------------------------------------------------------------- slip opinions
+# Some opinions (recent circuit cases, mostly) are in CourtListener only as the court's slip
+# opinion: pdftotext of the PDF, served as plain_text and, with citation links added, as <pre>
+# in html_with_citations ('combined', no Harvard tags). Same layout reading as RECAP; the
+# caption ends where the first judge starts writing ("MILLETT, Circuit Judge: ..."), and each
+# later "KATSAS, Circuit Judge, concurring: ..." starts a separate opinion.
+
+SLIP_AUTHOR_RE = re.compile(r"^(?:(PER CURIAM)|((?:[A-Z][a-z]+ )?[A-Z][A-Z'’\-]+(?: [A-Z][A-Z'’\-]+)?),"
+                            r" (?:Senior |Chief )?(?:Circuit |District |Magistrate )?Judge(?:,? ([^:]{3,120}?))?)[.:]\s*(.*)$")
+
+
+def slip_links(html):
+    """{citation text, whitespace normalized: href} from CourtListener's links in the <pre> text."""
+    out = {}
+    for href, t in re.findall(r'<a href="(/opinion/[^"]+)"[^>]*>(.*?)</a>', html or "", re.S):
+        t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", t)).strip()
+        if len(t) >= 8:
+            out.setdefault(t, href)
+    return out
+
+
+def relink(el, links):
+    """Put CourtListener's case links back on the citations in a block read from plain text."""
+    if not links:
+        return
+    rx = re.compile("|".join(re.escape(t).replace(r"\ ", r"[\s-]*\s") for t in sorted(links, key=len, reverse=True)))
+    norm = {re.sub(r"\W", "", t): h for t, h in links.items()}
+    kids = []
+    for k in el.kids:
+        if isinstance(k, El):
+            if k.tag != "a":
+                relink(k, links)
+            kids.append(k)
+            continue
+        at = 0
+        for m in rx.finditer(k):
+            href = norm.get(re.sub(r"\W", "", m.group(0)))
+            if not href:
+                continue
+            a = El("a", {"href": href})
+            a.kids.append(m.group(0))
+            kids += [k[at:m.start()], a]
+            at = m.end()
+        kids.append(k[at:])
+    el.kids = [k for k in kids if k != ""]
+
+
+def read_slip(op, oi, warn):
+    """One slip-opinion text -> [opinion dicts] (the Court's, then any separate opinions)."""
+    import html as _html
+    text = op.get("plain_text") or _html.unescape(re.sub(r"<[^>]+>", "", op.get("html_with_citations") or ""))
+    lines, footnotes, labels = layout_pages(text)
+    starts = [(i, m) for i, l in enumerate(lines) for m in [SLIP_AUTHOR_RE.match(l.text)] if m]
+    if not starts:
+        warn("no 'JUDGE, Circuit Judge:' line found; the caption is left in the text")
+        starts = [(0, None)]
+    caption = lines[:starts[0][0]]
+    b = next((i for i, l in enumerate(caption) if l.text.startswith("Before:")), None)
+    byline = []
+    if b is not None:
+        p = El("p")
+        p.kids.append(join_lines([l.text for l in caption[b:]]))
+        byline = [p]
+    links = slip_links(op.get("html_with_citations"))
+    out = []
+    for k, (i, m) in enumerate(starts):
+        end = starts[k + 1][0] if k + 1 < len(starts) else len(lines)
+        seg = lines[i:end]
+        if m and seg:
+            seg[0].text = m.group(4)
+            if not seg[0].text.strip():
+                seg = seg[1:]
+        if not seg:
+            continue
+        lo, hi = seg[0].pi, (lines[end].pi if end < len(lines) else 10 ** 6)
+        fns = [f for f in footnotes if lo <= f[1] < hi or (k == 0 and f[1] < lo)]
+        blocks = recap_blocks(seg, labels)
+        place_marks(blocks, fns, warn, spaced=True)
+        if m is None:
+            who, kind = "Court", ""
+        elif m.group(1):
+            who, kind = "Per Curiam", "per curiam"
+        else:
+            who, kind = "%s, J." % m.group(2).title(), clean(m.group(3) or "")
+        o = {"oi": oi + len(out), "kind": kind, "author": "", "byline": byline if k == 0 else [],
+             "flat": [], "footnotes": {}, "api": op, "start": labels[seg[0].pi], "who": who}
+        fill_opinion(o, blocks, fns)
+        for _, el in o["flat"]:
+            if isinstance(el, El):
+                relink(el, links)
+        for fn in o["footnotes"].values():
+            relink(fn, links)
+        out.append(o)
+    return out
+
+
+def prepare_slip(meta, api_ops, links, statutes):
+    warnings, ops = [], []
+    meta["srcline"] = [s.replace("(Harvard CAP text)", "(slip opinion text)") for s in meta["srcline"]]
+    for op in api_ops:
+        ops += read_slip(op, len(ops), warnings.append)
+    for o in ops:
+        o["ctx"] = Ctx("slip op.", o["who"], o["oi"])
+        o["ctx"].links, o["ctx"].statutes = links, statutes
+        o["kindname"] = o["kind"] or ("opinion of the Court" if o["oi"] == 0 else "opinion")
+        o["ctx"].record = False
+        o["byline_md"] = clean(" ".join(inline(b, "md", o["ctx"], []) for b in o["byline"]))
+        o["byline_tex"] = clean(" ".join(inline(b, "tex", o["ctx"], []) for b in o["byline"]))
+        o["ctx"].record = True
+        o["tree"] = tree_of(o, assign_levels([b[1] for b in o["flat"] if b[0] == "h"]))
+    return meta, ops, warnings
+
+
+# ---------------------------------------------------------------- the local database, for names
+
+_COURTS = {}
+
+
+def local_db():
+    """Read-only connection to casedb's database with the opinion text attached, or None."""
+    try:
+        import casedb, sqlite3
+    except ImportError:
+        return None
+    if not casedb.DB.exists() or Path(str(casedb.DB) + ".loading").exists():
+        return None
+    con = sqlite3.connect("file:%s?mode=ro" % casedb.DB, uri=True, timeout=30)
+    if casedb.OPS_DB.exists():
+        con.execute("ATTACH DATABASE ? AS ops", ("file:%s?mode=ro" % casedb.OPS_DB,))
+    return con
+
+
+def local_docket(did):
+    """The docket from casedb's dockets table when it has the full columns (saves an API request)."""
+    con = local_db()
+    if con is None:
+        return None
+    cols = [r[1] for r in con.execute("PRAGMA table_info(dockets)")]
+    if "nature_of_suit" not in cols:
+        return None
+    row = con.execute("SELECT * FROM dockets WHERE id=?", (did,)).fetchone()
+    if row is None:
+        return None
+    d = {k: v for k, v in zip(cols, row)}
+    d["absolute_url"] = "/docket/%d/%s/" % (did, d.pop("slug", None) or "x")
+    d["case_name_full"] = ""
+    return {k: (v if v is not None else "") for k, v in d.items()}
+
+
+def court_cite(court_id, con):
+    """'laed' -> 'E.D. La.'"""
+    if court_id not in _COURTS:
+        row = con.execute("SELECT citation_string FROM courts WHERE id=?", (court_id,)).fetchone() if con else None
+        _COURTS[court_id] = (row[0] if row and row[0] else court_id or "")
+    return _COURTS[court_id]
+
+
+def opinions_named(ids, con):
+    """RECAP 'cites' (opinion ids) -> [(cluster id, name, cite, court, year)], or None without the database."""
+    if not ids:
+        return []
+    if con is None:
+        return None
+    try:
+        rows = con.execute("SELECT DISTINCT o.cluster_id, c.case_name, c.date_filed, d.court_id FROM ops.opinions o "
+                           "JOIN clusters c ON c.id = o.cluster_id LEFT JOIN dockets d ON d.id = c.docket_id "
+                           "WHERE o.id IN (%s)" % ",".join("?" * len(ids)), list(ids)).fetchall()
+    except Exception:
+        return None
+    out = []
+    for cid, name, filed, court in rows:
+        cs = con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id=? ORDER BY type, reporter", (cid,)).fetchall()
+        main = next((x for x in cs if x[1] == "U.S."), cs[0] if cs else None)
+        out.append((cid, name or "case", "%s %s %s" % main if main else "", court_cite(court, con), (filed or "")[:4]))
+    return sorted(out, key=lambda x: (x[1].lower(), x[4]))
+
+
+MONTHS = ("Jan.", "Feb.", "Mar.", "Apr.", "May", "June", "July", "Aug.", "Sept.", "Oct.", "Nov.", "Dec.")
+
+
+def long_date(iso):
+    """'2010-06-25' -> 'June 25, 2010' (Bluebook month abbreviations)."""
+    try:
+        dt = date.fromisoformat(iso)
+    except (TypeError, ValueError):
+        return iso or ""
+    return "%s %d, %d" % (MONTHS[dt.month - 1], dt.day, dt.year)
+
+
+# ---------------------------------------------------------------- recap build
+
+def recap_build(args):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    path = Path(args.json)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    d = data["docket"]
+    want = doc_numbers(args.docs)
+    docs = [r for r in data["documents"] if (r.get("plain_text") or "").strip() and (not want or doc_key(r) in want)]
+    if not docs:
+        sys.exit("No document text in %s%s. Run ./case2md.py recap fetch --docket %s first." % (
+            path, " for --docs " + args.docs if want else "", d.get("id")))
+    con = local_db()
+    court = court_cite(d.get("court_id"), con)
+    name = d.get("case_name") or "Case"
+    dslug = docket_slug(d)
+    ndir = note_dir(dslug, d)
+    index = load_index()
+    links = {int(k): e["slug"] for k, e in index.items()}
+    statutes = statute_notes()
+    warnings, ops = [], []
+    for i, r in enumerate(docs):
+        o = read_recap(r, d, i, lambda w, k=doc_key(r): warnings.append("ECF No. %s: %s" % (k, w)))
+        o["ctx"] = Ctx("ECF No. %s, p." % doc_key(r), o["who"], i)
+        o["ctx"].links, o["ctx"].statutes = links, statutes
+        o["kindname"] = "ECF No. %s · %s · %s" % (doc_key(r), o["title"], r.get("entry_date_filed") or "")
+        o["byline_md"] = clean(inline(o["byline"][0], "md", o["ctx"], []))
+        o["byline_tex"] = clean(inline(o["byline"][0], "tex", o["ctx"], []))
+        labels = [b[1] for b in o["flat"] if b[0] == "h"]
+        o["tree"] = tree_of(o, assign_levels(labels))
+        ops.append(o)
+
+    # one note per document, then the docket's note
+    written = []
+    for o in ops:
+        r = o["api"]
+        slug = doc_slug(dslug, r)
+        where = note_dir(slug, d, near=dslug)
+        cite = "%s, No. %s, ECF No. %s (%s %s)" % (name, d.get("docket_number"), doc_key(r), court, long_date(r.get("entry_date_filed")))
+        head = ["---", 'title: "%s"' % cite.replace('"', "'"), "aliases:",
+                '  - "%s, ECF No. %s"' % (name.replace('"', "'"), doc_key(r)),
+                "type: court-document", 'document: "%s"' % o["title"].replace('"', "'"),
+                "court: %s" % d.get("court_id"), 'docket: "%s"' % d.get("docket_number"),
+                'docket_note: "[[%s]]"' % dslug, 'ecf: "%s"' % doc_key(r), "filed: %s" % r.get("entry_date_filed"),
+                'judge: "%s"' % o["who"], "pages: %s" % (r.get("page_count") or ""),
+                "courtlistener_docket: %s" % d.get("id"), "recap_document: %s" % r.get("id"),
+                'text_source: "%s"' % (r.get("text_source") or "CourtListener plain_text"),
+                "source: %s%s" % (CL, r.get("absolute_url") or ""), "retrieved: %s" % date.today().isoformat(),
+                "synthetic: false", "---", "", "# %s" % esc(cite, "md"), "",
+                "Docket: [[%s|%s, No. %s (%s)]]" % (dslug, esc(name, "md"), d.get("docket_number"), court), ""]
+        tail = []
+        named = opinions_named(r.get("cites") or [], con)
+        if named:
+            tail += ["## Cites", ""]
+            for cid, nm, ct, cc, yr in named:
+                label = "%s, %s (%s %s)" % (esc(nm, "md"), ct, cc, yr) if ct else "%s (%s %s)" % (esc(nm, "md"), cc, yr)
+                tail.append("- [[%s|%s]]" % (links[cid], label) if cid in links else "- [%s](%s/opinion/%d/)%s (%s %s)" % (
+                    esc(nm, "md"), CL, cid, ", " + ct if ct else "", cc, yr))
+            tail.append("")
+        elif named is None:
+            tail += ["## Cites", "", "*%d opinions (CourtListener opinion ids %s); names need the local database (casedb.py).*"
+                     % (len(r["cites"]), ", ".join(map(str, r["cites"]))), ""]
+        stat = Counter(statute_note(m.group(0)) for m in STATUTE_RE.finditer(r.get("plain_text") or ""))
+        stat.pop(None, None)
+        if stat:
+            tail += ["## Statutes cited", ""]
+            for sn, n in sorted(stat.items(), key=lambda kv: (-kv[1], kv[0])):
+                t, sec = sn.split("-usc-")
+                lab = "%s U.S.C. § %s" % (t, sec)
+                tail.append("- %s%s" % ("[[%s|%s]]" % (sn, lab) if sn in statutes else lab, " ×%d" % n if n > 1 else ""))
+            tail.append("")
+        md = render_md(None, [o], "\n".join(tail), head=head)
+        (where / (slug + ".md")).write_text(md, encoding="utf-8")
+        written.append(where / (slug + ".md"))
+
+    tex_meta = {"title": "%s, No. %s (%s)" % (name, d.get("docket_number"), court), "name": name, "page": "1",
+                "srcline": ["No. %s (%s)" % (d.get("docket_number"), court),
+                            "ECF No%s. %s" % ("s" if len(ops) > 1 else "", ", ".join(doc_key(o["api"]) for o in ops)),
+                            "CourtListener docket %s (RECAP, text from the filed PDFs)" % d.get("id"),
+                            "retrieved " + date.today().isoformat()]}
+    pdf_name = dslug + (("-ecf-" + "-".join(sorted(want, key=lambda x: (len(x), x)))) if want else "")
+    rel_pdf = (pdf_dir(ndir) / (pdf_name + ".pdf")).relative_to(ROOT)
+
+    L = ["---", 'title: "%s"' % tex_meta["title"].replace('"', "'"), "aliases:",
+         '  - "%s"' % name.replace('"', "'"), '  - "No. %s"' % re.sub(r"^\d+:", "", d.get("docket_number") or ""),
+         "type: docket", "court: %s" % d.get("court_id"), 'docket: "%s"' % d.get("docket_number"),
+         'nature_of_suit: "%s"' % (d.get("nature_of_suit") or ""), 'cause: "%s"' % (d.get("cause") or ""),
+         "filed: %s" % (d.get("date_filed") or ""), "terminated: %s" % (d.get("date_terminated") or ""),
+         'judge: "%s"' % (d.get("assigned_to_str") or ""), 'referred_to: "%s"' % (d.get("referred_to_str") or ""),
+         "courtlistener_docket: %s" % d.get("id"), "source: %s%s" % (CL, d.get("absolute_url") or ""),
+         "retrieved: %s" % date.today().isoformat(), "synthetic: false", "---", "",
+         "# %s, No. %s (%s)" % (esc(name, "md"), d.get("docket_number"), court), "",
+         "%s · filed %s%s · %s" % (court, d.get("date_filed") or "?", " · closed %s" % d["date_terminated"] if d.get("date_terminated") else "",
+                                   esc(d.get("nature_of_suit") or d.get("cause") or "", "md")), "",
+         "PDF: `%s`" % rel_pdf, "", "## Orders and opinions", ""]
+    for o in ops:
+        r = o["api"]
+        L.append("- [[%s|ECF No. %s — %s (%s)]] — %s, %s pp." % (doc_slug(dslug, r), doc_key(r), esc(o["title"], "md"),
+                                                                r.get("entry_date_filed"), o["who"], r.get("page_count") or "?"))
+    rest = [r for r in data["documents"] if r not in docs]
+    if rest:
+        L += ["", "## Other documents in RECAP", ""]
+        for r in rest:
+            L.append("- ECF No. %s (%s)%s — %s [↗](%s%s)" % (doc_key(r), r.get("entry_date_filed") or "?",
+                                                           "" if r.get("is_available") else " *not purchased*",
+                                                           esc(clean(r.get("description") or "")[:160], "md"), CL, r.get("absolute_url") or ""))
+    (ndir / (dslug + ".md")).write_text("\n".join(L) + "\n", encoding="utf-8")
+    for p in [ndir / (dslug + ".md")] + written:
+        print("wrote %s" % p.relative_to(ROOT))
+
+    (ROOT / "build").mkdir(exist_ok=True)
+    tex_path = ROOT / "build" / (pdf_name + ".tex")
+    tex_path.write_text(render_tex(tex_meta, ops, args.font, args.style), encoding="utf-8")
+    print("wrote %s" % tex_path.relative_to(ROOT))
+    if not args.no_pdf:
+        pdf = run_pdflatex(tex_path, pdf_dir(ndir))
+        if pdf:
+            print("wrote %s" % pdf.relative_to(ROOT))
+    unmapped_note()
+    for o in ops:
+        print("  ECF No. %-6s %-14s %-32s %s" % (doc_key(o["api"]), o["who"], o["title"][:32], o["summary"]))
+    for w in warnings:
+        print("  note:", w)
+
+
+# ================================================================ find
+
+def find(args):
+    """Search what you already have, then case names and parentheticals in the local database."""
+    import casedb, sqlite3
+    words = [w for w in re.findall(r"[\w'’.-]+", " ".join(args.words)) if w.strip(".-")]
+    if not words:
+        sys.exit("find what?")
+    rx = re.compile("|".join(re.escape(w) for w in words), re.I)
+    allw = lambda t: all(re.search(re.escape(w), t or "", re.I) for w in words)
+
+    # 1. already here: note titles/aliases (front matter) and file names
+    have = []
+    for p in sorted(NOTES.rglob("*.md")) if NOTES.is_dir() else []:
+        head = p.read_text(encoding="utf-8", errors="replace").split("\n---", 1)[0]
+        if allw(p.stem.replace("-", " ") + " " + head):
+            pdf = next(iter(sorted((ROOT / "pdf").rglob(p.stem + "*.pdf"))), None) if (ROOT / "pdf").is_dir() else None
+            have.append((p, pdf))
+    print("Already have (%d):" % len(have))
+    for p, pdf in have[:args.max]:
+        print("  %s%s" % (p.relative_to(ROOT), "   PDF: %s" % pdf.relative_to(ROOT) if pdf else "   (no PDF yet)"))
+
+    if Path(str(casedb.DB) + ".loading").exists():
+        sys.exit("\ncasedb.py load is running; the database is searched after it finishes (only your notes were searched).")
+    con = local_db()
+    if con is None:
+        sys.exit("\nNo local database (casedb.py); only your own notes were searched.")
+    stamp = casedb.search_stamp(con)
+    ok = casedb.SEARCH_DB.exists() and sqlite3.connect(casedb.SEARCH_DB).execute("SELECT stamp FROM meta").fetchone()[0] == stamp
+    if not ok:
+        print("\nBuilding the search index first (once, and again after a reload of clusters or parentheticals).")
+        casedb.build_search(con)
+    s = sqlite3.connect("file:%s?mode=ro" % casedb.SEARCH_DB, uri=True)
+    q = " AND ".join('"%s"' % w.replace('"', "") for w in words)
+    index = load_index()
+
+    def describe(cid):
+        r = con.execute("SELECT c.case_name, c.date_filed, c.citation_count, d.court_id FROM clusters c "
+                        "LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id = ?", (cid,)).fetchone()
+        if not r:
+            return None
+        cs = con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id=? ORDER BY type, reporter", (cid,)).fetchall()
+        main = next((x for x in cs if x[1] == "U.S."), cs[0] if cs else None)
+        return {"cid": cid, "name": r[0] or "?", "year": (r[1] or "")[:4], "cited": r[2] or 0,
+                "cite": "%s %s %s" % main if main else "", "court": court_cite(r[3], con)}
+
+    results = []
+    by_name = [describe(cid) for (cid,) in s.execute("SELECT cluster_id FROM names WHERE names MATCH ? LIMIT 5000", (q,))]
+    by_name = sorted((x for x in by_name if x), key=lambda x: -x["cited"])[:args.max]
+    counts = Counter(oid for (oid,) in s.execute("SELECT described FROM parens WHERE parens MATCH ?", (q,)))
+    by_cid = Counter()
+    for oid, n in counts.items():
+        row = con.execute("SELECT cluster_id FROM ops.opinions WHERE id=?", (oid,)).fetchone()
+        if row:
+            by_cid[row[0]] += n
+    by_paren = [dict(describe(cid), n=n) for cid, n in by_cid.most_common(args.max) if describe(cid)]
+
+    def show(title, rows, note):
+        print("\n%s:" % title)
+        if not rows:
+            print("  (none)")
+        for x in rows:
+            results.append(x["cid"])
+            mine = index.get(str(x["cid"]), {})
+            tag = "have" if mine.get("full") else "note" if mine else ""
+            print("  %2d. %-4s %s%s (%s %s)  cited %d%s" % (len(results), tag, clean(x["name"])[:70],
+                                                        ", " + x["cite"] if x["cite"] else "", x["court"], x["year"],
+                                                        x["cited"], note(x)))
+    show("Case name contains %s" % " ".join(words), by_name, lambda x: "")
+    show("Courts' parentheticals about the case mention %s" % " ".join(words), by_paren,
+         lambda x: "  · %d parentheticals" % x["n"])
+    print("\n  have = text on disk, note = a stub note only")
+
+    if args.get:
+        if not 1 <= args.get <= len(results):
+            sys.exit("--get takes a result number, 1 to %d" % len(results))
+        cid = results[args.get - 1]
+        here = Path(__file__).resolve().parent
+        subprocess.run([sys.executable, str(here / "casemap.py"), "get", "--cluster", str(cid)], check=True)
+        ent = load_index().get(str(cid), {})
+        if not ent.get("full"):
+            sys.exit("casemap.py get did not save the text for cluster %d" % cid)
+        subprocess.run([sys.executable, str(here / "case2md.py"), "build", str(CASES / ent["full"])], check=True)
+    elif results:
+        print("next: ./case2md.py find %s --get N" % " ".join(args.words))
 
 
 def iter_tag(el, tag):
@@ -996,6 +1990,25 @@ def main():
     b.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     b.set_defaults(func=build)
+    fd = sub.add_parser("find", help="search case names and courts' parentheticals (local database)")
+    fd.add_argument("words", nargs="+", help='e.g. glomar, or "state farm"')
+    fd.add_argument("--get", type=int, metavar="N", help="fetch result N from the local database and build its PDF")
+    fd.add_argument("--max", type=int, default=10, help="results per list (default 10)")
+    fd.set_defaults(func=find)
+    rc = sub.add_parser("recap", help="district-court filings from RECAP: fetch, build")
+    rsub = rc.add_subparsers(dest="rcmd", required=True)
+    rf = rsub.add_parser("fetch", help="download a docket's orders to cases/recap/*.json")
+    rf.add_argument("--docket", required=True, help="CourtListener docket id or URL, e.g. 4949363")
+    rf.add_argument("--docs", help="document numbers, e.g. 35,55,66 or 12-1 for an attachment (default: the court's orders and opinions)")
+    rf.add_argument("--all", action="store_true", help="every available document, attachments included")
+    rf.set_defaults(func=recap_fetch)
+    rb = rsub.add_parser("build", help="cases/recap/*.json -> one PDF, a note per document, a docket note")
+    rb.add_argument("json", help="file written by recap fetch")
+    rb.add_argument("--docs", help="only these document numbers (default: every one with text)")
+    rb.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
+    rb.add_argument("--style", default="boxes", choices=["boxes", "rails"])
+    rb.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
+    rb.set_defaults(func=recap_build)
     args = ap.parse_args()
     args.func(args)
 
