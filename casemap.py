@@ -24,6 +24,13 @@
             sample sized for --margin (default +/-5% at 95%); --full reads all.
         --list also writes md-cases/<slug>--cited-by.md, the complete list.
 
+    ./casemap.py stubs [--list] [--max N] [--api] [slug or cluster id ...]
+        Turn stub notes into full cases: for each stub (most-cited first) take the text
+        from the local database and write cases/<cite>_<name>.json plus the full note,
+        so ./build_all.sh builds its PDF. --api: when the database has no text build can
+        read, fetch it from CourtListener instead (rate-limited; stops cleanly at the
+        daily limit, and rerunning resumes). --list: show the stubs, fetch nothing.
+
 Everything downloaded is cached under cases/. No language model anywhere:
 counting, regular expressions, string matching.
 """
@@ -69,6 +76,8 @@ def db_case(con, cid, with_text):
                "case_name_full": cl["case_name_full"], "date_filed": cl["date_filed"], "judges": cl["judges"] or "",
                "citation_count": cl["citation_count"], "other_dates": cl["other_dates"] or "", "scdb_id": cl["scdb_id"] or "",
                "precedential_status": cl["precedential_status"], "summary": cl.get("summary") or "", "syllabus": cl.get("syllabus") or "",
+               "headmatter": (zlib.decompress(cl["headmatter"]).decode("utf-8", "replace") if isinstance(cl.get("headmatter"), bytes)
+                              else cl.get("headmatter") or ""),   # stored compressed; older databases have no column
                "absolute_url": "/opinion/%d/%s/" % (cid, cl["slug"] or "x"),
                "citations": [{"volume": v, "reporter": rp, "page": pg, "type": t} for v, rp, pg, t in
                              con.execute("SELECT volume, reporter, page, type FROM cites WHERE cluster_id=? ORDER BY type, reporter", (cid,))]}
@@ -135,6 +144,356 @@ def cmd_get(args):
         e["short"] or e["name"], e["cite"], e["year"], len(data["opinions"]), len(data["cites"]), e["full"], e["slug"], kind))
     print("PDF: ./case2md.py build cases/%s" % e["full"])
 
+
+# ================================================================ stubs -> full cases
+
+def stub_ids(index, picks):
+    """Cluster ids that are stubs (no full file), most-cited first; picks narrow by id or slug substring."""
+    out = []
+    for cid, e in index.items():
+        if e.get("full") and (c.CASES / e["full"]).exists():
+            continue
+        if not (c.CASES / "stubs" / ("%s.json" % cid)).exists():
+            continue
+        if picks and not any(p == cid or p.lower() in e["slug"] for p in picks):
+            continue
+        out.append(cid)
+    return sorted(out, key=lambda k: -(index[k].get("cited_by") or 0))
+
+
+def readable(data, index):
+    """None if case2md.py build can read this text, else why not."""
+    try:
+        c.prepare(data, index)
+        return None
+    except Exception as e:                   # Unsupported, or a parser surprise: either way, not buildable
+        return str(e) or type(e).__name__
+
+
+def cmd_stubs(args):
+    index = c.load_index()
+    ids = stub_ids(index, args.picks)
+    if args.max:
+        ids = ids[:args.max]
+    if args.list or not ids:
+        for cid in ids:
+            e = index[cid]
+            print("  %-9s cited by %-6s %s, %s (%s)" % (cid, e.get("cited_by") or "?", e["short"] or e["name"], e["cite"], e["year"]))
+        print("%d stubs%s" % (len(ids), "" if ids else " to fetch"))
+        return
+    con = open_db()[0] if casedb.DB.exists() else None
+    if con is None and not args.api:
+        sys.exit("No local database at %s; add --api to fetch the stubs from CourtListener instead." % casedb.DB)
+    tok, got_n, left = None, Counter(), []
+    for k, cid in enumerate(ids, 1):
+        e = index[cid]
+        label = "%s, %s" % (e["short"] or e["name"], e["cite"])
+        stub = json.loads((c.CASES / "stubs" / ("%s.json" % cid)).read_text(encoding="utf-8"))
+        how, why = None, "not in the local database"
+        if con is not None:
+            data = db_case(con, int(cid), True)
+            if data is not None:
+                why = readable(data, index)
+                if why is None:
+                    save_case(data, index, True)
+                    how = "database"
+        if how is None and args.api:
+            tok = tok or c.token()
+            cluster = c.call("%s/clusters/%s/" % (c.API, cid), tok)   # stops cleanly at the daily limit
+            out = c.fetch_cluster(cluster, tok)
+            data = json.loads(out.read_text(encoding="utf-8"))
+            if stub.get("cites") is not None:                           # keep what the citation map knew
+                data["cites"] = stub["cites"]
+                out.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+            why = readable(data, index)
+            if why is None:
+                c.register(data, index, out)
+                how = "API"
+            else:                                                       # out of cases/, so build_all.sh skips it
+                (c.CASES / "unparsed").mkdir(exist_ok=True)
+                out.replace(c.CASES / "unparsed" / out.name)
+        if how:
+            c.save_index(index)
+            kind = c.write_note(int(cid), index)
+            got_n[how] += 1
+            print("%3d/%d  ok    %-55s from the %s -> cases/%s (%s note)" % (k, len(ids), label[:55], how, index[cid]["full"], kind))
+        else:
+            left.append(cid)
+            print("%3d/%d  stub  %-55s %s" % (k, len(ids), label[:55], why))
+    print("fetched %d (%s), still stubs %d%s" % (sum(got_n.values()), ", ".join("%d %s" % (n, h) for h, n in got_n.items()) or "none",
+                                                 len(left), "" if args.api or not left else "   (--api tries CourtListener for these)"))
+    if got_n:
+        print("PDFs: ./build_all.sh cases")
+
+
+# ---------------------------------------------------------------- good-law check (no language model)
+# Warning words about this case in the opinions that cite it: next to its citations, and in
+# sentences that name it ("Chevron is overruled."). A flag with its evidence, for deciding what
+# to read -- not a citator. Read: every citing opinion from a court at the case's level or above
+# (up to GOODLAW_MAX), plus the GOODLAW_RECENT newest from any court.
+# The rules were tuned with goodlaw_eval.py against 40 overruled Supreme Court cases and 20 that
+# never were (ruleset R9 there); rerun it after changing anything here.
+GOODLAW_RECENT, GOODLAW_MAX = 500, 1500
+GOODLAW_VERSION = 5            # bump when the rules change: cached results are redone
+RANK = {"supreme": 3, "circuit": 2, "district": 1, "other": 0}
+V_PASSIVE = r"overruled|abrogated|superseded|rev'd|reversed|vacated|disapproved"
+V_MORE = V_PASSIVE + r"|overturned|repudiated|abandoned"
+HIST_TAIL = r"(?=\s*(?:by\b|in\b|on\b|sub\b|as\b|[,;.)\]]|$))"
+# "we overrule X" -- the court doing it
+OVERRULE_HERE_RE = re.compile(r"\b(?:we|today we|we now|we hereby)\s+(?:\w+\s+)?(overrule|disapprove|abrogate)\b[^.;]{0,120}$", re.I)
+OTHER_GROUNDS_RE = re.compile(r"^[^.;]{0,60}on other grounds", re.I)
+# a full stop after a word of 2+ letters or a closing bracket/quote (not "v." or "U. S."), or at the very start
+SENTENCE_END = re.compile(r"(?:^|(?<=[a-z0-9]{2})|(?<=[)”\"]))\.\s+(?=[A-Z])")
+# a strong word in a sentence like these is a hypothesis, an argument or a prediction, not a holding:
+# "Unless Roe ... is overruled", "will declare that Roe is no longer good law", "Defendant argues that Apodaca has been overruled"
+SENT_HYPO_RE = re.compile(r"\b(unless|until|if|whether|should|would|will|shall|urg\w*|ask\w*|invit\w*|predict\w*|may|might|could|"
+                          r"argu\w*|contend\w*|claim\w*|suggest\w*|assert\w*|insist\w*|maintain\w*|disagree\w*)\b", re.I)
+# the same for "we overrule X": not after "unless", "if", "not", "urge" ... within a few words
+HYPOTHETICAL_RE = re.compile(r"\b(unless|if|until|whether|not|never|nor|would|should|could|might|may|to|urge[sd]?|ask(?:s|ed)?)\s+(?:\w+\s+){0,4}$", re.I)
+WEAK_TIGHT_RE = re.compile(r"\b(questioned|criticized|called into (?:serious )?(?:question|doubt)|declin\w+ to (?:follow|extend)|"
+                           r"no longer (?:good law|valid|followed)|limited to its facts|eroded)", re.I)
+NAME_STOP = {"united states", "state", "people", "commonwealth", "commissioner", "in re", "ex parte", "doe", "smith"}
+STATES = {"alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "florida", "georgia",
+          "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts",
+          "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey",
+          "new mexico", "new york", "north carolina", "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania", "rhode island",
+          "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont", "virginia", "washington", "west virginia",
+          "wisconsin", "wyoming"}
+
+# The rules as switches, so goodlaw_eval.py can try variants of them. These are R9.
+RULES = {"verbs": V_MORE, "names": True, "ing_name": True, "rejected": True, "read": ["above", "newest"],
+         "red_above": 1, "red_lower": 2, "sent_guard": True, "sep": True, "tight_is": True, "weak_tight": True}
+
+
+def compile_rules(rs):
+    c = dict(rs)
+    verbs = rs["verbs"]
+    # right after the citation (pin, parallel cites and parenthetical skipped), after a comma or paren:
+    # "463 U.S. 29 (1983), overruled by X" -- never "Casey repudiated" (the case doing it)
+    c["anchored"] = re.compile(r"^(?:\s*,\s*(?:at\s+)?\d[\d\s,–-]*)?(?:\s*,\s*\d+\s+[A-Z][\w. ]{1,12}\s+\d+(?:,\s*\d+)?)*"
+                               r"(?:\s*\([^()]{0,80}\))?\s*" + (r"[,;(]\s*" if rs.get("sep") else r"[,;]?\s*") +
+                               "(" + verbs + ")" + HIST_TAIL, re.I)
+    # "<citation> is overruled" / "<citation>, which has been abrogated": the case itself as the subject
+    c["is_over"] = re.compile((r"^(?:\s*,\s*(?:at\s+)?\d[\d\s,–-]*)?(?:\s*\([^()]{0,80}\))?\s*,?\s*(?:which\s+|that\s+)?"
+                               if rs.get("tight_is") else r"^[^.;]{0,60}?\b") +
+                              r"(?:is|are|was|were|has been|have been)\s+(?:hereby\s+|now\s+|effectively\s+|implicitly\s+|expressly\s+)?"
+                              r"(" + verbs + r"|no longer good law)\b(?!\s+(?:in part|on other))", re.I)
+    return c
+
+
+def case_names(short, full):
+    """The name courts use for the case without citing it: the short name ('Chevron', 'Plessy'),
+    not a state or a generic party ('Arizona', 'United States')."""
+    n = re.sub(r",.*$|\bet al\.?$", "", (short or "")).strip()
+    if n and len(n) >= 3 and n.lower() not in NAME_STOP and n.lower() not in STATES and len(n.split()) <= 3:
+        return [n]
+    return []
+
+
+def name_rxs(c, names):
+    nverbs = "|".join(v for v in c["verbs"].split("|") if v not in ("rev'd", "reversed", "vacated")) + ("|rejected" if c.get("rejected") else "")
+    out = []
+    for n in names:
+        q = re.escape(n)
+        # "Chevron is overruled", "Plessy v. Ferguson contrary to this finding is rejected"
+        out.append(("passive", re.compile(r"\b%s\b(?:[^.;]|(?<=\bv)\.){0,60}?\b(?:is|are|was|were|has been|have been|stands)\s+"
+                                          r"(?:hereby\s+|now\s+|therefore\s+|accordingly\s+|expressly\s+|effectively\s+)?(%s)\b"
+                                          r"(?!\s+(?:in part|on other))" % (q, nverbs))))
+        # "we now overrule Chevron", "the Court overruled Chevron"
+        out.append(("we", re.compile(r"\b(?:we|today we|we now|we hereby|the Court|this Court|the Supreme Court)\s+(?:\w+\s+){0,2}"
+                                     r"(overrule[sd]?|repudiate[sd]?|overturn(?:ed|s)?)\s+%s\b" % q, re.I)))
+        if c.get("ing_name"):   # "Brown v. Board, 347 U.S. 483 (1954) (overruling Plessy v. Ferguson ...)"
+            out.append(("ing", re.compile(r"\((overruling|abrogating|overturning|repudiating)\s+(?:in part\s+)?%s\b" % q)))
+    return out
+
+
+def sentence_window(before, after):
+    """The citation's own sentence: back to the last full stop, on to the next."""
+    return re.split(SENTENCE_END, before)[-1][-200:], re.split(SENTENCE_END, after)[0][:150]
+
+
+def classify(c, before, after):
+    """One citation -> (kind, word): kind is strong | other grounds | weak, or (None, None)."""
+    hit = c["anchored"].match(after) or c["is_over"].match(after) or OVERRULE_HERE_RE.search(before)
+    if hit and c.get("sent_guard"):
+        b, a = sentence_window(before, after)
+        if SENT_HYPO_RE.search(b) or SENT_HYPO_RE.search(after[:hit.start()]):
+            hit = None
+    if hit:
+        return ("other grounds" if OTHER_GROUNDS_RE.match(after[hit.end():]) else "strong"), hit.group(1).lower()
+    b, a = sentence_window(before, after)
+    b, a = b[-80:], a[:80]                   # softer words: near the citation, not negated, not in a quotation
+    for q in (b, a):
+        q2 = re.sub(r"[“\"][^”\"]*[”\"]", " ", q)
+        hit = WEAK_TIGHT_RE.search(q2)
+        if hit and not re.search(r"\b(not|never|no|nor)\b[^.;]{0,40}$", q2[:hit.start()]):
+            return "weak", hit.group(1).lower()
+    return None, None
+
+
+def other_case(s, parties, names, m):
+    """True when the name in this match is followed by 'v. <someone else>' ('Aguilar v. Texas' is not 'Aguilar v. Felton')."""
+    if len(parties) < 2:
+        return False
+    for n in names:
+        for k in re.finditer(r"\b%s\s+v\.\s+([A-Z][\w'-]+)" % re.escape(n), s[max(0, m.start() - 5):m.end() + 60]):
+            if k.group(1).lower() not in re.findall(r"[\w'-]+", parties[1]):
+                return True
+    return False
+
+
+def _cite_marks(text, cites):
+    """Plain-text opinions have no citation links: mark '463 U.S. 29' (any spacing) instead."""
+    for ct in cites:
+        vol, rep_, page = str(ct[0] or ""), ct[1] or "", str(ct[2] or "")
+        if vol.isdigit() and page.isdigit() and rep_:
+            flex = r"\s*".join(re.escape(ch) for ch in rep_.replace(" ", ""))
+            text = re.sub(r"\b%s\s+%s\s+%s\b" % (vol, flex, page), lambda m: "\x01" + m.group(0) + "\x02", text)
+    return text
+
+
+def opinion_windows(raw, cid, cites, name_rx):
+    """-> (citation windows [(before, anchor, after)], sentences naming the case) for one citing opinion."""
+    text = marked_text(raw, cid)
+    if "\x01" not in text:                        # no links to this case: look for its citation instead
+        text = _cite_marks(marked_text(raw, -1), cites)
+    wins = []
+    for para in text.split("\n"):
+        for m in re.finditer("\x01([^\x02]*)\x02", para):
+            wins.append([para[max(0, m.start() - 300):m.start()].replace("\x01", "").replace("\x02", ""), m.group(1),
+                         para[m.end():m.end() + 200].replace("\x01", "").replace("\x02", "")])
+    plain = text.replace("\x01", "").replace("\x02", "")
+    sents = [plain[max(0, m.start() - 160):m.end() + 160] for m in name_rx.finditer(plain)] if name_rx else []
+    return wins[:40], sents[:40]
+
+
+def evaluate(case, rs, c=None):
+    """case: {"name", "names", "ops": [{cluster, year, court, above, why, wins, sents, ...}]} -> (status, yellow, red, evidence)."""
+    c = c or compile_rules(rs)
+    parties = [x.strip().lower() for x in (case.get("name") or "").split(" v. ")]
+    names = case.get("names") or []
+    nrx = name_rxs(c, names) if rs.get("names") else []
+    ev, seen = [], set()
+    for o in case["ops"]:
+        if not set(o.get("why", ["above", "newest"])) & set(rs["read"]):
+            continue
+        found = []
+        for kind_rx, rx in nrx:
+            for s in o["sents"]:
+                for m in rx.finditer(s):
+                    if other_case(s, parties, names, m):
+                        continue
+                    if kind_rx != "passive" and HYPOTHETICAL_RE.search(s[max(0, m.start() - 60):m.start()]):
+                        continue
+                    if c.get("sent_guard") and SENT_HYPO_RE.search(re.split(SENTENCE_END, s[:m.start()])[-1] + s[m.start():m.end()]):
+                        continue
+                    found.append(("strong", m.group(1).lower(), s))
+                    break
+        for b, anc, a in o["wins"]:
+            k, w = classify(c, b, a)
+            if k:
+                found.append((k, w, b[-160:] + "⟦" + anc + "⟧" + a[:120]))
+        for k, w, snip in found:
+            if (o["cluster"], k) in seen:        # once per citing case (a cluster can hold 2 copies)
+                continue
+            seen.add((o["cluster"], k))
+            ev.append({"cluster": o["cluster"], "name": o.get("name", ""), "slug": o.get("slug", "x"), "court": o["court"],
+                       "year": o["year"], "above": o["above"], "kind": k, "word": w,
+                       "snippet": re.sub(r"\s+", " ", snip).strip()})
+    # red: sure -- a court that could overrule it says so, or two lower courts report it
+    strong = sorted((e for e in ev if e["kind"] == "strong"), key=lambda e: e["year"])
+    red = None
+    for i, e in enumerate(strong):
+        if sum(x["above"] for x in strong[:i + 1]) >= rs["red_above"] or sum(not x["above"] for x in strong[:i + 1]) >= rs["red_lower"]:
+            red = e["year"]
+            break
+    # yellow: doubts -- any other strong word or "on other grounds", three softer words, or two from courts above
+    doubts = sorted((e for e in ev if e["kind"] != "weak"), key=lambda e: e["year"])
+    weak = sorted((e for e in ev if e["kind"] == "weak"), key=lambda e: e["year"])
+    wa = [e for e in weak if e["above"]]
+    cands = [e["year"] for e in doubts[:1]] + ([weak[2]["year"]] if len(weak) >= 3 else []) + ([wa[1]["year"]] if len(wa) >= 2 else [])
+    yellow = min(cands) if cands else None
+    if red and (not yellow or red < yellow):
+        yellow = red
+    order = {"strong": 0, "other grounds": 1, "weak": 2}
+    ev.sort(key=lambda e: (order[e["kind"]], not e["above"], e["year"]))
+    return ("red" if red else "yellow" if yellow else "green"), yellow, red, ev
+
+
+def citing_rows(con, cid):
+    return con.execute(
+        "SELECT DISTINCT o.id, cl.id, cl.date_filed, d.court_id, ct.jurisdiction, ct.citation_string, "
+        "coalesce(nullif(cl.case_name_short,''), nullif(cl.case_name,''), 'cluster ' || cl.id), cl.slug "
+        "FROM edges e JOIN ops.opinions o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
+        "LEFT JOIN dockets d ON d.id = cl.docket_id LEFT JOIN courts ct ON ct.id = d.court_id "
+        "WHERE e.cited IN (SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ?", (cid, cid)).fetchall()
+
+
+def goodlaw_case(con, cid, strat=0, show=None):
+    """Read this case's citing opinions -> the case dict evaluate() takes. strat > 0 adds that many
+    older opinions per decade (goodlaw_eval.py uses it to try reading more)."""
+    me = con.execute("SELECT cl.date_filed, d.court_id, ct.jurisdiction, cl.case_name, cl.case_name_short FROM clusters cl "
+                     "LEFT JOIN dockets d ON d.id = cl.docket_id LEFT JOIN courts ct ON ct.id = d.court_id WHERE cl.id = ?", (cid,)).fetchone()
+    my_level, my_court = (level_of(me[1], me[2]), me[1]) if me else ("other", None)
+    cites = con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id = ?", (cid,)).fetchall()
+    names = case_names(me[4] if me else "", me[3] if me else "")
+    name_rx = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(n) for n in names)) if names else None
+    rows = citing_rows(con, cid)
+
+    def can_overrule(r):
+        lv = level_of(r[3], r[4])
+        if my_level == "other":
+            return lv == "supreme" or bool(r[3] and r[3] == my_court)
+        return RANK[lv] >= RANK[my_level]
+    newest = sorted(rows, key=lambda r: r[2] or "", reverse=True)
+    pick = {}
+    for r in [x for x in newest if can_overrule(x)][:GOODLAW_MAX]:
+        pick.setdefault(r[0], [r, set()])[1].add("above")
+    for r in newest[:GOODLAW_RECENT]:
+        pick.setdefault(r[0], [r, set()])[1].add("newest")
+    if strat:
+        by_decade = {}
+        for r in newest[GOODLAW_RECENT:]:
+            by_decade.setdefault((r[2] or "0000")[:3], []).append(r)
+        for rs_ in by_decade.values():
+            for r in rs_[::max(1, len(rs_) // strat)][:strat]:
+                pick.setdefault(r[0], [r, set()])[1].add("strat")
+    ops = []
+    for oid, (r, why) in pick.items():
+        row = con.execute("SELECT field, text FROM ops.opinions WHERE id = ?", (oid,)).fetchone()
+        if not row or not row[1]:
+            continue
+        raw = zlib.decompress(row[1]).decode("utf-8", "replace")
+        wins, sents = opinion_windows(raw, cid, cites, name_rx)
+        if show and show.lower() in raw.lower():
+            print("\n== %s %s (%s)%s  opinion %d, %d citation marks, %d name mentions" % (
+                (r[2] or "")[:4], r[6], r[5] or r[3], " could overrule" if can_overrule(r) else "", oid, len(wins), len(sents)))
+            c = compile_rules(RULES)
+            for b, anc, a in wins:
+                print("   %-13s %s" % (classify(c, b, a)[0] or "-", re.sub(r"\s+", " ", b[-90:] + "⟦" + anc + "⟧" + a[:90])))
+        ops.append({"oid": oid, "cluster": r[1], "name": r[6], "slug": r[7] or "x", "year": (r[2] or "")[:4],
+                    "court": r[5] or r[3] or "?", "level": level_of(r[3], r[4]), "above": can_overrule(r),
+                    "why": sorted(why), "wins": wins, "sents": sents})
+    return {"cluster": cid, "name": me[3] if me else "", "names": names, "level": my_level, "of": len(rows), "ops": ops}
+
+
+def goodlaw(con, cid, show=None):
+    """-> {"status": green|yellow|red, "yellow_year", "red_year", "read", "of", "evidence": [...]}"""
+    case = goodlaw_case(con, cid, show=show)
+    status, yellow, red, ev = evaluate(case, RULES)
+    return {"status": status, "yellow_year": yellow, "red_year": red, "level": case["level"], "version": GOODLAW_VERSION,
+            "read": len(case["ops"]), "of": case["of"], "evidence": ev[:25], "n_evidence": len(ev)}
+
+
+def cmd_goodlaw(args):
+    """Run the good-law check for one case and print the result (and, with --show, what it read)."""
+    con, done = open_db()
+    cid = root_cluster(args, con)
+    r = goodlaw(con, cid, args.show)
+    print("\n%s: status %s, yellow from %s, red from %s; read %d of %d citing opinions (case level: %s)" % (
+        cid, r["status"].upper(), r["yellow_year"], r["red_year"], r["read"], r["of"], r["level"]))
+    for e in r["evidence"]:
+        print("  %s %-12s %-13s %-18s %s| %s" % (e["year"], e["court"][:12], e["kind"], e["word"], "above " if e["above"] else "", e["snippet"][:160]))
 
 # ================================================================ map (outbound)
 
@@ -784,7 +1143,13 @@ def main():
         return cmd_fixlinks(None)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, fn in (("get", cmd_get), ("map", cmd_map), ("citedby", cmd_citedby)):
+    st = sub.add_parser("stubs", help="fetch full text for stub notes")
+    st.add_argument("picks", nargs="*", help="only these: cluster ids, or parts of note names (default: every stub)")
+    st.add_argument("--list", action="store_true", help="show the stubs, fetch nothing")
+    st.add_argument("--max", type=int, help="at most this many (the most-cited first)")
+    st.add_argument("--api", action="store_true", help="fall back to the CourtListener API when the database has no readable text")
+    st.set_defaults(func=cmd_stubs)
+    for name, fn in (("get", cmd_get), ("map", cmd_map), ("citedby", cmd_citedby), ("goodlaw", cmd_goodlaw)):
         p = sub.add_parser(name)
         p.add_argument("json", nargs="?", help="a cases/*.json file")
         p.add_argument("--cluster", type=int, help="or a CourtListener cluster id")
@@ -794,6 +1159,8 @@ def main():
             p.add_argument("--depth", type=int, default=1, help="how many citation steps out from the root get a note")
             p.add_argument("--text", type=int, default=None, help="how many of those steps get full text (default: depth - 1; the outer ring is stubs)")
             p.add_argument("--max", type=int, default=3000, help="stop if the map would exceed this many notes")
+        elif name == "goodlaw":
+            p.add_argument("--show", metavar="WORD", help="print every citation window in the opinions read that contain WORD")
         elif name == "citedby":
             p.add_argument("--sample-over", type=int, default=2000, help="read every citing opinion up to this many; sample above it")
             p.add_argument("--margin", type=float, default=0.05, help="target 95%% margin of error when sampling (default 0.05)")
@@ -804,7 +1171,7 @@ def main():
             p.add_argument("--steps", type=int, default=10, help="how many citation steps back to follow a sentence's wording")
             p.add_argument("--min-run", type=int, default=7, help="consecutive shared words that count as the same wording")
     args = ap.parse_args()
-    if not (args.json or args.cluster or args.cite):
+    if args.cmd != "stubs" and not (args.json or args.cluster or args.cite):
         ap.error('give a cases/*.json file, --cluster ID or --cite "401 U.S. 402"')
     args.func(args)
 

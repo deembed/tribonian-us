@@ -11,6 +11,8 @@
 #   ./build_all.sh                build everything out of date
 #   ./build_all.sh cases          only cases/ and cases/recap/   (or: usc)
 #   ./build_all.sh --todo         list what would be built; build nothing
+#   ./build_all.sh --stubs        first turn stub notes into full cases (casemap.py stubs),
+#                                 then build; STUB_ARGS="--api --max 20" passes options
 #   FORCE=1 ./build_all.sh        rebuild regardless of dates (after changing a generator)
 #   ./build_all.sh list.txt       build exactly the jobs in a list, always
 #   ./build_all.sh build/failed_jobs.txt   retry what failed last run
@@ -116,12 +118,15 @@ run_job() {                         # $1 = job line: "usc <xml> <sel...>" | "cas
     esac
 }
 
-# ---- one XML's chapter jobs, cached in build/chapters/ until the XML changes
+# ---- one XML's chapter jobs, cached in build/chapters/ until the XML changes.
+# ---- Writes the cache only: parallel workers printing to one pipe can split
+# ---- each other's lines, so the main script reads the caches afterwards.
+chapter_cache() { echo "build/chapters/$(basename "$1" .xml).txt"; }
 list_usc() {
     local xml=$1 cache chapters
-    cache="build/chapters/$(basename "$xml" .xml).txt"
+    cache=$(chapter_cache "$xml")
     if [[ ! -f $cache || $xml -nt $cache ]]; then
-        chapters=$(python3 usc2md.py "$xml" --list-chapters) || { echo "usc $xml --all"; return; }
+        chapters=$(python3 usc2md.py "$xml" --list-chapters) || return   # no cache: built as one --all job
         chapters=$(cut -f1 <<< "$chapters")
         if [[ -z $chapters ]]; then
             echo "usc $xml --all"
@@ -129,7 +134,6 @@ list_usc() {
             while read -r ch; do echo "usc $xml --chapter $ch"; done <<< "$chapters"
         fi > "$cache.$$" && mv -f "$cache.$$" "$cache"
     fi
-    cat "$cache"
 }
 
 # ---- a line of a list file -> a job line
@@ -159,10 +163,11 @@ due() {
 if [[ ${1:-} == --job ]];  then run_job "$2"; exit 0; fi
 if [[ ${1:-} == --list ]]; then list_usc "$2"; exit 0; fi
 
-TODO=; SCOPE=all; LISTFILE=
+TODO=; SCOPE=all; LISTFILE=; STUBS=
 for a in "$@"; do
     case $a in
         --todo)          TODO=1 ;;
+        --stubs)         STUBS=1 ;;
         usc|cases|all)   SCOPE=$a ;;
         *)               LISTFILE=$a ;;
     esac
@@ -170,6 +175,10 @@ done
 
 mkdir -p pdf md build build/chapters "$SCRATCH"
 touch "$MANIFEST"
+# stubs first, so the cases they become are in this build. A stop (e.g. the API's
+# daily limit) still builds what was fetched; rerunning resumes.
+# shellcheck disable=SC2086
+[[ -n $STUBS && -z $TODO ]] && { python3 casemap.py stubs ${STUB_ARGS:-} || echo "(stub fetch stopped early; building what there is)"; }
 joblist=$(mktemp "$SCRATCH/jobs.XXXXXX"); log=$(mktemp "$SCRATCH/log.XXXXXX"); all=$(mktemp "$SCRATCH/all.XXXXXX")
 trap 'rm -f "$joblist" "$log" "$all"' EXIT
 
@@ -188,6 +197,10 @@ else
         if [[ $SCOPE != cases ]]; then
             # listing parses every changed XML, so do that in parallel as well
             printf '%s\n' xml/*.xml | xargs -d '\n' -P "$JOBS" -n 1 "$SELF" --list
+            for x in xml/*.xml; do
+                c=$(chapter_cache "$x")
+                if [[ -f $c ]]; then cat "$c"; else echo "usc $x --all"; fi
+            done
         fi
     } > "$all"
     while IFS=$'\t' read -r j p; do BUILT[$j]=$p; done < "$MANIFEST"

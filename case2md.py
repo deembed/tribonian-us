@@ -5,9 +5,11 @@
     ./case2md.py fetch --cluster 110991
     ./case2md.py build cases/463-u-s-29_*.json   # -> md-cases/, build/, pdf/
     ./case2md.py find glomar                     # search case names + courts' parentheticals
+    ./case2md.py find "arbitrary and capricious" rulemaking   # quoted = a phrase; all terms must match
     ./case2md.py find glomar --get 3             # fetch result 3 from the local database and build its PDF
     ./case2md.py recap fetch --docket 4949363    # district-court filings (RECAP) -> cases/recap/*.json
     ./case2md.py recap build cases/recap/laed-09-cv-06732_*.json   # one PDF, a note per order
+    ./case2md.py usage                           # API requests used (minute/hour/day) and history
 The citation graph (stub notes, wikilinks, cited-by statistics) is casemap.py.
 
 build reuses the LaTeX preamble (page size, boxes, running header/footer) and
@@ -19,7 +21,7 @@ by CourtListener in html_with_citations.
 Token: environment variable COURTLISTENER_TOKEN, else the GNOME keyring via
     secret-tool lookup service courtlistener
 """
-import argparse, fcntl, json, os, re, shutil, subprocess, sys, tempfile, time, unicodedata
+import argparse, atexit, fcntl, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, unicodedata
 from contextlib import contextmanager
 from collections import Counter
 from datetime import date
@@ -40,10 +42,24 @@ WINDOWS = (60, 3600, 86400)
 PAUSE = 0               # extra seconds between requests, on top of the limits
 
 
-def throttle():
+USED = 0               # API requests made by this process (reported at exit)
+
+
+def _report_usage():
+    if USED:
+        print("CourtListener API: %d request%s by this command; %d of %d left today" % (
+            USED, "" if USED == 1 else "s", budget_left(), LIMITS[-1]), file=sys.stderr)
+
+
+atexit.register(_report_usage)
+
+
+def throttle(url=""):
     """Wait until one more request fits in every window; if the DAY is used up,
     stop cleanly instead (everything is cached, so rerunning the same command
-    later picks up where this stopped). Request times persist in cases/_api_log.json."""
+    later picks up where this stopped). Request times persist in cases/_api_log.json
+    (last 24 h, for the limits); every request is also kept in cases/_api_history.tsv."""
+    global USED
     CASES.mkdir(parents=True, exist_ok=True)
     logp = CASES / "_api_log.json"
     while True:
@@ -56,6 +72,11 @@ def throttle():
                 waits.append((recent[-lim] + win - now + 1, win))
         if not waits:
             logp.write_text(json.dumps(log + [now]))
+            USED += 1
+            cmd = " ".join([Path(sys.argv[0]).name] + [a for a in sys.argv[1:] if not a.startswith("-")][:2])
+            with open(CASES / "_api_history.tsv", "a", encoding="utf-8") as h:
+                h.write("%s\t%s\t%s\n" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)), cmd,
+                                           urllib.parse.urlparse(url).path.replace("/api/rest/v4", "")))
             return
         wait, win = max(waits)
         if win == WINDOWS[-1]:
@@ -97,7 +118,7 @@ def call(url, tok, data=None, soft=False):
     soft=(403, 404): any of those codes does."""
     body = urllib.parse.urlencode(data).encode() if data else None
     for attempt in range(5):
-        throttle()
+        throttle(url)
         if PAUSE:
             time.sleep(PAUSE)
         req = urllib.request.Request(url, data=body, headers={
@@ -414,6 +435,10 @@ def inline(node, mode, ctx, marks):
                 out.append(wrap(inline(k, mode, ctx, marks), "[", "](%s%s)" % (CL, k.attrs["href"])))
         elif k.tag == "span" and mode == "md" and "citation" in cls and statute_note(k.text()) in ctx.statutes:
             out.append(wrap(inline(k, mode, ctx, marks), "[[%s|" % statute_note(k.text()), "]]"))
+        elif k.tag == "leader":                          # toc entry: dots out to the page(s)
+            pages = esc(k.attrs.get("pages", ""), mode)
+            out.append(" … %s" % pages if mode == "md" else
+                       "\\leaders\\hbox to .6em{\\hss.\\hss}\\hskip 1.5em plus 1fill\\nobreak\\mbox{\\,%s}" % pages)
         elif k.tag == "br":
             out.append(" ")
         else:
@@ -444,6 +469,289 @@ def statute_notes():
 def clean(s):
     s = re.sub(r"\s+", " ", s).strip()
     return re.sub(r"\s*(•|\\textbullet\{\})$", "", s)     # scan speck read as a bullet at a paragraph's end
+
+
+# ---------------------------------------------------------------- case profile
+# Counted from the local database (casedb.py): how many later cases cite this one, per year.
+# Cached in cases/citedby/<cluster>/profile.json and recounted when the bulk data changes.
+PROFILE_COLOR = "cyan!12"
+RECENT = 5                     # "recent" = the last 5 full years before the bulk data's date
+_PROFILE_DB = []
+
+
+def profile_data(cid, scan=False):
+    """-> {"stamp", "years": {year: citing cases}, "goodlaw": {...} when scan} or None (no database,
+    nothing cached). scan=True also runs the good-law check (casemap.goodlaw): full cases only,
+    since it reads citing opinions' text."""
+    if cid is None:
+        return None
+    path = CASES / "citedby" / str(cid) / "profile.json"
+    old = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    if not _PROFILE_DB:
+        _PROFILE_DB.append(local_db())         # one connection per process
+    con = _PROFILE_DB[0]
+    if con is None:
+        return old
+    try:
+        row = con.execute("SELECT file FROM loaded WHERE name='citation-map'").fetchone()
+        stamp = re.search(r"\d{4}-\d\d-\d\d", row[0]).group(0) if row else ""
+        import casemap
+        fresh = (old.get("goodlaw") or {}).get("version") == casemap.GOODLAW_VERSION if old else False
+        if old and old.get("stamp") == stamp and (fresh or not scan):
+            return old
+        years = {y: n for y, n in con.execute(
+            "SELECT substr(cl.date_filed, 1, 4) AS y, count(DISTINCT cl.id) FROM edges e "
+            "JOIN ops.opinions o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
+            "WHERE e.cited IN (SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ? "
+            "GROUP BY y", (cid, cid)) if y and y.isdigit()}
+    except Exception as e:                   # tables not loaded yet, or an older database
+        print("  note: no cited-by counts (%s)" % e)
+        return old
+    new = {"stamp": stamp, "years": years}
+    if scan:
+        import casemap
+        try:
+            new["goodlaw"] = casemap.goodlaw(con, cid)
+        except Exception as e:
+            print("  note: good-law check failed (%s)" % e)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".%d.tmp" % os.getpid())
+    tmp.write_text(json.dumps(new), encoding="utf-8")
+    os.replace(tmp, path)
+    return new
+
+
+def profile_stats(prof, decided):
+    """Totals and the recent window, from the per-year counts."""
+    years = {int(y): n for y, n in (prof or {}).get("years", {}).items()}
+    if not years:
+        return None
+    end = int((prof.get("stamp") or str(max(years)))[:4]) - 1          # last full year in the data
+    first = int(decided[:4]) if (decided or "")[:4].isdigit() else min(years)
+    span = list(range(first, end + 1))            # full years only: the bulk data's own year is partial
+    recent = sum(years.get(y, 0) for y in range(end - RECENT + 1, end + 1))
+    before = sum(years.get(y, 0) for y in range(end - 2 * RECENT + 1, end - RECENT + 1))
+    total = sum(years.values())
+    peak = max(years, key=years.get)
+    trend = ("new" if not before else "rising" if recent > 1.2 * before else
+             "falling" if recent < 0.8 * before else "steady")
+    return {"years": years, "span": span, "end": end, "recent": recent, "before": before,
+            "total": total, "peak": peak, "trend": trend, "stamp": prof.get("stamp", ""),
+            "goodlaw": prof.get("goodlaw")}
+
+
+GL_COLORS = {"green": ("#2e8b57", "green!55!black"), "yellow": ("#d4a017", "yellow!85!orange"),
+             "red": ("#c0392b", "red!75!black")}
+GL_WORDS = {"green": "no warning words found", "yellow": "doubts: check its status", "red": "likely overruled or superseded: check before relying on it"}
+
+
+def bar_status(st, label):
+    """Colour of the bar that starts at year <label>: the check's status as of that year."""
+    gl, y = st.get("goodlaw") or {}, int(label)
+    if gl.get("red_year") and y >= int(gl["red_year"]):
+        return "red"
+    if gl.get("yellow_year") and y >= int(gl["yellow_year"]):
+        return "yellow"
+    return "green"
+
+
+def goodlaw_md(st):
+    gl = st.get("goodlaw")
+    if not gl:
+        return []
+    L = ["**Good-law check: %s** — %s. Read %s of %s citing opinions (every one from a court that could overrule it, "
+         "plus the %d newest)." % (gl["status"].upper(), GL_WORDS[gl["status"]], format(gl["read"], ","), format(gl["of"], ","),
+                                   __import__("casemap").GOODLAW_RECENT), ""]
+    if gl.get("red_year"):
+        later = sum(n for y, n in st["years"].items() if y > int(gl["red_year"]))
+        L += ["Still cited by %s cases after %s." % (format(later, ","), gl["red_year"]), ""]
+    for e in gl["evidence"][:12]:
+        L.append("- %s (%s): %s %s%s — [%s](%s/opinion/%d/%s/) · %s" % (
+            e["year"], e["court"], e["kind"], "“%s”" % e["word"], " · could overrule" if e["above"] else "",
+            esc(e["name"][:60], "md"), CL, e["cluster"], e["slug"], esc(e["snippet"], "md")))
+    if gl.get("n_evidence", 0) > 12:
+        L.append("- … %d more" % (gl["n_evidence"] - 12))
+    return L + ([""] if gl["evidence"] else [])
+
+
+def binned(st):
+    """(label, count) bars: single years, or 5-year bins (ending at the last full year) past 60 years."""
+    span, yrs = st["span"], st["years"]
+    if len(span) <= 60:
+        return [(str(y), yrs.get(y, 0)) for y in span]
+    starts = list(range(span[-1] - 4, span[0] - 5, -5))[::-1]
+    return [("%d" % max(a, span[0]), sum(yrs.get(y, 0) for y in range(a, a + 5))) for a in starts]
+
+
+def profile_line(st):
+    pct = 100.0 * st["recent"] / st["total"] if st["total"] else 0
+    change = "" if not st["before"] else " (%+.0f%% on %d–%d)" % (100.0 * (st["recent"] - st["before"]) / st["before"],
+                                                                 st["end"] - 2 * RECENT + 1, st["end"] - RECENT)
+    return ("Cited by %s cases · %d–%d: %s, %.0f%% of all%s · %s · busiest year %d (%s)" % (
+        format(st["total"], ","), st["end"] - RECENT + 1, st["end"], format(st["recent"], ","), pct, change,
+        st["trend"], st["peak"], format(st["years"][st["peak"]], ",")))
+
+
+def profile_md(meta):
+    st = profile_stats(meta.get("profile"), meta.get("decided"))
+    if not st:
+        return []
+    bars = binned(st)
+    per = "per year" if len(bars) == len(st["span"]) else "per 5 years"
+    series = []
+    for colour in ("green", "yellow", "red"):          # one series per colour, zero elsewhere
+        vals = [n if bar_status(st, l) == colour else 0 for l, n in bars]
+        if any(vals):
+            series.append((colour, vals))
+    palette = ", ".join(GL_COLORS[c][0] for c, _ in series)
+    return (["## Case profile", "",
+             profile_line(st) + ". *Counted from the CourtListener bulk data of %s.*" % st["stamp"], ""]
+            + goodlaw_md(st) +
+            ["```mermaid",
+             '%%%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "%s"}}}}%%%%' % palette,
+             "xychart-beta",
+             '    title "Citing cases %s"' % per,
+             "    x-axis [%s]" % ", ".join('"%s"' % l for l, _ in bars),
+             '    y-axis "cases"']
+            + ["    bar [%s]" % ", ".join(str(n) for n in vals) for _, vals in series]
+            + ["```", ""])
+
+
+def profile_tex(meta):
+    st = profile_stats(meta.get("profile"), meta.get("decided"))
+    if not st:
+        return ""
+    bars = binned(st)
+    top = max(n for _, n in bars) or 1
+    W, H, n = 12.0, 1.8, len(bars)                 # cm; the box is about 17 cm wide on the page
+    w = W / n
+    rects = "".join("\\fill[%s] (%.3f,0) rectangle (%.3f,%.3f);" % (GL_COLORS[bar_status(st, l)][1], i * w + 0.1 * w,
+                                                                    (i + 0.9) * w, H * c / top)
+                    for i, (l, c) in enumerate(bars) if c)
+    step = max(1, round(n / 8))                    # about 8 labels under the bars
+    labels = "".join("\\node[anchor=north,font=\\tiny] at (%.3f,0) {%s};" % ((i + 0.5) * w, l)
+                     for i, (l, _) in enumerate(bars) if i % step == 0)
+    chart = ("\\begin{tikzpicture}\\draw[gray] (0,0) -- (%.2f,0);%s%s"
+             "\\node[anchor=south west,font=\\tiny] at (0,%.2f) {%s %s};\\end{tikzpicture}") % (
+        W, rects, labels, H, format(top, ","), "per year" if len(bars) == len(st["span"]) else "per 5 years")
+    return ("\\pdfbookmark[1]{Case profile}{profile}\n"
+            "\\begin{tcolorbox}[enhanced, colback=%s, colframe=cyan!50!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
+            "%s\\par%s\\vspace{3pt}{\\centering %s\\par}\n"
+            "{\\scriptsize Counted from the CourtListener bulk data of %s.\\par}\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
+        PROFILE_COLOR, esc(profile_line(st), "tex"), goodlaw_tex(st), chart, esc(st["stamp"], "tex"))
+
+
+def goodlaw_tex(st):
+    gl = st.get("goodlaw")
+    if not gl:
+        return ""
+    head = ("\\vspace{2pt}{\\color{%s}\\rule{0.8em}{0.8em}}\\ \\textbf{Good-law check: %s} --- %s "
+            "{\\scriptsize(read %s of %s citing opinions)}\\par") % (
+        GL_COLORS[gl["status"]][1], gl["status"].upper(), esc(GL_WORDS[gl["status"]], "tex"),
+        format(gl["read"], ","), format(gl["of"], ","))
+    items = "".join("{\\scriptsize %s (%s): %s ``%s''%s --- \\emph{%s}\\par}" % (
+        e["year"], esc(e["court"], "tex"), e["kind"], esc(e["word"], "tex"), ", could overrule" if e["above"] else "",
+        esc(e["name"][:60], "tex")) for e in gl["evidence"][:6])
+    return head + items
+
+
+# ---------------------------------------------------------------- headmatter
+# The published case's front matter (Harvard CAP): parties, docket number, dates, counsel,
+# with its own footnotes. In the cluster's "headmatter" field; not part of any opinion.
+HEAD_COLOR = "yellow!40"       # the PDF box; the reMarkable Paper Pro shows it as a pale yellow
+HEAD_LINE = ("docketnumber", "otherdate", "decisiondate")   # run together on one line
+
+
+def headmatter_parts(meta, mode):
+    """-> (blocks, footnotes): blocks are (tag, text) in order, footnotes (label, text)."""
+    raw = meta.get("headmatter") or ""
+    if not raw.strip():
+        return [], []
+    root = parse_html(raw)
+    ctx = Ctx(meta.get("reporter", ""), "headmatter", -1)
+    ctx.record = False                                   # page markers here don't move the running header
+
+    def marks_for(n):                                    # <a class="footnote" href="#fn*">*</a> -> footnotemark
+        for i, k in enumerate(n.kids):
+            if isinstance(k, El):
+                if k.tag == "a" and "footnote" in k.attrs.get("class", "") and k.attrs.get("href", "").startswith("#fn"):
+                    m = El("footnotemark")
+                    m.kids = [k.text().strip()]
+                    n.kids[i] = m
+                else:
+                    marks_for(k)
+    blocks, notes = [], []
+
+    def walk(n):
+        for k in n.kids:
+            if not isinstance(k, El) or k.tag == "br":
+                continue
+            if k.tag == "div" and "footnotes" in k.attrs.get("class", ""):
+                for f in k.kids:
+                    if isinstance(f, El) and f.tag == "div":
+                        f.kids = [x for x in f.kids if not (isinstance(x, El) and x.tag == "a")]   # the back link
+                        marks_for(f)
+                        text = " ".join(clean(inline(x, mode, ctx, [])) for x in f.kids if isinstance(x, El)) \
+                            or clean(inline(f, mode, ctx, []))
+                        notes.append((f.attrs.get("label") or "?", text))
+            elif k.tag == "div":
+                walk(k)
+            else:
+                marks_for(k)
+                t = re.sub(r"\s+(\[\^|\\textsuperscript)", r"\1", clean(inline(k, mode, ctx, [])))   # mark hugs its word
+                if t:
+                    blocks.append((k.tag, t))
+    walk(root)
+    return blocks, notes
+
+
+def headmatter_md(meta):
+    blocks, notes = headmatter_parts(meta, "md")
+    if not blocks:
+        return []
+    ctx = Ctx("", "", -1)
+    fix = lambda t: re.sub(r"\[\^([^\]]+)\]", lambda m: "[^hm-%s]" % m.group(1), t)   # keys apart from the opinions'
+    L, line = ["## Headmatter", ""], []
+    for tag, t in blocks + [("", "")]:
+        if tag in HEAD_LINE:
+            line.append(t.rstrip(" —-"))
+            continue
+        if line:
+            L += [" · ".join(line), ""]
+            line = []
+        if tag == "parties":
+            L += ["**%s**" % t, ""]
+        elif tag:
+            L += [t, ""]
+    for label, t in notes:
+        L += ["[^%s]: %s" % (ctx.fnkey(label), t), ""]
+    return [fix(re.sub(r"\s+(\[\^)", r"\1", x)) for x in L]
+
+
+def headmatter_tex(meta):
+    blocks, notes = headmatter_parts(meta, "tex")
+    if not blocks:
+        return ""
+    out, line = [], []
+    for tag, t in blocks + [("", "")]:
+        if tag in HEAD_LINE:
+            line.append(t.rstrip(" —-"))
+            continue
+        if line:
+            out.append("{\\centering %s\\par}\\vspace{2pt}" % " \\textperiodcentered\\ ".join(line))
+            line = []
+        if tag == "parties":
+            out.append("{\\centering\\bfseries %s\\par}\\vspace{2pt}" % t)
+        elif tag:
+            out.append(t + "\\par")
+    if notes:
+        out.append("\\vspace{2pt}{\\footnotesize " + "\\par ".join("\\textsuperscript{%s} %s" % (esc(l, "tex"), t)
+                                                               for l, t in notes) + "\\par}")
+    return ("\\pdfbookmark[1]{Headmatter}{headmatter}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!60!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
+        HEAD_COLOR, HEAD_COLOR.split("!")[0], "\n".join(out))
 
 
 # ---------------------------------------------------------------- headings
@@ -679,13 +987,13 @@ def editorial(cluster):
 
 
 def render_stub(meta, tail, why="Text not fetched.", cluster=None):
-    L = front_matter(meta, True) + editorial(cluster or {})
+    L = front_matter(meta, True) + profile_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
     return "\n".join(L) + "\n" + tail
 
 
 def render_md(meta, ops, tail="", cluster=None, head=None):
-    L = list(head) if head is not None else front_matter(meta, False) + editorial(cluster or {})
+    L = list(head) if head is not None else front_matter(meta, False) + profile_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     notes = []
     for o in ops:
         ctx = o["ctx"]
@@ -765,12 +1073,16 @@ def write_note(cid, index):
     if is_full:
         try:
             meta, ops, _ = prepare(data, index)
+            meta["profile"] = profile_data(cid)          # counts only; build adds the good-law check
             body, kind = render_md(meta, ops, tail, data["cluster"]), "full"
         except Unsupported as e:
             meta = case_meta(data)
+            meta["profile"] = profile_data(cid)
             body, kind = render_stub(meta, tail, "text fetched, but %s" % e, data["cluster"]), "unparsed"
     else:
-        body = render_stub(case_meta(data), tail, cluster=data["cluster"])
+        meta = case_meta(data)
+        meta["profile"] = profile_data(cid)
+        body = render_stub(meta, tail, cluster=data["cluster"])
     (note_dir(ent["slug"], data.get("docket")) / (ent["slug"] + ".md")).write_text(body, encoding="utf-8")
     return kind
 
@@ -820,7 +1132,7 @@ def box_opts(rec):
 
 def render_tex(meta, ops, fontpkg, style):
     from usc2md import PREAMBLE, RULES
-    body = []
+    body = [headmatter_tex(meta), profile_tex(meta)]
     for n, o in enumerate(ops):
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""
@@ -924,6 +1236,7 @@ def case_meta(data):
         "cites": [cite_str(x) for x in cites], "court": d.get("court_id") or "",
         "docket": d.get("docket_number") or "", "decided": c.get("date_filed") or "", "argued": argued,
         "judges": c.get("judges") or "", "cluster": c.get("id"), "cited_by": c.get("citation_count"), "url": CL + (c.get("absolute_url") or ""),
+        "headmatter": c.get("headmatter") or "",
         "srcline": ["No. " + d["docket_number"] if d.get("docket_number") else "", argued,
                     "Decided " + (c.get("date_filed") or ""),
                     "CourtListener cluster %s (Harvard CAP text)" % c.get("id"),
@@ -992,6 +1305,7 @@ def build(args):
         meta, ops, warnings = prepare(data, index)
     except Unsupported as e:
         sys.exit("Cannot build: %s" % e)
+    meta["profile"] = profile_data(meta["cluster"], scan=True)
 
     (here / "build").mkdir(exist_ok=True)
     ndir = note_dir(meta["slug"], data.get("docket"))
@@ -1218,10 +1532,12 @@ HEADER_RE = re.compile(r"^\s*Case:?\s+\S+.*?\bDoc(?:ument)?\.?\s*(?:#\s*)?:?\s*\
 PAGENUM_RE = re.compile(r"^\s*(?:-\s*)?\d{1,3}(?:\s*-)?\s*$")
 FNLABEL_RE = re.compile(r"^\s*(\d{1,3})\s*$")
 NUMHEAD_RE = re.compile(r"^([IVX]{1,6}|[A-Z]|\d{1,2})\.\s+(\S.{0,90})$")
+# a table of contents / authorities line: dot leaders, then the page(s) at the right margin
+LEADER_RE = re.compile(r"\s*\.(?:\s?\.){3,}\s*((?:\d+|[ivxlc]+|passim)(?:\s*(?:,|&|–|-|and)\s*(?:\d+|passim))*)\s*$", re.I)
 ENUM_RE = re.compile(r"^\((?:\d{1,2}|[a-z]|[ivx]{1,4})\)\s")
 STATUTE_RE = re.compile(r"\d+\s*U\.\s?S\.\s?C\.?\s*(?:A\.\s*)?§+\s*\d+[A-Za-z]*(?:-\d+[A-Za-z]*)?")
-# a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3"
-FNMARK = r"(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
+# a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3" -- not dot leaders ("....2")
+FNMARK = r"(?<!\.\.)(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
 # the same number set off by a space after punctuation, not the start of a citation ("7(E), 5 U.S.C.")
 FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))"
 
@@ -1248,7 +1564,7 @@ def titlecase(t):
 
 def headingish(t):
     """Short, capitalized like a title, not a sentence."""
-    if len(t) > 90 or t.endswith((",", ";", ":")) or (t.endswith(".") and not is_caps(t)):
+    if len(t) > 90 or LEADER_RE.search(t) or t.endswith((",", ";", ":")) or (t.endswith(".") and not is_caps(t)):
         return False
     words = re.findall(r"[A-Za-z][A-Za-z'’\-]*", t)
     if words and words[-1].islower() and words[-1] in SMALL:     # "... February 25, 2009, the"
@@ -1470,7 +1786,41 @@ def recap_blocks(lines, labels):
             add(cur, l)
         if not double:
             cur = None                          # single-spaced text: a blank line ends the paragraph
-    return blocks
+    return split_leaders(blocks)
+
+
+def split_leaders(blocks):
+    """A table of contents or authorities reaches the right margin on every entry's last line, so
+    its entries run together as one paragraph. End a block after each line with dot leaders."""
+    out = []
+    for b in blocks:
+        if b["kind"] not in ("p", "q") or not any(isinstance(x, tuple) and LEADER_RE.search(x[0]) for x in b["pieces"]):
+            out.append(b)
+            continue
+        cur = dict(b, pieces=[], toc=True)
+        for x in b["pieces"]:
+            cur["pieces"].append(x if cur["pieces"] or not isinstance(x, tuple) else (x[0].lstrip(), x[1]))
+            if isinstance(x, tuple) and LEADER_RE.search(x[0]):
+                out.append(cur)
+                cur = dict(b, pieces=[], toc=True)
+        if any(isinstance(x, tuple) and x[0].strip() for x in cur["pieces"]):
+            cur["toc"] = False
+            out.append(cur)
+        elif cur["pieces"] and out:             # a page marker left over: keep it with the last entry
+            out[-1]["pieces"] += cur["pieces"]
+    return out
+
+
+def leader_entry(e):
+    """The dots and page(s) at the end of a toc entry -> <leader pages="...">."""
+    for i in range(len(e.kids) - 1, -1, -1):
+        k = e.kids[i]
+        if isinstance(k, str):
+            m = LEADER_RE.search(k)
+            if m:
+                e.kids[i:i + 1] = [x for x in (k[:m.start()], El("leader", {"pages": m.group(1)})) if x != ""]
+            return e
+    return e
 
 
 def place_marks(blocks, footnotes, warn, spaced=False):
@@ -1592,7 +1942,8 @@ def fill_opinion(o, blocks, footnotes):
                 o["flat"].append(["p", El("p")])
                 o["flat"][-1][1].kids.append(element("i", b["pieces"]))
         elif any(isinstance(p, tuple) and p[0].strip() for p in b["pieces"]):
-            o["flat"].append(["q" if b["kind"] == "q" else "p", element("blockquote" if b["kind"] == "q" else "p", b["pieces"])])
+            el = element("blockquote" if b["kind"] == "q" else "p", b["pieces"])
+            o["flat"].append(["q" if b["kind"] == "q" else "p", leader_entry(el) if b.get("toc") else el])
     for lab, pi, paras in footnotes:
         fn = El("footnote", {"label": lab})
         for para in paras:
@@ -1922,11 +2273,13 @@ def recap_build(args):
 def find(args):
     """Search what you already have, then case names and parentheticals in the local database."""
     import casedb, sqlite3
-    words = [w for w in re.findall(r"[\w'’.-]+", " ".join(args.words)) if w.strip(".-")]
-    if not words:
+    # each argument is a term; one quoted with spaces ("state farm") is a phrase: those words, in order
+    terms = [t for t in ([w for w in re.findall(r"[\w'’.-]+", a) if w.strip(".-")] for a in args.words) if t]
+    if not terms:
         sys.exit("find what?")
-    rx = re.compile("|".join(re.escape(w) for w in words), re.I)
-    allw = lambda t: all(re.search(re.escape(w), t or "", re.I) for w in words)
+    words = ['"%s"' % " ".join(t) if len(t) > 1 else t[0] for t in terms]          # for display
+    pats = [re.compile(r"[\W_]+".join(re.escape(w) for w in t), re.I) for t in terms]
+    allw = lambda t: all(rx.search(t or "") for rx in pats)
 
     # 1. already here: note titles/aliases (front matter) and file names
     have = []
@@ -1950,7 +2303,7 @@ def find(args):
         print("\nBuilding the search index first (once, and again after a reload of clusters or parentheticals).")
         casedb.build_search(con)
     s = sqlite3.connect("file:%s?mode=ro" % casedb.SEARCH_DB, uri=True)
-    q = " AND ".join('"%s"' % w.replace('"', "") for w in words)
+    q = " AND ".join('"%s"' % " ".join(w.replace('"', "") for w in t) for t in terms)   # FTS5: "a b" = phrase
     index = load_index()
 
     def describe(cid):
@@ -2001,7 +2354,7 @@ def find(args):
             sys.exit("casemap.py get did not save the text for cluster %d" % cid)
         subprocess.run([sys.executable, str(here / "case2md.py"), "build", str(CASES / ent["full"])], check=True)
     elif results:
-        print("next: ./case2md.py find %s --get N" % " ".join(args.words))
+        print("next: ./case2md.py find %s --get N" % shlex.join(args.words))
 
 
 def iter_tag(el, tag):
@@ -2012,6 +2365,30 @@ def iter_tag(el, tag):
             yield from iter_tag(k, tag)
 
 
+def usage(args):
+    """How much of the API allowance is used, from the local logs (this machine's requests only)."""
+    logp, hp = CASES / "_api_log.json", CASES / "_api_history.tsv"
+    now = time.time()
+    log = sorted(t for t in (json.loads(logp.read_text()) if logp.exists() else []) if now - t < WINDOWS[-1])
+    print("CourtListener API, requests from this machine (limits: CL_LIMITS=%s)" % ",".join(map(str, LIMITS)))
+    for lim, win, name in zip(LIMITS, WINDOWS, ("minute", "hour", "day")):
+        recent = [t for t in log if now - t < win]
+        free = ""
+        if recent:
+            free = "   next frees at %s" % time.strftime("%a %H:%M", time.localtime(recent[0] + win))
+        print("  last %-6s %4d of %-4d %s%s" % (name, len(recent), lim, "FULL" if len(recent) >= lim else "left %d" % (lim - len(recent)), free))
+    if not hp.exists():
+        print("  (no history yet: cases/_api_history.tsv starts with the next request)")
+        return
+    rows = [l.split("\t") for l in hp.read_text(encoding="utf-8").splitlines() if l.count("\t") == 2]
+    days = Counter(r[0][:10] for r in rows)
+    print("by day (last %d):" % min(args.days, len(days)))
+    for d in sorted(days)[-args.days:]:
+        by = Counter(r[1] for r in rows if r[0].startswith(d))
+        print("  %s %4d   %s" % (d, days[d], ", ".join("%s %d" % kv for kv in by.most_common(4))))
+    print("total logged: %d requests since %s" % (len(rows), rows[0][0][:10] if rows else "-"))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2020,6 +2397,9 @@ def main():
     g.add_argument("--cite", help='reporter citation, e.g. "463 U.S. 29"')
     g.add_argument("--cluster", type=int, help="CourtListener cluster id")
     f.set_defaults(func=fetch)
+    u = sub.add_parser("usage", help="CourtListener API requests used, from the local logs")
+    u.add_argument("--days", type=int, default=7, help="days of history to show (default 7)")
+    u.set_defaults(func=usage)
     b = sub.add_parser("build", help="cases/*.json -> md/, build/*.tex, pdf/")
     b.add_argument("json", help="file written by fetch")
     b.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
@@ -2027,7 +2407,7 @@ def main():
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     b.set_defaults(func=build)
     fd = sub.add_parser("find", help="search case names and courts' parentheticals (local database)")
-    fd.add_argument("words", nargs="+", help='e.g. glomar, or "state farm"')
+    fd.add_argument("words", nargs="+", help='all must match; quote a phrase: glomar "state farm"')
     fd.add_argument("--get", type=int, metavar="N", help="fetch result N from the local database and build its PDF")
     fd.add_argument("--max", type=int, default=10, help="results per list (default 10)")
     fd.set_defaults(func=find)

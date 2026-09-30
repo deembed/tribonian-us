@@ -6,6 +6,7 @@
                                       #            opinion-clusters dockets opinions)
     ./casedb.py load --force courts   # reload a table that is already done
     ./casedb.py status
+    ./casedb.py columns [opinion-clusters ...]   # per bulk file: columns kept, columns left out
     ./casedb.py index                 # full-text index of case names and parentheticals, for case2md.py find
     ./casedb.py case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
 
@@ -72,10 +73,11 @@ TABLES = {
                        ["CREATE INDEX parens_by_described ON parens(described)"]),
     "opinion-clusters": ("clusters", "id INTEGER, case_name TEXT, case_name_short TEXT, case_name_full TEXT, "
                          "date_filed TEXT, citation_count INTEGER, docket_id INTEGER, slug TEXT, judges TEXT, "
-                         "precedential_status TEXT, scdb_id TEXT, other_dates TEXT, summary TEXT, syllabus TEXT",
+                         "precedential_status TEXT, scdb_id TEXT, other_dates TEXT, summary TEXT, syllabus TEXT, headmatter BLOB",
                          lambda r: (integer(r["id"]), r["case_name"], r["case_name_short"], r["case_name_full"], r["date_filed"],
                                     integer(r["citation_count"]), integer(r["docket_id"]), r["slug"], r["judges"],
-                                    r["precedential_status"], r["scdb_id"], r["other_dates"], r["summary"] or None, r["syllabus"] or None),
+                                    r["precedential_status"], r["scdb_id"], r["other_dates"], r["summary"] or None, r["syllabus"] or None,
+                                    zlib.compress(r["headmatter"].encode("utf-8"), 6) if r["headmatter"] else None),   # zlib, like opinion text
                          ["CREATE UNIQUE INDEX clusters_by_id ON clusters(id)", "CREATE INDEX clusters_by_docket ON clusters(docket_id)"]),
     # nature_of_suit / cause sort case notes into folders (case2md.py FOLDERS); the rest lets
     # recap fetch skip its docket request
@@ -300,6 +302,62 @@ def cmd_case(args):
             print("  %.2f  %s" % (score, text[:230].replace("\n", " ")))
 
 
+# ================================================================ columns
+
+def header_of(path):
+    """The CSV header of a .csv.bz2: only the first block is decompressed."""
+    import bz2
+    with bz2.open(path, "rt", encoding="utf-8", errors="replace", newline="") as f:
+        return next(csv.reader(f, doublequote=False, escapechar="\\"))
+
+
+class _Seen(dict):
+    """A stand-in row that records which columns a TABLES row function reads."""
+    def __init__(self):
+        super().__init__()
+        self.used = []
+
+    def __getitem__(self, k):
+        self.used.append(k)
+        return "1"
+
+    def get(self, k, default=None):
+        self.used.append(k)
+        return "1"
+
+
+def kept_columns(name):
+    row = _Seen()
+    TABLES[name][2](row)
+    if name == "opinions":                    # any one text field is kept, whichever comes first
+        row.used += list(TEXT_FIELDS)
+    return set(row.used)
+
+
+def cmd_columns(args):
+    """Per bulk file: the columns loaded into the database and the ones left out."""
+    stems = sorted({re.sub(r"-\d{4}-\d\d-\d\d\.csv\.bz2$", "", p.name) for p in BULK.glob("*-????-??-??.csv.bz2")})
+    names = args.names or [n for n in ORDER if n in stems] + [n for n in stems if n not in ORDER]
+    if not names:
+        sys.exit("No bulk files in %s" % BULK)
+    for name in names:
+        path = newest(name)
+        if path is None:
+            print("%s: no file in %s" % (name, BULK))
+            continue
+        cols = header_of(path)
+        if name not in TABLES:
+            print("\n%s  (%s, not loaded): %d columns\n  %s" % (name, path.name, len(cols), ", ".join(cols)))
+            continue
+        kept = kept_columns(name)
+        print("\n%s  (%s -> table %s)" % (name, path.name, TABLES[name][0]))
+        print("  kept    (%2d): %s" % (sum(c in kept for c in cols), ", ".join(c for c in cols if c in kept)))
+        print("  dropped (%2d): %s" % (sum(c not in kept for c in cols), ", ".join(c for c in cols if c not in kept) or "-"))
+        gone = sorted(kept - set(cols) - set(TEXT_FIELDS))
+        if gone:
+            print("  expected but not in this file: %s" % ", ".join(gone))
+
+
 def main():
     sys.stdout.reconfigure(line_buffering=True)      # so progress shows up at once in a log file (nohup, > file)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -312,6 +370,8 @@ def main():
     sub.add_parser("index", help="(re)build the full-text index case2md.py find uses")
     p = sub.add_parser("case")
     p.add_argument("json")
+    p = sub.add_parser("columns", help="per bulk file: columns loaded and columns left out")
+    p.add_argument("names", nargs="*", help="bulk file names, e.g. opinion-clusters (default: every file in bulk/)")
     args = ap.parse_args()
     if args.cmd == "load":
         con = connect()
@@ -330,6 +390,8 @@ def main():
         if Path(str(DB) + ".loading").exists():
             sys.exit("casedb.py load is running; a long read now can make it fail with 'database is locked'. Index after it finishes.")
         build_search(sqlite3.connect("file:%s?mode=ro" % DB, uri=True))
+    elif args.cmd == "columns":
+        cmd_columns(args)
     else:
         cmd_case(args)
 
