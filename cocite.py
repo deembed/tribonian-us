@@ -899,6 +899,171 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
     return L
 
 
+# ---------------------------------------------------------------- the same section for the PDF
+COCITE_COLOR = "violet!10"        # box tint: like the headmatter's yellow, it marks text that is not the court's
+CHART_COLOURS = ["2E8B57", "4682B4", "C9A227", "B0506E", "7B68EE", "3FA7A0"]   # = pie_md's, for the same eye
+OTHER_COLOUR, NONE_COLOUR = "9A9A9A", "DDDDDD"
+PDF_SLICES = 14                   # newest slices drawn in the PDF chart; the note has them all
+
+
+def case_tex(ref, esc, view=NOTE_VIEW, top=8, year=None):
+    """TeX for the PDF's co-citation box; '' when there is nothing to show. `esc` escapes text for
+    pdflatex (case2md passes its own, so both outputs share one escaping path)."""
+    db = open_view(view)
+    if db is None:
+        return ""
+    rows = [r for r in (summary(ref, db, top) or []) if r["home"]]
+    if not rows:
+        return ""
+    year = year or time.localtime().tm_year
+    full = [r for r in rows if r["slice"] + WIDTH - 1 < year] or rows
+    now = full[-1]
+    partial = lambda s: s + WIDTH - 1 >= year
+    E = lambda t, n=None: esc(trim(t, n) if n else t)
+    lab = lambda s: esc(label(s).replace("-", "\u2013"))     # 2005\u201309, en dash as in print
+
+    def lineage_of(s, k, level="cluster"):
+        table, col = ("subs", "sub") if level == "sub" else ("clusters", "cl")
+        r = db.execute("SELECT lineage FROM %s WHERE slice=? AND %s=?" % (table, col), (s, k)).fetchone()
+        return r[0] if r else None
+
+    sub_code = now["sub"]["code"] if now["sub"] else None
+    c_name, c_lin, c_first = unit_name(db, now["slice"], now["home"])
+    s_name, s_lin, s_first = unit_name(db, now["slice"], sub_code, "sub") if sub_code and sub_code % 1000 else (None, None, None)
+    h_name, h_lin, h_first = (s_name, s_lin, s_first) if s_name else (c_name, c_lin, c_first)
+    out = ["{\\scriptsize\\itshape Not part of the record. Which cases later %s decisions cite together with this one, "
+           "in five-year slices of citing decisions (\\texttt{cocite.py}). Cluster names were written by Claude "
+           "from each cluster's evidence.\\par}\\vspace{3pt}" % ("appellate" if view == "appellate" else "court")]
+    out.append("\\textbf{%s:} %s%s. {\\footnotesize Since %s.}\\par" % (
+        lab(now["slice"]), E(h_name), (" --- within \\emph{%s}" % E(c_name)) if s_name else "",
+        lab(h_first or now["slice"])))
+    try:
+        ar = area_of(db, h_lin)
+    except sqlite3.OperationalError:
+        ar = None
+    if ar:
+        try:
+            c = db.execute("SELECT confidence FROM lineage_area_conf WHERE lineage=?", (h_lin,)).fetchone()
+        except sqlite3.OperationalError:
+            c = None
+        edge = " {\\footnotesize (boundary: %d\\%% of its ties inside)}" % round(100 * c[0]) if c and c[0] < 0.5 else ""
+        out.append("\\textbf{Area:} %s.%s\\par" % (E(area_name(db, ar)), edge))
+
+    # ---- chart 1: who cites it, slice by slice, coloured by the citing cluster's lineage
+    who = citing_breakdown(ref, db, view) or {}
+    sl = [s for s in sorted(who) if who[s]["n"]][-PDF_SLICES:]
+    if sl:
+        tot, name_of = Counter(), {}
+        for s in sl:
+            for k, n in who[s]["cl"].items():
+                lin = lineage_of(s, int(k))
+                tot[lin] += n
+                name_of.setdefault(lin, unit_name(db, s, int(k))[0] or "cluster %s" % k)
+        keys = [l for l, _ in tot.most_common(len(CHART_COLOURS)) if l is not None]
+        col = {l: "cc%d" % i for i, l in enumerate(keys)}
+        W, H, gap = 10.6, 0.36, 0.1                         # cm
+        tz = []
+        for i, s in enumerate(sl):
+            v, y = who[s], -i * (H + gap)
+            segs = [(col[l], n) for l in keys for k, n in v["cl"].items() if lineage_of(s, int(k)) == l]
+            segs = [(c, sum(n for c2, n in segs if c2 == c)) for c in dict.fromkeys(c for c, _ in segs)]
+            other = sum(v["cl"].values()) - sum(n for _, n in segs)
+            segs += [("ccother", other), ("ccnone", v["none"])]
+            x = 0.0
+            for c, n in segs:
+                if n <= 0:
+                    continue
+                w = W * n / v["n"]
+                tz.append("\\fill[%s] (%.3f,%.3f) rectangle (%.3f,%.3f);" % (c, x, y, x + w, y - H))
+                if w > 0.9 and c != "ccnone":
+                    tz.append("\\node[font=\\tiny,text=white] at (%.3f,%.3f) {%d\\%%};" % (x + w / 2, y - H / 2,
+                                                                                         round(100.0 * n / v["n"])))
+                x += w
+            tz.append("\\node[anchor=east,font=\\tiny] at (-0.1,%.3f) {%s%s\\ \\ %s};" % (
+                y - H / 2, lab(s), "*" if partial(s) else "", format(v["n"], ",")))
+        defs = "".join("\\definecolor{cc%d}{HTML}{%s}" % (i, h) for i, h in enumerate(CHART_COLOURS))
+        defs += "\\definecolor{ccother}{HTML}{%s}\\definecolor{ccnone}{HTML}{%s}" % (OTHER_COLOUR, NONE_COLOUR)
+        legend = " \\quad ".join("\\mbox{{\\color{%s}\\rule{0.7em}{0.7em}}\\ %s}" % (col[l], E(name_of[l], 48)) for l in keys)
+        legend += " \\quad \\mbox{{\\color{ccother}\\rule{0.7em}{0.7em}}\\ other clusters} \\quad " \
+                  "\\mbox{{\\color{ccnone}\\rule{0.7em}{0.7em}}\\ no other clustered cites}"
+        out.append(defs)                                   # outside the minipage, so chart 2 sees them too
+        out.append("\\vspace{5pt}\\begin{minipage}{\\linewidth}\\textbf{Who cites it.} {\\footnotesize Each citing decision is placed in the cluster "
+                   "most of its other citations fall in; bars are the share of each slice's citing decisions "
+                   "(number at left%s).}\\par\\vspace{3pt}" % ("; * partial slice" if any(partial(s) for s in sl) else ""))
+        out.append("{\\centering\\begin{tikzpicture}%s\\end{tikzpicture}\\par}\\vspace{2pt}"
+                   "{\\scriptsize\\raggedright %s\\par}\\end{minipage}\\par" % ("".join(tz), legend))
+        # ---- chart 2: the newest full slice's citing sub-clusters, ranked, in their cluster's colour
+        cur = who.get(now["slice"])
+        if cur and cur["sub"]:
+            subs = sorted(((int(k), n) for k, n in cur["sub"].items()), key=lambda x: -x[1])[:6]
+            mx = subs[0][1]
+            tz = []
+            for i, (k, n) in enumerate(subs):
+                y = -i * 0.42
+                c = col.get(lineage_of(now["slice"], k // 1000), "ccother")
+                tz.append("\\node[anchor=east,font=\\scriptsize,align=right] at (6.9,%.3f) {%s};" % (
+                    y, E(unit_name(db, now["slice"], k, "sub")[0] or sub_label(k), 58)))
+                tz.append("\\fill[%s] (7.0,%.3f) rectangle (%.3f,%.3f);" % (c, y - 0.15, 7.0 + 4.6 * n / mx, y + 0.15))
+                tz.append("\\node[anchor=west,font=\\tiny] at (%.3f,%.3f) {%d\\%%};" % (7.05 + 4.6 * n / mx, y,
+                                                                                     round(100.0 * n / cur["n"])))
+            out.append("\\vspace{4pt}\\begin{minipage}{\\linewidth}{\\footnotesize\\textbf{Citing sub-clusters, %s} (share of its %s citing "
+                       "decisions)\\par}\\vspace{2pt}{\\centering\\begin{tikzpicture}%s\\end{tikzpicture}\\par}\\end{minipage}\\par" % (
+                           lab(now["slice"]), format(cur["n"], ","), "".join(tz)))
+
+    # ---- where it sits: one table, cluster and sub-cluster side by side
+    tr = []
+    shown = []
+    prev_area = None
+    for r in rows[-PDF_SLICES:]:
+        share = next((c["share"] for c in r["clusters"] if c["home"]), 0)
+        cn = unit_name(db, r["slice"], r["home"])[0]
+        sc = r["sub"]["code"] if r["sub"] else None
+        if sc and sc % 1000:
+            w = db.execute("SELECT weight, subw FROM nodes WHERE slice=? AND ref=?", (r["slice"], ref)).fetchone()
+            sn = "\\textcolor{gray}{\\texttt{%s}} %s%s" % (sub_label(sc), E(unit_name(db, r["slice"], sc, "sub")[0], 70),
+                                        " (%d\\%%)" % round(100.0 * w[1] / w[0]) if w and w[0] else "")
+            slin = lineage_of(r["slice"], sc, "sub")
+            if slin and slin not in shown:
+                shown.append(slin)
+        else:
+            sn, slin = "\\emph{not split}", lineage_of(r["slice"], r["home"])
+        try:
+            an = area_name(db, area_of(db, slin)) if slin else ""
+        except sqlite3.OperationalError:
+            an = ""
+        an, prev_area = ("" if an == prev_area else an), an
+        tr.append("%s%s & %s & \\raggedright\\textcolor{gray}{\\texttt{%d}} %s (%d\\%%) & \\raggedright %s & \\raggedright %s \\tabularnewline" % (
+            lab(r["slice"]), "*" if partial(r["slice"]) else "", format(r["cited_by"], ","), r["home"],
+            E(cn, 60), round(100 * share), sn, E(an or "", 50)))
+    out.append("\\vspace{5pt}\\begin{minipage}{\\linewidth}\\textbf{Where it sits.} {\\footnotesize The case's cluster in each slice and its share of "
+               "the case's co-citation weight, then the sub-cluster within it; the area is shown where it changes.}\\par\\vspace{2pt}"
+               "{\\scriptsize\\setlength{\\tabcolsep}{3pt}\\renewcommand{\\arraystretch}{1.15}\\raggedright"
+               "\\noindent\\begin{tabular}{@{}l r p{0.27\\linewidth} p{0.32\\linewidth} p{0.2\\linewidth}@{}}"
+               "\\textbf{Slice} & \\textbf{Cited by} & \\textbf{Cluster} & \\textbf{Sub-cluster} & \\textbf{Area}\\tabularnewline\\hline "
+               "%s\\end{tabular}\\par}\\end{minipage}\\par" % "\n".join(tr))
+
+    # ---- partners
+    pts = sorted(now["partners"], key=lambda p: -p["support"])
+    if pts:
+        cells = ["%s & %s & %d\\%% \\\\" % (E(p["name"], 75), format(p["support"], ","),
+                                         round(100.0 * p["support"] / max(now["cited_by"], 1))) for p in pts]
+        out.append("\\vspace{5pt}\\textbf{Usually cited with, %s.} {\\footnotesize Decisions citing both, and their share "
+                   "of the %s decisions citing this case.}\\par\\vspace{2pt}{\\scriptsize\\setlength{\\tabcolsep}{3pt}"
+                   "\\noindent\\begin{tabular}{@{}p{0.6\\linewidth} r r@{}}%s\\end{tabular}\\par}" % (
+                       lab(now["slice"]), format(now["cited_by"], ","), "\n".join(cells)))
+    # ---- what the sub-clusters are
+    notes = [label_of(db, l) for l in shown]
+    notes = [n for n in notes if n]
+    if notes:
+        out.append("\\vspace{5pt}{\\footnotesize\\textbf{The sub-clusters above} (descriptions written by Claude from "
+                   "the cluster evidence)\\par}" + "".join("{\\scriptsize\\textbf{%s.} %s\\par}\\vspace{1pt}" % (
+                       E(n[0]), E(n[1])) for n in notes))
+    return ("\\pdfbookmark[1]{Co-citation}{cocitation}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!50!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
+        COCITE_COLOR, COCITE_COLOR.split("!")[0], "\n".join(out))
+
+
 # ================================================================ commands
 
 def params_of(args):

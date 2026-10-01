@@ -604,14 +604,19 @@ def profile_md(meta):
         if any(vals):
             series.append((colour, vals))
     palette = ", ".join(GL_COLORS[c][0] for c, _ in series)
+    # Mermaid's bar chart can't rotate x-axis labels and merges blank ones, so a long per-year
+    # chart gets two-digit labels ('83) at a smaller size instead of overlapping four-digit ones.
+    short = per == "per year" and len(bars) > 20
+    labels = ["'%s" % str(l)[-2:] if short else l for l, _ in bars]
+    axis = ', "xyChart": {"xAxis": {"labelFontSize": 11, "labelPadding": 4}}' if short else ""
     return (["## Case profile", "",
              profile_line(st) + ". *Counted from the CourtListener bulk data of %s.*" % st["stamp"], ""]
             + goodlaw_md(st) +
             ["```mermaid",
-             '%%%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "%s"}}}}%%%%' % palette,
+             '%%%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "%s"}}%s}}%%%%' % (palette, axis),
              "xychart-beta",
              '    title "Citing cases %s"' % per,
-             "    x-axis [%s]" % ", ".join('"%s"' % l for l, _ in bars),
+             "    x-axis [%s]" % ", ".join('"%s"' % l for l in labels),
              '    y-axis "cases"']
             + ["    bar [%s]" % ", ".join(str(n) for n in vals) for _, vals in series]
             + ["```", ""])
@@ -998,6 +1003,18 @@ def cocite_md(meta):
         return []
 
 
+def cocite_tex(meta):
+    """The PDF's co-citation box (cocite.case_tex); '' when it isn't built."""
+    if not meta or not meta.get("cluster"):
+        return ""
+    try:
+        import cocite
+        return cocite.case_tex(int(meta["cluster"]), lambda t: esc(t, "tex"))
+    except Exception as e:                                      # never let this box break a build
+        print("  (co-citation box skipped: %s)" % e, file=sys.stderr)
+        return ""
+
+
 def render_stub(meta, tail, why="Text not fetched.", cluster=None):
     L = front_matter(meta, True) + profile_md(meta) + cocite_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
@@ -1144,7 +1161,7 @@ def box_opts(rec):
 
 def render_tex(meta, ops, fontpkg, style):
     from usc2md import PREAMBLE, RULES
-    body = [headmatter_tex(meta), profile_tex(meta)]
+    body = [headmatter_tex(meta), profile_tex(meta), cocite_tex(meta)]
     for n, o in enumerate(ops):
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""
