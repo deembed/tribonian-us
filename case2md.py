@@ -1667,10 +1667,34 @@ def headingish(t):
     return 0 < len(words) <= 12 and bool(big) and sum(w[0].isupper() for w in big) >= 0.75 * len(big)
 
 
+# Words seen in the document being read (layout_pages fills it): a line-end hyphen is a soft one
+# ("re-" + "striction") unless the hyphenated word also occurs mid-line ("case-by-case").
+_VOCAB = {"plain": set(), "hyphen": set()}
+
+
+def set_vocab(text):
+    _VOCAB["plain"] = set(re.findall(r"[a-z]+", text.lower()))
+    _VOCAB["hyphen"] = set(re.findall(r"[a-z]+(?:-[a-z]+)+(?=[^\S\n]|[^\w\n-])", text.lower()))
+
+
+def soft_hyphen(before, after):
+    """True when 'before' ends in a line-break hyphen that is not part of the word."""
+    m = re.search(r"([A-Za-z]+(?:-[A-Za-z]+)*)-$", before)
+    right = re.match(r"[A-Za-z]*", after).group(0).lower()
+    return bool(m and right and after[:1].islower() and "%s-%s" % (m.group(1).lower(), right) not in _VOCAB["hyphen"])
+
+
 def join_lines(parts):
     out = ""
     for p in parts:
-        out += p if not out or (out.endswith(("-", "—")) and out[-2:-1].isalpha()) else " " + p
+        if not out:
+            out = p
+        elif out.endswith(("—", "\u00ad")):       # a dash, or a soft hyphen (U+00AD) left by the PDF
+            out = out.rstrip("\u00ad") + p
+        elif out.endswith("-") and out[-2:-1].isalpha():
+            out = out[:-1] + p if soft_hyphen(out, p) else out + p
+        else:
+            out += " " + p
     return out
 
 
@@ -1678,6 +1702,9 @@ def split_footnotes(raw, nxt, prev_open):
     """One page's lines -> (body lines, [(label or None, [[lines of a paragraph], ...])], next label).
     The footnotes start at a line holding only the next footnote number. label None = the rest of
     the previous page's last footnote (prev_open: that one does not end a sentence yet)."""
+    rule = next((j for j in range(len(raw) - 1, 8, -1) if FNRULE_RE.match(raw[j])), None)
+    if rule is not None and any(x.strip() for x in raw[rule + 1:]):
+        return split_ruled_footnotes(raw, rule, nxt)
     k = None
     for j, l in enumerate(raw):
         m = FNLABEL_RE.match(l)
@@ -1722,20 +1749,78 @@ def split_footnotes(raw, nxt, prev_open):
     return raw[:body_end], fns, nxt
 
 
-def layout_pages(text):
-    """-> (lines, footnotes [[label, page index, paragraphs]], page labels by page index)."""
+FNRULE_RE = re.compile(r"^\s*—{4,}\s*$")        # the Supreme Court's footnote rule
+FNSTART_RE = re.compile(r"^(\s{0,6})(\d{1,3})\s+(\S.*)$")
+
+
+def split_ruled_footnotes(raw, rule, nxt):
+    """Footnotes under a rule, each starting '  6 The dissent ...' (Supreme Court slips). Blank lines
+    are pdftotext noise there; a new paragraph is a line indented past the footnote's own text."""
+    fns, cur, base = [], None, None
+    for l in raw[rule + 1:]:
+        if not l.strip():
+            continue
+        m = FNSTART_RE.match(l)
+        ind = len(l) - len(l.lstrip())
+        if m and int(m.group(2)) in (nxt, nxt + 1):
+            cur = (m.group(2), [[m.group(3).strip()]])
+            fns.append(cur)
+            nxt, base = int(m.group(2)) + 1, None
+            continue
+        if cur is None:                              # the rest of the last page's footnote
+            cur = (None, [[]])
+            fns.append(cur)
+        if base is None:
+            base = ind
+        if ind >= base + 2 and cur[1][-1]:
+            cur[1].append([])
+        cur[1][-1].append(l.strip())
+    return raw[:rule], fns, nxt
+
+
+# Supreme Court slip opinions: every page opens with "Cite as: 585 U. S. ____ (2018)  3" (odd),
+# "4  TRUMP v. HAWAII" (even) or "(Slip Opinion)  OCTOBER TERM, 2017  1", then a centred line naming
+# the opinion ("Opinion of the Court", "KENNEDY, J., concurring", "Syllabus"). Each opinion is
+# paginated, and footnoted, from 1.
+SCOTUS_HEAD_RE = re.compile(r"^\s*(?:\(Slip Opinion\)\s+OCTOBER TERM,\s*\d{4}(?:\s+(\d+))?"
+                            r"|Cite as:\s*\d+\s*U\.\s*S\.\s*\S*\s*\(\d{4}\)(?:\s+(\d+))?"
+                            r"|(\d+)\s{2,}[A-Z](?:[A-Z0-9.,'’&()\- ]|\bv\.)*)\s*$")
+SCOTUS_COURT = "SUPREME COURT OF THE UNITED STATES"
+
+
+def layout_pages(text, heads=None):
+    """-> (lines, footnotes [[label, page index, paragraphs]], page labels by page index).
+    heads: a list to fill with each page's opinion label (Supreme Court slip opinions), else ''."""
     lines, footnotes, labels, nxt = [], [], [], 1
+    set_vocab(text)
     for pi, pg in enumerate(text.replace("\r", "").split("\f")):
         raw = [l.expandtabs(8).rstrip() for l in pg.split("\n")]
-        label = str(pi + 1)
+        label, head = str(pi + 1), ""
         for j, l in enumerate(raw):             # running header: "Case 2:09-cv-06732 ... Page 3 of 7"
             if l.strip():
                 m = HEADER_RE.match(l)
+                ms = SCOTUS_HEAD_RE.match(l)
                 if m:
                     label, raw[j] = m.group(1), ""
+                elif ms and (not ms.group(3) or (heads is not None and any(h["head"] for h in heads))
+                             or SCOTUS_COURT in pg[:2000]):
+                    starts = SCOTUS_COURT in "\n".join(x for x in raw[j:j + 14] if x.strip()) or pi == 0
+                    num = next((g for g in ms.groups() if g), None)
+                    label, raw[j] = num or ("1" if starts else str(int(labels[-1]) + 1 if labels and labels[-1].isdigit() else pi + 1)), ""
+                    k = next((k for k in range(j + 1, min(j + 4, len(raw))) if raw[k].strip()), None)
+                    if k is not None and ms.group(3) and is_caps(raw[k].strip()) and " v. " in " " + raw[k] and \
+                            not re.search(r"\b(?:J|JJ)\.", raw[k]):
+                        raw[k] = ""             # the case name ran onto a second line
+                        k = next((k for k in range(k + 1, min(k + 4, len(raw))) if raw[k].strip()), None)
+                    if k is not None and len(raw[k]) - len(raw[k].lstrip()) >= 6 and len(raw[k].strip()) < 90:
+                        head, raw[k] = raw[k].strip(), ""
+                    if starts:
+                        nxt = 1                 # a new opinion: its footnotes start again at 1
                 elif PAGENUM_RE.match(l):       # slip opinion: the page number heads the page
                     label, raw[j] = re.sub(r"\D", "", l), ""
                 break
+        if heads is not None:
+            heads.append({"head": head, "new": bool(head) and (label == "1" or pi == 0)})
         for j in range(len(raw) - 1, -1, -1):   # page number at the foot
             if raw[j].strip():
                 if PAGENUM_RE.match(raw[j]):
@@ -1750,7 +1835,9 @@ def layout_pages(text):
         body, fns, nxt = split_footnotes(raw, nxt, prev_open)
         for lab, paras in fns:
             if lab is None:
-                footnotes[-1][2][-1] += paras[0]
+                if footnotes and paras:
+                    footnotes[-1][2][-1] += paras[0]
+                    footnotes[-1][2].extend(paras[1:])
             else:
                 footnotes.append([lab, pi, paras])
         gap, seen = 0, False
@@ -1817,8 +1904,13 @@ def recap_blocks(lines, labels):
         if l.pi != st["pi"]:
             b["pieces"].append(El("page-number", {"label": labels[l.pi]}))
             st["pi"] = l.pi
-        prev = next((p[0] for p in reversed(b["pieces"]) if isinstance(p, tuple)), "")
+        k = next((k for k in range(len(b["pieces"]) - 1, -1, -1) if isinstance(b["pieces"][k], tuple)), None)
+        prev = b["pieces"][k][0] if k is not None else ""
         sep = "" if not prev or (prev.endswith(("-", "—")) and prev[-2:-1].isalpha()) else " "
+        if prev.endswith("\u00ad"):
+            b["pieces"][k], sep = (prev[:-1], b["pieces"][k][1]), ""
+        elif prev.endswith("-") and soft_hyphen(prev, l.text):
+            b["pieces"][k] = (prev[:-1], b["pieces"][k][1])
         b["pieces"].append((sep + l.text, l.pi))
         b["last"] = l
 
@@ -1827,8 +1919,15 @@ def recap_blocks(lines, labels):
         blocks.append(b)
         return b
 
-    sig = None
+    sig, carry = None, None
     for run in runs:
+        # single-spaced text: a page break is not a blank line, so a paragraph that reaches the
+        # foot of a page at full width runs on at the top of the next
+        if not double and cur is None and carry is not None and run[0].gap is None \
+                and run[0].pi != carry["last"].pi and not short(carry["last"]) \
+                and not (valid_label(run[0].text) or NUMHEAD_RE.match(run[0].text)):
+            cur = carry
+        carry = None
         if sig is not None:
             for l in run:
                 add(sig, l)
@@ -1871,6 +1970,16 @@ def recap_blocks(lines, labels):
             cur = None
             continue
         for i, l in enumerate(run):
+            if len(run) > 1 and l.ind >= 8 and valid_label(l.text) and abs(l.ind - (right[l.pi] - l.end)) <= 12:
+                cur = None                      # a centred "II" with no blank line around it
+                new("h", label=l.text)
+                continue
+            mh = NUMHEAD_RE.match(l.text) if len(run) > 1 and l.ind >= 6 else None
+            if mh and headingish(mh.group(2)) and (cur is None or re.search(r"[.:;)”\"]$", cur["last"].text)):
+                cur = None                      # "I. Statutory and Regulatory Background", set in the run
+                new("h", label=mh.group(1))
+                new("title", pieces=[(mh.group(2), l.pi)])
+                continue
             glued = double and i > 0            # single-spaced pair inside double-spaced text: one paragraph
             if cur is None or (not glued and (short(cur["last"]) or ENUM_RE.match(l.text)
                                               or (cur["cont"] is not None and l.ind > cur["cont"] + 2))):
@@ -1879,7 +1988,7 @@ def recap_blocks(lines, labels):
                 cur["cont"] = l.ind
             add(cur, l)
         if not double:
-            cur = None                          # single-spaced text: a blank line ends the paragraph
+            carry, cur = cur, None              # single-spaced text: a blank line ends the paragraph
     return split_leaders(blocks)
 
 
@@ -2099,7 +2208,10 @@ def read_slip(op, oi, warn):
     """One slip-opinion text -> [opinion dicts] (the Court's, then any separate opinions)."""
     import html as _html
     text = op.get("plain_text") or _html.unescape(re.sub(r"<[^>]+>", "", op.get("html_with_citations") or ""))
-    lines, footnotes, labels = layout_pages(text)
+    heads = []
+    lines, footnotes, labels = layout_pages(text, heads)
+    if sum(1 for h in heads if h["head"]) >= 2:
+        return read_scotus_slip(op, oi, warn, lines, footnotes, labels, heads)
     starts = [(i, m) for i, l in enumerate(lines) for m in [SLIP_AUTHOR_RE.match(l.text)] if m]
     if not starts:
         warn("no 'JUDGE, Circuit Judge:' line found; the caption is left in the text")
@@ -2144,6 +2256,91 @@ def read_slip(op, oi, warn):
     return out
 
 
+SCOTUS_AUTHOR_RE = re.compile(r"^(?:(?:CHIEF )?JUSTICE [A-Z][A-Z'’\-]+|PER CURIAM|[A-Z][A-Z'’\-]+, (?:C\. )?J\., (?:concurring|dissenting))\b")
+SCOTUS_WHO_RE = re.compile(r"^([A-Z][A-Za-z'’\-]+),\s*(C\.\s*)?J\.,\s*(.+)$")
+
+
+def scotus_who(sentence, head):
+    """The author line ('JUSTICE SOTOMAYOR, with whom JUSTICE GINSBURG joins, dissenting.') -> (who, kind)."""
+    t = re.sub(r"\s+", " ", sentence or "").strip()
+    if re.match(r"PER CURIAM", t):
+        return "Per Curiam", "per curiam"
+    if re.search(r"delivered the opinion of the Court|announced the judgment of the Court", t):
+        return "Court", ""
+    lead = re.split(r",\s*with whom\b", t)[0]
+    m = re.search(r",\s*((?:concurring|dissenting)[^.]*?)\.?\s*$", t)
+    kind = clean(m.group(1)) if m else ""
+    names = re.findall(r"(CHIEF )?JUSTICE ([A-Z][A-Z'’\-]+)", lead)
+    if not names:                                       # 'THOMAS, J., concurring.'
+        mm = re.match(r"([A-Z][A-Z'’\-]+), (C\. )?J\.", lead)
+        names = [(mm.group(2) or "", mm.group(1))] if mm else []
+    if names:
+        if len(names) == 1:
+            return "%s, %sJ." % (names[0][1].title(), "C. " if names[0][0] else ""), kind
+        return "%s%s and %s, JJ." % (", ".join(n.title() for _, n in names[:-1]), "," if len(names) > 2 else "",
+                                     names[-1][1].title()), kind
+    return head or "Opinion", kind
+
+
+def read_scotus_slip(op, oi, warn, lines, footnotes, labels, heads):
+    """A Supreme Court slip opinion -> [opinion dicts]: the syllabus, the Court's opinion, then each
+    separate opinion. Each opinion starts on a page numbered 1 that carries the Court's caption; the
+    caption (notice, court, docket, parties, date) is dropped and the 'JUSTICE X ...' sentence after
+    it becomes the byline and names the author. Running heads are only a fallback: their text layer
+    is often damaged ('ORSUCH, J., concurring')."""
+    starts = [pi for pi, h in enumerate(heads) if h["new"]] or [0]
+    if starts[0] != 0:
+        starts = [0] + starts
+    links = slip_links(op.get("html_with_citations"))
+    out = []
+    for g, lo in enumerate(starts):
+        hi = starts[g + 1] if g + 1 < len(starts) else 10 ** 6
+        seg = [l for l in lines if lo <= l.pi < hi]
+        if not seg:
+            continue
+        head = heads[lo]["head"]
+        byline, sentence = [], ""
+        syllabus = head.lower().startswith("syllabus")
+        if syllabus:                                # drop its caption: court, parties, writ
+            c = next((i for i in range(min(30, len(seg))) if seg[i].text.strip() == SCOTUS_COURT), None)
+            n = next((i for i in range(c or 0, min(45, len(seg))) if re.match(r"No\.\s", seg[i].text.strip())), None) \
+                if c is not None else None
+            if n is not None:
+                seg = seg[:c] + seg[n:]
+        if not syllabus:
+            a = next((i for i in range(min(60, len(seg))) if SCOTUS_AUTHOR_RE.match(seg[i].text)), None)
+            if a is None:
+                warn("opinion at slip page %s (%s): no 'JUSTICE ...' line found; its caption is left in the text"
+                     % (labels[lo], head))
+            else:
+                b = a
+                while b < len(seg) - 1 and b < a + 4 and not re.search(r"\.\s*$", seg[b].text):
+                    b += 1
+                sentence = join_lines([l.text.strip() for l in seg[a:b + 1]])
+                p = El("p")
+                p.kids.append(sentence)
+                byline, seg = [p], seg[b + 1:]
+        if not seg:
+            continue
+        fns = [f for f in footnotes if lo <= f[1] < hi]
+        blocks = recap_blocks(seg, labels)
+        place_marks(blocks, fns, warn, spaced=True)
+        if syllabus:
+            who, kind = "Syllabus", "by the Reporter of Decisions, not part of the opinion"
+        else:
+            who, kind = scotus_who(sentence, head)
+        o = {"oi": oi + len(out), "kind": kind, "author": "", "byline": byline, "flat": [], "footnotes": {},
+             "api": op, "start": labels[seg[0].pi], "who": who}
+        fill_opinion(o, blocks, fns)
+        for _, el in o["flat"]:
+            if isinstance(el, El):
+                relink(el, links)
+        for fn in o["footnotes"].values():
+            relink(fn, links)
+        out.append(o)
+    return out
+
+
 def prepare_slip(meta, api_ops, links, statutes):
     warnings, ops = [], []
     meta["srcline"] = [s.replace("(Harvard CAP text)", "(slip opinion text)") for s in meta["srcline"]]
@@ -2152,7 +2349,7 @@ def prepare_slip(meta, api_ops, links, statutes):
     for o in ops:
         o["ctx"] = Ctx("slip op.", o["who"], o["oi"])
         o["ctx"].links, o["ctx"].statutes = links, statutes
-        o["kindname"] = o["kind"] or ("opinion of the Court" if o["oi"] == 0 else "opinion")
+        o["kindname"] = o["kind"] or ("opinion of the Court" if o["oi"] == 0 or o["who"] == "Court" else "opinion")
         o["ctx"].record = False
         o["byline_md"] = clean(" ".join(inline(b, "md", o["ctx"], []) for b in o["byline"]))
         o["byline_tex"] = clean(" ".join(inline(b, "tex", o["ctx"], []) for b in o["byline"]))
