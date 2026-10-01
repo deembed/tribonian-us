@@ -56,6 +56,7 @@ Commands
     ./cocite.py shift --cite "375 U.S. 384" --courts appellate
                                                      # good-law signals from cluster change (cocite_shift.py)
     ./cocite.py shift --eval --courts appellate      # the same, scored on goodlaw_eval.py's cases
+    ./cocite.py positions [--show ID | --sample N]   # where every citation occurs (cocite_positions.py)
     ./cocite.py diag                                 # citing decisions per slice by court level
     ./cocite.py evidence --courts appellate          # build/cocite/evidence-*.jsonl: what to describe, and the evidence
     ./cocite.py labels import labels.jsonl           # descriptions -> cocite_labels.json, attached to lineages
@@ -2513,6 +2514,8 @@ def main():
     p.add_argument("--cohort-pct", dest="cohort_pct", type=float, default=0.10,
                    help="collapse: fires when at most this share of the cohort fell further")
     p.set_defaults(func=cmd_shift)
+    import cocite_positions
+    cocite_positions.add_parser(sub)
     p = sub.add_parser("together", parents=[view], help="do these cases share a cluster, slice by slice?")
     p.add_argument("--cite", action="append", default=[])
     p.add_argument("--cluster", type=int, action="append")

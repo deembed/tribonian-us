@@ -67,6 +67,7 @@ The project turns federal law into **dense PDFs you can read and annotate on a r
 | `cocite.py` | ~550 | Co-citation clusters per five-year slice, soft membership, lineage across slices |
 | `casedb.py` | ~400 | Bulk CSV → SQLite loader, full-text index |
 | `cocite_shift.py` | ~520 | Good-law signals from cluster change (`cocite.py shift`), its eval, and the case note's successor line |
+| `cocite_positions.py` | ~330 | Citation positions for proximity weights (`cocite.py positions`): one row per citation occurrence, sharded and resumable |
 | `goodlaw_eval.py` | ~375 | Test harness for the good-law rules against cases whose overruling is known |
 | `build_all.sh` | ~240 | Orchestrator: finds out-of-date jobs, runs them in parallel, keeps a manifest |
 | `sync_remarkable.py`, `sync_vault.sh`, `link_audit.py` | small | Delivery and audits |
@@ -222,7 +223,8 @@ The question is **which cases travel together, and how that changes over time**.
 - **Crawl (`casemap.py map --by cluster`, the default unless `--depth` is given):** notes for the cases in the root's sub-cluster lineage in the newest full slice, plus cases that joined it since (`--scope all`: every lineage it has been in), heaviest first, up to `--cluster-max`. `--depth N` keeps the old citation walk.
 - **Falsification checks:** `together` on pairs with known history (Twombly/Iqbal, the summary-judgment trilogy, Chevron/State Farm/Loper Bright).
 - **Good-law signals (`shift`, `cocite_shift.py`):** per case and slice transition: successor partner, lineage break, collapse against its cohort, core to edge. Pure reads of the views and the cache; per-slice counts are cached in `build/cocite/shift-counts-<view>.npz`. Eval on `goodlaw_eval.py`'s cases: the successor signal fires at the overruling for 37/41 and names the overruling decision for 35/41, but fires for 11/20 never-overruled cases too (extension, not overruling), and no signal leads an overruling more than chance. So it is wired in only as a flag: the case-profile box's "likely successor" line, latest firing slice, needing 10 shared decisions (5 for cases decided in the last 10 years before the newest slice).
-- **Not yet:** court-specific views, scoped in `docs/scope-cocite-next.md`; citation proximity; judge profiles; the `goodlaw` reading set putting decisions that cite both A and its successor first.
+- **Citation positions (`positions`, `cocite_positions.py`):** the one text pass for proximity weights. One row per citation occurrence (citing opinion, cited cluster, seq, paragraph, sentence, character offset, footnote, separator from the previous citation, signal), plus footnote-mark positions, in `cocite-cache/pos/<rowid range>.npz`; resumable, version-stamped, a process pool over all cores. The cited cluster comes from the link's href (`data-id` is the cited *opinion*; they differ for about half of links). Unresolved citations stay as rows (-1 ambiguous, -2 no link, -3 "Id.") so string cites stay intact; parallel cites to one case are one occurrence. About 2 ms per opinion, about 15 rows per opinion.
+- **Not yet:** court-specific views, scoped in `docs/scope-cocite-next.md`; proximity weightings over the positions (`build --weight`); judge profiles; the `goodlaw` reading set putting decisions that cite both A and its successor first.
 
 ---
 
