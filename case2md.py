@@ -986,14 +986,26 @@ def editorial(cluster):
     return L
 
 
+def cocite_md(meta):
+    """'## Co-citation' from cocite.py's appellate view; nothing when it isn't built (or numpy is missing)."""
+    if not meta or not meta.get("cluster"):
+        return []
+    try:
+        import cocite
+        return cocite.case_md(int(meta["cluster"]), load_index())
+    except Exception as e:                                      # never let this section break a build
+        print("  (co-citation section skipped: %s)" % e, file=sys.stderr)
+        return []
+
+
 def render_stub(meta, tail, why="Text not fetched.", cluster=None):
-    L = front_matter(meta, True) + profile_md(meta) + headmatter_md(meta) + editorial(cluster or {})
+    L = front_matter(meta, True) + profile_md(meta) + cocite_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
     return "\n".join(L) + "\n" + tail
 
 
 def render_md(meta, ops, tail="", cluster=None, head=None):
-    L = list(head) if head is not None else front_matter(meta, False) + profile_md(meta) + headmatter_md(meta) + editorial(cluster or {})
+    L = list(head) if head is not None else front_matter(meta, False) + profile_md(meta) + cocite_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     notes = []
     for o in ops:
         ctx = o["ctx"]

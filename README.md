@@ -152,6 +152,37 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 
 The bulk files are in `bulk/` (`CL_BULK`), the database is `bulk/courtlistener.sqlite` (`CL_DB`), and the opinion text (about 110 GB) is in `db/opinions.sqlite` (`CL_OPS_DB`).
 
+## cocite.py — co-citation clusters, five years at a time
+
+```
+./cocite.py prep                  # one pass over the database -> bulk/cocite-cache/ (rerun after a bulk load)
+./cocite.py build                 # cluster every slice, then link clusters across slices into lineages
+./cocite.py build --slices 2005   # one slice (2005-09) only
+./cocite.py status
+./cocite.py case --cite "463 U.S. 29"      # its clusters and top co-cited partners, slice by slice
+./cocite.py cluster 2005-09:3              # one cluster: members, sub-clusters, what it came from / turned into
+./cocite.py cluster 2010-14:1.3            # one sub-cluster
+./cocite.py tree 2010                      # one slice: clusters, each with its sub-clusters
+./cocite.py note --cite "463 U.S. 29"     # preview the ## Co-citation section a case note gets (appellate view)
+./cocite.py lineage 17                     # one lineage across slices
+./cocite.py together --cite "550 U.S. 544" --cite "556 U.S. 662"   # same cluster? decisions citing both
+./cocite.py diag                           # citing decisions per slice, by court level
+./cocite.py build --courts appellate       # only appellate citing decisions -> bulk/cocite-appellate.sqlite
+./cocite.py tree 2010 --courts appellate   # every read command takes --courts too
+```
+
+Two cases are co-cited when one later decision cites both. Citing decisions are sliced by filing year. In each slice:
+
+- **Nodes:** cases cited by 0.002% of the slice's decisions (`--min-cited-frac`), never fewer than 5 (`--min-cited`). The share keeps slices comparable as court output and coverage grow; `status` shows the cut each slice used.
+- **Pairs:** cited together by `--min-support` (5) or more decisions. Decisions citing more than `--max-cites` (150) nodes are left out.
+- **Clusters:** Leiden (modularity). Each case also gets a share in every cluster, so it can belong to several. Partners are ranked by cosine; lift is shown alongside.
+- **Sub-clusters:** every cluster of `--split-over` (20) or more is clustered again (`1.3` = sub-cluster 3 of cluster 1). The split is kept only if it beats the same cluster rewired at random (`--nulls` 5 copies) by `--sub-z` (4) standard deviations; otherwise the cluster stays whole.
+- **Chance baseline:** each slice's modularity is compared with its own rewired copy, so `status` column "above" can be compared across slices.
+- **Court views:** `--courts` keeps only citing decisions from those levels (scotus, circuit, district, state-supreme, state-appellate, other; shortcuts `appellate`, `federal`). The cited cases can come from any court. Each view has its own results file.
+- **Lineage:** clusters and sub-clusters in adjacent slices that are each other's best match (Jaccard >= `--carry`, 0.2) share a lineage.
+
+Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a slice is rebuilt when the bulk load or the parameters change. `cocite.summary(cluster_id)` returns what a case note will show.
+
 ## Syncing
 
 - **`./sync_vault.sh`:** mirrors `md/` into `~/Obsidian/usc-vault/08-Reference/USC` and `md-cases/` into `08-Reference/Cases`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. Options: `VAULT=/path` and `DRY=1`.
@@ -170,6 +201,7 @@ The bulk files are in `bulk/` (`CL_BULK`), the database is `bulk/courtlistener.s
 ## Requirements
 
 - Python 3 with `lxml`
+- numpy, scipy, python-igraph for `cocite.py` (`sudo apt install python3-numpy python3-scipy python3-igraph`)
 - pdflatex (TeX Live) with the XCharter and tcolorbox packages
 - `pdftotext` (poppler-utils), for RECAP documents without text
 - `secret-tool`, for a token stored in the keyring

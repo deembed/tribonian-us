@@ -64,6 +64,7 @@ The project turns federal law into **dense PDFs you can read and annotate on a r
 | `case2md.py` | ~2,400 | Cases: API client, opinion parser (Harvard HTML), layout parser (RECAP and slip opinions), MD/TeX renderers, `find`, case profile box |
 | `casemap.py` | ~1,200 | Citation graph: cases from the local DB, stubs, cited-by analysis, sentence lineage, good-law check |
 | `usc2md.py` | ~1,150 | US Code: USLM → Node tree → MD notes and TeX. **Owns the shared LaTeX preamble and TeX escaping** |
+| `cocite.py` | ~550 | Co-citation clusters per five-year slice, soft membership, lineage across slices |
 | `casedb.py` | ~400 | Bulk CSV → SQLite loader, full-text index |
 | `goodlaw_eval.py` | ~375 | Test harness for the good-law rules against cases whose overruling is known |
 | `build_all.sh` | ~240 | Orchestrator: finds out-of-date jobs, runs them in parallel, keeps a manifest |
@@ -201,6 +202,20 @@ The question is **who cites this case, and what do they use it for**:
 - **Classification (`classify`):** looks at the citation's own sentence and at sentences that name the case by its short name (`case_names`: "Chevron", "Roe"). Results are **red** (overruled, abrogated, subsequent history like "overruled by"), **yellow** (softer words, "on other grounds"), or **green**.
 - **Exclusions:** hypotheticals ("unless Roe is overruled"), parties' arguments, the case doing the overruling, negated or quoted softer words, and same-name different cases (`other_case`: "Aguilar v. Texas" is not "Aguilar v. Felton").
 - **Test harness (`goodlaw_eval.py`):** 40 Supreme Court cases whose overruling year is known (a tuning set and a check set) plus 20 that were never overruled. A hit means red from one year before to five years after the overruling. Each ruleset in `RULESETS` (the live one in `casemap.RULES` is R9) is scored against cached reading windows, so tuning is fast. **After changing the rules, bump `GOODLAW_VERSION` and rerun `score`.**
+
+### 7.4 Co-citation clusters (`cocite.py`)
+
+The question is **which cases travel together, and how that changes over time**. Added 2026-10-01.
+
+- **Unit:** two cases are co-cited when one later *decision* (cluster, not opinion) cites both. Citing decisions are sliced by filing year into five-year slices (2005-09, ...).
+- **`prep`:** one pass over the databases into `bulk/cocite-cache/*.npy`: decision -> cited case, with year. Opinion -> case comes from the two indexes on `opinions.sqlite` paired on rowid, so the text is never read.
+- **Per slice (`build`):** nodes = cases with `--min-cited` citing decisions; pair support from a blockwise sparse product MᵀM; pairs under `--min-support` dropped; decisions citing more than `--max-cites` nodes left out. Leiden (python-igraph, modularity) on raw support: modularity's null model is the same chance baseline lift uses, so normalizing first would correct twice.
+- **Soft membership:** each case's pair weight is split by the other end's cluster; home cluster plus any cluster taking `--share` or more. A case can sit in several.
+- **Partners:** top `--top` per case by cosine; lift stored alongside.
+- **Lineage:** adjacent slices matched by Jaccard over cases present in both; a mutual best match at `--carry` or more continues the lineage (and its name). Merges and splits show up as several `links` rows.
+- **Design rule:** clustering is the expensive, occasional step; per-case lookup (`summary(cid)`) only reads rows. Results in `bulk/cocite.sqlite`, stamped with the source load; a slice is rebuilt when the stamp or parameters change.
+- **Falsification check:** `together` on pairs whose history is known (Twombly/Iqbal, the 1986 summary-judgment trilogy, Chevron/Mead/Skidmore around Loper Bright).
+- **Not yet:** rendering into case notes/PDFs, the cluster MOCs in the vault, and cluster-driven crawl in `casemap.py map`.
 
 ---
 
