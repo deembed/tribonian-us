@@ -53,6 +53,9 @@ Commands
     ./cocite.py lineage 17                           # one lineage, slice by slice
     ./cocite.py together --cite "550 U.S. 544" --cite "556 U.S. 662"
                                                      # falsification check: same cluster? pair support, lift
+    ./cocite.py shift --cite "375 U.S. 384" --courts appellate
+                                                     # good-law signals from cluster change (cocite_shift.py)
+    ./cocite.py shift --eval --courts appellate      # the same, scored on goodlaw_eval.py's cases
     ./cocite.py diag                                 # citing decisions per slice by court level
     ./cocite.py evidence --courts appellate          # build/cocite/evidence-*.jsonl: what to describe, and the evidence
     ./cocite.py labels import labels.jsonl           # descriptions -> cocite_labels.json, attached to lineages
@@ -2373,6 +2376,14 @@ def cmd_labels(args):
         print("%d labels, %d attached here" % (len(labs), len(rows)))
 
 
+def cmd_shift(args):
+    """Lives in cocite_shift.py, which imports this module as 'cocite'; run as a script, this one is
+    __main__, so hand over the results file chosen from --courts."""
+    import cocite_shift
+    cocite_shift.cc.COCITE_DB = COCITE_DB
+    cocite_shift.cmd_shift(args)
+
+
 def main():
     import signal
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)     # `| head` ends quietly instead of with a traceback
@@ -2492,6 +2503,16 @@ def main():
     p = sub.add_parser("lineage", parents=[view], help="one lineage across slices")
     p.add_argument("id", type=int)
     p.set_defaults(func=cmd_lineage)
+    p = sub.add_parser("shift", parents=[view], help="good-law signals from cluster change (cocite_shift.py)")
+    p.add_argument("--cite")
+    p.add_argument("--cluster", type=int)
+    p.add_argument("--eval", action="store_true", help="score the signals on goodlaw_eval.py's cases")
+    p.add_argument("--all", action="store_true", help="also list transitions where A is cited under 5 times")
+    p.add_argument("--share", type=float, default=0.25, help="successor: share of A's citers that also cite B")
+    p.add_argument("--growth", type=float, default=3.0, help="successor: B's citing growth over A's")
+    p.add_argument("--cohort-pct", dest="cohort_pct", type=float, default=0.10,
+                   help="collapse: fires when at most this share of the cohort fell further")
+    p.set_defaults(func=cmd_shift)
     p = sub.add_parser("together", parents=[view], help="do these cases share a cluster, slice by slice?")
     p.add_argument("--cite", action="append", default=[])
     p.add_argument("--cluster", type=int, action="append")
@@ -2502,6 +2523,8 @@ def main():
         _codes, tag = parse_courts(args.courts)
         if tag != "all":
             COCITE_DB = BASE_DB.with_name("cocite-%s.sqlite" % tag)
+    if args.cmd == "shift" and not (args.cite or args.cluster or args.eval):
+        ap.error("shift needs --cite, --cluster or --eval")
     if args.cmd in ("case", "note") and not (args.cite or args.cluster):
         ap.error("case needs --cite or --cluster")
     args.func(args)

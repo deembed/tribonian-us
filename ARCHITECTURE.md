@@ -66,6 +66,7 @@ The project turns federal law into **dense PDFs you can read and annotate on a r
 | `usc2md.py` | ~1,150 | US Code: USLM → Node tree → MD notes and TeX. **Owns the shared LaTeX preamble and TeX escaping** |
 | `cocite.py` | ~550 | Co-citation clusters per five-year slice, soft membership, lineage across slices |
 | `casedb.py` | ~400 | Bulk CSV → SQLite loader, full-text index |
+| `cocite_shift.py` | ~520 | Good-law signals from cluster change (`cocite.py shift`), its eval, and the case note's successor line |
 | `goodlaw_eval.py` | ~375 | Test harness for the good-law rules against cases whose overruling is known |
 | `build_all.sh` | ~240 | Orchestrator: finds out-of-date jobs, runs them in parallel, keeps a manifest |
 | `sync_remarkable.py`, `sync_vault.sh`, `link_audit.py` | small | Delivery and audits |
@@ -157,7 +158,7 @@ Output per docket: one PDF for the whole docket, one note per document, and one 
 ### 5.3 Above the opinion
 
 - **Headmatter** (yellow box): parties, docket, dates and counsel from the published report, parsed from `clusters.headmatter`.
-- **Case profile** (blue box): citing cases per year as a bar chart, the last five years compared with the five before (rising / steady / falling), and the good-law status (see §7.3). This needs the local DB. The result is cached in `cases/citedby/<cluster>/profile.json` and recomputed when the bulk data's load stamp changes.
+- **Case profile** (blue box): citing cases per year as a bar chart, the last five years compared with the five before (rising / steady / falling), and the good-law status (see §7.3), plus co-citation's likely successor when one is flagged (`cocite_shift.successor`, see §7.4; never changes the colour). This needs the local DB. The result is cached in `cases/citedby/<cluster>/profile.json` and recomputed when the bulk data's load stamp changes.
 - **Editorial callouts:** the reporter's summary and syllabus become collapsed Obsidian callouts labelled "not part of the opinion".
 
 ### 5.4 Where notes live
@@ -220,7 +221,8 @@ The question is **which cases travel together, and how that changes over time**.
 - **Vault (`vault`):** `md-cocite/`: `Co-citation map.md` (index MOC), `Areas/` (one note per area), `Lineages/` (one per lineage reaching `--min-size` cases: summary, core cases, a timeline of who joined and left each slice, merges and splits, where leavers went). Generator-owned; `sync_vault.sh` mirrors it to `08-Reference/Co-citation`. Fixed headings (`Summary`, `Core cases`, `Timeline`, ...) so a personal MOC can transclude them; starter in `templates/cocite-personal-moc.md`.
 - **Crawl (`casemap.py map --by cluster`, the default unless `--depth` is given):** notes for the cases in the root's sub-cluster lineage in the newest full slice, plus cases that joined it since (`--scope all`: every lineage it has been in), heaviest first, up to `--cluster-max`. `--depth N` keeps the old citation walk.
 - **Falsification checks:** `together` on pairs with known history (Twombly/Iqbal, the summary-judgment trilogy, Chevron/State Farm/Loper Bright).
-- **Not yet:** good-law signals from cluster change and court-specific views, scoped in `docs/scope-cocite-next.md`; citation proximity; judge profiles.
+- **Good-law signals (`shift`, `cocite_shift.py`):** per case and slice transition: successor partner, lineage break, collapse against its cohort, core to edge. Pure reads of the views and the cache; per-slice counts are cached in `build/cocite/shift-counts-<view>.npz`. Eval on `goodlaw_eval.py`'s cases: the successor signal fires at the overruling for 37/41 and names the overruling decision for 35/41, but fires for 11/20 never-overruled cases too (extension, not overruling), and no signal leads an overruling more than chance. So it is wired in only as a flag: the case-profile box's "likely successor" line, latest firing slice, needing 10 shared decisions (5 for cases decided in the last 10 years before the newest slice).
+- **Not yet:** court-specific views, scoped in `docs/scope-cocite-next.md`; citation proximity; judge profiles; the `goodlaw` reading set putting decisions that cite both A and its successor first.
 
 ---
 

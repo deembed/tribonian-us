@@ -169,6 +169,8 @@ The bulk files are in `bulk/` (`CL_BULK`), the database is `bulk/courtlistener.s
 ./cocite.py diag                           # citing decisions per slice, by court level
 ./cocite.py build --courts appellate       # only appellate citing decisions -> bulk/cocite-appellate.sqlite
 ./cocite.py tree 2010 --courts appellate   # every read command takes --courts too
+./cocite.py shift --cite "375 U.S. 384" --courts appellate   # good-law signals from cluster change, per slice transition
+./cocite.py shift --eval --courts appellate                   # the same, scored on goodlaw_eval.py's cases
 ```
 
 Two cases are co-cited when one later decision cites both. Citing decisions are sliced by filing year. In each slice:
@@ -180,6 +182,8 @@ Two cases are co-cited when one later decision cites both. Citing decisions are 
 - **Chance baseline:** each slice's modularity is compared with its own rewired copy, so `status` column "above" can be compared across slices.
 - **Court views:** `--courts` keeps only citing decisions from those levels (scotus, circuit, district, state-supreme, state-appellate, other; shortcuts `appellate`, `federal`). The cited cases can come from any court. Each view has its own results file.
 - **Lineage:** clusters and sub-clusters in adjacent slices that are each other's best match (Jaccard >= `--carry`, 0.2) share a lineage.
+
+**Good-law signals (`shift`, in `cocite_shift.py`):** per slice transition, four signals: (1) a later-decided successor B, cited by at least 25% of the decisions citing A and growing at least 3 times faster; (2) A's sub-cluster lineage breaks; (3) A's citing count falls further than 90% of cases like it (same decade, similar count); (4) A slides from the core of its sub-cluster to the edge. On `goodlaw_eval.py`'s cases (appellate view), signal 1 fires at the overruling for 37 of 41 and names the overruling decision for 35, but it also fires for 11 of the 20 never-overruled cases (a newer leading case taking over: Heller→Bruen, Twombly→Iqbal). No signal fires before an overruling more often than chance. Case notes show signal 1 as a line in the case-profile box ("Role changed 2005-09: likely successor Bowles ..."); it never changes the good-law colour. Every transition of the eval: `build/cocite/shift-eval-<view>.tsv`.
 
 Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a slice is rebuilt when the bulk load or the parameters change. `cocite.summary(cluster_id)` returns what a case note will show.
 

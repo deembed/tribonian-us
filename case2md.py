@@ -498,6 +498,9 @@ def profile_data(cid, scan=False):
         import casemap
         fresh = (old.get("goodlaw") or {}).get("version") == casemap.GOODLAW_VERSION if old else False
         if old and old.get("stamp") == stamp and (fresh or not scan) and "parens" in old:
+            if "successor" not in old:               # cached before the successor line existed: add it only
+                old["successor"] = successor_data(cid)
+                write_profile(path, old)
             return old
         years = {y: n for y, n in con.execute(
             "SELECT substr(cl.date_filed, 1, 4) AS y, count(DISTINCT cl.id) FROM edges e "
@@ -507,18 +510,31 @@ def profile_data(cid, scan=False):
     except Exception as e:                   # tables not loaded yet, or an older database
         print("  note: no cited-by counts (%s)" % e)
         return old
-    new = {"stamp": stamp, "years": years, "parens": parens_data(con, cid)}
+    new = {"stamp": stamp, "years": years, "parens": parens_data(con, cid), "successor": successor_data(cid)}
     if scan:
         import casemap
         try:
             new["goodlaw"] = casemap.goodlaw(con, cid)
         except Exception as e:
             print("  note: good-law check failed (%s)" % e)
+    write_profile(path, new)
+    return new
+
+
+def write_profile(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".%d.tmp" % os.getpid())
-    tmp.write_text(json.dumps(new), encoding="utf-8")
+    tmp.write_text(json.dumps(data), encoding="utf-8")
     os.replace(tmp, path)
-    return new
+
+
+def successor_data(cid):
+    """Co-citation's likely successor (cocite_shift.successor): None when the views aren't built."""
+    try:
+        import cocite_shift
+    except ImportError:                      # numpy missing
+        return None
+    return cocite_shift.successor(int(cid))
 
 
 PARENS_COLOR = "green!8"       # later courts' words: not this opinion, not ours either
@@ -602,7 +618,7 @@ def profile_stats(prof, decided):
              "falling" if recent < 0.8 * before else "steady")
     return {"years": years, "span": span, "end": end, "recent": recent, "before": before,
             "total": total, "peak": peak, "trend": trend, "stamp": prof.get("stamp", ""),
-            "goodlaw": prof.get("goodlaw")}
+            "goodlaw": prof.get("goodlaw"), "successor": prof.get("successor")}
 
 
 GL_COLORS = {"green": ("#2e8b57", "green!55!black"), "yellow": ("#d4a017", "yellow!85!orange"),
@@ -637,6 +653,27 @@ def goodlaw_md(st):
     if gl.get("n_evidence", 0) > 12:
         L.append("- … %d more" % (gl["n_evidence"] - 12))
     return L + ([""] if gl["evidence"] else [])
+
+
+SUCCESSOR_NOTE = "co-citation, not the text: it never changes the colour"
+
+
+def successor_text(st):
+    sc = st.get("successor")
+    if not sc:
+        return None
+    return ("Role changed %s: likely successor %s (%.0f%% of the %s decisions citing this case in %s also cite %s)" % (
+        sc["slice"], sc["name"], 100 * sc["share"], format(sc["citing"], ","), sc["slice"], sc["name"].split(",")[0]))
+
+
+def successor_md(st):
+    t = successor_text(st)
+    return ["%s. *%s.*" % (esc(t, "md"), SUCCESSOR_NOTE.capitalize()), ""] if t else []
+
+
+def successor_tex(st):
+    t = successor_text(st)
+    return "{\\small %s. {\\scriptsize(%s)}\\par}" % (esc(t, "tex"), esc(SUCCESSOR_NOTE, "tex")) if t else ""
 
 
 def binned(st):
@@ -676,7 +713,7 @@ def profile_md(meta):
     axis = ', "xyChart": {"xAxis": {"labelFontSize": 11, "labelPadding": 4}}' if short else ""
     return (["## Case profile", "",
              profile_line(st) + ". *Counted from the CourtListener bulk data of %s.*" % st["stamp"], ""]
-            + goodlaw_md(st) +
+            + goodlaw_md(st) + successor_md(st) +
             ["```mermaid",
              '%%%%{init: {"themeVariables": {"xyChart": {"plotColorPalette": "%s"}}%s}}%%%%' % (palette, axis),
              "xychart-beta",
@@ -709,7 +746,7 @@ def profile_tex(meta):
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
             "%s\\par%s\\vspace{3pt}{\\centering %s\\par}\n"
             "{\\scriptsize Counted from the CourtListener bulk data of %s.\\par}\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
-        PROFILE_COLOR, esc(profile_line(st), "tex"), goodlaw_tex(st), chart, esc(st["stamp"], "tex"))
+        PROFILE_COLOR, esc(profile_line(st), "tex"), goodlaw_tex(st) + successor_tex(st), chart, esc(st["stamp"], "tex"))
 
 
 def goodlaw_tex(st):
