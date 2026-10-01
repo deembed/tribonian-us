@@ -1226,7 +1226,8 @@ def box_opts(rec):
 
 def render_tex(meta, ops, fontpkg, style):
     from usc2md import PREAMBLE, RULES
-    body = [headmatter_tex(meta), profile_tex(meta), cocite_tex(meta), parens_tex(meta)]
+    body = [meta.get("pretex", ""), headmatter_tex(meta), profile_tex(meta), cocite_tex(meta), parens_tex(meta)]
+    stage = None                             # scotus.py: documents grouped under top-level outline entries
     for n, o in enumerate(ops):
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""
@@ -1281,7 +1282,12 @@ def render_tex(meta, ops, fontpkg, style):
                 parts.append(fns)
             return rec
 
-        if n:
+        if o.get("stage") and o["stage"] != stage:
+            stage = o["stage"]
+            name = (meta.get("stages") or {}).get(stage, stage)
+            body.append("\\clearpage\\pdfbookmark[0]{%s}{stage%d}{\\Large\\bfseries %s\\par}\\vspace{8pt}\n" % (
+                esc(name, "tex"), n, esc(name, "tex")))
+        elif n:
             # new opinion: start a fresh page unless 8 lines still fit under its heading
             body.append("\\par\\ifdim\\dimexpr\\pagegoal-\\pagetotal\\relax<8\\baselineskip\\clearpage"
                         "\\else\\vspace{12pt}\\hrule\\vspace{6pt}\\fi\n")
@@ -1631,7 +1637,7 @@ LEADER_RE = re.compile(r"\s*\.(?:\s?\.){3,}\s*((?:\d+|[ivxlc]+|passim)(?:\s*(?:,
 ENUM_RE = re.compile(r"^\((?:\d{1,2}|[a-z]|[ivx]{1,4})\)\s")
 STATUTE_RE = re.compile(r"\d+\s*U\.\s?S\.\s?C\.?\s*(?:A\.\s*)?§+\s*\d+[A-Za-z]*(?:-\d+[A-Za-z]*)?")
 # a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3" -- not dot leaders ("....2")
-FNMARK = r"(?<!\.\.)(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
+FNMARK = r"(?<!\.\.)(?<!\d[.,])(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
 # the same number set off by a space after punctuation, not the start of a citation ("7(E), 5 U.S.C.")
 FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))"
 
@@ -1786,6 +1792,8 @@ SCOTUS_HEAD_RE = re.compile(r"^\s*(?:\(Slip Opinion\)\s+OCTOBER TERM,\s*\d{4}(?:
                             r"|Cite as:\s*\d+\s*U\.\s*S\.\s*\S*\s*\(\d{4}\)(?:\s+(\d+))?"
                             r"|(\d+)\s{2,}[A-Z](?:[A-Z0-9.,'’&()\- ]|\bv\.)*)\s*$")
 SCOTUS_COURT = "SUPREME COURT OF THE UNITED STATES"
+_CAPNAME = r"[A-Z0-9][A-Z0-9 .,'’&:()\-]*\bV\.\s+[A-Z0-9 .,'’&:()\-]+?"
+SLIP_RUNHEAD_RE = re.compile(r"^\s*(?:(\d{1,3})\s{2,}%s|%s\s{2,}(\d{1,3}))\s*$" % (_CAPNAME, _CAPNAME))
 
 
 def layout_pages(text, heads=None):
@@ -1818,6 +1826,9 @@ def layout_pages(text, heads=None):
                         nxt = 1                 # a new opinion: its footnotes start again at 1
                 elif PAGENUM_RE.match(l):       # slip opinion: the page number heads the page
                     label, raw[j] = re.sub(r"\D", "", l), ""
+                elif SLIP_RUNHEAD_RE.match(l):  # circuit slip opinion: "10   LITEKYAN V. USAF" / "LITEKYAN V. USAF   11"
+                    mh = SLIP_RUNHEAD_RE.match(l)
+                    label, raw[j] = mh.group(1) or mh.group(2), ""
                 break
         if heads is not None:
             heads.append({"head": head, "new": bool(head) and (label == "1" or pi == 0)})
@@ -1901,17 +1912,23 @@ def recap_blocks(lines, labels):
         return l.end < right[l.pi] - 12
 
     def add(b, l):
-        if l.pi != st["pi"]:
-            b["pieces"].append(El("page-number", {"label": labels[l.pi]}))
-            st["pi"] = l.pi
+        turn = l.pi != st["pi"]
+        st["pi"] = l.pi
         k = next((k for k in range(len(b["pieces"]) - 1, -1, -1) if isinstance(b["pieces"][k], tuple)), None)
         prev = b["pieces"][k][0] if k is not None else ""
         sep = "" if not prev or (prev.endswith(("-", "—")) and prev[-2:-1].isalpha()) else " "
+        joined = False
         if prev.endswith("\u00ad"):
-            b["pieces"][k], sep = (prev[:-1], b["pieces"][k][1]), ""
+            b["pieces"][k], sep, joined = (prev[:-1], b["pieces"][k][1]), "", True
         elif prev.endswith("-") and soft_hyphen(prev, l.text):
-            b["pieces"][k] = (prev[:-1], b["pieces"][k][1])
-        b["pieces"].append((sep + l.text, l.pi))
+            b["pieces"][k], joined = (prev[:-1], b["pieces"][k][1]), True
+        if turn and joined:                     # "loca-" | page 12 | "tion": the page mark goes after the word
+            word, _, rest = l.text.partition(" ")
+            b["pieces"] += [(word, l.pi), El("page-number", {"label": labels[l.pi]})] + ([(" " + rest, l.pi)] if rest else [])
+        else:
+            if turn:
+                b["pieces"].append(El("page-number", {"label": labels[l.pi]}))
+            b["pieces"].append((sep + l.text, l.pi))
         b["last"] = l
 
     def new(kind, **kw):

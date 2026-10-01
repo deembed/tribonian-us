@@ -576,6 +576,7 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \usepackage[normalem]{ulem}    % \sout for repealed text; normalem keeps \emph italic
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}   % skins -> "enhanced"; breakable -> page splits
+\usepackage{longtable}          % tables that run across pages (scotus.py: authorities by side)
 % PDF outline (the reMarkable shows it as the table of contents). hidelinks: no
 % coloured/boxed links. hyperfootnotes=false: marks and \footnotetext are paired
 % by hand here, and hyperref's footnote links assume \footnote.
