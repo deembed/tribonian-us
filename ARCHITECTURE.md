@@ -205,17 +205,19 @@ The question is **who cites this case, and what do they use it for**:
 
 ### 7.4 Co-citation clusters (`cocite.py`)
 
-The question is **which cases travel together, and how that changes over time**. Added 2026-10-01.
+The question is **which cases travel together, and how that changes over time**. Added 2026-10-01. The pipeline itself uses no language model; names and descriptions of its results are written by one, from script-built evidence, and kept in a tracked file.
 
 - **Unit:** two cases are co-cited when one later *decision* (cluster, not opinion) cites both. Citing decisions are sliced by filing year into five-year slices (2005-09, ...).
-- **`prep`:** one pass over the databases into `bulk/cocite-cache/*.npy`: decision -> cited case, with year. Opinion -> case comes from the two indexes on `opinions.sqlite` paired on rowid, so the text is never read.
-- **Per slice (`build`):** nodes = cases with `--min-cited` citing decisions; pair support from a blockwise sparse product MᵀM; pairs under `--min-support` dropped; decisions citing more than `--max-cites` nodes left out. Leiden (python-igraph, modularity) on raw support: modularity's null model is the same chance baseline lift uses, so normalizing first would correct twice.
-- **Soft membership:** each case's pair weight is split by the other end's cluster; home cluster plus any cluster taking `--share` or more. A case can sit in several.
-- **Partners:** top `--top` per case by cosine; lift stored alongside.
-- **Lineage:** adjacent slices matched by Jaccard over cases present in both; a mutual best match at `--carry` or more continues the lineage (and its name). Merges and splits show up as several `links` rows.
-- **Design rule:** clustering is the expensive, occasional step; per-case lookup (`summary(cid)`) only reads rows. Results in `bulk/cocite.sqlite`, stamped with the source load; a slice is rebuilt when the stamp or parameters change.
-- **Falsification check:** `together` on pairs whose history is known (Twombly/Iqbal, the 1986 summary-judgment trilogy, Chevron/Mead/Skidmore around Loper Bright).
-- **Not yet:** rendering into case notes/PDFs, the cluster MOCs in the vault, and cluster-driven crawl in `casemap.py map`.
+- **Two views:** `bulk/cocite.sqlite` (all courts) and `bulk/cocite-appellate.sqlite` (`--courts appellate`; filters the *citing* side only). Case notes read the appellate view, because district courts flood the 2020s.
+- **`prep`:** one pass over the databases into `bulk/cocite-cache/*.npy`: decision -> cited case, with year and court level.
+- **Per slice (`build`):** nodes = cases cited by at least `max(--min-cited, --min-cited-frac x decisions)`; pair support from a blockwise sparse product MᵀM; Leiden (modularity) on raw support. Clusters over `--split-over` are split into **sub-clusters**, kept only when their modularity beats degree-preserving rewired nulls by `--sub-z` standard deviations.
+- **Soft membership and partners:** a case's pair weight is split by the other end's cluster, so a case can sit in several; partners by cosine, with lift stored.
+- **Lineage:** clusters and sub-clusters in adjacent slices are matched by Jaccard; a mutual best match at 0.2 or more continues the lineage. Merges and splits are `links` rows.
+- **Labels (`evidence`, `labels import|match|check`):** evidence per lineage (members, spans, the parentheticals courts wrote) -> a language model writes a name and description -> `cocite_labels.json` (git-tracked; it can't be rebuilt). Each label stores a fingerprint (its 30 heaviest cases) and re-attaches after a rebuild at Jaccard 0.3 or more; `label_status` marks it stable (0.7+), drifted, displaced or orphaned. Siblings are labelled together (`evidence --family-of`) so descriptions say how they differ.
+- **Areas (`areas`):** sub-cluster lineages pooled over all slices into broad, stable areas. Settled 2026-10-01: CPM on association-strength weights with shrinkage, `--method cpm --shrink 10 --resolution 0.5 --consensus 20` (consensus clustering, Lancichinetti and Fortunato). Chosen with `--grid` against `cocite_gold.json` (16 hand groupings, 78 labelled lineages, scored by pairwise F1): F1 0.80, precision 0.91, recall 0.71, 82.7% of lineages in areas of 5+. Plain modularity left a giant area of 2,699 lineages; CPM without shrinkage inflated small lineages' ties. There is no resolution plateau, so the structure is nested and **the area level is a chosen cut**, not a natural one. Many areas are jurisdiction x subject (state appellate courts cite their own state); doctrines the Supreme Court governs form cross-state areas. Area labels: `build/cocite/labels-areas.jsonl` (110 of the 120 heaviest), imported into the same labels file.
+- **Case notes:** `case2md.py` calls `cocite.case_md()` for a "## Co-citation" section near the top: where the case sits (area, cluster, sub-cluster tables), who cites it (court-level pies, citing-per-year chart), partners. Markdown only; the PDF box is not built yet.
+- **Falsification checks:** `together` on pairs with known history (Twombly/Iqbal, the summary-judgment trilogy, Chevron/State Farm/Loper Bright).
+- **Not yet:** the PDF co-citation box; cluster-driven crawl in `casemap.py map`; vault MOCs (a generated one plus a transclusion MOC); per-lineage explainer of cases joining and leaving; court-specific (binding/persuasive) views.
 
 ---
 

@@ -1,0 +1,112 @@
+{
+ "Fourth Amendment": [
+  "Fourth Amendment: warrants, exclusion and incident-to-arrest (to 1980)",
+  "Investigative stops and reasonable suspicion",
+  "Fourth Amendment: privacy, homes and vehicle searches",
+  "Search warrants, probable cause and the exclusionary rule",
+  "Special-needs and administrative searches"
+ ],
+ "Confessions and identification": [
+  "Miranda: custodial interrogation and waiver",
+  "Eyewitness identification and lineups"
+ ],
+ "Federal habeas": [
+  "Federal habeas: AEDPA deference and procedural default",
+  "Habeas timeliness and equitable tolling",
+  "Federal habeas procedure and conflicts of counsel (c. 1980)",
+  "Habeas: jury-instruction error and procedural default (1985)"
+ ],
+ "Administrative law": [
+  "Judicial review of agency action: deference and reasoned decision-making",
+  "NEPA and record review of agency action (1970s)",
+  "Agency review after Loper Bright (2025)",
+  "Exhaustion and ripeness for judicial review",
+  "Natural gas and energy rate regulation"
+ ],
+ "Employment discrimination": [
+  "Employment discrimination: McDonnell Douglas pretext",
+  "Sexual harassment under Title VII",
+  "Title VII procedure: EEOC charges and limitations",
+  "Title VII systemic and disparate-impact litigation (early 1980s)",
+  "Disability discrimination: ADA and Rehabilitation Act"
+ ],
+ "Free speech": [
+  "Speech regulation: content neutrality, forums, expressive conduct",
+  "Vagueness and overbreadth challenges to criminal laws",
+  "Defamation and the First Amendment",
+  "Public-employee speech and patronage",
+  "Compelled speech and union agency fees"
+ ],
+ "Section 1983 and prisoners": [
+  "Qualified immunity and § 1983 officer liability",
+  "Municipal liability and due-process torts under § 1983",
+  "Prisoner rights: Eighth Amendment and due process",
+  "Prison due process: liberty interests",
+  "Pro se pleadings and Twombly/Iqbal in prisoner suits"
+ ],
+ "Texas civil": [
+  "Texas civil: sufficiency, damages and expert causation",
+  "Texas civil summary judgment",
+  "Texas sovereign and governmental immunity",
+  "Texas mandamus",
+  "Texas civil: sanctions, medical expert reports, community property",
+  "Texas default judgments and restricted appeals",
+  "Texas civil: temporary injunctions and sanctions",
+  "Texas medical-malpractice expert reports",
+  "Texas parental-rights termination"
+ ],
+ "Texas criminal": [
+  "Texas criminal: sufficiency after Brooks",
+  "Texas criminal: evidentiary rulings and harm analysis",
+  "Texas criminal: jury-charge error and egregious harm",
+  "Texas criminal: ineffective assistance on direct appeal",
+  "Texas Anders briefs (2010s)",
+  "Texas Anders briefs (1990s-2000s)"
+ ],
+ "Federal sentencing": [
+  "Reasonableness review of federal sentences",
+  "Eleventh Circuit sentencing reasonableness",
+  "Second Circuit sentencing review",
+  "ACCA and the categorical approach",
+  "Guidelines departures (1990s)",
+  "Booker remands (2005)",
+  "Plain-error review of Booker errors (2005)"
+ ],
+ "Labor law": [
+  "NLRB unfair labor practices",
+  "NLRB substantial-evidence review (1955-80)",
+  "Labor arbitration: Steelworkers Trilogy",
+  "Labor preemption: § 301 and fair representation"
+ ],
+ "Immigration": [
+  "Asylum: persecution and nexus (Ninth Circuit)",
+  "Asylum: credibility and persecution (Third Circuit)",
+  "Asylum credibility and corroboration (Second Circuit)",
+  "Asylum: persecution and social group (Eighth and other circuits)",
+  "Immigration: persecution and notice to appear (Tenth Circuit)",
+  "Immigration: habeas review and retroactivity",
+  "Judicial review of removal orders and statutory preclusion (2020)"
+ ],
+ "California civil": [
+  "California civil: employment, premises duty and summary judgment",
+  "California anti-SLAPP and litigation privilege",
+  "California UCL and mortgage-foreclosure claims",
+  "California insurance coverage: duty to defend",
+  "California attorney's fees: lodestar",
+  "California CEQA and water law"
+ ],
+ "Pennsylvania criminal": [
+  "Pennsylvania PCRA and ineffectiveness",
+  "Pennsylvania discretionary aspects of sentencing",
+  "Pennsylvania Rule 1925(b) waiver"
+ ],
+ "Double jeopardy": [
+  "Double jeopardy: same offense and multiple punishment",
+  "Double jeopardy: mistrials and retrial"
+ ],
+ "Patent": [
+  "Patent claim construction",
+  "Patent obviousness and PTAB review",
+  "Patent validity: invention and obviousness (1945-80)"
+ ]
+}

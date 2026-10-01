@@ -48,6 +48,8 @@ Commands
     ./cocite.py cluster 2010-14:1.3                  # one sub-cluster
     ./cocite.py tree 2010                            # one slice: clusters with their sub-clusters
     ./cocite.py note --cite "463 U.S. 29"            # preview the '## Co-citation' section of a case note
+    ./cocite.py areas --courts appellate             # areas: sub-cluster lineages grouped once, over all slices
+    ./cocite.py area-evidence --courts appellate     # build/cocite/areas-*.jsonl, for naming them
     ./cocite.py lineage 17                           # one lineage, slice by slice
     ./cocite.py together --cite "550 U.S. 544" --cite "556 U.S. 662"
                                                      # falsification check: same cluster? pair support, lift
@@ -132,6 +134,11 @@ CREATE TABLE IF NOT EXISTS links(level TEXT, slice_from INTEGER, cl_from INTEGER
     shared INTEGER, jaccard REAL);
 CREATE TABLE IF NOT EXISTS lineages(lineage INTEGER PRIMARY KEY, level TEXT, first_slice INTEGER, first_cl INTEGER,
     last_slice INTEGER, anchor INTEGER);
+CREATE TABLE IF NOT EXISTS areas(area INTEGER PRIMARY KEY, lineages INTEGER, weight REAL, anchor_lineage INTEGER,
+    first_slice INTEGER, last_slice INTEGER, built TEXT);
+CREATE TABLE IF NOT EXISTS lineage_area(lineage INTEGER PRIMARY KEY, area INTEGER, weight REAL);
+CREATE TABLE IF NOT EXISTS area_fp(area INTEGER, rank INTEGER, ref INTEGER, weight REAL);
+CREATE TABLE IF NOT EXISTS area_label(area INTEGER PRIMARY KEY, key TEXT, jaccard REAL);
 CREATE INDEX IF NOT EXISTS nodes_by_ref ON nodes(ref, slice);
 CREATE INDEX IF NOT EXISTS nodes_by_slice ON nodes(slice, ref);
 CREATE INDEX IF NOT EXISTS nodes_by_sub ON nodes(slice, sub);
@@ -221,9 +228,14 @@ def cmd_prep(args):
     CACHE.mkdir(parents=True, exist_ok=True)
     done = CACHE / "stamp.txt"
     if done.exists() and done.read_text() == stamp and not args.force:
+        added = False
         if not (CACHE / "level.npy").exists():
             prep_levels(con)                   # cache from before court levels existed: add them only
-        else:
+            added = True
+        if not (CACHE / "by_cited.npy").exists():
+            prep_order()
+            added = True
+        if not added:
             print("cache is current (%s); --force to redo" % CACHE)
         return
     t0 = time.time()
@@ -292,6 +304,7 @@ def cmd_prep(args):
     print("edges: %s opinion->opinion read, %s decision->case kept, citing years %d-%d  (%.1f min)" % (
         format(n_in, ","), format(len(ci), ","), yrs_seen.min(), yrs_seen.max(), (time.time() - t1) / 60))
     prep_levels(con)
+    prep_order()
     print("prep done in %.1f min -> %s" % ((time.time() - t0) / 60, CACHE))
 
 
@@ -329,6 +342,17 @@ def prep_levels(con):
         lvl[a[ok, 0]] = dl[a[ok, 1]]
     np.save(CACHE / "level.npy", lvl)
     print("cases: court level for %s  (%.1f min)" % (format(top, ","), (time.time() - t0) / 60))
+
+
+def prep_order():
+    """Edges sorted by cited case, so 'every decision citing X' is a binary search, not a scan.
+    (The edges themselves are already sorted by citing decision.)"""
+    t0 = time.time()
+    cd = np.load(CACHE / "cited.npy")
+    order = np.argsort(cd, kind="stable").astype(np.int32)
+    np.save(CACHE / "by_cited.npy", order)
+    np.save(CACHE / "cited_sorted.npy", cd[order])
+    print("cited-case index: %s edges  (%.1f min)" % (format(len(cd), ","), (time.time() - t0) / 60))
 
 
 def load_cache(stamp=None):
@@ -684,6 +708,84 @@ def unit_name(db, s, k, level="cluster"):
     return (lab[0] if lab else "around %s" % short(db, r[0])), r[1], (lin[0] if lin else None)
 
 
+def citing_breakdown(ref, db, view=NOTE_VIEW):
+    """Each slice's decisions citing this case, sorted by the cluster (and sub-cluster) most of their
+    other cites fall in: what kinds of cases use it. Cached per case under cocite-cache/notes/."""
+    if not (CACHE / "by_cited.npy").exists():
+        return None
+    built = db.execute("SELECT max(built) FROM slices").fetchone()[0]
+    cpath = CACHE / "notes" / (view or "all") / ("%d.json" % ref)
+    try:
+        hit = json.loads(cpath.read_text())
+        if hit.get("built") == built:
+            return {int(k): v for k, v in hit["slices"].items()}
+    except (FileNotFoundError, ValueError):
+        pass
+    ci = np.load(CACHE / "citing.npy", mmap_mode="r")
+    cd = np.load(CACHE / "cited.npy", mmap_mode="r")
+    y = np.load(CACHE / "year.npy", mmap_mode="r")
+    lvl = np.load(CACHE / "level.npy", mmap_mode="r")
+    order = np.load(CACHE / "by_cited.npy", mmap_mode="r")
+    cds = np.load(CACHE / "cited_sorted.npy", mmap_mode="r")
+    lo, hi = np.searchsorted(cds, ref), np.searchsorted(cds, ref, side="right")
+    rows = np.asarray(order[lo:hi]).astype(np.int64)
+    D, Y = np.asarray(ci)[rows] if len(rows) else np.zeros(0, np.int32), np.asarray(y)[rows] if len(rows) else np.zeros(0)
+    codes, _ = parse_courts(view)
+    if codes and len(D):
+        keep = np.isin(np.asarray(lvl)[D], codes)
+        D, Y = D[keep], Y[keep]
+    starts, ends = np.searchsorted(ci, D), np.searchsorted(ci, D, side="right")
+    out = {}
+    nodes_of = {}
+    for i in range(len(D)):
+        s = int(Y[i]) - int(Y[i]) % WIDTH
+        if s not in nodes_of:
+            nodes_of[s] = {r: (c, b) for r, c, b in db.execute("SELECT ref, cl, sub FROM nodes WHERE slice=?", (s,))}
+        nm = nodes_of[s]
+        cls, subs = Counter(), Counter()
+        for r in np.asarray(cd[starts[i]:ends[i]]).tolist():
+            if r != ref and r in nm:
+                c, b = nm[r]
+                if c and c > 0:
+                    cls[c] += 1
+                if b and b > 0:
+                    subs[b] += 1
+        slot = out.setdefault(s, {"n": 0, "cl": Counter(), "sub": Counter(), "none": 0})
+        slot["n"] += 1
+        if cls:
+            slot["cl"][cls.most_common(1)[0][0]] += 1
+            if subs:
+                slot["sub"][subs.most_common(1)[0][0]] += 1
+        else:
+            slot["none"] += 1
+    res = {s: {"n": v["n"], "none": v["none"], "cl": dict(v["cl"]), "sub": dict(v["sub"])} for s, v in out.items()}
+    try:
+        cpath.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cpath.with_suffix(".%d.tmp" % os.getpid())
+        tmp.write_text(json.dumps({"built": built, "slices": res}))
+        tmp.replace(cpath)
+    except OSError:
+        pass
+    return res
+
+
+def pie_md(title, parts):
+    """Mermaid pie: [(label, count)], largest first, the tail folded into 'other'."""
+    parts = sorted(parts, key=lambda x: -x[1])
+    head, tail = parts[:6], sum(n for _, n in parts[6:])
+    if tail:
+        head.append(("other", tail))
+    colours = ["#2e8b57", "#4682b4", "#c9a227", "#b0506e", "#7b68ee", "#3fa7a0", "#8a8a8a"]
+    init = '%%%%{init: {"themeVariables": {%s, "pieStrokeColor": "#222", "pieOpacity": "1"}}}%%%%' % ", ".join(
+        '"pie%d": "%s"' % (i + 1, c) for i, c in enumerate(colours))
+    return (["```mermaid", init, 'pie showData title %s' % title.replace('"', "'")]
+            + ['    "%s" : %d' % (trim(lbl.replace('"', "'"), 64), n) for lbl, n in head if n] + ["```", ""])
+
+
+def trim(t, n):
+    return t if len(t) <= n else t[:n].rsplit(" ", 1)[0].rstrip(",:;") + "…"
+
+
 def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
     """Markdown lines for '## Co-citation' in a case note; [] when there is nothing to show."""
     db = open_view(view)
@@ -706,6 +808,10 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
     c_name, c_lin, c_first = unit_name(db, now["slice"], now["home"])
     s_name, s_lin, s_first = unit_name(db, now["slice"], sub_code, "sub") if sub_code and sub_code % 1000 else (None, None, None)
     head_name, head_lin, head_first = (s_name, s_lin, s_first) if s_name else (c_name, c_lin, c_first)
+    try:
+        head_area = area_of(db, head_lin)
+    except sqlite3.OperationalError:
+        head_area = None
     L = ["## Co-citation", "",
          "*Which cases later %s decisions cite together with this one, in five-year slices of citing decisions. "
          "Clusters from `cocite.py`; cluster names and descriptions were written by Claude from each cluster's "
@@ -713,30 +819,83 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
          "**%s:** %s%s. Since %s." % (now["label"], head_name,
                                      " — within *%s*" % c_name if s_name else "",
                                      label(head_first) if head_first else now["label"]), ""]
-    L += ["| Slice | Cited by | Cluster › sub-cluster | Share |", "|---|---:|---|---:|"]
+    if head_area:
+        try:
+            c = db.execute("SELECT confidence FROM lineage_area_conf WHERE lineage=?", (head_lin,)).fetchone()
+        except sqlite3.OperationalError:
+            c = None
+        edge = " *(boundary: only %d%% of its ties are inside this area)*" % round(100 * c[0]) if c and c[0] < 0.5 else ""
+        L += ["**Area:** %s.%s" % (area_name(db, head_area), edge), ""]
+    shown = []
+    tag = lambda r: " (partial)" if r["slice"] + WIDTH - 1 >= year else ""
+    # where it sits: the clusters
+    L += ["### Where it sits", "", "*The cluster this case belongs to in each slice, and its share of the case's "
+          "co-citation weight; then the sub-cluster within it.*", "",
+          "| Slice | Cited by | Cluster | Share | Also in |", "|---|---:|---|---:|---|"]
     for r in rows:
         cn = unit_name(db, r["slice"], r["home"])[0]
-        sc = r["sub"]["code"] if r["sub"] else None
-        sn = unit_name(db, r["slice"], sc, "sub")[0] if sc and sc % 1000 else None
         home_share = next((c["share"] for c in r["clusters"] if c["home"]), 0)
-        also = ["%s %d%%" % (unit_name(db, r["slice"], c["cl"])[0], round(100 * c["share"]))
-                for c in r["clusters"] if not c["home"]]
-        cell = cn + (" › " + sn if sn else "") + ("<br>*also:* " + "; ".join(also) if also else "")
-        part = " (partial)" if r["slice"] + WIDTH - 1 >= year else ""
-        L.append("| %s%s | %s | %s | %d%% |" % (r["label"], part, format(r["cited_by"], ","), cell.replace("|", "/"),
-                                               round(100 * home_share)))
+        also = "; ".join("`%d` %s %d%%" % (c["cl"], unit_name(db, r["slice"], c["cl"])[0], round(100 * c["share"]))
+                         for c in r["clusters"] if not c["home"])
+        L.append("| %s%s | %s | `%d` %s | %d%% | %s |" % (r["label"], tag(r), format(r["cited_by"], ","), r["home"],
+                                                         cn.replace("|", "/"), round(100 * home_share), also.replace("|", "/")))
+    L += ["", "| Slice | Sub-cluster | Share | Area |", "|---|---|---:|---|"]
+    for r in rows:
+        sc = r["sub"]["code"] if r["sub"] else None
+        if not (sc and sc % 1000):
+            L.append("| %s%s | *cluster not split* | | |" % (r["label"], tag(r)))
+            continue
+        sn = unit_name(db, r["slice"], sc, "sub")[0]
+        w = db.execute("SELECT weight, subw FROM nodes WHERE slice=? AND ref=?", (r["slice"], ref)).fetchone()
+        sh = "%d%%" % round(100.0 * w[1] / w[0]) if w and w[0] else ""
+        sl = db.execute("SELECT lineage FROM subs WHERE slice=? AND sub=?", (r["slice"], sc)).fetchone()
+        if sl and sl[0] not in shown:
+            shown.append(sl[0])
+        try:
+            an = area_name(db, area_of(db, sl[0])) if sl else ""
+        except sqlite3.OperationalError:
+            an = ""
+        L.append("| %s%s | `%s` %s | %s | %s |" % (r["label"], tag(r), sub_label(sc), sn.replace("|", "/"), sh,
+                                                 (an or "").replace("|", "/")))
+    L.append("")
+    # who cites it
+    who = citing_breakdown(ref, db, view)
+    if who:
+        L += ["### Who cites it", "", "*Each citing decision is placed in the cluster (and sub-cluster) most of its "
+              "other citations fall in, so this shows what kinds of cases use this one.*", "",
+              "| Slice | Decisions | Top citing clusters | Top citing sub-clusters |", "|---|---:|---|---|"]
+        for s in sorted(who):
+            v = who[s]
+            if not v["n"]:
+                continue
+            fmt = lambda d, lvl: "; ".join("`%s` %s %d%%" % (sub_label(int(k)) if lvl == "sub" else k,
+                                                             (unit_name(db, s, int(k), lvl)[0] or "?").replace("|", "/"),
+                                                             round(100.0 * n / v["n"]))
+                                           for k, n in sorted(d.items(), key=lambda x: -x[1])[:3])
+            L.append("| %s%s | %s | %s | %s |" % (label(s), " (partial)" if s + WIDTH - 1 >= year else "",
+                                                 format(v["n"], ","), fmt(v["cl"], "cluster"), fmt(v["sub"], "sub")))
+        L.append("")
+        cur = who.get(now["slice"])
+        if cur and cur["n"]:
+            L += pie_md("Who cites it, %s: clusters" % now["label"],
+                        [(unit_name(db, now["slice"], int(k))[0] or k, n) for k, n in cur["cl"].items()])
+            L += pie_md("Who cites it, %s: sub-clusters" % now["label"],
+                        [(unit_name(db, now["slice"], int(k), "sub")[0] or k, n) for k, n in cur["sub"].items()])
     L += ["", "**Usually cited with, %s** (decisions citing both, and their share of the %s decisions citing this case):"
           % (now["label"], format(now["cited_by"], ",")), ""]
-    for pt in now["partners"]:
+    for pt in sorted(now["partners"], key=lambda p: -p["support"]):     # chosen by cosine, listed by count
         e = index.get(str(pt["ref"]))
         text = "%s, %s (%s)" % (e["short"] or e["name"], e["cite"], e["year"]) if e else pt["name"]
         L.append("- %s · %s · %d%%" % (link(pt["ref"], text), format(pt["support"], ","),
                                       round(100.0 * pt["support"] / max(now["cited_by"], 1))))
     L.append("")
-    lab = label_of(db, head_lin)
-    if lab:
-        L += ["> [!info]- %s (written by Claude from the cluster evidence; not part of the record)" % lab[0],
-              "> " + lab[1], ""]
+    for lin in shown:                     # one collapsed description per sub-cluster lineage in the table
+        lab = label_of(db, lin)
+        if lab:
+            L += ["> [!info]- %s (written by Claude from the cluster evidence; not part of the record)" % lab[0],
+                  "> " + lab[1], ""]
+    L += ["*Codes like `5.3` are sub-cluster 3 of cluster 5 in that slice: `./cocite.py cluster %s:5.3 --courts %s`.*"
+          % (now["label"], view), ""]
     return L
 
 
@@ -1007,6 +1166,371 @@ def cmd_together(args):
         print("%-8s %-24s %s  %s" % (label(s), " / ".join(homes), format(len(both), ",").rjust(7), verdict))
 
 
+
+# ================================================================ areas: a level that holds still over time
+# Clusters are rebuilt in every slice, so a doctrine's parent cluster can change name from one
+# slice to the next. An area is built once, over all slices: its units are sub-cluster lineages,
+# tied by (1) co-citation between their members, summed over every slice, and (2) continuity:
+# when a case moves from lineage A to lineage B between adjacent slices, A and B are tied by that
+# case's weight, so a doctrine's successive stages (which never share a slice) stay together.
+
+def cmd_areas(args):
+    import igraph as ig
+    db = need_db()
+    t0 = time.time()
+    ci_all, cd_all, y_all, _, lvl = load_cache()
+    built = db.execute("SELECT slice, params FROM slices ORDER BY slice").fetchall()
+    if not built:
+        sys.exit("no slices built")
+    codes, _ = parse_courts(json.loads(built[0][1]).get("courts"))
+    ci_np, cd_np, y_np = np.asarray(ci_all), np.asarray(cd_all), np.asarray(y_all)
+    if codes:
+        keep = np.isin(np.asarray(lvl)[ci_np], codes)
+        ci_np, cd_np, y_np = ci_np[keep], cd_np[keep], y_np[keep]
+    order = np.argsort(y_np, kind="stable")
+    ys = y_np[order]
+    lin_of = {}
+    for s, ref, lin, sw in db.execute("SELECT n.slice, n.ref, s.lineage, n.subw FROM nodes n JOIN subs s "
+                                      "ON s.slice = n.slice AND s.sub = n.sub WHERE n.sub > 0"):
+        lin_of[(s, ref)] = (lin, sw or 0.0)
+    keys, wts, self_w = [], [], Counter()
+    for s, params in built:
+        p = json.loads(params)
+        lo, hi = np.searchsorted(ys, s), np.searchsorted(ys, s + WIDTH)
+        sel = order[lo:hi]
+        if not len(sel):
+            continue
+        refs, n, N, skipped, ea, eb, es, mc = slice_pairs(ci_np[sel], cd_np[sel], p)
+        if not len(ea):
+            continue
+        lin = np.array([lin_of.get((s, int(r)), (0, 0))[0] for r in refs], np.int64)
+        la, lb = lin[ea], lin[eb]
+        ok = (la > 0) & (lb > 0)
+        same = ok & (la == lb)
+        if same.any():
+            u, inv = np.unique(la[same], return_inverse=True)
+            for l, w in zip(u.tolist(), np.bincount(inv, weights=es[same]).tolist()):
+                self_w[l] += w
+        diff = ok & (la != lb)
+        a, b = np.minimum(la[diff], lb[diff]), np.maximum(la[diff], lb[diff])
+        keys.append((a << 32) | b)
+        wts.append(es[diff].astype(float))
+        print("  %s: co-citation ties gathered" % label(s), flush=True)
+    # continuity: a case's weight carries over when its lineage changes between adjacent slices
+    seq = {}
+    for (s, ref), (lin, sw) in lin_of.items():
+        seq.setdefault(ref, []).append((s, lin, sw))
+    ca, cw = [], []
+    for ref, rows in seq.items():
+        rows.sort()
+        for (s1, l1, w1), (s2, l2, w2) in zip(rows, rows[1:]):
+            if s2 == s1 + WIDTH and l1 != l2:
+                ca.append((min(l1, l2) << 32) | max(l1, l2))
+                cw.append(min(w1, w2) * args.continuity)
+    if ca:
+        keys.append(np.array(ca, np.int64))
+        wts.append(np.array(cw, float))
+    key = np.concatenate(keys) if keys else np.zeros(0, np.int64)
+    wt = np.concatenate(wts) if wts else np.zeros(0)
+    uk, inv = np.unique(key, return_inverse=True)
+    w = np.bincount(inv, weights=wt) if len(uk) else np.zeros(0)
+    a, b = (uk >> 32), (uk & 0xFFFFFFFF)
+    allw = Counter()                                   # every lineage's tie weight, for the small ones
+    peak = dict(db.execute("SELECT lineage, max(size) FROM subs GROUP BY lineage"))
+    big = {l for l, z in peak.items() if z >= args.min_size}
+    nodes = sorted(big & (set(a.tolist()) | set(b.tolist()) | set(self_w)))
+    idx = {l: i for i, l in enumerate(nodes)}
+    ka, kb, kw = [], [], []
+    small_ties = {}
+    for x, y, wv in zip(a.tolist(), b.tolist(), w.tolist()):
+        if x in idx and y in idx:
+            ka.append(idx[x]); kb.append(idx[y]); kw.append(wv)
+        elif x in idx or y in idx:                       # a small lineage's tie to a real one
+            sm, bg = (y, x) if x in idx else (x, y)
+            d = small_ties.setdefault(sm, {})
+            d[bg] = d.get(bg, 0.0) + wv
+    ka, kb, kw = np.array(ka, np.int64), np.array(kb, np.int64), np.array(kw, float)
+    raw_strength = np.bincount(ka, weights=kw, minlength=len(nodes)) + np.bincount(kb, weights=kw, minlength=len(nodes))
+    kw_raw = kw.copy()
+    med = float(np.median(raw_strength)) if len(raw_strength) else 1.0
+
+    def weights_for(method, shrink):
+        """cpm: association strength, the tie relative to what the two lineages' total ties predict
+        (ties made only of shared hub cases fall to about 1). shrink adds k = shrink x the median
+        strength to each side, so a small lineage's one incidental tie can't blow up."""
+        if method != "cpm":
+            return kw_raw
+        k = shrink * med
+        return kw_raw * raw_strength.sum() / np.maximum((raw_strength[ka] + k) * (raw_strength[kb] + k), 1e-9)
+
+    def graph_for(method, shrink):
+        gg = ig.Graph(n=len(nodes), edges=np.column_stack([ka, kb]).tolist(), directed=False)
+        gg.es["w"] = weights_for(method, shrink).tolist()
+        return gg
+
+    g = graph_for(args.method, args.shrink)
+    kw = np.asarray(g.es["w"])
+
+    def run(gamma, seed, gg=None, method=None):
+        gg, method = gg or g, method or args.method
+        random.seed(seed)
+        if method == "cpm":
+            return gg.community_leiden(objective_function="CPM", weights="w", resolution=gamma, n_iterations=-1)
+        return gg.community_leiden(objective_function="modularity", weights="w", resolution=gamma, n_iterations=-1)
+
+    if args.grid:
+        gold = load_gold(db, args.gold, idx)
+        if not gold:
+            sys.exit("no benchmark groups matched lineages here (%s)" % args.gold)
+        print("benchmark: %d groups, %d lineages" % (len(set(gold.values())), len(gold)))
+        print("%-10s %7s %7s %7s %7s %7s %8s %7s" % ("method", "gamma", "shrink", "areas5+", "largest", "F1", "precis.", "recall"))
+        for spec in args.grid.split(";"):
+            method, _, rest = spec.partition(":")
+            gammas, _, shr = rest.partition("@")
+            for shrink in ([float(x) for x in shr.split(",")] if shr else [0.0]):
+                gg = graph_for(method, shrink)
+                for gamma in [float(x) for x in gammas.split(",")]:
+                    m0 = np.array(run(gamma, args.seed, gg, method).membership)
+                    sz = sorted(np.bincount(m0).tolist(), reverse=True)
+                    f1, pr, rc = gold_score(m0, gold)
+                    print("%-10s %7.3g %7.3g %7d %7d %7.3f %8.3f %7.3f" % (method, gamma, shrink, sum(1 for z in sz if z >= 5),
+                                                                       sz[0], f1, pr, rc), flush=True)
+        return
+
+    if args.sweep:
+        print("%8s %7s %10s %10s %8s  (areas of 5+ lineages; ARI = agreement between 3 seeds, 1.0 = identical)" % (
+            "gamma", "areas", "largest", "2nd", "ARI"))
+        for gamma in [float(x) for x in args.sweep.split(",")]:
+            parts = [run(gamma, sd) for sd in (0, 1, 2)]
+            m0 = np.array(parts[0].membership)
+            sz = sorted(np.bincount(m0).tolist(), reverse=True)
+            ari = np.mean([ig.compare_communities(parts[i], parts[j], method="ari") for i, j in ((0, 1), (0, 2), (1, 2))])
+            print("%8.3g %7d %10d %10d %8.3f" % (gamma, sum(1 for z in sz if z >= 5), sz[0], sz[1] if len(sz) > 1 else 0, ari),
+                  flush=True)
+        print("pick a gamma where ARI is high and the area count is steady across neighbours, then:\n"
+              "  ./cocite.py areas --courts ... --method %s --resolution <gamma>" % args.method)
+        return
+    if args.consensus > 1:
+        # consensus clustering (Lancichinetti & Fortunato 2012): run many seeds, weight each tie by the
+        # share of runs that put its two ends together, re-cluster that graph until the runs agree
+        cg_w = None
+        ea_c, eb_c = ka.copy(), kb.copy()
+        for it in range(args.consensus_rounds):
+            if cg_w is None:
+                parts = [np.array(run(args.resolution, args.seed + r).membership) for r in range(args.consensus)]
+            else:
+                gc = ig.Graph(n=len(nodes), edges=np.column_stack([ea_c, eb_c]).tolist(), directed=False)
+                gc.es["w"] = cg_w.tolist()
+                parts = []
+                for r in range(args.consensus):
+                    random.seed(args.seed + 100 * (it + 1) + r)
+                    parts.append(np.array(gc.community_leiden(objective_function="modularity", weights="w",
+                                                              n_iterations=-1).membership))
+            same = np.mean([pm[ea_c] == pm[eb_c] for pm in parts], axis=0)
+            undecided = float(np.mean((same > 0) & (same < 1)))
+            print("  consensus round %d: %d runs, %.1f%% of ties undecided" % (it + 1, len(parts), 100 * undecided), flush=True)
+            keep = same >= args.consensus_tau
+            ea_c, eb_c, cg_w = ea_c[keep], eb_c[keep], same[keep]
+            if undecided < 0.01:
+                break
+        memb = parts[0]
+        # confidence: the share of a lineage's ties (by weight) that runs keep inside its area
+        conf_num = np.zeros(len(nodes)); conf_den = np.zeros(len(nodes))
+        allsame = np.mean([pm[ka] == pm[kb] for pm in parts], axis=0) if cg_w is not None else None
+        inside = memb[ka] == memb[kb]
+        for arr in (ka, kb):
+            np.add.at(conf_num, arr, kw * inside)
+            np.add.at(conf_den, arr, kw)
+        confidence = conf_num / np.maximum(conf_den, 1e-9)
+    else:
+        part = run(args.resolution, args.seed)
+        memb = np.array(part.membership)
+        confidence = None
+    strength = raw_strength
+    tot = np.bincount(memb, weights=strength)
+    order_a = np.argsort(-tot)
+    top = np.full(len(tot), 0, np.int64)
+    top[order_a] = np.arange(1, len(tot) + 1)
+    code = top[memb] * 1000                            # area 3 -> 3000; its split parts -> 3001, 3002 ...
+    # split the big areas, keeping a split only if it beats the same graph rewired at random
+    p_split = dict(DEFAULTS, resolution=args.resolution, seed=args.seed, sub_z=args.sub_z, nulls=args.nulls)
+    split = 0
+    for ar in range(1, len(tot) + 1):
+        mem = np.flatnonzero(top[memb] == ar)
+        if args.method == "cpm" or len(mem) <= args.split_over:
+            continue
+        loc = np.full(len(nodes), -1, np.int64)
+        loc[mem] = np.arange(len(mem))
+        inside = (loc[ka] >= 0) & (loc[kb] >= 0) & (ka != kb)
+        la, lb, lw = loc[ka[inside]], loc[kb[inside]], kw[inside]
+        sm, sq = leiden(len(mem), la, lb, lw, p_split)
+        m0, sd0 = null_q(len(mem), la, lb, lw, p_split, args.nulls)
+        verdict = sq > m0 and (sq - m0) >= args.sub_z * max(sd0, 1e-4)
+        print("  split test, area %d (%d lineages): modularity %.3f vs %.3f +/- %.3f rewired -> %s" % (
+            ar, len(mem), sq, m0, sd0, "split" if verdict else "kept whole"), flush=True)
+        if not verdict:
+            continue
+        sz = np.bincount(sm, weights=strength[mem])
+        rk = np.zeros(len(sz), np.int64)
+        rk[np.argsort(-sz)] = np.arange(1, len(sz) + 1)
+        code[mem] = ar * 1000 + np.minimum(rk[sm], 999)
+        split += 1
+    area_of_node = {nodes[i]: int(code[i]) for i in range(len(nodes))}
+    for sm_l, ties in small_ties.items():               # small lineages join the area they are most tied to
+        bgl = max(ties.items(), key=lambda kv: kv[1])[0]
+        area_of_node.setdefault(sm_l, area_of_node[bgl])
+    weight_of = {nodes[i]: float(strength[i]) for i in range(len(nodes))}
+    conf_of = {nodes[i]: float(confidence[i]) for i in range(len(nodes))} if confidence is not None else {}
+    for sm_l, ties in small_ties.items():
+        weight_of.setdefault(sm_l, sum(ties.values()))
+    spans = {l: (f, t) for l, f, t in db.execute("SELECT lineage, first_slice, last_slice FROM lineages")}
+    db.execute("BEGIN")
+    for t in ("areas", "lineage_area", "area_fp"):
+        db.execute("DELETE FROM %s" % t)
+    rows = [(l, ar, weight_of.get(l, 0.0)) for l, ar in area_of_node.items()]
+    db.executemany("INSERT INTO lineage_area VALUES (?,?,?)", rows)
+    db.execute("CREATE TABLE IF NOT EXISTS lineage_area_conf(lineage INTEGER PRIMARY KEY, confidence REAL)")
+    db.execute("DELETE FROM lineage_area_conf")
+    db.executemany("INSERT INTO lineage_area_conf VALUES (?,?)", list(conf_of.items()))
+    meta(db, "areas_params", json.dumps({"method": args.method, "resolution": args.resolution,
+                                         "consensus": args.consensus, "min_size": args.min_size,
+                                         "shrink": args.shrink}))
+    by_area = {}
+    for l, ar, st in rows:
+        by_area.setdefault(ar, []).append((st, l))
+    case_w = {}
+    for (sl, ref), (lin, sw) in lin_of.items():
+        ar = area_of_node.get(lin)
+        if ar:
+            case_w.setdefault(ar, Counter())[ref] += sw
+    for ar, members in by_area.items():
+        members.sort(reverse=True)
+        fs = [spans[l][0] for _, l in members if l in spans]
+        ls = [spans[l][1] for _, l in members if l in spans]
+        db.execute("INSERT INTO areas VALUES (?,?,?,?,?,?,datetime('now'))",
+                   (ar, len(members), sum(x for x, _ in members), members[0][1], min(fs) if fs else None, max(ls) if ls else None))
+        fp = case_w.get(ar, Counter()).most_common(FINGER)
+        db.executemany("INSERT INTO area_fp VALUES (?,?,?,?)", [(ar, k, r, wv) for k, (r, wv) in enumerate(fp, 1)])
+    db.commit()
+    q = g.modularity(memb.tolist(), weights="w")
+    sizes = sorted((len(v) for v in by_area.values()), reverse=True)
+    print("areas: %d (%d large areas split) from %s lineages of %d+ cases (+%s small ones attached), modularity %.3f; "
+          "largest hold %s lineages  (%.1f min)" % (len(by_area), split, format(len(nodes), ","), args.min_size,
+          format(len(small_ties), ","), q, ", ".join(map(str, sizes[:10])), (time.time() - t0) / 60))
+    big_n = np.bincount(memb)
+    print("coverage: %.1f%% of node lineages sit in areas of 5+" % (100 * float(np.mean(big_n[memb] >= 5))))
+    if Path(args.gold).exists() and LABELS.exists():
+        gold = load_gold(db, args.gold, idx)
+        if gold:
+            f1, pr, rc = gold_score(memb, gold)
+            print("benchmark (this partition): F1 %.3f, precision %.3f, recall %.3f" % (f1, pr, rc))
+    if LABELS.exists():
+        match_labels(db)
+    show_areas(db, args.top)
+
+
+def load_gold(db, path, idx):
+    """Benchmark groupings, written by lineage label name (names survive rebuilds; numbers don't):
+    {"group": ["label name", ...]} -> {node index: group}."""
+    try:
+        groups = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        sys.exit("no benchmark file %s" % path)
+    # areas are built over sub-level lineages, so a name used at both levels resolves to the sub label
+    key_of = {lab["name"]: lab["key"] for lab in sorted(load_labels(), key=lambda l: l.get("level") == "sub")}
+    lin_of = {k: l for l, k in db.execute("SELECT lineage, key FROM label_map")}
+    out, missing = {}, []
+    for grp, names in groups.items():
+        for nm in names:
+            lin = lin_of.get(key_of.get(nm))
+            if lin in idx:
+                out[idx[lin]] = grp
+            else:
+                missing.append(nm)
+    if missing:
+        print("benchmark: %d names not found or not a node here: %s" % (len(missing), "; ".join(missing[:6])))
+    return out
+
+
+def gold_score(memb, gold):
+    """Pairwise F1 of a partition against the benchmark: precision = share of same-area benchmark pairs
+    that the benchmark puts together; recall = share of benchmark-together pairs placed in one area."""
+    items = list(gold.items())
+    tp = fp = fn = 0
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            same_a = memb[items[i][0]] == memb[items[j][0]]
+            same_g = items[i][1] == items[j][1]
+            tp += same_a and same_g
+            fp += same_a and not same_g
+            fn += same_g and not same_a
+    pr = tp / (tp + fp) if tp + fp else 0.0
+    rc = tp / (tp + fn) if tp + fn else 0.0
+    return (2 * pr * rc / (pr + rc) if pr + rc else 0.0), pr, rc
+
+
+def area_of(db, lineage):
+    r = db.execute("SELECT area FROM lineage_area WHERE lineage=?", (lineage,)).fetchone() if lineage else None
+    return r[0] if r else None
+
+
+def area_name(db, area):
+    if not area:
+        return None
+    try:
+        r = db.execute("SELECT key FROM area_label WHERE area=?", (area,)).fetchone()
+    except sqlite3.OperationalError:
+        r = None
+    if r:
+        lab = {x["key"]: x for x in load_labels()}.get(r[0])
+        if lab:
+            return lab["name"]
+    a = db.execute("SELECT anchor_lineage FROM areas WHERE area=?", (area,)).fetchone()
+    lab = label_of(db, a[0]) if a else None
+    return "area %s (around %s)" % (sub_label(area), lab[0] if lab else "lineage %s" % (a[0] if a else "?"))
+
+
+def show_areas(db, top=40):
+    try:
+        low = db.execute("SELECT count(*) FROM lineage_area_conf WHERE confidence < 0.5").fetchone()[0]
+        tot = db.execute("SELECT count(*) FROM lineage_area_conf").fetchone()[0]
+        if tot:
+            print("boundary lineages (under half their ties inside their area): %d of %d" % (low, tot))
+    except sqlite3.OperationalError:
+        pass
+    for ar, n, wt, anchor, f, t in db.execute("SELECT area, lineages, weight, anchor_lineage, first_slice, last_slice "
+                                             "FROM areas ORDER BY weight DESC LIMIT ?", (top,)).fetchall():
+        heads = []
+        for (l,) in db.execute("SELECT lineage FROM lineage_area WHERE area=? ORDER BY weight DESC LIMIT 4", (ar,)):
+            lab = label_of(db, l)
+            heads.append(lab[0] if lab else "lineage %d" % l)
+        print("%5s  %-55s %4d lineages  %s to %s\n       %s" % (sub_label(ar), (area_name(db, ar) or "")[:55], n,
+                                                           label(f) if f else "?", label(t) if t else "?", " | ".join(heads)))
+
+
+def cmd_area_evidence(args):
+    db = need_db()
+    out = []
+    for ar, n, wt, anchor, f, t in db.execute("SELECT area, lineages, weight, anchor_lineage, first_slice, last_slice "
+                                             "FROM areas ORDER BY weight DESC LIMIT ?", (args.top,)).fetchall():
+        mem = []
+        for l, w in db.execute("SELECT lineage, weight FROM lineage_area WHERE area=? ORDER BY weight DESC LIMIT 30", (ar,)):
+            lab = label_of(db, l)
+            sp = db.execute("SELECT first_slice, last_slice FROM lineages WHERE lineage=?", (l,)).fetchone()
+            mem.append({"lineage": l, "label": lab[0] if lab else None,
+                        "span": "%s to %s" % (label(sp[0]), label(sp[1])) if sp else None, "weight": round(w)})
+        fp = [r for (r,) in db.execute("SELECT ref FROM area_fp WHERE area=? ORDER BY rank", (ar,))]
+        out.append({"level": "area", "area": ar, "lineages": n, "span": "%s to %s" % (label(f), label(t)) if f else None,
+                    "members": mem, "top_cases": [name(db, r) for r in fp[:20]], "fingerprint": fp,
+                    "view": COCITE_DB.stem})
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    path = EVIDENCE_DIR / ("areas-%s.jsonl" % COCITE_DB.stem)
+    with path.open("w", encoding="utf-8") as fh:
+        for rec in out:
+            fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    print("wrote %s (%d areas)" % (path, len(out)))
+
+
 # ================================================================ labels: what a lineage is about
 # Evidence is computed here, by script, from the clustering and from the parentheticals other
 # courts wrote about each member ("holding that ..."). The one-line name and the description are
@@ -1019,6 +1543,7 @@ HERE = Path(__file__).resolve().parent
 LABELS = HERE / "cocite_labels.json"
 EVIDENCE_DIR = HERE / "build" / "cocite"
 FINGER = 30
+STABLE = 0.7          # a label still matching its lineage at this Jaccard or better counts as unchanged
 STOP = set("""a an the and or of to in on at by for with from into onto over under upon about as is are was were be been
 being it its this that these those there their they them he she his her we our you your not no nor but if then than
 so such any all each every other another same which who whom whose what when where whether while because although
@@ -1102,15 +1627,17 @@ def match_labels(db, quiet=False):
     for i, lab in enumerate(labels):
         for r in lab["fingerprint"]:
             by_ref.setdefault(r, []).append(i)
-    best = {}
+    best, best_any = {}, {}
     for lin, mem in fps.items():
         hits = {}
         for r in mem:
             for i in by_ref.get(r, ()):
-                if labels[i]["level"] == level_of.get(lin):
+                if labels[i]["level"] == level_of.get(lin):   # area labels never match a lineage
                     hits[i] = hits.get(i, 0) + 1
         for i, m in hits.items():
             j = m / (len(mem) + len(labels[i]["fingerprint"]) - m)
+            if j > best_any.get(i, (None, 0))[1]:
+                best_any[i] = (lin, j)
             if j >= 0.3 and j > best.get(i, (None, 0))[1]:
                 best[i] = (lin, j)
     rows = {}
@@ -1118,10 +1645,47 @@ def match_labels(db, quiet=False):
         if lin not in rows or j > rows[lin][1]:
             rows[lin] = (labels[i]["key"], j)
     db.executemany("INSERT INTO label_map VALUES (?,?,?)", [(l, k, j) for l, (k, j) in rows.items()])
+    # status of every label after this build: stable, drifted (attached, but its cluster changed),
+    # displaced (a closer label took its lineage) or orphaned (nothing overlaps it enough)
+    db.execute("CREATE TABLE IF NOT EXISTS label_status(key TEXT PRIMARY KEY, level TEXT, lineage INTEGER, "
+               "jaccard REAL, status TEXT)")
+    db.execute("DELETE FROM label_status")
+    attached = {k: (l, j) for l, (k, j) in rows.items()}
+    st = []
+    for i, lab in enumerate(labels):
+        if lab["level"] == "area":
+            continue
+        if lab["key"] in attached:
+            l, j = attached[lab["key"]]
+            st.append((lab["key"], lab["level"], l, j, "stable" if j >= STABLE else "drifted"))
+        elif i in best:
+            st.append((lab["key"], lab["level"], best[i][0], best[i][1], "displaced"))
+        else:
+            l, j = best_any.get(i, (None, 0.0))
+            st.append((lab["key"], lab["level"], l, j, "orphaned"))
+    db.executemany("INSERT INTO label_status VALUES (?,?,?,?,?)", st)
     db.commit()
+    alabs = [lab for lab in labels if lab["level"] == "area"]
+    n_area = 0
+    if alabs and db.execute("SELECT 1 FROM sqlite_master WHERE name='area_fp'").fetchone():
+        afp = {}
+        for ar, ref in db.execute("SELECT area, ref FROM area_fp"):
+            afp.setdefault(ar, set()).add(ref)
+        db.execute("DELETE FROM area_label")
+        best_a = {}
+        for lab in alabs:
+            f = set(lab["fingerprint"])
+            for ar, mem in afp.items():
+                j = len(f & mem) / max(len(f | mem), 1)
+                if j >= 0.3 and j > best_a.get(ar, (None, 0))[1]:
+                    best_a[ar] = (lab["key"], j)
+        db.executemany("INSERT INTO area_label VALUES (?,?,?)", [(ar, k, j) for ar, (k, j) in best_a.items()])
+        db.commit()
+        n_area = len(best_a)
     if not quiet:
-        print("labels: %d of %d attached to lineages in %s  (%.1f min)" % (len(rows), len(labels), COCITE_DB.name,
-                                                                         (time.time() - t0) / 60))
+        print("labels: %d of %d attached to lineages%s in %s  (%.1f min)" % (
+            len(rows), len(labels) - len(alabs), ", %d of %d to areas" % (n_area, len(alabs)) if alabs else "",
+            COCITE_DB.name, (time.time() - t0) / 60))
     return len(rows)
 
 
@@ -1144,6 +1708,28 @@ def label_of(db, lin):
     return (lab["name"], lab["description"]) if lab else None
 
 
+def family_parents(db):
+    """sub-cluster lineage -> the cluster lineage it sits under in most of its slices
+    (a cluster too small to split is its own single sub-cluster and is left out)."""
+    votes = {}
+    for sl, pl, n in db.execute("SELECT s.lineage, c.lineage, count(*) FROM subs s JOIN clusters c "
+                                "ON c.slice = s.slice AND c.cl = s.sub / 1000 WHERE s.sub % 1000 > 0 GROUP BY 1, 2"):
+        if n > votes.get(sl, (None, 0))[1]:
+            votes[sl] = (pl, n)
+    return {sl: pl for sl, (pl, n) in votes.items()}
+
+
+def family_of(db, ref, year=None):
+    """The cluster lineage a case sits in, in its newest complete slice."""
+    year = year or time.localtime().tm_year
+    rows = db.execute("SELECT n.slice, c.lineage FROM nodes n JOIN clusters c ON c.slice = n.slice AND c.cl = n.cl "
+                      "WHERE n.ref = ? AND n.cl > 0 ORDER BY n.slice", (ref,)).fetchall()
+    full = [r for r in rows if r[0] + WIDTH - 1 < year] or rows
+    if not full:
+        sys.exit("that case is in no cluster in %s" % COCITE_DB.name)
+    return full[-1][1]
+
+
 def cmd_evidence(args):
     """One JSON line per lineage worth describing: timeline, top members, parentheticals, terms."""
     db = need_db()
@@ -1154,13 +1740,30 @@ def cmd_evidence(args):
     labelled = {r[0] for r in db.execute("SELECT lineage FROM label_map")} if \
         db.execute("SELECT 1 FROM sqlite_master WHERE name='label_map'").fetchone() else set()
     picks = []
-    for level, table, n in (("cluster", "clusters", args.top_clusters), ("sub", "subs", args.top)):
+    family = None
+    if args.stale:
+        stale = [r for r in db.execute("SELECT lineage, level FROM label_status WHERE status IN ('drifted', 'displaced') "
+                                       "AND lineage IS NOT NULL")]
+        picks = [(lv, l) for l, lv in stale]
+        print("evidence for %d lineages whose labels drifted or were displaced" % len(picks))
+    if args.family_of or args.family:
+        family = args.family or family_of(db, resolve(args.family_of))
+        parent = family_parents(db)
+        sizes = dict(db.execute("SELECT lineage, max(size) FROM subs GROUP BY lineage"))
+        sibs = sorted((l for l, p in parent.items() if p == family and sizes.get(l, 0) >= args.min_family_size),
+                      key=lambda l: -sizes[l])
+        picks = [("sub", l) for l in sibs[:args.top]]
+        fam_name = label_of(db, family)
+        print("family: cluster lineage %d (%s), %d sub-cluster lineages of %d+ cases" % (
+            family, fam_name[0] if fam_name else "unlabelled", len(picks), args.min_family_size))
+    for level, table, n in (() if (family or args.stale) else (("cluster", "clusters", args.top_clusters), ("sub", "subs", args.top))):
         rows = db.execute("SELECT l.lineage, sum(t.size) cs, count(*) ns FROM lineages l JOIN %s t ON t.lineage = l.lineage "
                           "WHERE l.level = ? GROUP BY l.lineage HAVING ns >= ? OR max(t.size) >= ? ORDER BY cs DESC"
                           % table, (level, args.min_slices, args.min_size)).fetchall()
         rows = [r for r in rows if args.redo or r[0] not in labelled]
         picks += [(level, r[0]) for r in rows[:n]]
-    print("evidence for %d lineages (%d already labelled are skipped; --redo to include them)" % (len(picks), len(labelled)))
+    if not family and not args.stale:
+        print("evidence for %d lineages (%d already labelled are skipped; --redo to include them)" % (len(picks), len(labelled)))
     out, docs = [], []
     for k, (level, lin) in enumerate(picks, 1):
         table, col = ("subs", "sub") if level == "sub" else ("clusters", "cl")
@@ -1191,13 +1794,27 @@ def cmd_evidence(args):
                     "parentheticals": ["%s: %s" % (nm, t[:220]) for _, nm, t in parens[:8]]})
         if k % 25 == 0:
             print("  %d of %d" % (k, len(picks)), flush=True)
+    # distinctive terms: in family mode the comparison set is the siblings, so these are what
+    # sets each sub-cluster apart from the others under the same parent
     df = Counter(w for d in docs for w in d)
     Nd = max(len(docs), 1)
     for rec, d in zip(out, docs):
         score = {w: c * math.log((1 + Nd) / (1 + df[w])) for w, c in d.items() if c >= 3}
         rec["terms"] = [w for w, _ in sorted(score.items(), key=lambda x: -x[1])[:15]]
+        lab = label_of(db, rec["lineage"])
+        rec["current_label"] = lab[0] if lab else None
+    if family:
+        fps = {rec["lineage"]: set(rec["fingerprint"]) for rec in out}
+        for rec in out:
+            mine = fps[rec["lineage"]]
+            others = set().union(*(f for l, f in fps.items() if l != rec["lineage"])) if len(fps) > 1 else set()
+            rec["distinct_members"] = [name(db, r) for r in rec["fingerprint"] if r not in others][:8]
+            near = sorted(((len(mine & f), l) for l, f in fps.items() if l != rec["lineage"]), reverse=True)[:3]
+            rec["nearest_siblings"] = [{"lineage": l, "shared_members": m,
+                                        "label": (label_of(db, l) or (None,))[0]} for m, l in near if m]
+            rec["family"] = family
     EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
-    path = EVIDENCE_DIR / ("evidence-%s.jsonl" % COCITE_DB.stem)
+    path = EVIDENCE_DIR / ("evidence-%s%s.jsonl" % (COCITE_DB.stem, "-family-%d" % family if family else ""))
     with path.open("w", encoding="utf-8") as f:
         for rec in out:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -1228,6 +1845,21 @@ def cmd_labels(args):
         match_labels(need_db())
     elif args.action == "match":
         match_labels(need_db())
+    elif args.action == "check":
+        db = need_db()
+        match_labels(db, quiet=True)
+        labs = {lab["key"]: lab for lab in load_labels()}
+        rows = db.execute("SELECT key, level, lineage, jaccard, status FROM label_status ORDER BY status, jaccard").fetchall()
+        c = Counter(r[4] for r in rows)
+        print("labels: %d stable (overlap >= %.1f), %d drifted, %d displaced, %d orphaned" % (
+            c["stable"], STABLE, c["drifted"], c["displaced"], c["orphaned"]))
+        for key, level, lin, j, status in rows:
+            if status != "stable":
+                print("  %-9s %-7s overlap %.2f  lineage %-6s %s" % (status, level, j or 0, lin or "-", labs[key]["name"][:60]))
+        big = db.execute("SELECT count(*) FROM lineages l JOIN subs s ON s.lineage = l.lineage WHERE l.level='sub' "
+                         "AND l.lineage NOT IN (SELECT lineage FROM label_map) AND s.size >= 100").fetchone()[0]
+        print("unlabelled sub-cluster slices of 100+ cases: %d (./cocite.py evidence picks the largest)" % big)
+        print("drifted and displaced labels are re-described with: ./cocite.py evidence --stale")
     else:
         db = need_db()
         labs = {lab["key"]: lab for lab in load_labels()}
@@ -1300,15 +1932,50 @@ def main():
     p.add_argument("--min-slices", dest="min_slices", type=int, default=2, help="lineage must span this many slices ...")
     p.add_argument("--min-size", dest="min_size", type=int, default=100, help="... or reach this size once (default %(default)s)")
     p.add_argument("--redo", action="store_true", help="include lineages that already have a label")
+    p.add_argument("--family-of", dest="family_of", help="every sub-cluster lineage under this case's cluster, "
+                   "with terms that set each apart from its siblings (labelled ones included)")
+    p.add_argument("--family", type=int, help="the same, for a cluster lineage number")
+    p.add_argument("--stale", action="store_true", help="lineages whose labels drifted or were displaced (see labels check)")
+    p.add_argument("--min-family-size", dest="min_family_size", type=int, default=30,
+                   help="family mode: sub-cluster lineages reaching this size at least once (default %(default)s)")
     p.set_defaults(func=cmd_evidence)
     p = sub.add_parser("labels", parents=[view], help="import / match / list lineage descriptions")
-    p.add_argument("action", choices=["import", "match", "list"])
+    p.add_argument("action", choices=["import", "match", "list", "check"])
     p.add_argument("file", nargs="?", help="JSON lines to import")
     p.set_defaults(func=cmd_labels)
     p = sub.add_parser("note", parents=[view], help="preview the case-note section (default view: appellate)")
     p.add_argument("--cite")
     p.add_argument("--cluster", type=int)
     p.set_defaults(func=cmd_note)
+    p = sub.add_parser("areas", parents=[view], help="group sub-cluster lineages into areas, pooled over all slices")
+    p.add_argument("--resolution", type=float, default=1.0, help="higher = more, smaller areas (default %(default)s)")
+    p.add_argument("--continuity", type=float, default=1.0,
+                   help="weight of the tie between a lineage and its successor (default %(default)s)")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--top", type=int, default=60, help="areas listed (default %(default)s)")
+    p.add_argument("--min-size", dest="min_size", type=int, default=30,
+                   help="lineages reaching this size in some slice are nodes; smaller ones join their closest area")
+    p.add_argument("--method", choices=["modularity", "cpm"], default="modularity",
+                   help="cpm = Constant Potts Model on association-strength weights (no resolution limit)")
+    p.add_argument("--sweep", help="comma list of resolutions to compare (nothing is written), e.g. 0.5,1,2,4,8")
+    p.add_argument("--shrink", type=float, default=0.0,
+                   help="cpm: add shrink x median strength to each side of the association-strength division")
+    p.add_argument("--grid", help='score many settings against the benchmark, nothing written: '
+                   '"cpm:1,2,4@0,1,10;modularity:1,2,4,8"')
+    p.add_argument("--gold", default=str(HERE / "cocite_gold.json"), help="benchmark groupings (default %(default)s)")
+    p.add_argument("--consensus", type=int, default=1,
+                   help="runs per consensus round; 20 gives one reproducible partition (default 1 = a single run)")
+    p.add_argument("--consensus-rounds", dest="consensus_rounds", type=int, default=6)
+    p.add_argument("--consensus-tau", dest="consensus_tau", type=float, default=0.5,
+                   help="drop ties that fewer than this share of runs keep together (default %(default)s)")
+    p.add_argument("--split-over", dest="split_over", type=int, default=150,
+                   help="split areas holding more lineages than this (default %(default)s)")
+    p.add_argument("--sub-z", dest="sub_z", type=float, default=4.0)
+    p.add_argument("--nulls", type=int, default=5)
+    p.set_defaults(func=cmd_areas)
+    p = sub.add_parser("area-evidence", parents=[view], help="evidence file for naming the areas")
+    p.add_argument("--top", type=int, default=80)
+    p.set_defaults(func=cmd_area_evidence)
     p = sub.add_parser("tree", parents=[view], help="one slice: clusters, largest first, each with its sub-clusters")
     p.add_argument("slice", type=int, help="any year in the slice, e.g. 2010")
     p.add_argument("--top", type=int, default=20, help="clusters shown (default %(default)s)")
