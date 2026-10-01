@@ -33,6 +33,16 @@ if [[ -d md-cases ]]; then
     echo "cases: $(find md-cases -name '*.md' | wc -l) notes -> $VAULT/08-Reference/Cases"
 fi
 
+# Co-citation map (cocite.py vault writes md-cocite/) -> 08-Reference/Co-citation. Generator-owned
+# too; a personal MOC elsewhere in the vault transcludes its sections: ![[<note>#Timeline]].
+if [[ -d md-cocite ]]; then
+    mkdir -p "$VAULT/08-Reference/Co-citation"
+    rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
+          --include='*/' --include='*.md' --exclude='*' \
+          md-cocite/ "$VAULT/08-Reference/Co-citation/" | tail -20
+    echo "co-citation: $(find md-cocite -name '*.md' | wc -l) notes -> $VAULT/08-Reference/Co-citation"
+fi
+
 if [[ -z ${DRY:-} ]]; then
     echo "synced $(find "$DEST" -name '*.md' | wc -l) notes -> $DEST"
 else

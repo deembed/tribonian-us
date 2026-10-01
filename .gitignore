@@ -13,3 +13,4 @@ db/
 *.sqlite
 *.sqlite-*
 *.csv.bz2
+md-cocite/

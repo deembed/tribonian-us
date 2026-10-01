@@ -786,11 +786,42 @@ def trim(t, n):
     return t if len(t) <= n else t[:n].rsplit(" ", 1)[0].rstrip(",:;") + "…"
 
 
+_VAULT_NAMES = {}
+
+
+def vault_links(db):
+    """(lineage -> note, area -> note) from the last `vault` run over this view, or empty maps."""
+    key = db.execute("PRAGMA database_list").fetchone()[2]
+    if key not in _VAULT_NAMES:
+        try:
+            d = json.loads((HERE / "md-cocite" / ".names.json").read_text(encoding="utf-8"))
+            ok = d.get("db") == Path(key).name
+        except (FileNotFoundError, ValueError):
+            d, ok = {}, False
+        _VAULT_NAMES[key] = ({int(k): v for k, v in d.get("lineage", {}).items()},
+                             {int(k): v for k, v in d.get("area", {}).items()}) if ok else ({}, {})
+    return _VAULT_NAMES[key]
+
+
 def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
     """Markdown lines for '## Co-citation' in a case note; [] when there is nothing to show."""
     db = open_view(view)
     if db is None:
         return []
+    vl_lin, vl_area = vault_links(db)
+
+    def vl(lin, text, cell=True):
+        """text as a link to the lineage's vault note ('\\|' inside a table)."""
+        nm = vl_lin.get(lin)
+        if not nm or not text:
+            return (text or "").replace("|", "/") if cell else text
+        return "[[%s%s%s]]" % (nm, "\\|" if cell else "|", text.replace("|", "/"))
+
+    def va(ar, text, cell=True):
+        nm = vl_area.get(ar)
+        if not nm or not text:
+            return (text or "").replace("|", "/") if cell else text
+        return "[[%s%s%s]]" % (nm, "\\|" if cell else "|", text.replace("|", "/"))
     rows = summary(ref, db, top) or []
     rows = [r for r in rows if r["home"]]
     if not rows:
@@ -816,8 +847,8 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
          "*Which cases later %s decisions cite together with this one, in five-year slices of citing decisions. "
          "Clusters from `cocite.py`; cluster names and descriptions were written by Claude from each cluster's "
          "evidence and are not part of the record.*" % ("appellate" if view == "appellate" else "court"), "",
-         "**%s:** %s%s. Since %s." % (now["label"], head_name,
-                                     " — within *%s*" % c_name if s_name else "",
+         "**%s:** %s%s. Since %s." % (now["label"], vl(head_lin, head_name, False),
+                                     " — within *%s*" % vl(c_lin, c_name, False) if s_name else "",
                                      label(head_first) if head_first else now["label"]), ""]
     if head_area:
         try:
@@ -825,7 +856,7 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
         except sqlite3.OperationalError:
             c = None
         edge = " *(boundary: only %d%% of its ties are inside this area)*" % round(100 * c[0]) if c and c[0] < 0.5 else ""
-        L += ["**Area:** %s.%s" % (area_name(db, head_area), edge), ""]
+        L += ["**Area:** %s.%s" % (va(head_area, area_name(db, head_area), False), edge), ""]
     shown = []
     tag = lambda r: " (partial)" if r["slice"] + WIDTH - 1 >= year else ""
     # where it sits: the clusters
@@ -833,30 +864,30 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
           "co-citation weight; then the sub-cluster within it.*", "",
           "| Slice | Cited by | Cluster | Share | Also in |", "|---|---:|---|---:|---|"]
     for r in rows:
-        cn = unit_name(db, r["slice"], r["home"])[0]
+        cn, cn_lin, _ = unit_name(db, r["slice"], r["home"])
         home_share = next((c["share"] for c in r["clusters"] if c["home"]), 0)
-        also = "; ".join("`%d` %s %d%%" % (c["cl"], unit_name(db, r["slice"], c["cl"])[0], round(100 * c["share"]))
+        also = "; ".join("`%d` %s %d%%" % (c["cl"], vl(*unit_name(db, r["slice"], c["cl"])[1::-1]), round(100 * c["share"]))
                          for c in r["clusters"] if not c["home"])
         L.append("| %s%s | %s | `%d` %s | %d%% | %s |" % (r["label"], tag(r), format(r["cited_by"], ","), r["home"],
-                                                         cn.replace("|", "/"), round(100 * home_share), also.replace("|", "/")))
+                                                         vl(cn_lin, cn), round(100 * home_share), also))
     L += ["", "| Slice | Sub-cluster | Share | Area |", "|---|---|---:|---|"]
     for r in rows:
         sc = r["sub"]["code"] if r["sub"] else None
         if not (sc and sc % 1000):
             L.append("| %s%s | *cluster not split* | | |" % (r["label"], tag(r)))
             continue
-        sn = unit_name(db, r["slice"], sc, "sub")[0]
+        sn, sn_lin, _ = unit_name(db, r["slice"], sc, "sub")
         w = db.execute("SELECT weight, subw FROM nodes WHERE slice=? AND ref=?", (r["slice"], ref)).fetchone()
         sh = "%d%%" % round(100.0 * w[1] / w[0]) if w and w[0] else ""
         sl = db.execute("SELECT lineage FROM subs WHERE slice=? AND sub=?", (r["slice"], sc)).fetchone()
         if sl and sl[0] not in shown:
             shown.append(sl[0])
         try:
-            an = area_name(db, area_of(db, sl[0])) if sl else ""
+            a_id = area_of(db, sl[0]) if sl else None
+            an = va(a_id, area_name(db, a_id)) if a_id else ""
         except sqlite3.OperationalError:
             an = ""
-        L.append("| %s%s | `%s` %s | %s | %s |" % (r["label"], tag(r), sub_label(sc), sn.replace("|", "/"), sh,
-                                                 (an or "").replace("|", "/")))
+        L.append("| %s%s | `%s` %s | %s | %s |" % (r["label"], tag(r), sub_label(sc), vl(sn_lin, sn), sh, an or ""))
     L.append("")
     # who cites it
     who = citing_breakdown(ref, db, view)
@@ -869,7 +900,7 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
             if not v["n"]:
                 continue
             fmt = lambda d, lvl: "; ".join("`%s` %s %d%%" % (sub_label(int(k)) if lvl == "sub" else k,
-                                                             (unit_name(db, s, int(k), lvl)[0] or "?").replace("|", "/"),
+                                                             vl(*unit_name(db, s, int(k), lvl)[1::-1]) or "?",
                                                              round(100.0 * n / v["n"]))
                                            for k, n in sorted(d.items(), key=lambda x: -x[1])[:3])
             L.append("| %s%s | %s | %s | %s |" % (label(s), " (partial)" if s + WIDTH - 1 >= year else "",
@@ -1062,6 +1093,310 @@ def case_tex(ref, esc, view=NOTE_VIEW, top=8, year=None):
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!50!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
         COCITE_COLOR, COCITE_COLOR.split("!")[0], "\n".join(out))
+
+
+# ================================================================ vault: generated map of content
+# `vault` writes md-cocite/: one note per area, one per lineage that reaches --min-size cases
+# (an explainer: who joined and left each slice, merges and splits), and an index MOC.
+# The folder is generator-owned (sync_vault.sh mirrors it with --delete); headings are fixed so
+# a personal MOC elsewhere in the vault can transclude sections: ![[<note>#Timeline]].
+BAD_CHARS = re.compile(r'[\\/:*?"<>|#^\[\]]')
+
+
+def vault_names(db, min_size=30):
+    """lineage -> note name, for every lineage that gets a note; stable across rebuilds when labelled."""
+    peak = {}
+    for table, level in (("clusters", "cluster"), ("subs", "sub")):
+        for lin, z in db.execute("SELECT lineage, max(size) FROM %s WHERE lineage IS NOT NULL GROUP BY lineage" % table):
+            if z >= min_size:
+                peak[lin] = level
+    out, used = {}, Counter()
+    for lin in sorted(peak):
+        lab = label_of(db, lin)
+        if lab:
+            nm = lab[0]
+        else:
+            a = db.execute("SELECT anchor FROM lineages WHERE lineage=?", (lin,)).fetchone()
+            nm = "Lineage %d (around %s)" % (lin, short(db, a[0]) if a else "?")
+        nm = BAD_CHARS.sub("-", nm).strip()
+        if peak[lin] == "cluster":
+            nm += " (cluster)"
+        used[nm] += 1
+        out[lin] = nm
+    for lin, nm in list(out.items()):                  # two lineages with one label: number them
+        if used[nm] > 1:
+            out[lin] = "%s (lineage %d)" % (nm, lin)
+    return out
+
+
+def area_note_name(db, ar):
+    return BAD_CHARS.sub("-", area_name(db, ar) or "Area %s" % ar).strip()
+
+
+def cmd_vault(args):
+    db = need_db()
+    t0 = time.time()
+    out_dir = Path(args.out)
+    index = {}
+    try:
+        index = json.loads((HERE / "cases" / "_index.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        pass
+    names = vault_names(db, args.min_size)
+    nm_of = {r: (n, c, y) for r, n, c, y in db.execute("SELECT ref, name, cite, year FROM names")}
+
+    def case(ref, pct=None):
+        e = index.get(str(ref))
+        n, c, y = nm_of.get(ref, ("case %d" % ref, "", None))
+        text = "%s, %s (%s)" % (e.get("short") or e["name"], e["cite"], e["year"]) if e else \
+               "%s%s%s" % (n, ", " + c if c else "", " (%s)" % y if y else "")
+        text = text.replace("[", "(").replace("]", ")")
+        return "[[%s|%s]]" % (e["slug"], text) if e else text
+
+    def lin_link(lin, cell=False):
+        nm = names.get(lin)
+        if not nm:
+            return "lineage %s" % lin
+        return "[[%s]]" % nm
+    # members of every (slice, unit), heaviest first
+    mem = {"cluster": {}, "sub": {}}
+    for s, ref, cl, w, sb, sw in db.execute("SELECT slice, ref, cl, weight, sub, subw FROM nodes"):
+        if cl and cl > 0:
+            mem["cluster"].setdefault((s, cl), []).append((w or 0.0, ref))
+        if sb and sb > 0 and sb % 1000:
+            mem["sub"].setdefault((s, sb), []).append((sw or 0.0, ref))
+    for d in mem.values():
+        for v in d.values():
+            v.sort(reverse=True)
+    unit_lin = {"cluster": {}, "sub": {}}
+    for table, level, col in (("clusters", "cluster", "cl"), ("subs", "sub", "sub")):
+        for s, k, lin, z in db.execute("SELECT slice, %s, lineage, size FROM %s" % (col, table)):
+            unit_lin[level][(s, k)] = lin
+    home = {}                                          # (slice, ref) -> (cluster lineage, sub lineage)
+    for s, ref, cl, sb in db.execute("SELECT slice, ref, cl, sub FROM nodes"):
+        home[(s, ref)] = (unit_lin["cluster"].get((s, cl)), unit_lin["sub"].get((s, sb)) if sb and sb % 1000 else None)
+    links = {}
+    for level, sf, cf, st, ct, sh, j in db.execute("SELECT level, slice_from, cl_from, slice_to, cl_to, shared, jaccard FROM links"):
+        links.setdefault(level, []).append((sf, cf, st, ct, sh, j))
+    try:
+        area_of_lin = dict(db.execute("SELECT lineage, area FROM lineage_area"))
+    except sqlite3.OperationalError:
+        area_of_lin = {}
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "Lineages").mkdir(exist_ok=True)
+    (out_dir / "Areas").mkdir(exist_ok=True)
+    stamp = "*Generated by `cocite.py vault` from %s on %s. Names and descriptions were written by Claude from " \
+            "each cluster's evidence; not part of any record. Do not edit: this folder is rebuilt.*" % (
+                COCITE_DB.name, time.strftime("%Y-%m-%d"))
+    written = set()
+
+    def write(rel, lines):
+        p = out_dir / rel
+        txt = "\n".join(lines) + "\n"
+        if not p.exists() or p.read_text(encoding="utf-8") != txt:
+            p.write_text(txt, encoding="utf-8")
+        written.add(p.resolve())
+
+    # ---- lineage notes
+    for lin, nm in names.items():
+        level, first, last, anchor = db.execute("SELECT level, first_slice, last_slice, anchor FROM lineages "
+                                                "WHERE lineage=?", (lin,)).fetchone()
+        table, col = ("subs", "sub") if level == "sub" else ("clusters", "cl")
+        steps = db.execute("SELECT slice, %s, size FROM %s WHERE lineage=? ORDER BY slice" % (col, table), (lin,)).fetchall()
+        lab = label_of(db, lin)
+        ar = area_of_lin.get(lin)
+        L = ["---", "aliases: [\"lineage %d\"]" % lin, "cocite: {lineage: %d, level: %s, first: \"%s\", last: \"%s\"%s}" % (
+             lin, level, label(first), label(last), ", area: %d" % ar if ar else ""), "tags: [cocite/lineage]", "---",
+             "# %s" % nm, "", stamp, ""]
+        L += ["## Summary", ""]
+        if lab:
+            L += [lab[1], ""]
+        L += ["- **Level:** %s" % ("sub-cluster" if level == "sub" else "cluster"),
+              "- **Span:** %s to %s, %d slices" % (label(first), label(last), len(steps)),
+              "- **Founded on:** %s" % case(anchor)]
+        if ar:
+            L.append("- **Area:** [[%s]]" % area_note_name(db, ar))
+        if level == "sub":
+            parents = Counter(unit_lin["cluster"].get((s, k // 1000)) for s, k, _ in steps)
+            L.append("- **Inside clusters:** " + ", ".join(lin_link(p) for p, _ in parents.most_common() if p))
+        L += [""]
+        # core cases: weight summed over the lineage's slices
+        tot = Counter()
+        for s, k, _ in steps:
+            for w, r in mem[level].get((s, k), []):
+                tot[r] += w
+        L += ["## Core cases", "", "*Heaviest members over the whole lineage (co-citation weight summed across slices).*", ""]
+        L += ["%d. %s" % (i + 1, case(r)) for i, (r, _) in enumerate(tot.most_common(args.core))] + [""]
+        # timeline
+        L += ["## Timeline", "", "| Slice | Cases | Anchor | Joined | Left |", "|---|---:|---|---|---|"]
+        prev = None
+        story = []
+        for s, k, z in steps:
+            cur = mem[level].get((s, k), [])
+            cur_set = {r for _, r in cur}
+            a = db.execute("SELECT anchor FROM %s WHERE slice=? AND %s=?" % (table, col), (s, k)).fetchone()
+            if prev is None:
+                joined, left = [], []
+                jtxt, ltxt = "*founded*", ""
+            else:
+                ps, pmem = prev
+                pset = {r for _, r in pmem}
+                joined = [r for _, r in cur if r not in pset]
+                left = [r for _, r in pmem if r not in cur_set]
+                jtxt = "%d" % len(joined) + ("" if not joined else ": " + "; ".join(case(r) for r in joined[:3]))
+                ltxt = "%d" % len(left) + ("" if not left else ": " + "; ".join(case(r) for r in left[:3]))
+                # where the leavers went
+                dest = Counter()
+                for r in left:
+                    h = home.get((s, r))
+                    dest[(h[1] if level == "sub" else h[0]) if h else None] += 1
+                gone = dest.pop(None, 0)
+                moves = ["%d to %s" % (n, lin_link(d)) for d, n in dest.most_common(3) if d and d != lin and d in names]
+                if moves or gone:
+                    story.append("- **%s:** of %d that left, %s%s." % (
+                        label(s), len(left), "; ".join(moves) if moves else "",
+                        ("%s%d no longer cited enough to be clustered" % ("; " if moves else "", gone)) if gone else ""))
+            L.append("| %s | %d | %s | %s | %s |" % (label(s), len(cur), case(a[0]) if a else "",
+                                                     jtxt.replace("|", "\\|"), ltxt.replace("|", "\\|")))
+            prev = (s, cur)
+        L.append("")
+        # merges and splits from the slice-to-slice links
+        ev = []
+        keys = {(s, k) for s, k, _ in steps}
+        for sf, cf, st, ct, sh, j in links.get(level, []):
+            a_in, b_in = (sf, cf) in keys, (st, ct) in keys
+            if a_in == b_in or j < args.link_min:
+                continue
+            other = unit_lin[level].get((st, ct) if a_in else (sf, cf))
+            if other == lin or other is None:
+                continue
+            ev.append((st, ("ended" if st > last else "split") if a_in else "merge", other, sh, j))
+        L += ["## Merges and splits", ""]
+        if ev:
+            L += ["- **%s:** %s %s (%d shared cases, overlap %.2f)" % (
+                label(st), {"split": "part went to", "merge": "took in part of", "ended": "after it ended, its cases went to"}[kind],
+                lin_link(o), sh, j)
+                for st, kind, o, sh, j in sorted(ev)]
+        else:
+            L += ["*None above an overlap of %.2f.*" % args.link_min]
+        L += [""]
+        L += ["## Where leavers went", ""] + (story or ["*Nothing to report.*"]) + [""]
+        write(Path("Lineages") / (nm + ".md"), L)
+
+    # ---- area notes
+    areas = db.execute("SELECT area, lineages, weight, anchor_lineage, first_slice, last_slice FROM areas "
+                       "ORDER BY weight DESC").fetchall() if db.execute(
+        "SELECT 1 FROM sqlite_master WHERE name='areas'").fetchone() else []
+    alab = {}
+    try:
+        keyed = {x["key"]: x for x in load_labels()}
+        for ar, k in db.execute("SELECT area, key FROM area_label"):
+            if k in keyed:
+                alab[ar] = keyed[k]
+    except sqlite3.OperationalError:
+        pass
+    moc = []
+    for ar, n, w, anc, f, t in areas:
+        members = [l for l, in db.execute("SELECT lineage FROM lineage_area WHERE area=? ORDER BY weight DESC", (ar,))]
+        noted = [l for l in members if l in names]
+        if not noted:
+            continue
+        an = area_note_name(db, ar)
+        L = ["---", "cocite: {area: %d, lineages: %d, first: \"%s\", last: \"%s\"}" % (ar, n, label(f) if f else "",
+                                                                                     label(t) if t else ""),
+             "tags: [cocite/area]", "---", "# %s" % an, "", stamp, "", "## Summary", ""]
+        if ar in alab:
+            L += [alab[ar]["description"], ""]
+        L += ["- **Span:** %s to %s" % (label(f) if f else "?", label(t) if t else "?"),
+              "- **Lineages:** %d (%d with notes; the rest are small and listed by number in `./cocite.py areas`)" % (
+                  n, len(noted)), ""]
+        L += ["## Core cases", ""] + ["%d. %s" % (i + 1, case(r)) for i, (r,) in enumerate(db.execute(
+            "SELECT ref FROM area_fp WHERE area=? ORDER BY rank LIMIT ?", (ar, args.core)))] + [""]
+        L += ["## Lineages", "", "| Lineage | Level | Span |", "|---|---|---|"]
+        for l in noted:
+            lv, a1, a2 = db.execute("SELECT level, first_slice, last_slice FROM lineages WHERE lineage=?", (l,)).fetchone()
+            L.append("| [[%s]] | %s | %s to %s |" % (names[l], lv, label(a1), label(a2)))
+        L.append("")
+        write(Path("Areas") / (an + ".md"), L)
+        moc.append((an, n, f, t, alab.get(ar, {}).get("description", "")))
+
+    # ---- the index MOC
+    L = ["---", "tags: [cocite/moc]", "---", "# Co-citation map", "", stamp, "",
+         "Areas group sub-cluster lineages that later decisions cite together, pooled over all slices "
+         "(`cocite.py areas`). The area level is a chosen cut of a nested structure, not a natural one.", "",
+         "## Areas", ""]
+    L += ["- [[%s]] · %d lineages · %s to %s%s" % (an, n, label(f) if f else "?", label(t) if t else "?",
+                                                   (" — " + trim(d, 110)) if d else "") for an, n, f, t, d in moc]
+    lone = [l for l in names if l not in area_of_lin]
+    if lone:
+        L += ["", "## Lineages in no area", "", "*Cluster-level lineages, and sub-cluster lineages the areas left out.*", ""]
+        L += ["- %s" % lin_link(l) for l in sorted(lone, key=lambda l: names[l])]
+    write(Path("Co-citation map.md"), L + [""])
+    names_file = out_dir / ".names.json"               # for case notes: lineage -> note, area -> note
+    names_file.write_text(json.dumps({"db": COCITE_DB.name, "lineage": {str(k): v for k, v in names.items()},
+                                      "area": {str(ar): area_note_name(db, ar) for ar, *_ in areas}}), encoding="utf-8")
+    stale = [p for p in out_dir.rglob("*.md") if p.resolve() not in written]
+    print("vault: %d lineage notes, %d area notes -> %s%s  (%.1f min)" % (
+        len(names), len(moc), out_dir, ("; %d old notes no longer generated (sync_vault.sh drops them from the vault; "
+                                        "remove them here with: rm -r %s)" % (len(stale), out_dir)) if stale else "",
+        (time.time() - t0) / 60))
+
+
+# ================================================================ crawl: which cases to fetch around one
+def crawl_set(ref, view=NOTE_VIEW, top=60, scope="current", year=None):
+    """[(ref, why)] for casemap.py map --by cluster: the members of the case's sub-cluster lineage
+    (its cluster when the cluster isn't split), heaviest first. scope="current" uses the newest full
+    slice, plus cases that joined the same lineage in the partial slice after it; scope="all" pools
+    every lineage the case has belonged to. None when the view isn't built or the case is in no slice."""
+    db = open_view(view)
+    if db is None:
+        return None
+    rows = db.execute("SELECT slice, cl, sub FROM nodes WHERE ref=? AND cl > 0 ORDER BY slice", (ref,)).fetchall()
+    if not rows:
+        return None
+    year = year or time.localtime().tm_year
+    full = [r for r in rows if r[0] + WIDTH - 1 < year] or rows
+
+    def unit(s, cl, sb):
+        if sb and sb > 0 and sb % 1000:
+            r = db.execute("SELECT lineage FROM subs WHERE slice=? AND sub=?", (s, sb)).fetchone()
+            return ("sub", r[0]) if r else None
+        r = db.execute("SELECT lineage FROM clusters WHERE slice=? AND cl=?", (s, cl)).fetchone()
+        return ("cluster", r[0]) if r else None
+
+    def members(level, lin, slices=None):
+        table, col, wcol = ("subs", "sub", "subw") if level == "sub" else ("clusters", "cl", "weight")
+        w = Counter()
+        for s, k in db.execute("SELECT slice, %s FROM %s WHERE lineage=?" % (col, table), (lin,)):
+            if slices is None or s in slices:
+                for r, x in db.execute("SELECT ref, %s FROM nodes WHERE slice=? AND %s=?" % (wcol, col), (s, k)):
+                    w[r] += x or 0.0
+        return w
+
+    out, seen = [], {ref}
+    if scope == "all":
+        units = {u for u in (unit(*r) for r in rows) if u}
+        tot = Counter()
+        for lv, lin in units:
+            tot.update(members(lv, lin))
+        why = "in one of its lineages"
+        ranked = [(r, why) for r, _ in tot.most_common()]
+    else:
+        s0, cl, sb = full[-1]
+        u = unit(s0, cl, sb)
+        if not u:
+            return None
+        nm = (label_of(db, u[1]) or ("lineage %d" % u[1],))[0]
+        ranked = [(r, "%s, %s" % (nm, label(s0))) for r, _ in members(u[0], u[1], {s0}).most_common()]
+        later = {s for (s,) in db.execute("SELECT DISTINCT slice FROM nodes WHERE slice > ?", (s0,))}
+        ranked += [(r, "joined %s after %s" % (nm, label(s0))) for r, _ in members(u[0], u[1], later).most_common()]
+    for r, why in ranked:
+        if r not in seen:
+            seen.add(r)
+            out.append((r, why))
+        if len(out) >= top:
+            break
+    return out
 
 
 # ================================================================ commands
@@ -2138,6 +2473,14 @@ def main():
     p.add_argument("--sub-z", dest="sub_z", type=float, default=4.0)
     p.add_argument("--nulls", type=int, default=5)
     p.set_defaults(func=cmd_areas)
+    p = sub.add_parser("vault", parents=[view], help="write md-cocite/: area and lineage notes plus an index MOC")
+    p.add_argument("--out", default=str(HERE / "md-cocite"), help="folder (default %(default)s)")
+    p.add_argument("--min-size", dest="min_size", type=int, default=30,
+                   help="lineages that reach this many cases in some slice get a note (default %(default)s)")
+    p.add_argument("--core", type=int, default=12, help="core cases listed per note (default %(default)s)")
+    p.add_argument("--link-min", dest="link_min", type=float, default=0.1,
+                   help="overlap that counts as a merge or split (default %(default)s)")
+    p.set_defaults(func=cmd_vault)
     p = sub.add_parser("area-evidence", parents=[view], help="evidence file for naming the areas")
     p.add_argument("--top", type=int, default=80)
     p.set_defaults(func=cmd_area_evidence)

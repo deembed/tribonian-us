@@ -497,7 +497,7 @@ def profile_data(cid, scan=False):
         stamp = re.search(r"\d{4}-\d\d-\d\d", row[0]).group(0) if row else ""
         import casemap
         fresh = (old.get("goodlaw") or {}).get("version") == casemap.GOODLAW_VERSION if old else False
-        if old and old.get("stamp") == stamp and (fresh or not scan):
+        if old and old.get("stamp") == stamp and (fresh or not scan) and "parens" in old:
             return old
         years = {y: n for y, n in con.execute(
             "SELECT substr(cl.date_filed, 1, 4) AS y, count(DISTINCT cl.id) FROM edges e "
@@ -507,7 +507,7 @@ def profile_data(cid, scan=False):
     except Exception as e:                   # tables not loaded yet, or an older database
         print("  note: no cited-by counts (%s)" % e)
         return old
-    new = {"stamp": stamp, "years": years}
+    new = {"stamp": stamp, "years": years, "parens": parens_data(con, cid)}
     if scan:
         import casemap
         try:
@@ -519,6 +519,71 @@ def profile_data(cid, scan=False):
     tmp.write_text(json.dumps(new), encoding="utf-8")
     os.replace(tmp, path)
     return new
+
+
+PARENS_COLOR = "green!8"       # later courts' words: not this opinion, not ours either
+PARENS_TOP = 8
+
+
+def parens_data(con, cid):
+    """How later courts summarise the case: CourtListener's parentheticals ("holding that ...")
+    about its opinions, in CourtListener's similarity groups, largest first. Each group shows its
+    best-scored wording and the decision that wrote it. None when the table isn't loaded."""
+    try:
+        ops = [o for (o,) in con.execute("SELECT id FROM ops.opinions WHERE cluster_id = ?", (cid,))]
+        if not ops:
+            return None
+        q = ",".join("?" * len(ops))
+        total = con.execute("SELECT count(*) FROM parens WHERE described IN (%s)" % q, ops).fetchone()[0]
+        groups = con.execute("SELECT group_id, count(*) AS n FROM parens WHERE described IN (%s) AND group_id IS NOT NULL "
+                             "GROUP BY group_id ORDER BY n DESC LIMIT ?" % q, ops + [PARENS_TOP]).fetchall()
+        out = []
+        for gid, n in groups:
+            text, describing = con.execute("SELECT text, describing FROM parens WHERE described IN (%s) AND group_id = ? "
+                                           "ORDER BY score DESC LIMIT 1" % q, ops + [gid]).fetchone()
+            who = con.execute("SELECT cl.id, coalesce(nullif(cl.case_name_short,''), cl.case_name), substr(cl.date_filed,1,4), "
+                              "ct.citation_string FROM ops.opinions o JOIN clusters cl ON cl.id = o.cluster_id "
+                              "LEFT JOIN dockets d ON d.id = cl.docket_id LEFT JOIN courts ct ON ct.id = d.court_id "
+                              "WHERE o.id = ?", (describing,)).fetchone() or (None, None, None, None)
+            out.append({"n": n, "text": re.sub(r"\s+", " ", text or "").strip(), "cluster": who[0], "case": who[1],
+                        "year": who[2], "court": who[3]})
+        return {"total": total, "groups": out}
+    except Exception as e:                   # no parentheticals loaded, or an older database
+        print("  note: no parentheticals (%s)" % e)
+        return None
+
+
+def parens_md(meta):
+    pd = (meta.get("profile") or {}).get("parens")
+    if not pd or not pd.get("groups"):
+        return []
+    L = ["## How later courts describe it", "",
+         "*The parentheticals later courts wrote after citing this case (\"holding that …\"), grouped by CourtListener "
+         "into similar wordings, largest group first; each shows the group's best-scored wording. %s parentheticals in all. "
+         "Other courts' words, not this opinion's: quote the opinion.*" % format(pd["total"], ","), ""]
+    for i, g in enumerate(pd["groups"], 1):
+        src = ", ".join(x for x in (esc(g["case"] or "", "md"), g["court"] or "", g["year"] or "") if x)
+        L.append("%d. **%d** · (%s)%s" % (i, g["n"], esc(g["text"][:500], "md"), " — *%s*" % src if src else ""))
+    return L + [""]
+
+
+def parens_tex(meta):
+    pd = (meta.get("profile") or {}).get("parens")
+    if not pd or not pd.get("groups"):
+        return ""
+    items = "".join("\\item[\\textbf{%d}] (%s)%s\n" % (
+        g["n"], esc(g["text"][:500], "tex"),
+        " {\\footnotesize --- \\emph{%s}}" % esc(", ".join(x for x in (g["case"] or "", g["court"] or "", g["year"] or "") if x), "tex")
+        if g["case"] else "") for g in pd["groups"])
+    return ("\\pdfbookmark[1]{How later courts describe it}{parens}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!40!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
+            "\\textbf{How later courts describe it.} {\\footnotesize Parentheticals later courts wrote after citing this "
+            "case, in CourtListener's groups of similar wordings, largest first (the number is the group's size; %s in all). "
+            "Other courts' words, not this opinion's.}\\par\\vspace{2pt}\n"
+            "\\begin{list}{}{\\leftmargin=2.2em\\labelwidth=1.8em\\labelsep=0.4em\\itemsep=2pt\\parsep=0pt\\topsep=2pt}\n%s"
+            "\\end{list}\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
+        PARENS_COLOR, PARENS_COLOR.split("!")[0], format(pd["total"], ","), items)
 
 
 def profile_stats(prof, decided):
@@ -1016,13 +1081,13 @@ def cocite_tex(meta):
 
 
 def render_stub(meta, tail, why="Text not fetched.", cluster=None):
-    L = front_matter(meta, True) + profile_md(meta) + cocite_md(meta) + headmatter_md(meta) + editorial(cluster or {})
+    L = front_matter(meta, True) + profile_md(meta) + cocite_md(meta) + parens_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
     return "\n".join(L) + "\n" + tail
 
 
 def render_md(meta, ops, tail="", cluster=None, head=None):
-    L = list(head) if head is not None else front_matter(meta, False) + profile_md(meta) + cocite_md(meta) + headmatter_md(meta) + editorial(cluster or {})
+    L = list(head) if head is not None else front_matter(meta, False) + profile_md(meta) + cocite_md(meta) + parens_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     notes = []
     for o in ops:
         ctx = o["ctx"]
@@ -1161,7 +1226,7 @@ def box_opts(rec):
 
 def render_tex(meta, ops, fontpkg, style):
     from usc2md import PREAMBLE, RULES
-    body = [headmatter_tex(meta), profile_tex(meta), cocite_tex(meta)]
+    body = [headmatter_tex(meta), profile_tex(meta), cocite_tex(meta), parens_tex(meta)]
     for n, o in enumerate(ops):
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""

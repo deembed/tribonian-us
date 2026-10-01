@@ -497,6 +497,16 @@ def cmd_goodlaw(args):
 
 # ================================================================ map (outbound)
 
+def cocite_name(ref):
+    try:
+        import cocite
+        db = cocite.open_view(None)
+        r = db.execute("SELECT name FROM names WHERE ref=?", (ref,)).fetchone() if db else None
+        return r[0] if r else "cluster %d" % ref
+    except Exception:
+        return "cluster %d" % ref
+
+
 def cmd_map(args):
     con, done = open_db()
     missing = {"citation-map", "citations", "opinion-clusters", "dockets", "opinions"} - done
@@ -504,10 +514,31 @@ def cmd_map(args):
         sys.exit("map needs these loaded first: ./casedb.py load %s" % " ".join(sorted(missing)))
     index = c.load_index()
     root = root_cluster(args, con)
-    text_levels = args.depth - 1 if args.text is None else args.text
+    mode = args.by or ("depth" if args.depth is not None else "cluster")
     level = {root: 0}
+    if mode == "cluster":
+        try:
+            import cocite
+            got = cocite.crawl_set(root, view=args.courts, top=args.cluster_max, scope=args.scope)
+        except Exception as e:
+            got = None
+            print("cluster crawl unavailable (%s)" % e)
+        if got is None:
+            print("not in any co-citation cluster (or cocite.py not built for --courts %s): falling back to --depth 1" % args.courts)
+            mode = "depth"
+        else:
+            for r, why in got:
+                level[r] = 1
+            print("cluster crawl: %d cases around the root (%s)" % (len(got), args.scope))
+            for r, why in got[:10]:
+                print("  %-60s %s" % (cocite_name(r)[:60], why))
+            if len(got) > 10:
+                print("  ... %d more" % (len(got) - 10))
+    if mode == "depth":
+        args.depth = args.depth or 1
+    text_levels = (args.depth - 1 if mode == "depth" else 1) if args.text is None else args.text
     frontier = [root]
-    for d in range(1, args.depth + 1):
+    for d in range(1, (args.depth if mode == "depth" else 0) + 1):
         nxt = []
         for cid in frontier:
             data = db_case(con, cid, False)
@@ -1156,8 +1187,18 @@ def main():
         p.add_argument("--cite", help='or a citation, e.g. "401 U.S. 402"')
         p.set_defaults(func=fn)
         if name == "map":
-            p.add_argument("--depth", type=int, default=1, help="how many citation steps out from the root get a note")
-            p.add_argument("--text", type=int, default=None, help="how many of those steps get full text (default: depth - 1; the outer ring is stubs)")
+            p.add_argument("--by", choices=["cluster", "depth"], help="cluster (the default) = the cases in the root's "
+                           "co-citation sub-cluster (cocite.py); depth = follow its citations --depth steps out "
+                           "(the default when --depth is given)")
+            p.add_argument("--depth", type=int, default=None, help="how many citation steps out from the root get a note (--by depth)")
+            p.add_argument("--text", type=int, default=None, help="how many of those steps get full text (default: depth - 1, "
+                           "the outer ring is stubs; --by cluster: 1, all of them; 0 = stubs only)")
+            p.add_argument("--cluster-max", dest="cluster_max", type=int, default=60,
+                           help="--by cluster: at most this many cases, heaviest first (default 60)")
+            p.add_argument("--scope", choices=["current", "all"], default="current",
+                           help="--by cluster: current = its sub-cluster in the newest full slice, plus cases that joined "
+                           "it since; all = every lineage it has belonged to (default current)")
+            p.add_argument("--courts", default="appellate", help="--by cluster: cocite.py view (default appellate)")
             p.add_argument("--max", type=int, default=3000, help="stop if the map would exceed this many notes")
         elif name == "goodlaw":
             p.add_argument("--show", metavar="WORD", help="print every citation window in the opinions read that contain WORD")
