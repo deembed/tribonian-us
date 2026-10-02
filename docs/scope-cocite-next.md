@@ -113,3 +113,62 @@ Tier 2: one full build per court view (hours each). Binding/persuasive: the stat
 ### Related idea, same machinery
 "What each judge draws on": the same tier-1 profile with citing decisions filtered by author
 (opinions' author field) instead of court. Needs an author code per decision in prep too.
+
+---
+
+## C. Citation proximity (positions recorded once, metrics later)
+
+### Principle
+Run the expensive text pass once and store **where each citation occurs**, not distances or pairs.
+Any proximity metric (same sentence, same paragraph, string cite, a distance kernel) is then a
+cheap computation over positions; changing the metric never rereads the text. Pairs are not stored:
+they grow with the square of the citations per opinion and depend on the metric.
+
+### Math
+Binary co-citation is MᵀM = Σ_d m_d m_dᵀ: each decision adds weight 1 to every pair it cites.
+Proximity replaces the rank-1 block with a per-decision kernel: C_ij = Σ_d K_d(i, j), e.g.
+K_d = 1 if i and j share a sentence, or max over occurrences of exp(-Δ/λ). K_d = m_d m_dᵀ recovers
+the current build.
+
+### What to record per citation occurrence (one row each)
+| column | type | why |
+|---|---|---|
+| op | int32 | citing *opinion* (majority vs dissent; aggregate to the decision later) |
+| cited | int32 | cited cluster id, from the link `href="/opinion/<cluster>/..."` |
+| seq | int32 | order of this citation in the opinion |
+| para | int16 | paragraph index (body and footnotes numbered separately) |
+| sent | int32 | sentence index in the opinion |
+| char | int32 | character offset in the normalised text (`marked_text`) |
+| fn | int16 | footnote number, 0 = body |
+| sep | int8 | what lies between this citation and the previous one: `;` / `,` / signal / prose (lets a later step find string cites) |
+| signal | int8 | introducing signal: none, see, see also, cf., but see, compare, accord, e.g. (also useful for good-law work) |
+
+Plus one row per opinion: op, source field, paragraphs, sentences, characters, footnotes,
+citations found, extractor version.
+
+### The run
+- `./cocite.py positions` reads `db/opinions.sqlite`, uses `casemap.marked_text`-style parsing
+  generalised to every link (not one cited case), splits sentences with `casemap.sentences`.
+- Sharded by opinion-id range, a process pool over all cores, each shard written atomically
+  to `bulk/cocite-cache/pos/<shard>.npz`; a shard is skipped when its file exists with the same
+  extractor version. Stop and resume freely.
+- Coverage: only opinions with CourtListener's citation links (`html_with_citations`) get rows.
+  Plain-text-only opinions are counted and skipped in the first version (regex citation finding
+  can be added later as its own extractor version). Unlinked short forms ("Id.") are not
+  resolved in v1.
+- Storage: tens of bytes per occurrence; it lives in `bulk/` (not git).
+
+### Using it
+- `./cocite.py build --weight binary|sentence|paragraph|string|kernel:<chars>`: pair weights per
+  decision from positions; everything downstream (Leiden, lineages, areas) unchanged. Each
+  weighting is a separate results database, like the court views.
+- Falsification: score each weighting with the existing benchmark (`areas --grid` against
+  `cocite_gold.json`) and the known pairs (Twombly/Iqbal, Chevron/State Farm). Keep a weighting
+  only if it beats binary. Expect string-cite and same-sentence weights to sharpen doctrine
+  clusters and to cut hub cases (Celotex-style boilerplate cited everywhere).
+
+### Risks
+- Sentence splitting in legal text (abbreviations, "U. S.", "Id.") is imperfect; record `char`
+  so a metric can avoid sentence boundaries entirely.
+- An extractor bug means a rerun: version-stamp the shards and test the extractor on a few
+  opinions read by hand before the long run.
