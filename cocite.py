@@ -57,10 +57,19 @@ Commands
                                                      # good-law signals from cluster change (cocite_shift.py)
     ./cocite.py shift --eval --courts appellate      # the same, scored on goodlaw_eval.py's cases
     ./cocite.py positions [--show ID | --sample N]   # where every citation occurs (cocite_positions.py)
+    ./cocite.py prox-evidence --courts appellate --slice 2010
+                                                     # blind evidence: pairs by sentence share, for a reader
     ./cocite.py diag                                 # citing decisions per slice by court level
     ./cocite.py evidence --courts appellate          # build/cocite/evidence-*.jsonl: what to describe, and the evidence
     ./cocite.py labels import labels.jsonl           # descriptions -> cocite_labels.json, attached to lineages
     ./cocite.py labels list --courts appellate
+
+Proximity weights: --weight on build and the read commands replaces "decisions citing both" with
+a weight from where the citations sit (same sentence, same string cite, ...), in its own results
+file (cocite-appellate-sentence.sqlite); see cocite_positions.py. Needs ./cocite.py positions --index.
+    ./cocite.py build --courts appellate --weight sentence
+    ./cocite.py build --courts appellate --weight sentence --mix 0.2   # binary edges, re-weighted
+    ./cocite.py areas --courts appellate --weight sentence --grid "cpm:0.5@10"
 
 Court views: --courts on build and the read commands keeps only citing decisions from those
 courts (the cited cases can come from anywhere), in its own results file:
@@ -393,6 +402,11 @@ def slice_pairs(ci, cd, p):
     r, c = r[ok], c[ok]
     N = int(pop.sum())
     n = np.bincount(c, minlength=len(refs))          # citing decisions per node, inside the population
+    if p.get("weight") and p.get("mix") is None:     # proximity weighting: pair weights from citation positions
+        import cocite_positions
+        ea, eb, es = cocite_positions.weighted_pairs(p["weight"], rows_u[pop].astype(np.int64),
+                                                     refs.astype(np.int64), p["min_support"])[:3]
+        return refs, n, N, skipped, ea, eb, es, mc
     M = sparse.csc_matrix((np.ones(len(r), np.int32), (r, c)), shape=(len(rows_u), len(refs)))
     MT = M.T.tocsr()
     ea, eb, es = [], [], []
@@ -409,6 +423,19 @@ def slice_pairs(ci, cd, p):
         ea = eb = es = np.zeros(0, np.int64)
     else:
         ea, eb, es = np.concatenate(ea), np.concatenate(eb), np.concatenate(es)
+    if p.get("weight") and len(ea):                  # --mix: the binary pairs, weights mix * support + (1 - mix) * proximity
+        import cocite_positions
+        pa, pb, pw = cocite_positions.weighted_pairs(p["weight"], rows_u[pop].astype(np.int64),
+                                                     refs.astype(np.int64), 1e-12)[:3]
+        bits = max(1, len(refs).bit_length())
+        kb_ = (ea << bits) | eb
+        kp = (pa << bits) | pb
+        o = np.argsort(kp)
+        kp, pw = kp[o], pw[o]
+        j = np.minimum(np.searchsorted(kp, kb_), max(len(kp) - 1, 0))
+        prox = np.where((len(kp) > 0) & (kp[j] == kb_), pw[j], 0.0) if len(kp) else np.zeros(len(ea))
+        m = float(p["mix"])
+        es = m * es + (1 - m) * prox
     return refs, n, N, skipped, ea, eb, es, mc
 
 
@@ -1422,6 +1449,12 @@ def cmd_build(args):
     db = out_db()
     p = params_of(args)
     p["courts"] = tag
+    if getattr(args, "weight", None):                # binary builds keep their old params (no rebuild)
+        import cocite_positions
+        cocite_positions.index()                     # fail now, not after the first slice
+        p["weight"] = args.weight
+        if args.mix is not None:
+            p["mix"] = args.mix
     yv = np.asarray(y_all)
     first, last = int(yv[yv >= 1700].min()), int(yv.max())     # below 1700 = junk dates (see prep)
     every = list(range(first - first % WIDTH, last + 1, WIDTH))
@@ -2385,6 +2418,13 @@ def cmd_shift(args):
     cocite_shift.cmd_shift(args)
 
 
+def cmd_prox_evidence(args):
+    """Lives in cocite_positions.py; hand it the results file chosen from --courts (see cmd_shift)."""
+    import cocite_positions, cocite as cc
+    cc.COCITE_DB = COCITE_DB
+    cocite_positions.cmd_prox_evidence(args)
+
+
 def main():
     import signal
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)     # `| head` ends quietly instead of with a traceback
@@ -2393,6 +2433,12 @@ def main():
     view = argparse.ArgumentParser(add_help=False)
     view.add_argument("--courts", help="only citing decisions from these court levels, e.g. appellate "
                                        "(default: all; each view has its own results file)")
+    view.add_argument("--mix", type=float, help="with --weight: keep the binary pairs (same nodes and edges) and weight "
+                                                "them mix x support + (1 - mix) x proximity weight, e.g. 0.2 "
+                                                "(its own results file)")
+    view.add_argument("--weight", help="pair weights: binary (default: decisions citing both), or from citation "
+                                       "positions: decision, paragraph, sentence, string, kernel:<chars> "
+                                       "(each has its own results file; needs ./cocite.py positions --index)")
     p = sub.add_parser("prep", help="read the database once into cocite-cache/")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_prep)
@@ -2516,16 +2562,29 @@ def main():
     p.set_defaults(func=cmd_shift)
     import cocite_positions
     cocite_positions.add_parser(sub)
+    cocite_positions.add_evidence_parser(sub, view)
     p = sub.add_parser("together", parents=[view], help="do these cases share a cluster, slice by slice?")
     p.add_argument("--cite", action="append", default=[])
     p.add_argument("--cluster", type=int, action="append")
     p.set_defaults(func=cmd_together)
     args = ap.parse_args()
     global COCITE_DB
+    tags = []
     if getattr(args, "courts", None):
         _codes, tag = parse_courts(args.courts)
         if tag != "all":
-            COCITE_DB = BASE_DB.with_name("cocite-%s.sqlite" % tag)
+            tags.append(tag)
+    if getattr(args, "weight", None):
+        import cocite_positions
+        args.weight = cocite_positions.parse_weight(args.weight)
+        if args.weight:
+            tags.append(args.weight)
+            if getattr(args, "mix", None) is not None:
+                if not 0 <= args.mix <= 1:
+                    sys.exit("--mix must be between 0 and 1")
+                tags.append("m%g" % args.mix)
+    if tags:
+        COCITE_DB = BASE_DB.with_name("cocite-%s.sqlite" % "-".join(tags))
     if args.cmd == "shift" and not (args.cite or args.cluster or args.eval):
         ap.error("shift needs --cite, --cluster or --eval")
     if args.cmd in ("case", "note") and not (args.cite or args.cluster):
