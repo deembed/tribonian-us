@@ -113,6 +113,10 @@ def parse_courts(text):
     """'appellate' or 'scotus,circuit' -> (codes, file tag); None -> all courts."""
     if not text or text == "all":
         return None, "all"
+    # a view tag may carry a weighting ("appellate-sentence-m0.2"): the courts are what comes before it
+    text = re.sub(r"-(?:decision|paragraph|sentence|string|k\d+)(?:-m[\d.]+)?$", "", text)
+    if not text:
+        return None, "all"
     names = []
     for t in text.split(","):
         t = t.strip()
@@ -716,7 +720,10 @@ def fill_names(db, con):
 
 # ================================================================ the case-note section
 
-NOTE_VIEW = "appellate"          # the view case notes are drawn from
+NOTE_VIEW = "appellate-sentence-m0.2"   # the view case notes are drawn from: appellate courts, pair weights
+                                        # 0.2 x decisions citing both + 0.8 x decisions citing both in one sentence.
+                                        # Chosen 2026-10-02 on the area benchmark (consensus areas, 65 common names:
+                                        # F1 0.914 vs 0.849 binary, precision 1.000 vs 0.953); see ARCHITECTURE.md 7.4
 
 
 def open_view(view=NOTE_VIEW):

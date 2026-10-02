@@ -519,7 +519,7 @@ def cmd_map(args):
     if mode == "cluster":
         try:
             import cocite
-            got = cocite.crawl_set(root, view=args.courts, top=args.cluster_max, scope=args.scope)
+            got = cocite.crawl_set(root, view=args.courts or cocite.NOTE_VIEW, top=args.cluster_max, scope=args.scope)
         except Exception as e:
             got = None
             print("cluster crawl unavailable (%s)" % e)
@@ -1198,7 +1198,7 @@ def main():
             p.add_argument("--scope", choices=["current", "all"], default="current",
                            help="--by cluster: current = its sub-cluster in the newest full slice, plus cases that joined "
                            "it since; all = every lineage it has belonged to (default current)")
-            p.add_argument("--courts", default="appellate", help="--by cluster: cocite.py view (default appellate)")
+            p.add_argument("--courts", help="--by cluster: cocite.py view (default: the case notes' view, cocite.NOTE_VIEW)")
             p.add_argument("--max", type=int, default=3000, help="stop if the map would exceed this many notes")
         elif name == "goodlaw":
             p.add_argument("--show", metavar="WORD", help="print every citation window in the opinions read that contain WORD")

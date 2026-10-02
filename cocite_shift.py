@@ -277,7 +277,7 @@ SUCCESSOR_RECENT = 10     # ... but a case decided within this many years of the
 _IDX = {}
 
 
-def successor(ref, view=cc.NOTE_VIEW):
+def successor(ref, view="appellate"):          # the binary view: the shift eval was run there, not on NOTE_VIEW
     """The latest slice where signal 1 names a successor, for the good-law box:
     {"slice", "ref", "name", "share", "shared", "citing"}; None when nothing fires or nothing is built.
     A flag only; it never changes the good-law colour."""
