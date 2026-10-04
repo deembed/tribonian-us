@@ -16,3 +16,6 @@ cargo run --release
   other views are listed greyed out. After a schema bump in cocite.py, update `db::SCHEMA` and the queries.
 - Lineage pages need the `subs(lineage)` / `clusters(lineage)` indexes: `./cocite.py index --courts ...`
   once per view built before 2026-10-04 (a new build includes them).
+- Area pages carry a history graph (`src/graph.rs`), drawn like `git log --graph`: one lane per lineage,
+  time running down (or up, with "Newest at top"). Click a dot to open its lineage.
+- Test aid: `LAWGUI_DELAY_MS=800 cargo run` slows every page load, to see the loading placeholders.

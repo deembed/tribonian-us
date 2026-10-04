@@ -358,7 +358,7 @@ impl Db {
                     [area],
                     |_| Ok(String::new()),
                 )?;
-                PageData::Area { area: *area, name, label, first, last, lineages, core }
+                PageData::Area { area: *area, name, label, first, last, lineages, core, graph: self.area_graph(*area)? }
             }
             Page::Lineage(lin) => {
                 let (level, anchor): (String, i64) = self.con.query_row(
@@ -466,6 +466,31 @@ impl Db {
             Page::Case(r) => PageData::Case(self.case(*r)?),
             Page::Home | Page::Cases => unreachable!("not a database page"),
         })
+    }
+
+    /// Every slice of every sub-cluster lineage in the area, and the `links` rows between them.
+    fn area_graph(&self, area: i64) -> rusqlite::Result<GraphData> {
+        let mut st = self.con.prepare(
+            "SELECT s.lineage, s.slice, s.sub, s.size FROM lineage_area la JOIN subs s ON s.lineage = la.lineage
+             WHERE la.area=?",
+        )?;
+        let cells: Vec<GraphCell> = st
+            .query_map([area], |r| Ok(GraphCell { lineage: r.get(0)?, slice: r.get(1)?, k: r.get(2)?, size: r.get(3)? }))?
+            .collect::<rusqlite::Result<_>>()?;
+        let here: std::collections::HashSet<(i64, i64)> = cells.iter().map(|c| (c.slice, c.k)).collect();
+        let mut st = self.con.prepare(
+            "SELECT slice_from, cl_from, slice_to, cl_to, jaccard FROM links WHERE level='sub'",
+        )?;
+        let mut edges = Vec::new();
+        for r in st.query_map([], |r| {
+            Ok(GraphEdge { from: (r.get(0)?, r.get(1)?), to: (r.get(2)?, r.get(3)?), jaccard: r.get(4)? })
+        })? {
+            let e = r?;
+            if here.contains(&e.from) && here.contains(&e.to) {
+                edges.push(e);
+            }
+        }
+        Ok(GraphData { cells, edges })
     }
 
     fn head(&self, unit: UnitRow, parent: Option<UnitRow>) -> UnitHead {
@@ -601,6 +626,8 @@ pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, wake: impl Fn() + Send + 
     let (tx_resp, rx_resp) = channel::<Resp>();
     std::thread::spawn(move || {
         let mut db: Option<Db> = None;
+        // test aid: LAWGUI_DELAY_MS=800 makes every page load slow, to see the placeholders
+        let delay = std::env::var("LAWGUI_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok());
         while let Ok(req) = rx_req.recv() {
             let resp = match req {
                 Req::Open(path) => match Db::open(&path, &labels_file, &cases_dir) {
@@ -616,6 +643,9 @@ pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, wake: impl Fn() + Send + 
                 },
                 Req::Load(page) => {
                     let t = std::time::Instant::now();
+                    if let Some(ms) = delay {
+                        std::thread::sleep(std::time::Duration::from_millis(ms));
+                    }
                     let r = match &db {
                         Some(d) => d.load(&page),
                         None => Err("no view is open".into()),

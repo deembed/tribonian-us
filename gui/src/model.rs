@@ -219,6 +219,28 @@ pub struct CaseData {
     pub goodlaw: Option<GoodLaw>,
 }
 
+/// An area's lineages slice by slice, for the history graph.
+#[derive(Clone, Debug)]
+pub struct GraphCell {
+    pub lineage: i64,
+    pub slice: i64,
+    pub k: i64,
+    pub size: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct GraphEdge {
+    pub from: (i64, i64),
+    pub to: (i64, i64),
+    pub jaccard: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct GraphData {
+    pub cells: Vec<GraphCell>,
+    pub edges: Vec<GraphEdge>,
+}
+
 #[derive(Clone, Debug)]
 pub enum PageData {
     Areas(Vec<AreaRow>),
@@ -230,6 +252,7 @@ pub enum PageData {
         last: i64,
         lineages: Vec<LineageRow>,
         core: Vec<CaseRow>,
+        graph: GraphData,
     },
     Lineage {
         lineage: i64,

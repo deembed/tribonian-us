@@ -5,6 +5,7 @@
 mod cases;
 mod config;
 mod db;
+mod graph;
 mod model;
 mod pages;
 
@@ -49,6 +50,7 @@ pub struct App {
     pub files: CaseFiles,
     /// Set by the page renderers; acted on after drawing (no borrow of self while drawing).
     pub goto: Option<Page>,
+    pub graph_opts: graph::GraphOpts,
 }
 
 impl App {
@@ -74,6 +76,7 @@ impl App {
             slice_idx: 0,
             files: CaseFiles::default(),
             goto: None,
+            graph_opts: graph::GraphOpts::default(),
         };
         match Config::load() {
             Ok((cfg, path)) => {

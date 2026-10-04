@@ -196,21 +196,19 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         return;
     }
     let Some(data) = app.cache.remove(&page) else {
-        ui.horizontal(|ui| {
-            ui.spinner();
-            ui.label(if app.meta.is_none() { "Opening the view…" } else { "Loading…" });
-        });
         if let Some(e) = &app.view_err {
             ui.colored_label(Color32::LIGHT_RED, e);
+            return;
         }
+        skeleton(ui, &page);
         return;
     };
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         match &data {
             PageData::Areas(rows) => areas(app, ui, rows),
-            PageData::Area { area, name, label, first, last, lineages, core } => {
-                area_page(app, ui, *area, name, label, *first, *last, lineages, core)
+            PageData::Area { area, name, label, first, last, lineages, core, graph } => {
+                area_page(app, ui, *area, name, label, *first, *last, lineages, core, graph)
             }
             PageData::Lineage { lineage, level, name, label, anchor, area, cells, merged_in, split_out } => {
                 lineage_page(app, ui, *lineage, *level, name, label, anchor, area, cells, merged_in, split_out)
@@ -320,6 +318,7 @@ fn area_page(
     last: i64,
     lineages: &[LineageRow],
     core: &[CaseRow],
+    graph: &GraphData,
 ) {
     ui.weak(format!("Area {}", area_code(area)));
     ui.heading(name);
@@ -328,6 +327,18 @@ fn area_page(
         ui.add(egui::Label::new(&l.description).wrap());
     }
     ui.weak(format!("{} – {}", app.slice_label(first), app.slice_label(last)));
+    ui.add_space(8.0);
+    egui::CollapsingHeader::new(RichText::new("History graph").strong())
+        .default_open(true)
+        .show(ui, |ui| {
+            let slices: Vec<i64> = app.meta.as_ref().map(|m| m.slices.iter().map(|s| s.slice).collect()).unwrap_or_default();
+            let labels: std::collections::HashMap<i64, String> =
+                slices.iter().map(|&s| (s, app.slice_label(s))).collect();
+            let sl = move |s: i64| labels.get(&s).cloned().unwrap_or_default();
+            if let Some(p) = crate::graph::area_graph(ui, &mut app.graph_opts, &slices, lineages, graph, &sl) {
+                app.goto = Some(p);
+            }
+        });
     ui.add_space(8.0);
     let f = app.filter.clone();
     ui.strong(format!("Lineages ({})", lineages.len()));
@@ -728,5 +739,55 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
                 ui.end_row();
             }
         });
+    }
+}
+
+// ================================================================== loading placeholders
+
+/// Grey boxes shaped like the page that is loading, pulsing gently (no spinner).
+fn skeleton(ui: &mut Ui, page: &Page) {
+    let t = ui.input(|i| i.time) as f32;
+    ui.ctx().request_repaint();
+    let base = if ui.visuals().dark_mode { 60.0 } else { 215.0 };
+    let pulse = 0.5 + 0.5 * (t * 3.0).sin();
+    // shade: 0 = darkest bar, 1 = lightest; every bar breathes with the same pulse
+    let bar = |ui: &mut Ui, w: f32, h: f32, shade: f32| {
+        let v = (base + (shade * 18.0 + pulse * 14.0) * if ui.visuals().dark_mode { 1.0 } else { -1.0 }) as u8;
+        let (r, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+        ui.painter().rect_filled(r, 3.0, Color32::from_gray(v));
+    };
+    // fixed pseudo-random widths so rows differ but do not flicker
+    let wid = |i: usize, lo: f32, span: f32| lo + span * (((i * 7919 + 13) % 97) as f32 / 97.0);
+    let full = ui.available_width().min(900.0);
+    ui.add_space(4.0);
+    bar(ui, 120.0, 10.0, 0.2);
+    ui.add_space(6.0);
+    bar(ui, full * 0.45, 22.0, 0.6);
+    ui.add_space(6.0);
+    bar(ui, full * 0.9, 12.0, 0.3);
+    ui.add_space(3.0);
+    bar(ui, full * 0.7, 12.0, 0.3);
+    ui.add_space(14.0);
+    if matches!(page, Page::Area(_) | Page::Lineage(_)) {
+        // the graph or timeline block
+        bar(ui, full * 0.6, if matches!(page, Page::Area(_)) { 260.0 } else { 52.0 }, 0.1);
+        ui.add_space(14.0);
+    }
+    if matches!(page, Page::Case(_)) {
+        ui.horizontal(|ui| {
+            bar(ui, 80.0, 20.0, 0.5);
+            bar(ui, 150.0, 20.0, 0.5);
+        });
+        ui.add_space(14.0);
+    }
+    for i in 0..16 {
+        ui.horizontal(|ui| {
+            bar(ui, wid(i, 140.0, 260.0), 12.0, 0.4 + 0.3 * ((i % 3) as f32 / 2.0));
+            ui.add_space(16.0);
+            bar(ui, wid(i + 5, 50.0, 60.0), 12.0, 0.2);
+            ui.add_space(16.0);
+            bar(ui, 40.0, 12.0, 0.1);
+        });
+        ui.add_space(7.0);
     }
 }
