@@ -363,7 +363,7 @@ fn area_page(
     });
     ui.add_space(8.0);
     ui.strong("Core cases (the area's fingerprint)");
-    case_grid(app, ui, "core", core, false);
+    case_grid(app, ui, "core", core, None);
 }
 
 // ------------------------------------------------------------------ lineage
@@ -532,33 +532,143 @@ fn unit_page(app: &mut App, ui: &mut Ui, head: &UnitHead, children: &[UnitRow], 
     }
     let shown = if cases.len() >= MAX_ROWS { format!("; showing the first {}", cases.len()) } else { String::new() };
     ui.strong(format!(
-        "Cases ({} in this {}{shown}), by weight{}",
+        "Cases ({} in this {}{shown}){}. Click a column heading to sort.",
         u.size,
         if u.level == Level::Cluster { "cluster" } else { "sub-cluster" },
         if u.level == Level::Cluster { ". Home cluster, or another cluster holding a share of their ties" } else { "" }
     ));
-    case_grid(app, ui, "cases", cases, true);
+    let help = if u.level == Level::Sub {
+        "Ties inside this sub-cluster: the sum of the case's pair weights with the other cases in it \
+         (decisions citing both; sentence-weighted in a sentence view). Higher = more central."
+    } else {
+        "The case's pair weight going to this cluster's members. Higher = more central."
+    };
+    case_grid(app, ui, "cases", cases, Some(help));
 }
 
-fn case_grid(app: &mut App, ui: &mut Ui, id: &str, cases: &[CaseRow], weights: bool) {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortKey {
+    Name,
+    Cite,
+    Year,
+    Weight,
+    Citing,
+    GoodLaw,
+}
+
+/// "467 U.S. 837" sorts by reporter, then volume, then page; anything else by its text.
+fn cite_key(c: &str) -> (String, i64, i64) {
+    let parts: Vec<&str> = c.split_whitespace().collect();
+    if parts.len() >= 3 {
+        if let (Ok(v), Ok(p)) = (parts[0].parse::<i64>(), parts[parts.len() - 1].parse::<i64>()) {
+            return (parts[1..parts.len() - 1].join(" "), v, p);
+        }
+    }
+    (c.to_string(), 0, 0)
+}
+
+fn goodlaw_rank(g: &Option<GoodLaw>) -> i32 {
+    match g.as_ref().map(|g| g.status.as_str()) {
+        Some("red") => 3,
+        Some("yellow") => 2,
+        Some("green") => 1,
+        _ => 0,
+    }
+}
+
+fn goodlaw_cell(ui: &mut Ui, g: &Option<GoodLaw>) {
+    match g {
+        Some(g) => {
+            let (col, year) = match g.status.as_str() {
+                "red" => (Color32::from_rgb(210, 70, 60), g.red_year),
+                "yellow" => (Color32::from_rgb(210, 170, 40), g.yellow_year),
+                "green" => (Color32::from_rgb(70, 160, 90), None),
+                _ => (Color32::GRAY, None),
+            };
+            let text = match year {
+                Some(y) => format!("{} {y}", g.status),
+                None => g.status.clone(),
+            };
+            ui.colored_label(col, text);
+        }
+        None => {
+            ui.weak("–").on_hover_text("not computed (casemap.py goodlaw)");
+        }
+    }
+}
+
+/// A sortable table of cases. `weight_help` names the weight column's meaning; None hides it.
+fn case_grid(app: &mut App, ui: &mut Ui, id: &str, cases: &[CaseRow], weight_help: Option<&str>) {
     let f = app.filter.clone();
-    egui::Grid::new(id).striped(true).num_columns(6).show(ui, |ui| {
-        for c in cases.iter().filter(|c| matches(&f, &c.name) || matches(&f, &c.cite)) {
+    let mut rows: Vec<&CaseRow> = cases.iter().filter(|c| matches(&f, &c.name) || matches(&f, &c.cite)).collect();
+    let (key, desc) = app.case_sort;
+    rows.sort_by(|a, b| {
+        let o = match key {
+            SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            SortKey::Cite => cite_key(&a.cite).cmp(&cite_key(&b.cite)),
+            SortKey::Year => a.year.cmp(&b.year),
+            SortKey::Weight => a.weight.total_cmp(&b.weight),
+            SortKey::Citing => a.citing.cmp(&b.citing),
+            SortKey::GoodLaw => goodlaw_rank(&a.goodlaw).cmp(&goodlaw_rank(&b.goodlaw)),
+        };
+        if desc { o.reverse() } else { o }
+    });
+    let has_citing = cases.iter().any(|c| c.citing.is_some());
+    let mut sort = app.case_sort;
+    let mut go: Option<Page> = None;
+    let mut header = |ui: &mut Ui, label: &str, k: SortKey, help: &str| {
+        let arrow = if sort.0 == k { if sort.1 { " ⏷" } else { " ⏶" } } else { "" };
+        let r = ui.add(egui::Button::new(RichText::new(format!("{label}{arrow}")).strong()).frame(false));
+        let r = if help.is_empty() { r } else { r.on_hover_text(help) };
+        if r.clicked() {
+            // first click: the natural direction (text ascending, numbers descending); again: flip
+            sort = if sort.0 == k {
+                (k, !sort.1)
+            } else {
+                (k, !matches!(k, SortKey::Name | SortKey::Cite))
+            };
+        }
+    };
+    egui::Grid::new(id).striped(true).num_columns(8).show(ui, |ui| {
+        header(ui, "Case", SortKey::Name, "");
+        ui.label("");
+        header(ui, "Cite", SortKey::Cite, "by reporter, then volume, then page");
+        header(ui, "Year", SortKey::Year, "");
+        if let Some(h) = weight_help {
+            header(ui, "Weight", SortKey::Weight, h);
+        } else {
+            ui.label("");
+        }
+        if has_citing {
+            header(ui, "Citing", SortKey::Citing, "decisions in this slice citing the case (appellate courts in this view)");
+        } else {
+            ui.label("");
+        }
+        header(ui, "Good law", SortKey::GoodLaw, "from casemap.py goodlaw, where it has been run for the case");
+        ui.label("");
+        ui.end_row();
+        for c in rows {
             if ui.link(&c.name).clicked() {
-                app.goto = Some(Page::Case(c.r#ref));
+                go = Some(Page::Case(c.r#ref));
             }
             built_tag(app, ui, c.r#ref);
             ui.label(&c.cite);
             ui.label(year(c.year));
-            if weights {
+            if weight_help.is_some() {
                 ui.label(format!("{:.1}", c.weight));
             } else {
                 ui.label("");
             }
+            ui.label(c.citing.map(|n| n.to_string()).unwrap_or_default());
+            goodlaw_cell(ui, &c.goodlaw);
             ui.label(RichText::new(&c.note).small());
             ui.end_row();
         }
     });
+    app.case_sort = sort;
+    if go.is_some() {
+        app.goto = go;
+    }
     cut_note(ui, cases.len());
 }
 

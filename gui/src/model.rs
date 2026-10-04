@@ -126,6 +126,10 @@ pub struct CaseRow {
     pub cite: String,
     pub year: Option<i64>,
     pub weight: f64,
+    /// Citing decisions in this slice (nodes.n), where the page has a slice.
+    pub citing: Option<i64>,
+    /// From cases/citedby/<ref>/profile.json, when casemap.py goodlaw has run for the case.
+    pub goodlaw: Option<GoodLaw>,
     /// Extra column, e.g. "home" or "share 0.32".
     pub note: String,
 }
@@ -235,10 +239,24 @@ pub struct GraphEdge {
     pub jaccard: f64,
 }
 
+/// A `links` row with one end in the area and the other in a lineage outside it.
+#[derive(Clone, Debug)]
+pub struct OutEdge {
+    pub here: (i64, i64),
+    /// true: cases came in from the other lineage (it is in the earlier slice)
+    pub incoming: bool,
+    pub other_slice: i64,
+    pub other_lineage: i64,
+    pub other_name: String,
+    pub other_area: Option<String>,
+    pub jaccard: f64,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct GraphData {
     pub cells: Vec<GraphCell>,
     pub edges: Vec<GraphEdge>,
+    pub outside: Vec<OutEdge>,
 }
 
 #[derive(Clone, Debug)]

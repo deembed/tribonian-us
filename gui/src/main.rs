@@ -51,6 +51,8 @@ pub struct App {
     /// Set by the page renderers; acted on after drawing (no borrow of self while drawing).
     pub goto: Option<Page>,
     pub graph_opts: graph::GraphOpts,
+    /// Sort of every case table: column and descending.
+    pub case_sort: (pages::SortKey, bool),
 }
 
 impl App {
@@ -77,6 +79,7 @@ impl App {
             files: CaseFiles::default(),
             goto: None,
             graph_opts: graph::GraphOpts::default(),
+            case_sort: (pages::SortKey::Weight, true),
         };
         match Config::load() {
             Ok((cfg, path)) => {

@@ -143,13 +143,15 @@ pub fn area_graph(
         rows.reverse();
     }
     let row_of: HashMap<i64, usize> = rows.iter().enumerate().map(|(i, s)| (*s, i)).collect();
-    let (gutter, dx, dy, pad) = (70.0, 20.0, 28.0, 14.0);
+    let (gutter, dx, dy, pad) = (70.0, 20.0, 28.0, 22.0);
+    let markers_count = g.outside.iter().filter(|o| o.jaccard >= opts.min_jaccard as f64 && at.contains_key(&o.here)).count();
     ui.weak(format!(
-        "{} of {} lineages shown, in {} lanes · {} lines · hover a dot for its name, click to open the lineage",
+        "{} of {} lineages shown, in {} lanes · {} lines inside the area, {} to lineages outside it (hollow markers) · hover for names, click to open",
         lins.len(),
         total,
         lanes,
-        edges.len()
+        edges.len(),
+        markers_count
     ));
     let text_w = 560.0; // right of the lanes: names of the labelled lineages that start in each row
     let size = Vec2::new(gutter + lanes as f32 * dx + 2.0 * pad + text_w, rows.len() as f32 * dy + 2.0 * pad);
@@ -198,8 +200,34 @@ pub fn area_graph(
         }
     }
 
+    // links to lineages outside the area: a short stub to a hollow marker, above the dot when
+    // the cases came in from an earlier slice, below when they left for a later one
+    let earlier_up = if opts.newest_top { 1.0 } else { -1.0 };
+    let mut fan: HashMap<((i64, i64), bool), f32> = HashMap::new();
+    let mut markers: Vec<(Pos2, Pos2, usize)> = Vec::new(); // marker, dot, index into g.outside
+    for (oi, o) in g.outside.iter().enumerate() {
+        if o.jaccard < opts.min_jaccard as f64 {
+            continue;
+        }
+        let Some(&li) = at.get(&o.here) else { continue };
+        let dot = pos(o.here.0, lins[li].lane);
+        let k = fan.entry((o.here, o.incoming)).or_insert(0.0);
+        let dir = if o.incoming { earlier_up } else { -earlier_up };
+        let m = Pos2::new(dot.x + 8.0 + *k * 7.0, dot.y + dir * dy * 0.55);
+        *k += 1.0;
+        markers.push((m, dot, oi));
+    }
+    let mut hover_out: Option<usize> = None;
+    if let Some(p) = resp.hover_pos() {
+        hover_out = markers
+            .iter()
+            .filter(|m| m.0.distance(p) <= 6.0)
+            .min_by(|a, b| a.0.distance(p).total_cmp(&b.0.distance(p)))
+            .map(|m| m.2);
+    }
+
     // hovered dot (nearest within reach)
-    let hover = resp.hover_pos().and_then(|p| {
+    let hover = resp.hover_pos().filter(|_| hover_out.is_none()).and_then(|p| {
         let mut best: Option<(usize, usize, f32)> = None;
         for (i, l) in lins.iter().enumerate() {
             for (ci, c) in l.cells.iter().enumerate() {
@@ -229,6 +257,14 @@ pub fn area_graph(
             Stroke::new(if lit { 2.0 } else { 1.0 }, col),
         ));
     }
+    // outside stubs
+    let stub_col = ui.visuals().weak_text_color();
+    for &(m, dot, oi) in &markers {
+        let lit = hover_out == Some(oi) || at.get(&g.outside[oi].here).is_some_and(|&li| hl == Some(li));
+        let col = if lit { ui.visuals().strong_text_color() } else { stub_col };
+        painter.line_segment([dot, m], Stroke::new(1.0, col));
+        painter.circle_stroke(m, 3.0, Stroke::new(if lit { 2.0 } else { 1.2 }, col));
+    }
     // lanes and dots
     for (i, l) in lins.iter().enumerate() {
         let lit = hl == Some(i);
@@ -245,6 +281,30 @@ pub fn area_graph(
         }
     }
 
+    if let Some(oi) = hover_out {
+        let o = &g.outside[oi];
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        let head = format!(
+            "{} {}",
+            if o.incoming { "Cases came in from" } else { "Cases went on to" },
+            o.other_name
+        );
+        let line2 = format!(
+            "{} · lineage {} · Jaccard {:.2}{}",
+            slice_label(o.other_slice),
+            o.other_lineage,
+            o.jaccard,
+            o.other_area.as_ref().map(|a| format!(" · area: {a}")).unwrap_or_else(|| " · in no area".into())
+        );
+        resp.clone().on_hover_ui_at_pointer(|ui| {
+            ui.strong(head);
+            ui.label(line2);
+            ui.weak("click to open that lineage");
+        });
+        if resp.clicked() {
+            return Some(Page::Lineage(o.other_lineage));
+        }
+    }
     if let Some((i, ci)) = hover {
         let l = &lins[i];
         let c = l.cells[ci];

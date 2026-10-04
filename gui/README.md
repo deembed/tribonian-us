@@ -19,3 +19,6 @@ cargo run --release
 - Area pages carry a history graph (`src/graph.rs`), drawn like `git log --graph`: one lane per lineage,
   time running down (or up, with "Newest at top"). Click a dot to open its lineage.
 - Test aid: `LAWGUI_DELAY_MS=800 cargo run` slows every page load, to see the loading placeholders.
+- Case tables sort by any column heading (click again to flip). The Good law column reads
+  `cases/citedby/<ref>/profile.json`, so it is filled only for cases `casemap.py goodlaw` has run on.
+- Hollow markers on the history graph are links to lineages outside the area; click one to go there.

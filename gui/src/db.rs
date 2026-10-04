@@ -277,6 +277,8 @@ impl Db {
             Ok(CaseRow {
                 r#ref: r.get(0)?,
                 weight: r.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
+                citing: r.get::<_, Option<i64>>("citing").ok().flatten(),
+                goodlaw: None,
                 name: r.get::<_, Option<String>>("name")?.unwrap_or_default(),
                 cite: r.get::<_, Option<String>>("cite")?.unwrap_or_default(),
                 year: r.get::<_, Option<i64>>("year")?,
@@ -284,8 +286,11 @@ impl Db {
             })
         })?;
         let mut out: Vec<CaseRow> = rows.take(MAX_ROWS).collect::<rusqlite::Result<_>>()?;
-        for c in out.iter_mut().filter(|c| c.name.is_empty()) {
-            c.name = format!("cluster {}", c.r#ref);
+        for c in out.iter_mut() {
+            if c.name.is_empty() {
+                c.name = format!("cluster {}", c.r#ref);
+            }
+            c.goodlaw = read_goodlaw(&self.cases_dir, c.r#ref);
         }
         Ok(out)
     }
@@ -440,7 +445,8 @@ impl Db {
                     params![slice, cl],
                 )?;
                 let cases = self.cases(
-                    "SELECT m.ref, m.weight, n.name, n.cite, n.year, m.home, m.share FROM members m LEFT JOIN names n USING(ref)
+                    "SELECT m.ref, m.weight, n.name, n.cite, n.year, m.home, m.share, x.n AS citing FROM members m
+                     LEFT JOIN names n USING(ref) LEFT JOIN nodes x ON x.slice = m.slice AND x.ref = m.ref
                      WHERE m.slice=? AND m.cl=? ORDER BY m.weight DESC",
                     params![slice, cl],
                     |r| {
@@ -456,10 +462,10 @@ impl Db {
                 let parent = self.unit(Level::Cluster, *slice, sub / 1000);
                 let head = self.head(unit, parent);
                 let cases = self.cases(
-                    "SELECT x.ref, x.subw, n.name, n.cite, n.year, x.n FROM nodes x LEFT JOIN names n USING(ref)
+                    "SELECT x.ref, x.subw, n.name, n.cite, n.year, x.n AS citing FROM nodes x LEFT JOIN names n USING(ref)
                      WHERE x.slice=? AND x.sub=? ORDER BY x.subw DESC",
                     params![slice, sub],
-                    |r| Ok(format!("{} citing", r.get::<_, Option<i64>>(5)?.unwrap_or(0))),
+                    |_| Ok(String::new()),
                 )?;
                 PageData::Unit { head, children: Vec::new(), cases }
             }
@@ -482,15 +488,32 @@ impl Db {
             "SELECT slice_from, cl_from, slice_to, cl_to, jaccard FROM links WHERE level='sub'",
         )?;
         let mut edges = Vec::new();
+        let mut outside = Vec::new();
         for r in st.query_map([], |r| {
             Ok(GraphEdge { from: (r.get(0)?, r.get(1)?), to: (r.get(2)?, r.get(3)?), jaccard: r.get(4)? })
         })? {
             let e = r?;
-            if here.contains(&e.from) && here.contains(&e.to) {
-                edges.push(e);
+            match (here.contains(&e.from), here.contains(&e.to)) {
+                (true, true) => edges.push(e),
+                (false, true) | (true, false) => {
+                    let incoming = here.contains(&e.to);
+                    let (h, o) = if incoming { (e.to, e.from) } else { (e.from, e.to) };
+                    if let Some(u) = self.unit(Level::Sub, o.0, o.1) {
+                        outside.push(OutEdge {
+                            here: h,
+                            incoming,
+                            other_slice: o.0,
+                            other_lineage: u.lineage,
+                            other_area: self.area_of(u.lineage).map(|a| a.1),
+                            other_name: u.name,
+                            jaccard: e.jaccard,
+                        });
+                    }
+                }
+                _ => {}
             }
         }
-        Ok(GraphData { cells, edges })
+        Ok(GraphData { cells, edges, outside })
     }
 
     fn head(&self, unit: UnitRow, parent: Option<UnitRow>) -> UnitHead {
