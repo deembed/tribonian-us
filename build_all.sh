@@ -19,7 +19,7 @@
 #   JOBS=8 ./build_all.sh         parallel jobs (default: number of cores)
 #   STYLE=rails / FONT=... / EXTRA="--credits --notes" (US Code only) / MD_ONLY=1
 #
-# "Out of date": build/built.tsv records <job> -> <pdf> for every success. A job
+# "Out of date": state/built.tsv records <job> -> <pdf> for every success. A job
 # is built when it has no record, its PDF is gone, or its source is newer than
 # the PDF. Failures are never recorded, so the next run tries them again.
 # The list of jobs that were due is kept in build/todo.txt.
@@ -42,7 +42,15 @@ export MD_ONLY="${MD_ONLY:-}"      # MD_ONLY=1: markdown only, skip pdflatex (ig
 export FORCE="${FORCE:-}"
 export SCRATCH="${SCRATCH:-build}"  # per-job scratch dirs; set outside the repo if
                                     # this folder forbids deletes
-export MANIFEST=build/built.tsv
+# Durable state (what was built, skip stamps) lives in state/, not in the scratch dir: rm -rf build
+# must never force a full rebuild. The first run after 2026-10-04 moves the old files over.
+export MANIFEST=state/built.tsv
+mkdir -p state
+if [[ -f build/built.tsv && ! -f state/built.tsv ]]; then
+    mv build/built.tsv state/built.tsv
+    [[ -d build/stamps ]] && mv build/stamps state/stamps
+    sed -i "s#\tbuild/stamps/#\tstate/stamps/#" state/built.tsv
+fi
 JOBS="${JOBS:-$(nproc)}"
 # Reproducible PDFs: pdflatex takes CreationDate, ModDate and the trailer ID from this
 # instead of the clock, so an unchanged source gives a byte-identical PDF and
@@ -64,8 +72,8 @@ build_usc() {                       # $1 = xml path, $2.. = generator selection 
     out=$(python3 usc2md.py "$xml" "$@" --out "$work" --style "$STYLE" --font "$FONT" $EXTRA 2>&1); rc=$?
     if [[ $rc -eq 3 ]]; then
         # a stamp file stands in for the PDF, so this isn't retried until the XML changes
-        rm -rf "$work"; mkdir -p build/stamps
-        local stamp="build/stamps/$(tr -c 'A-Za-z0-9._-' _ <<< "$JOB").skip"
+        rm -rf "$work"; mkdir -p state/stamps
+        local stamp="state/stamps/$(tr -c 'A-Za-z0-9._-' _ <<< "$JOB").skip"
         touch "$stamp"; record "$stamp"
         echo "skip $JOB   (nothing the generator handles)"; return
     fi

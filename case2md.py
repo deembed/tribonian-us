@@ -21,7 +21,7 @@ by CourtListener in html_with_citations.
 Token: environment variable COURTLISTENER_TOKEN, else the GNOME keyring via
     secret-tool lookup service courtlistener
 """
-import argparse, atexit, fcntl, json, os, re, shlex, shutil, subprocess, sys, tempfile, time, unicodedata
+import argparse, atexit, fcntl, json, os, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, unicodedata
 from contextlib import contextmanager
 from collections import Counter
 from datetime import date
@@ -183,7 +183,7 @@ def opinion_url(cid, name=None):
             try:
                 r = con.execute("SELECT slug, case_name FROM clusters WHERE id=?", (cid,)).fetchone()
                 slug = r and (r[0] or (r[1] and slugify(r[1], 75)))
-            except Exception:
+            except sqlite3.Error:
                 pass
         _SLUGS[cid] = slug or (slugify(name, 75) if name else None) or "case"
     return "%s/opinion/%d/%s/" % (CL, cid, _SLUGS[cid])
@@ -592,7 +592,7 @@ def profile_data(cid, scan=False):
             "JOIN ops.opinions o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
             "WHERE e.cited IN (SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ? "
             "GROUP BY y", (cid, cid)) if y and y.isdigit()}
-    except Exception as e:                   # tables not loaded yet, or an older database
+    except sqlite3.Error as e:               # tables not loaded yet, or an older database
         print("  note: no cited-by counts (%s)" % e)
         return old
     new = {"stamp": stamp, "years": years, "parens": parens_data(con, cid), "successor": successor_data(cid)}
@@ -600,7 +600,7 @@ def profile_data(cid, scan=False):
         import casemap
         try:
             new["goodlaw"] = casemap.goodlaw(con, cid)
-        except Exception as e:
+        except (sqlite3.Error, SystemExit) as e:   # casemap exits when the text database is missing
             print("  note: good-law check failed (%s)" % e)
     write_profile(path, new)
     return new
@@ -649,7 +649,7 @@ def parens_data(con, cid):
             out.append({"n": n, "text": re.sub(r"\s+", " ", text or "").strip(), "cluster": who[0], "case": who[1],
                         "year": who[2], "court": who[3]})
         return {"total": total, "groups": out}
-    except Exception as e:                   # no parentheticals loaded, or an older database
+    except sqlite3.Error as e:               # no parentheticals loaded, or an older database
         print("  note: no parentheticals (%s)" % e)
         return None
 
@@ -1178,7 +1178,7 @@ def cocite_md(meta):
     try:
         import cocite
         return cocite.case_md(int(meta["cluster"]), load_index())
-    except Exception as e:                                      # never let this section break a build
+    except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view not built / numpy missing; a bug still raises
         print("  (co-citation section skipped: %s)" % e, file=sys.stderr)
         return []
 
@@ -1190,7 +1190,7 @@ def cocite_tex(meta):
     try:
         import cocite
         return cocite.case_tex(int(meta["cluster"]), lambda t: esc(t, "tex"))
-    except Exception as e:                                      # never let this box break a build
+    except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view not built / numpy missing; a bug still raises
         print("  (co-citation box skipped: %s)" % e, file=sys.stderr)
         return ""
 
@@ -2624,7 +2624,7 @@ def opinions_named(ids, con):
         rows = con.execute("SELECT DISTINCT o.cluster_id, c.case_name, c.date_filed, d.court_id FROM ops.opinions o "
                            "JOIN clusters c ON c.id = o.cluster_id LEFT JOIN dockets d ON d.id = c.docket_id "
                            "WHERE o.id IN (%s)" % ",".join("?" * len(ids)), list(ids)).fetchall()
-    except Exception:
+    except sqlite3.Error:
         return None
     out = []
     for cid, name, filed, court in rows:
@@ -2724,7 +2724,7 @@ def recap_build(args):
                             "ECF No%s. %s" % ("s" if len(ops) > 1 else "", ", ".join(doc_key(o["api"]) for o in ops)),
                             "CourtListener docket %s (RECAP, text from the filed PDFs)" % d.get("id"),
                             "retrieved " + date.today().isoformat()]}
-    pdf_name = dslug + (("-ecf-" + "-".join(sorted(want, key=lambda x: (len(x), x)))) if want else "")
+    pdf_name = dslug + (("-ecf-" + "-".join(slugify(x) for x in sorted(want, key=lambda x: (len(x), x)))) if want else "")
     rel_pdf = (pdf_dir(ndir) / (pdf_name + ".pdf")).relative_to(ROOT)
 
     L = yaml_head([("title", tex_meta["title"]), ("aliases", [name, "No. %s" % re.sub(r"^\d+:", "", d.get("docket_number") or "")]),

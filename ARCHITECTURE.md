@@ -234,7 +234,7 @@ The question is **which cases travel together, and how that changes over time**.
 ## 8. Build orchestration: `build_all.sh`
 
 - **Job discovery:** `xml/*.xml` gives one job per chapter (chapter lists are cached in `build/chapters/` until the XML changes). `cases/*.json` gives case jobs and `cases/recap/*.json` gives docket jobs.
-- **Incremental builds:** `build/built.tsv` maps each job to its PDF. A job builds when it has no record, its PDF is missing, or its source is newer. Failures are never recorded, so the next run retries them. `FORCE=1` after changing a generator.
+- **Incremental builds:** `state/built.tsv` maps each job to its PDF. A job builds when it has no record, its PDF is missing, or its source is newer. Failures are never recorded, so the next run retries them. `FORCE=1` after changing a generator.
 - **Parallel runs:** each job gets its own scratch folder (`mktemp -d "$SCRATCH/job.XXXXXX"`), so parallel `.tex`, `.aux` and `.md` files never collide. Manifest lines are short enough that appends from parallel workers are atomic.
 - **Success signal:** `case2md.py` prints `wrote pdf/…` only when pdflatex succeeded. The script parses that line, and a missing line is a failure.
 - **Failures:** saved to `build/failures.txt` and `build/failed_jobs.txt` (rerunnable as a list file).
@@ -244,7 +244,7 @@ The question is **which cases travel together, and how that changes over time**.
 ## 9. Delivery
 
 - **`sync_vault.sh`:** `rsync --delete` of `md/` → `08-Reference/USC`, `md-cases/` → `08-Reference/Cases` and `md-cocite/` → `08-Reference/Co-citation`. These vault folders are **generator-owned**: anything not in the source is deleted. Personal notes live elsewhere in the vault and link in. Guard: a source with fewer than 90% of the vault's notes is taken for a partial build and refused (`FORCE=1` overrides); `build_all.sh` exits non-zero on any failure so `&&` chains stop.
-- **`sync_remarkable.py`:** uploads through rmapi and rmfakecloud. A PDF is classified as a case if a note with the same name exists in `md-cases/`; otherwise, a name starting with a title number means US Code. **It never deletes on the tablet.** A changed PDF is replaced with `--force`, which **does** drop that document's pen annotations, so more than `MAX_UPDATES` (10) replacements need `--yes`. `build/rm_manifest.json` holds SHA-256 hashes; builds are byte-reproducible (`SOURCE_DATE_EPOCH` in the build scripts, `\pdftrailerid{\jobname}` in the preamble), so an unchanged source never shows as changed.
+- **`sync_remarkable.py`:** uploads through rmapi and rmfakecloud. A PDF is classified as a case if a note with the same name exists in `md-cases/`; otherwise, a name starting with a title number means US Code. **It never deletes on the tablet.** A changed PDF is replaced with `--force`, which **does** drop that document's pen annotations, so more than `MAX_UPDATES` (10) replacements need `--yes`. `state/rm_manifest.json` holds SHA-256 hashes; builds are byte-reproducible (`SOURCE_DATE_EPOCH` in the build scripts, `\pdftrailerid{\jobname}` in the preamble), so an unchanged source never shows as changed.
 
 ---
 

@@ -9,7 +9,7 @@ A PDF is a case if md-cases/ has a note with the same stem (case2md.py mirrors
 md-cases/<dir>/ into pdf/<dir>/); otherwise a top-level PDF whose name starts
 with a title number is US Code. Anything else is reported and skipped.
 
-Incremental: build/rm_manifest.json records the sha256 of each uploaded PDF.
+Incremental: state/rm_manifest.json records the sha256 of each uploaded PDF.
   new file      -> rmapi put
   changed file  -> rmapi put --force   (replaces the doc on the tablet: its annotations are lost)
   unchanged     -> nothing
@@ -28,7 +28,10 @@ from pathlib import Path
 ROOT     = Path(__file__).resolve().parent
 PDF      = ROOT / "pdf"
 NOTES    = ROOT / "md-cases"
-MANIFEST = ROOT / "build" / "rm_manifest.json"
+MANIFEST = ROOT / "state" / "rm_manifest.json"     # durable, so rm -rf build/ never forgets what is on the tablet
+if not MANIFEST.exists() and (ROOT / "build" / "rm_manifest.json").exists():   # moved here 2026-10-04
+    MANIFEST.parent.mkdir(exist_ok=True)
+    (ROOT / "build" / "rm_manifest.json").rename(MANIFEST)
 REMOTE   = "/Archive/Laws"
 RMAPI    = os.path.expanduser("~/.local/bin/rmapi")
 RM_HOST  = "http://<rmfakecloud-host>:3000"     # rmfakecloud on the hub Pi

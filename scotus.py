@@ -23,7 +23,7 @@ PDF for the tablet plus Obsidian notes, and the authorities the parties fight ov
 
 No language model anywhere: regular expressions, text layout, set arithmetic.
 """
-import argparse, json, re, subprocess, sys, urllib.parse
+import argparse, json, re, sqlite3, subprocess, sys, urllib.parse
 from difflib import SequenceMatcher
 from collections import Counter, OrderedDict
 from datetime import date, datetime
@@ -49,7 +49,7 @@ def norm_number(s):
 
 def get(url, out=None):
     """curl, because supremecourt.gov's front end refuses some clients. -> bytes, or None on failure."""
-    cmd = ["curl", "-sSfL", "--retry", "2", "-m", "180", "-A", UA, url]
+    cmd = ["curl", "-sSfL", "--retry", "2", "-m", "180", "-A", UA, "--", url]   # -- : a feed URL is never read as a flag
     r = subprocess.run(cmd + (["-o", str(out)] if out else []), capture_output=True)
     if r.returncode:
         print("  ! %s: %s" % (url, r.stderr.decode(errors="replace").strip()[:200]))
@@ -637,7 +637,7 @@ def area_for(db, ref):
                         else cocite.unit_name(db, now["slice"], now["home"]))
         ar = cocite.area_of(db, lin)
         return (ar, cocite.area_name(db, ar)) if ar else None
-    except Exception:
+    except (sqlite3.Error, SystemExit, KeyError, TypeError):   # view not built, or the case is in no slice
         return None
 
 
@@ -1184,7 +1184,7 @@ def build(args):
     try:
         import cocite
         db = cocite.open_view(cocite.NOTE_VIEW)
-    except Exception:
+    except (ImportError, sqlite3.Error, SystemExit, OSError):   # view not built
         db = None
     if db is not None:
         for k in set(cp["P"]) | set(cp["R"]):

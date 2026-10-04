@@ -19,13 +19,18 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 | `cases/` | one `.json` per case with full text; `cases/recap/` for district-court dockets | `case2md.py fetch`, `casemap.py get`/`stubs` |
 | `cases/stubs/` | cases known only from the citation graph (no text yet) | `casemap.py map` |
 | `cases/unparsed/` | text fetched but not in a format `build` can read; left out of builds | `casemap.py stubs --api` |
+| `cases/scotus/` | pending Supreme Court dockets: `<docket>.json` plus `<docket>/` with the filed PDFs and their text | `scotus.py fetch` |
 | `md/` | US Code notes, one per section, in `t<NN>/ch<NN>/` | `build_all.sh` |
-| `md-cases/` | case notes (full and stub); subfolders such as `FOIA/` | `case2md.py`, `casemap.py` |
-| `pdf/` | the PDFs; case PDFs mirror `md-cases/` subfolders | `build_all.sh`, `case2md.py build` |
-| `build/` | `.tex`, logs, build records, scratch | the build |
+| `md-cases/` | case notes (full and stub); subfolders such as `FOIA/` and `Pending SCOTUS/` | `case2md.py`, `casemap.py`, `scotus.py` |
+| `md-cocite/` | co-citation notes: `Co-citation map.md`, `Areas/`, `Lineages/` | `cocite.py vault` |
+| `pdf/` | the PDFs; case PDFs mirror `md-cases/` subfolders | `build_all.sh`, `case2md.py build`, `scotus.py build` |
+| `build/` | `.tex`, logs, scratch; disposable | the build |
+| `state/` | `built.tsv` (what each job built), skip stamps, `rm_manifest.json` (what is on the tablet); keep | `build_all.sh`, `sync_remarkable.py` |
+| `build/cocite/` | co-citation evidence files, benchmark output, shift eval | `cocite.py` |
 | `bulk/`, `db/` | CourtListener bulk files and the local SQLite databases | `casedb.py` |
+| `tests/` | smoke tests: `python3 -m unittest discover tests` | you |
 
-Everything the scripts generate is ignored by git (`.gitignore`); tracked are the scripts, the docs, `cocite_labels.json` and `cocite_gold.json` (hand- and model-written inputs that can't be rebuilt), and `templates/`.
+Everything the scripts generate is ignored by git (`.gitignore`); tracked are the scripts, the docs, `tests/`, `cocite_labels.json` and `cocite_gold.json` (hand- and model-written inputs that can't be rebuilt), and `templates/`.
 
 ## build_all.sh — build everything out of date, in parallel
 
@@ -41,7 +46,7 @@ FORCE=1 ./build_all.sh          # rebuild regardless of dates (after changing a 
 
 Sources it scans: `xml/*.xml` (one PDF per chapter), `cases/*.json`, `cases/recap/*.json`.
 
-How it decides what to build: `build/built.tsv` records the PDF that each successful job made. A job gets built when it has no record, its PDF is gone, or its source is newer than its PDF. Failures aren't recorded, so the next run retries them. The list of jobs that were due is saved in `build/todo.txt`.
+How it decides what to build: `state/built.tsv` records the PDF that each successful job made. A job gets built when it has no record, its PDF is gone, or its source is newer than its PDF. Failures aren't recorded, so the next run retries them. The list of jobs that were due is saved in `build/todo.txt`.
 
 Environment settings:
 
@@ -109,11 +114,12 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 
 ```
 ./case2md.py fetch --cite "463 U.S. 29"         # or --cluster 110991   (uses the API)
-./case2md.py build cases/463-u-s-29_*.json      # -> md-cases/, build/, pdf/
-./case2md.py find glomar                        # search your notes, then the local database
+./case2md.py build cases/463-u-s-29_*.json      # -> md-cases/, build/, pdf/   (--no-pdf: notes only)
+./case2md.py find glomar                        # search your notes, then the local database (--max N results per list)
 ./case2md.py find glomar --get 3                # take result 3 from the database and build it
-./case2md.py recap fetch --docket 4949363       # district-court filings (uses the API)
-./case2md.py recap build cases/recap/<docket>.json
+./case2md.py recap fetch --docket 4949363       # the court's orders and opinions (uses the API)
+./case2md.py recap fetch --docket 4949363 --docs 35,55,12-1   # these documents (12-1 = attachment); --all: everything
+./case2md.py recap build cases/recap/<docket>.json             # --docs 35,55: only these
 ./case2md.py usage                              # API requests used; --days N for history
 ```
 
@@ -122,21 +128,41 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 - **Rate limits:** free tier 5 a minute, 50 an hour, 125 a day; set `CL_LIMITS=10,75,300` for a paid tier. Requests pace themselves. At the daily limit a command stops cleanly, and rerunning it resumes from the cache.
 - **Usage log:** `cases/_api_log.json` keeps the last 24 hours (used for the limits). `cases/_api_history.tsv` keeps every request (time, command, API path). Any command that made requests ends with `CourtListener API: N requests by this command; M of 125 left today`.
 
+## scotus.py — a pending Supreme Court case (supremecourt.gov, no API limit)
+
+```
+./scotus.py fetch 25-579                        # the Court's docket + every filed PDF -> cases/scotus/ (rerun: only new filings)
+./scotus.py build 25-579                        # -> pdf/Pending SCOTUS/<slug>.pdf, md-cases/Pending SCOTUS/<slug>.md + a note per filing
+./scotus.py build 25-579 --amici --appendix     # amicus briefs in the PDF too; keep the appendices
+./scotus.py build 25-579 --depth 1 --text 1     # also case notes for the decision below and every cited case, then ./build_all.sh
+./scotus.py build 25-579 --no-goodlaw --no-pdf  # skip the good-law check of the cited cases; skip pdflatex
+```
+
+- **`fetch`:** reads the docket's JSON feed and downloads each linked PDF (proofs of service and certificates skipped) to `cases/scotus/<docket>/`, with `pdftotext -layout` beside it. Not CourtListener, so no rate limit.
+- **`build`:** one PDF in parts: the question presented, the decision below (from the local database), the cert-stage filings, the merits filings. Notes: the docket note and one per filing, each with a Statutes cited list. Amicus notes are always written; `--amici` puts the briefs in the PDF as well. `--font`, `--style` and `--no-pdf` as for `case2md.py build`.
+- **Authorities and their status:** each filing's reporter citations resolved through the local database, and which filings share them. Two tables: *Common authorities* (one row per case both sides cite, with its good-law status and each side's mentions, plaintiff below on the left) and *Each side's own* (two columns, one per party). Status comes from `casemap.py goodlaw`, cached per case; red is a lead to check, not a holding. `--no-goodlaw` skips it (slow the first time).
+- **`--depth N`:** the crawl `casemap.py map --depth` does, rooted at the decision below and the filings' authorities: full text for the first `--text` steps (default 1), stubs beyond; `--max` (3000) stops a runaway crawl. It writes the same `cases/*.json` and notes, so `./build_all.sh` builds their PDFs; rerun `./scotus.py build` afterwards so its notes link to them.
+- **Not a `build_all.sh` job:** `build_all.sh` has no scotus job kind (`cases/scotus/` is not scanned), so `./scotus.py build` makes the PDF itself. Rerun it after new filings arrive.
+
 ## casemap.py — citation graph (no API unless `--api`)
 
 ```
 ./casemap.py get --cite "401 U.S. 402"          # one case from the local database -> cases/*.json + note
-./casemap.py map --cite "463 U.S. 29" --depth 2 # notes for everything within 2 citation steps
+./casemap.py map --cite "463 U.S. 29"           # notes for the root's co-citation sub-cluster (the default, --by cluster)
+./casemap.py map --cite "463 U.S. 29" --depth 2 # the citation walk instead: everything within 2 citation steps
 ./casemap.py citedby cases/463-u-s-29_*.json    # "Cited by" section: who cites it, for what
 ./casemap.py stubs --list                       # stub notes, most-cited first
 ./casemap.py stubs                              # fill stubs from the local database
 ./casemap.py stubs --api --max 20               # fall back to CourtListener for the rest
 ./casemap.py stubs brown 108283                 # only matching note names or cluster IDs
+./casemap.py fixlinks                           # give bare courtlistener.com/opinion/<id>/ links in md-cases/ their slug
 ```
 
-- **`map`:** `--text K` gives full text to the first K steps (default `depth - 1`); the outer ring becomes stubs. `--max` caps the size of the map.
+- **`map --by cluster`** (the default): the cases in the root's sub-cluster lineage in the newest full slice of `cocite.py`'s case-note view, plus cases that joined it since, heaviest first, up to `--cluster-max` (60); all get full text (`--text 0`: stubs only). `--scope all` takes every lineage the root has belonged to; `--courts` picks another `cocite.py` view.
+- **`map --depth N`** (or `--by depth`): the citation walk. `--text K` gives full text to the first K steps (default `depth - 1`); the outer ring becomes stubs. `--max` (3000) caps either kind of map.
 - **`citedby`:** options are `--list`, `--full`, `--level`, `--sample-over`, `--margin`, `--top`, `--steps` and `--min-run`; see `./casemap.py citedby -h`.
 - **`stubs`:** a stub becomes a full case only if `build` can read its text. Otherwise it stays a stub and the output says why. After filling stubs, run `./build_all.sh cases`, or use `./build_all.sh --stubs` to do both.
+- **`fixlinks`:** takes no options (it is handled before argparse); rewrites notes and saved Cited-by sections in place and needs the local database.
 
 ## casedb.py — local CourtListener database
 
@@ -177,11 +203,53 @@ Two cases are co-cited when one later decision cites both. Citing decisions are 
 
 - **Nodes:** cases cited by 0.002% of the slice's decisions (`--min-cited-frac`), never fewer than 5 (`--min-cited`). The share keeps slices comparable as court output and coverage grow; `status` shows the cut each slice used.
 - **Pairs:** cited together by `--min-support` (5) or more decisions. Decisions citing more than `--max-cites` (150) nodes are left out.
-- **Clusters:** Leiden (modularity). Each case also gets a share in every cluster, so it can belong to several. Partners are ranked by cosine; lift is shown alongside.
-- **Sub-clusters:** every cluster of `--split-over` (20) or more is clustered again (`1.3` = sub-cluster 3 of cluster 1). The split is kept only if it beats the same cluster rewired at random (`--nulls` 5 copies) by `--sub-z` (4) standard deviations; otherwise the cluster stays whole.
-- **Chance baseline:** each slice's modularity is compared with its own rewired copy, so `status` column "above" can be compared across slices.
+- **Clusters:** Leiden (modularity). Each case also gets a share in every cluster, so it can belong to several (`--share`, 0.15, lists it in a non-home cluster). Partners are ranked by cosine; lift is shown alongside.
+- **Sub-clusters:** every cluster of `--split-over` (20) or more is clustered again (`1.3` = sub-cluster 3 of cluster 1). The split is kept only if it beats every one of `--nulls` (5) rewired copies of the cluster and their mean by `--sub-z` (4) standard deviations; otherwise the cluster stays whole.
+- **Chance baseline:** each slice's modularity is compared with its own rewired copies, so `status` column "above" can be compared across slices.
 - **Court views:** `--courts` keeps only citing decisions from those levels (scotus, circuit, district, state-supreme, state-appellate, other; shortcuts `appellate`, `federal`). The cited cases can come from any court. Each view has its own results file.
 - **Lineage:** clusters and sub-clusters in adjacent slices that are each other's best match (Jaccard >= `--carry`, 0.2) share a lineage.
+
+Housekeeping: `prep` must be rerun after a bulk load. Read commands (`status`, `case`, `cluster`, `tree`, `note`, `lineage`, `together`, `shift`, ...) open the results read-only and never touch a running build; when the file's schema is older than the code they exit with "rebuild with ./cocite.py build", and after such a schema bump `build` must be rerun in each view (each `--courts`/`--weight`/`--mix` combination is its own file).
+
+**Proximity weights (`--weight`, `--mix`; `cocite_positions.py`):**
+
+```
+./cocite.py positions                      # where every citation sits: one row per occurrence -> bulk/cocite-cache/pos/ (all cores, resumable)
+./cocite.py positions --status             # shards done / to do
+./cocite.py positions --show 690840        # one opinion's rows, with context
+./cocite.py positions --sample 2000        # random opinions: rates and speed, nothing written
+./cocite.py positions --index              # sort the rows by decision -> cocite-cache/posidx/, needed by build --weight
+./cocite.py build --courts appellate --weight sentence             # pairs weighted by same-sentence co-citation -> cocite-appellate-sentence.sqlite
+./cocite.py build --courts appellate --weight sentence --mix 0.2   # binary pairs kept, re-weighted -> cocite-appellate-sentence-m0.2.sqlite
+./cocite.py note --cite "463 U.S. 29" --courts appellate --weight sentence --mix 0.2   # read commands take the same flags to pick the file
+./cocite.py prox-evidence --courts appellate --slice 2010          # blind reading file: pairs by sentence share -> build/cocite/, key kept apart
+```
+
+- `--weight decision|paragraph|sentence|string|kernel:<chars>` replaces "decisions citing both" with a weight from where the citations sit. Nodes and `--min-support` are unchanged. `--mix α` keeps the binary pairs and weights them α × support + (1 − α) × proximity; α = 1 is the binary build. The results file is named by view, weight and mix: `cocite-appellate-sentence-m0.2.sqlite`. Case notes read that file (`NOTE_VIEW` in `cocite.py`).
+- `positions` is the one text pass; any new weighting is a cheap pass over the stored rows. After changing the extractor, bump its `VERSION` and the stale shards are redone.
+- `prox-evidence` options: `--n`, `--min-support`, `--per-case`, `--passages`, `--window`, `--seed`.
+
+**Labels, areas and the vault:**
+
+```
+./cocite.py evidence --courts appellate                 # build/cocite/evidence-<view>.jsonl: the biggest unlabelled lineages, with evidence
+./cocite.py evidence --courts appellate --family-of "463 U.S. 29"   # every sub-cluster lineage under this case's cluster, labelled together
+./cocite.py evidence --courts appellate --stale         # lineages whose labels drifted or were displaced
+./cocite.py labels import labels.jsonl                  # descriptions -> cocite_labels.json (git-tracked)
+./cocite.py labels match --courts appellate             # re-attach labels to lineages after a rebuild
+./cocite.py labels check --courts appellate             # stable / drifted / displaced / orphaned counts
+./cocite.py labels list --courts appellate
+./cocite.py areas --courts appellate --method cpm --resolution 0.5 --shrink 10 --consensus 20   # the settled setting: group lineages into areas
+./cocite.py areas --courts appellate --grid "cpm:0.5,1@0,10;modularity:1,2"   # score settings against cocite_gold.json, write nothing
+./cocite.py area-evidence --courts appellate            # build/cocite/areas-<view>.jsonl, for naming the areas (--top 80)
+./cocite.py gold-common cocite-appellate cocite-appellate-sentence-m0.2   # benchmark names every listed view can score -> build/cocite/gold-common.json
+./cocite.py vault --courts appellate                    # md-cocite/: Co-citation map.md, Areas/, Lineages/ (--min-size 30, --core 12, --link-min 0.1, --out)
+```
+
+- **Labels:** a language model writes a name and description per lineage from the evidence file; `labels import` stores them with a fingerprint (the lineage's heaviest cases) so they re-attach after a rebuild. `evidence` options: `--top`, `--top-clusters`, `--min-slices`, `--min-size`, `--redo`, `--family`, `--min-family-size`.
+- **Areas:** sub-cluster lineages pooled over all slices into broad areas. The settled flags are `--method cpm --resolution 0.5 --shrink 10 --consensus 20` (`--consensus-rounds` 6, `--consensus-tau` 0.5; `--split-over` 150, `--sub-z`, `--nulls` for splitting giants). `--grid` scores many settings against `--gold` (default `cocite_gold.json`) by pairwise F1 and writes nothing; `--sweep` compares resolutions. The grid line's two extra columns, `gold.med` (median lineages in the areas holding benchmark lineages) and `nongold` (share of those areas' lineages outside the benchmark), say how much of each area the benchmark actually grades. Why these settings: `ARCHITECTURE.md` §7.4.
+- **`gold-common`:** needs a `--grid` run in each view first (it reads the `gold-missing-<view>.json` each one writes), then intersects the benchmark so two views are scored on the same names.
+- **`vault`:** generator-owned notes; `sync_vault.sh` mirrors them. Fixed headings so a personal map of content can transclude them; starter in `templates/cocite-personal-moc.md`.
 
 **Good-law signals (`shift`, in `cocite_shift.py`):** per slice transition, four signals: (1) a later-decided successor B, cited by at least 25% of the decisions citing A and growing at least 3 times faster; (2) A's sub-cluster lineage breaks; (3) A's citing count falls further than 90% of cases like it (same decade, similar count); (4) A slides from the core of its sub-cluster to the edge. On `goodlaw_eval.py`'s cases (appellate view), signal 1 fires at the overruling for 37 of 41 and names the overruling decision for 35, but it also fires for 11 of the 20 never-overruled cases (a newer leading case taking over: Heller→Bruen, Twombly→Iqbal). No signal fires before an overruling more often than chance. Case notes show signal 1 as a line in the case-profile box ("Role changed 2005-09: likely successor Bowles ..."); it never changes the good-law colour. Every transition of the eval: `build/cocite/shift-eval-<view>.tsv`.
 
@@ -190,7 +258,7 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 ## Syncing
 
 - **`./sync_vault.sh`:** mirrors `md/` into `~/Obsidian/usc-vault/08-Reference/USC`, `md-cases/` into `08-Reference/Cases` and `md-cocite/` into `08-Reference/Co-citation`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. It refuses to run when a source holds fewer than 90% of the notes already in the vault (a partial build); `FORCE=1` overrides. Options: `VAULT=/path`, `DRY=1`, `FORCE=1`. `build_all.sh` exits non-zero when any job failed, so `./build_all.sh && ./sync_vault.sh` is safe.
-- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmfakecloud and rmapi, under `/Archive/Laws/USC/Title-NN/` and `/Archive/Laws/Cases/...`. It never deletes on the tablet. `build/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
+- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmfakecloud and rmapi, under `/Archive/Laws/USC/Title-NN/` and `/Archive/Laws/Cases/...`. It never deletes on the tablet. `state/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
 
 ## Other
 
@@ -199,18 +267,21 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 ## Running things at the same time
 
 - **`./casemap.py stubs` during `./build_all.sh usc`:** safe; they don't share files.
-- **Two `build_all.sh` runs at once:** works. The only side effect is that one PDF may be rebuilt on the next run, because both runs update `build/built.tsv`.
+- **Two `build_all.sh` runs at once:** works. The only side effect is that one PDF may be rebuilt on the next run, because both runs update `state/built.tsv`.
 - **Case builds in parallel:** safe; they lock `cases/_index.json` while updating it.
 
 ## Requirements
 
-- Python 3 with `lxml`
-- numpy, scipy, python-igraph for `cocite.py` (`sudo apt install python3-numpy python3-scipy python3-igraph`)
-- pdflatex (TeX Live) with the XCharter and tcolorbox packages
-- `pdftotext` (poppler-utils), for RECAP documents without text
+- Python 3.10 with the packages in `requirements.txt` (`lxml`; numpy, scipy, python-igraph for `cocite.py`): `pip install -r requirements.txt`, or `sudo apt install python3-lxml python3-numpy python3-scipy python3-igraph`
+- pdflatex (TeX Live) with the XCharter, tcolorbox and ulem packages
+- `pdftotext` (poppler-utils), for RECAP and Supreme Court filings
+- `curl`, for `scotus.py fetch`
+- `lbzip2` or `pbzip2` (optional), to load bulk files on every core
 - `secret-tool`, for a token stored in the keyring
 - `rsync`, for `sync_vault.sh`
 - `rmapi`, for `sync_remarkable.py`
+
+Tests: `python3 -m unittest discover tests` from the repo root. No database or network; the fixture builds are skipped when `xml/usc01.xml`, a `cases/*.json` or pdflatex is missing.
 
 ## Local databases and how they map to CourtListener
 
