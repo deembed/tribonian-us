@@ -40,6 +40,7 @@ NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (s
 LIMITS = [int(x) for x in (os.environ.get("CL_LIMITS") or "5,50,125").split(",")]
 WINDOWS = (60, 3600, 86400)
 PAUSE = 0               # extra seconds between requests, on top of the limits
+PDFLATEX_TIMEOUT = int(os.environ.get("PDFLATEX_TIMEOUT") or 1800)   # seconds per pass; a TeX loop must not hang a build worker
 
 
 USED = 0               # API requests made by this process (reported at exit)
@@ -63,15 +64,19 @@ def throttle(url=""):
     CASES.mkdir(parents=True, exist_ok=True)
     logp = CASES / "_api_log.json"
     while True:
-        now = time.time()
-        log = [t for t in (json.loads(logp.read_text()) if logp.exists() else []) if now - t < WINDOWS[-1]]
-        waits = []
-        for lim, win in zip(LIMITS, WINDOWS):
-            recent = [t for t in log if now - t < win]
-            if len(recent) >= lim:
-                waits.append((recent[-lim] + win - now + 1, win))
+        with file_lock("_api.lock"):             # two processes must not both pass the check
+            now = time.time()
+            log = [t for t in (json.loads(logp.read_text()) if logp.exists() else []) if now - t < WINDOWS[-1]]
+            waits = []
+            for lim, win in zip(LIMITS, WINDOWS):
+                recent = [t for t in log if now - t < win]
+                if len(recent) >= lim:
+                    waits.append((recent[-lim] + win - now + 1, win))
+            if not waits:
+                tmp = logp.with_suffix(".json.%d.tmp" % os.getpid())
+                tmp.write_text(json.dumps(log + [now]))
+                os.replace(tmp, logp)
         if not waits:
-            logp.write_text(json.dumps(log + [now]))
             USED += 1
             cmd = " ".join([Path(sys.argv[0]).name] + [a for a in sys.argv[1:] if not a.startswith("-")][:2])
             with open(CASES / "_api_history.tsv", "a", encoding="utf-8") as h:
@@ -131,7 +136,11 @@ def call(url, tok, data=None, soft=False):
                 return json.load(r)
         except urllib.error.HTTPError as e:
             if (e.code == 429 or e.code >= 500) and attempt < 4:
-                delay = int(e.headers.get("Retry-After") or 0) or 30 * (attempt + 1)
+                try:                                   # Retry-After may be an HTTP-date, not seconds
+                    delay = int(e.headers.get("Retry-After") or 0)
+                except ValueError:
+                    delay = 0
+                delay = min(delay, 3600) or 30 * (attempt + 1)
                 print(f"  HTTP {e.code}; waiting {delay}s then retrying", file=sys.stderr)
                 time.sleep(delay)
                 continue
@@ -240,27 +249,68 @@ def fetch(args):
 # is the fetched JSON (relative to cases/) when the opinion text is on disk,
 # else the case is known only as a stub (cases/stubs/<id>.json: cluster + docket).
 
-def load_index():
+_INDEX_SNAP = {}        # id(index) -> deep copy of what load_index() returned, for save_index's merge
+
+
+def _read_index():
     p = CASES / "_index.json"
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
+def load_index():
+    index = _read_index()
+    _INDEX_SNAP[id(index)] = json.loads(json.dumps(index))
+    return index
+
+
 def save_index(index):
-    """Atomic (write a temp file, rename over): a parallel build never reads half a file."""
+    """Merge, then write atomically, under the lock. Callers may hold an index for
+    minutes (casemap map, stubs) while parallel builds register other cases, so
+    the on-disk file is re-read and only the entries THIS process changed since
+    its load_index() are written over it; everything else keeps the disk value.
+    Atomic (temp file, rename over): a parallel build never reads half a file."""
     CASES.mkdir(parents=True, exist_ok=True)
-    tmp = CASES / ("_index.json.%d.tmp" % os.getpid())
-    tmp.write_text(json.dumps(index, indent=1, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, CASES / "_index.json")
+    snap = _INDEX_SNAP.get(id(index), {})
+    with index_lock():
+        disk = _read_index()
+        for k, v in index.items():
+            if k not in disk or v != snap.get(k):
+                disk[k] = v
+        tmp = CASES / ("_index.json.%d.tmp" % os.getpid())
+        tmp.write_text(json.dumps(disk, indent=1, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, CASES / "_index.json")
+    index.clear(); index.update(disk)                      # caller sees the merged result
+    _INDEX_SNAP[id(index)] = json.loads(json.dumps(disk))
+
+
+_LOCK_DEPTH = {}        # lock path -> nesting depth; flock is per open file, so re-entry must not reopen
 
 
 @contextmanager
-def index_lock():
-    """Hold while reading, changing and saving the index, so parallel builds
-    (build_all.sh) don't overwrite each other's entries."""
+def file_lock(name):
+    """Exclusive, re-entrant within a process. Hold while reading, changing and saving
+    a shared file under cases/, so parallel builds (build_all.sh) don't overwrite each
+    other's entries."""
     CASES.mkdir(parents=True, exist_ok=True)
-    with open(CASES / "_index.lock", "w") as f:
+    path = CASES / name
+    if _LOCK_DEPTH.get(path, 0):
+        _LOCK_DEPTH[path] += 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH[path] -= 1
+        return
+    with open(path, "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
-        yield
+        _LOCK_DEPTH[path] = 1
+        try:
+            yield
+        finally:
+            _LOCK_DEPTH[path] = 0
+
+
+def index_lock():
+    return file_lock("_index.lock")
 
 
 def register(data, index, full_path=None):
@@ -396,7 +446,7 @@ class Ctx:
 
     def path(self):
         bits = ["%s %s" % (self.reporter, self.page), self.who] + ([self.part] if self.part else [])
-        return esc(" -- ".join(b for b in bits if b.strip()), "tex").replace(r"\textbackslash{}", "")
+        return esc(" -- ".join(b for b in bits if b.strip()), "tex")
 
     def fnkey(self, label):
         key = FN_NAMES.get(label, re.sub(r"[^A-Za-z0-9]", "", label) or "x")
@@ -1261,9 +1311,62 @@ def box_opts(rec):
     return ", ".join(opts)
 
 
+# Clickable contents page (scotus.py; meta["toc"]). The reMarkable follows internal GoTo links,
+# so the contents page links to every stage, document and top heading, and each of those carries
+# an arrow in the left margin linking back. The arrow is a tikz overlay pinned to the page's left
+# edge, so it sits in the same place whether its heading is boxed or not (remember picture: needs
+# the second pass, which every build runs anyway). Entries go through the .toc file, so a contents
+# page that grows past its first-pass length needs a third pass (run_pdflatex checks).
+TOC_DEFS = r"""\makeatletter
+\hypersetup{linktoc=all}
+\setcounter{tocdepth}{3}
+\newcommand{\tocback}{\leavevmode\tikz[remember picture,overlay]\node[anchor=base west,inner sep=0pt]
+  at ([xshift=3pt]current page.west |- 0,0) {\hyperlink{contents}{\makebox[18pt][c]{\normalsize$\uparrow$}}};}
+\newcommand{\tocadd}[2]{\phantomsection\addcontentsline{toc}{#1}{#2}}
+\newcommand*\l@tocstage[2]{\par\addvspace{6pt}{\bfseries\@dottedtocline{0}{0pt}{0pt}{#1}{#2}}}
+\newcommand*\l@tocsec{\@dottedtocline{1}{1em}{0pt}}
+\newcommand*\l@tocdoc{\@dottedtocline{1}{1em}{0pt}}
+\newcommand*\l@tochead{\@dottedtocline{2}{2.4em}{1.6em}}
+\newcommand*\l@tocsub{\@dottedtocline{3}{3.6em}{1.6em}}
+\newcommand{\contentspage}{\clearpage\contentsbody}
+\newcommand{\contentsbody}{\noindent\hypertarget{contents}{}\pdfbookmark[0]{Contents}{contents}%
+  {\Large\bfseries Contents\par}\vspace{2pt}
+  {\scriptsize\itshape Tap an entry to go there. The \ensuremath{\uparrow} in the left margin beside each heading comes back here.\par}\vspace{4pt}
+  {\small\@starttoc{toc}}\clearpage}
+\makeatother
+"""
+
+
+def toc_entry(level, text):
+    """\\tocadd for one contents line (level: tocstage | tocsec | tocdoc | tochead)."""
+    return "\\tocadd{%s}{%s}" % (level, esc(text, "tex"))
+
+
+def toc_head(part, el):
+    """Contents text for a top heading: a word label ("Statement") stands alone; a numeral or
+    letter label ("II") takes the heading's first words."""
+    words = plain(el, 10) if el is not None else ""
+    if re.fullmatch(r"[IVXLC]+|[A-Z]|\d+|[a-z]", part.label or "") and words:
+        return "%s. %s" % (part.label, words)
+    return part.label
+
+
 def render_tex(meta, ops, fontpkg, style):
     from usc2md import PREAMBLE, RULES
-    body = [meta.get("pretex", ""), headmatter_tex(meta), profile_tex(meta), cocite_tex(meta), parens_tex(meta)]
+    toc = meta.get("toc", True)              # contents page: cases, dockets, scotus.py (US Code has its own render_tex)
+
+    def sec(tex, title):                     # a front box: contents entry + back arrow on its first line
+        i = tex.find("\\begin{tcolorbox}")
+        j = tex.find("]\n", i)
+        if not toc or i < 0 or j < 0:
+            return tex
+        return tex[:j + 2] + "\\tocback" + toc_entry("tocsec", title) + tex[j + 2:]
+    head = headmatter_tex(meta)
+    if toc and head:
+        head = toc_entry("tocsec", "Headmatter") + head          # the yellow box: listed, no arrow
+    contents = "" if not toc or meta.get("pretex") else "\\contentspage\n" if head else "\\contentsbody\n"
+    body = [TOC_DEFS if toc else "", meta.get("pretex", ""), head, contents, sec(profile_tex(meta), "Case profile"),
+            sec(cocite_tex(meta), "Co-citation"), sec(parens_tex(meta), "How later courts describe it")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
     for n, o in enumerate(ops):
         ctx = o["ctx"]
@@ -1277,8 +1380,9 @@ def render_tex(meta, ops, fontpkg, style):
                 t = "\\begin{quoted}%s\\end{quoted}" % t
             return t, "".join(fn_tex(o, ctx, m) for m in marks)
 
-        def emit(part, depth, first):
-            """Returns the last box emitted for this part's subtree (or None)."""
+        def emit(part, depth, first, listed=False):
+            """Returns the last box emitted for this part's subtree (or None).
+            listed: this part's heading goes on the contents page."""
             last = None
             blocks = list(part.blocks) or [(None, None)]
             for i, (kind, el) in enumerate(blocks):
@@ -1290,6 +1394,8 @@ def render_tex(meta, ops, fontpkg, style):
                                                   plain(el) if el is not None else "") if x)
                     mark = "\\pdfbookmark[%d]{%s}{o%d-%s}" % (part.level + 1, esc(title, "tex"), ctx.oi, part.path)
                     lead = "\\recordpath{%s}" % ctx.path() + mark + "\\lab{%s.}" % esc(part.label, "tex")   # "I." not "I": a bare I reads as the pronoun
+                    if toc and listed:
+                        lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el)) + lead
                     if kind == "q" or kind is None:          # label on its own line
                         parts_add(depth, [lead + "\\par"], first and i == 0)
                         lead = ""
@@ -1300,8 +1406,9 @@ def render_tex(meta, ops, fontpkg, style):
                 r = parts_add(depth, [text + "\\par"], first and i == 0, fns)
                 last = r or last
             group_last = None
+            bare = toc and part.level == 1 and not re.fullmatch(r"[IVXLC]+|[A-Z]|\d+|[a-z]", part.label or "")   # "Argument": list its I., II. too
             for i, c in enumerate(part.children):
-                r = emit(c, depth + 1, i == 0)
+                r = emit(c, depth + 1, i == 0, bare)
                 group_last = r or group_last
             if part.children and group_last is not None:
                 group_last["closes"].append(depth)
@@ -1322,12 +1429,14 @@ def render_tex(meta, ops, fontpkg, style):
         if o.get("stage") and o["stage"] != stage:
             stage = o["stage"]
             name = (meta.get("stages") or {}).get(stage, stage)
-            body.append("\\clearpage\\pdfbookmark[0]{%s}{stage%d}{\\Large\\bfseries %s\\par}\\vspace{8pt}\n" % (
-                esc(name, "tex"), n, esc(name, "tex")))
+            body.append("\\clearpage%s\\pdfbookmark[0]{%s}{stage%d}{\\Large\\bfseries %s\\par}\\vspace{8pt}\n" % (
+                "\\noindent\\tocback" + toc_entry("tocstage", name) if toc else "", esc(name, "tex"), n, esc(name, "tex")))
         elif n:
             # new opinion: start a fresh page unless 8 lines still fit under its heading
             body.append("\\par\\ifdim\\dimexpr\\pagegoal-\\pagetotal\\relax<8\\baselineskip\\clearpage"
                         "\\else\\vspace{12pt}\\hrule\\vspace{6pt}\\fi\n")
+        if toc:
+            body.append("\\noindent\\tocback" + toc_entry("tocdoc", "%s — %s" % (ctx.who, o["kindname"])))
         body.append("\\recordpath{%s}\\pdfbookmark[1]{%s}{o%d}{\\large\\bfseries %s}\\ {\\large %s}\\par\n" % (
             ctx.path(), esc("%s — %s · *%s" % (ctx.who, o["kindname"], ctx.page), "tex"), ctx.oi,
             esc(ctx.who, "tex"), esc(o["kindname"], "tex")))
@@ -1341,7 +1450,7 @@ def render_tex(meta, ops, fontpkg, style):
             parts_add(0, [text + "\\par"], False, fns)
         for c in top.children:               # Parts sit at depth 0, like subsections
             parts.append("\\vspace{5pt}\n")
-            emit(c, 0, False)
+            emit(c, 0, False, True)
         for p in parts:
             body.append("\\begin{lvl}[%s]\n%s\n\\end{lvl}\n" % (box_opts(p), "\n".join(p["paras"]))
                         if isinstance(p, dict) else p)
@@ -1515,10 +1624,30 @@ def unmapped_note():
 def run_pdflatex(tex_path, out_dir):
     """Two passes (tcolorbox places split boxes on the second). -> the PDF's path, or None."""
     stem = tex_path.stem
+    # SOURCE_DATE_EPOCH: pdflatex then stamps dates and the trailer ID from it, so the same
+    # source gives the same bytes and sync_remarkable.py does not re-upload (and lose annotations)
+    env = dict(os.environ, SOURCE_DATE_EPOCH=os.environ.get("SOURCE_DATE_EPOCH", "0"))
     with tempfile.TemporaryDirectory() as work:
-        for _ in range(2):
-            r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
-                                "-output-directory", work, str(tex_path)], capture_output=True, text=True,errors="replace")
+        toc, prev = Path(work) / (stem + ".toc"), None
+        for n in range(4):
+            try:
+                r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error",
+                                    "-output-directory", work, str(tex_path)], capture_output=True, text=True,
+                                   errors="replace", env=env, timeout=PDFLATEX_TIMEOUT)
+            except FileNotFoundError:
+                print("FAIL pdflatex not installed")
+                return None
+            except subprocess.TimeoutExpired:
+                print("FAIL pdflatex ran over %d s on %s (a TeX loop?)" % (PDFLATEX_TIMEOUT, stem))
+                return None
+            if r.returncode or not toc.exists():
+                if n >= 1:
+                    break
+                continue
+            now = toc.read_text(errors="replace")
+            if n >= 1 and now == prev:           # contents page numbers settled
+                break
+            prev = now
         pdf = Path(work) / (stem + ".pdf")
         if r.returncode or not pdf.exists():
             shutil.copy(Path(work) / (stem + ".log"), tex_path.with_suffix(".log"))
@@ -1595,7 +1724,7 @@ def pdf_text(r):
                 out.write_bytes(f.read())
         except (urllib.error.URLError, OSError) as e:
             return "", "PDF download failed (%s)" % e
-    t = subprocess.run(["pdftotext", "-layout", str(out), "-"], capture_output=True, text=True).stdout
+    t = subprocess.run(["pdftotext", "-layout", str(out), "-"], capture_output=True, text=True, timeout=600).stdout
     return t, "pdftotext -layout of the filed PDF"
 
 

@@ -4,6 +4,7 @@
 #   ./sync_vault.sh                      md/ -> ~/Obsidian/usc-vault/08-Reference/USC
 #   VAULT=/path/to/vault ./sync_vault.sh
 #   DRY=1 ./sync_vault.sh                show what would change, touch nothing
+#   FORCE=1 ./sync_vault.sh              sync even when the source looks like a partial build
 #
 # 08-Reference/USC is generator-owned: anything in it that is not in md/ is
 # DELETED. Your own notes belong in 00-Inbox / 06-Zettelkasten / 06-Zettel MOC
@@ -17,7 +18,20 @@ DEST="$VAULT/08-Reference/USC"
 [[ -d $VAULT/.obsidian ]] || { echo "not an Obsidian vault: $VAULT" >&2; exit 1; }
 [[ -d md ]]               || { echo "no md/ here -- run ./build_all.sh first" >&2; exit 1; }
 
+# --delete from a half-built source would prune the vault to match. Refuse when the
+# source holds fewer than 90% of the notes already in the vault; FORCE=1 overrides.
+guard() {                           # $1 = source dir, $2 = vault dir
+    local src dst
+    [[ -d $2 ]] || return 0
+    src=$(find "$1" -name '*.md' | wc -l); dst=$(find "$2" -name '*.md' | wc -l)
+    if [[ -z ${FORCE:-} && $src -lt $((dst * 9 / 10)) ]]; then
+        echo "refusing: $1 has $src notes, $2 has $dst -- a partial build? (FORCE=1 to sync anyway)" >&2
+        exit 2
+    fi
+}
+
 mkdir -p "$DEST"
+guard md "$DEST"
 rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
       --include='*/' --include='*.md' --exclude='*' \
       md/ "$DEST/" | tail -20
@@ -27,6 +41,7 @@ rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
 # a note inside md-cases/, not in the vault.
 if [[ -d md-cases ]]; then
     mkdir -p "$VAULT/08-Reference/Cases"
+    guard md-cases "$VAULT/08-Reference/Cases"
     rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
           --include='*/' --include='*.md' --exclude='*' \
           md-cases/ "$VAULT/08-Reference/Cases/" | tail -20
@@ -37,6 +52,7 @@ fi
 # too; a personal MOC elsewhere in the vault transcludes its sections: ![[<note>#Timeline]].
 if [[ -d md-cocite ]]; then
     mkdir -p "$VAULT/08-Reference/Co-citation"
+    guard md-cocite "$VAULT/08-Reference/Co-citation"
     rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
           --include='*/' --include='*.md' --exclude='*' \
           md-cocite/ "$VAULT/08-Reference/Co-citation/" | tail -20

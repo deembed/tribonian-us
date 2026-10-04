@@ -25,7 +25,7 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 | `build/` | `.tex`, logs, build records, scratch | the build |
 | `bulk/`, `db/` | CourtListener bulk files and the local SQLite databases | `casedb.py` |
 
-Everything the scripts generate is ignored by git (`.gitignore`), so only the scripts are tracked.
+Everything the scripts generate is ignored by git (`.gitignore`); tracked are the scripts, the docs, `cocite_labels.json` and `cocite_gold.json` (hand- and model-written inputs that can't be rebuilt), and `templates/`.
 
 ## build_all.sh — build everything out of date, in parallel
 
@@ -189,8 +189,8 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 
 ## Syncing
 
-- **`./sync_vault.sh`:** mirrors `md/` into `~/Obsidian/usc-vault/08-Reference/USC` and `md-cases/` into `08-Reference/Cases`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. Options: `VAULT=/path` and `DRY=1`.
-- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmfakecloud and rmapi, under `/Archive/Laws/USC/Title-NN/` and `/Archive/Laws/Cases/...`. It never deletes on the tablet. `build/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan.
+- **`./sync_vault.sh`:** mirrors `md/` into `~/Obsidian/usc-vault/08-Reference/USC`, `md-cases/` into `08-Reference/Cases` and `md-cocite/` into `08-Reference/Co-citation`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. It refuses to run when a source holds fewer than 90% of the notes already in the vault (a partial build); `FORCE=1` overrides. Options: `VAULT=/path`, `DRY=1`, `FORCE=1`. `build_all.sh` exits non-zero when any job failed, so `./build_all.sh && ./sync_vault.sh` is safe.
+- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmfakecloud and rmapi, under `/Archive/Laws/USC/Title-NN/` and `/Archive/Laws/Cases/...`. It never deletes on the tablet. `build/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
 
 ## Other
 

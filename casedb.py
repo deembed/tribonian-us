@@ -146,7 +146,8 @@ def rows_of(path):
             yield None                                  # counted as a bad row by the caller
     if proc:
         proc.stdout.close()
-        proc.wait()
+        if proc.wait():                                 # truncated or corrupt download: never load it silently
+            raise RuntimeError("%s exited %d on %s -- incomplete download?" % (tool, proc.returncode, path.name))
 
 
 def load(name, con, force=False, limit=None):
@@ -163,9 +164,15 @@ def load(name, con, force=False, limit=None):
     con.execute("DELETE FROM loaded WHERE name=?", (name,))
     con.commit()
     main = con
-    if name == "opinions":
+    if limit:                                                   # testing: never touch the production tables
+        sample = OPS_DB if name == "opinions" else DB
+        sample = sample.with_name(sample.stem + "-sample.sqlite")
+        con = sqlite3.connect(sample, timeout=600)
+        con.executescript(PRAGMAS)
+        print("  --limit: loading into %s (production tables untouched)" % sample)
+    elif name == "opinions":
         main.execute("DROP TABLE IF EXISTS opinions")          # left over from the first version, if any
-        if OPS_DB.exists() and not limit:
+        if OPS_DB.exists():
             OPS_DB.unlink()                                     # start the big file clean rather than DROP 90 GB
         con = connect_ops()
     con.execute("DROP TABLE IF EXISTS %s" % table)
@@ -365,7 +372,8 @@ def main():
     p = sub.add_parser("load")
     p.add_argument("names", nargs="*", choices=ORDER + [[]], help="default: everything downloaded")
     p.add_argument("--force", action="store_true")
-    p.add_argument("--limit", type=int, help="testing: stop after this many rows (table is not marked done)")
+    p.add_argument("--limit", type=int, help="testing: stop after this many rows, loaded into a separate *-sample.sqlite "
+                                              "file; the production tables are not touched")
     sub.add_parser("status")
     sub.add_parser("index", help="(re)build the full-text index case2md.py find uses")
     p = sub.add_parser("case")

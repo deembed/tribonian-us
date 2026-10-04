@@ -93,6 +93,12 @@ import numpy as np
 
 import casedb
 
+# cocite_shift.py and cocite_positions.py `import cocite`. Run as ./cocite.py this module is
+# __main__, and a plain import would load a SECOND copy with its own COCITE_DB, _LABELS and
+# _VAULT_NAMES. Registering this module under its import name first makes both names one object.
+if __name__ == "__main__":
+    sys.modules.setdefault("cocite", sys.modules[__name__])
+
 BASE_DB = Path(os.environ.get("CL_COCITE_DB") or casedb.DB.with_name("cocite.sqlite"))
 COCITE_DB = BASE_DB                      # cocite-<view>.sqlite under --courts (set in main)
 CACHE = BASE_DB.with_name("cocite-cache")
@@ -825,6 +831,7 @@ def trim(t, n):
 
 
 _VAULT_NAMES = {}
+_LABELS = None          # key -> label, loaded on first use by lineage_label()
 
 
 def vault_links(db):
@@ -1859,10 +1866,16 @@ def cmd_areas(args):
         # share of runs that put its two ends together, re-cluster that graph until the runs agree
         cg_w = None
         ea_c, eb_c = ka.copy(), kb.copy()
+        converged = False
         for it in range(args.consensus_rounds):
             if cg_w is None:
                 parts = [np.array(run(args.resolution, args.seed + r).membership) for r in range(args.consensus)]
             else:
+                # Modularity on the consensus graph, whatever round 1 used: its weights are run
+                # shares in [0, 1], not the association strengths --resolution was chosen for,
+                # and CPM's gamma is in weight units (CPM 0.5 here shatters the areas: coverage
+                # 83% -> 44% when tried on 2026-10-04). Modularity is invariant to weight scale,
+                # which is why Lancichinetti and Fortunato cluster the consensus matrix with it.
                 gc = ig.Graph(n=len(nodes), edges=np.column_stack([ea_c, eb_c]).tolist(), directed=False)
                 gc.es["w"] = cg_w.tolist()
                 parts = []
@@ -1876,11 +1889,20 @@ def cmd_areas(args):
             keep = same >= args.consensus_tau
             ea_c, eb_c, cg_w = ea_c[keep], eb_c[keep], same[keep]
             if undecided < 0.01:
+                converged = True
                 break
-        memb = parts[0]
+        # The partition is the connected components of the consensus graph (ties that at least
+        # tau of the last round's runs kept together) -- Lancichinetti & Fortunato's final step --
+        # not one run picked out of the last round. When the rounds converged, the runs agree
+        # and this is their common partition; when they ran out, it is still deterministic.
+        gc = ig.Graph(n=len(nodes), edges=np.column_stack([ea_c, eb_c]).tolist(), directed=False)
+        memb = np.array(gc.components().membership)       # components(): present in igraph 0.9 and 0.10
+        if not converged:
+            print("  consensus did not settle in %d rounds (%.1f%% of ties still undecided); "
+                  "areas are the components of ties kept by >= %.2f of runs" % (
+                      args.consensus_rounds, 100 * undecided, args.consensus_tau), flush=True)
         # confidence: the share of a lineage's ties (by weight) that runs keep inside its area
         conf_num = np.zeros(len(nodes)); conf_den = np.zeros(len(nodes))
-        allsame = np.mean([pm[ka] == pm[kb] for pm in parts], axis=0) if cg_w is not None else None
         inside = memb[ka] == memb[kb]
         for arr in (ka, kb):
             np.add.at(conf_num, arr, kw * inside)
@@ -2244,9 +2266,7 @@ def label_of(db, lin):
     if not r:
         return None
     global _LABELS
-    try:
-        _LABELS
-    except NameError:
+    if _LABELS is None:
         _LABELS = {lab["key"]: lab for lab in load_labels()}
     lab = _LABELS.get(r[0])
     return (lab["name"], lab["description"]) if lab else None
@@ -2418,17 +2438,15 @@ def cmd_labels(args):
 
 
 def cmd_shift(args):
-    """Lives in cocite_shift.py, which imports this module as 'cocite'; run as a script, this one is
-    __main__, so hand over the results file chosen from --courts."""
+    """Lives in cocite_shift.py, which imports this module as 'cocite' (the same object as
+    __main__, see the sys.modules line at the top), so it sees the COCITE_DB main() chose."""
     import cocite_shift
-    cocite_shift.cc.COCITE_DB = COCITE_DB
     cocite_shift.cmd_shift(args)
 
 
 def cmd_prox_evidence(args):
-    """Lives in cocite_positions.py; hand it the results file chosen from --courts (see cmd_shift)."""
-    import cocite_positions, cocite as cc
-    cc.COCITE_DB = COCITE_DB
+    """Lives in cocite_positions.py (same arrangement as cmd_shift)."""
+    import cocite_positions
     cocite_positions.cmd_prox_evidence(args)
 
 

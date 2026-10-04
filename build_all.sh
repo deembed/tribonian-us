@@ -44,6 +44,11 @@ export SCRATCH="${SCRATCH:-build}"  # per-job scratch dirs; set outside the repo
                                     # this folder forbids deletes
 export MANIFEST=build/built.tsv
 JOBS="${JOBS:-$(nproc)}"
+# Reproducible PDFs: pdflatex takes CreationDate, ModDate and the trailer ID from this
+# instead of the clock, so an unchanged source gives a byte-identical PDF and
+# sync_remarkable.py (which hashes PDFs) leaves the tablet copy -- and its pen
+# annotations -- alone.
+export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
 
 # a success: remember which PDF this job made. Lines this short are appended
 # atomically, so parallel workers can share the file.
@@ -73,6 +78,7 @@ build_usc() {                       # $1 = xml path, $2.. = generator selection 
     [[ -z $base ]] && { rm -rf "$work"; echo "FAIL generate  $JOB   (no .tex reported)"; return; }
     if [[ -z $MD_ONLY ]]; then
         for pass in 1 2; do
+            timeout "${PDFLATEX_TIMEOUT:-1800}" \
             pdflatex -interaction=nonstopmode -halt-on-error -output-directory "$work" "$work/$base.tex" >/dev/null 2>&1 \
             || { cp -f "$work/$base.log" "build/$base.log" 2>/dev/null; rm -rf "$work"
                  echo "FAIL pdflatex  $JOB   (see build/$base.log)"; return; }
@@ -240,3 +246,5 @@ if [[ -s build/failures.txt ]]; then
     echo; echo "---- failures (saved in build/failures.txt; retry: $SELF build/failed_jobs.txt) ----"
     cat build/failures.txt
 fi
+# non-zero when anything failed, so "./build_all.sh && ./sync_vault.sh" never syncs a broken build
+[[ $(grep -c '^FAIL' "$log") -eq 0 ]]

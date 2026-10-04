@@ -241,7 +241,7 @@ def note_blocks(note, mode):
                         break
                     pre.append(gather_text(sib, mode))
                     pre.append(esc(sib.tail or ""))
-                pre_t = re.sub(r"\\s+", " ", "".join(pre)).strip()
+                pre_t = re.sub(r"\s+", " ", "".join(pre)).strip()
                 if pre_t:
                     blocks.append(("p", pre_t))
                 blocks.append(("quote", quoted_lines(q, mode)))
@@ -254,7 +254,7 @@ def note_blocks(note, mode):
                     if seen:
                         post.append(gather_text(sib, mode))
                         post.append(esc(sib.tail or ""))
-                post_t = re.sub(r"\\s+", " ", "".join(post)).strip()
+                post_t = re.sub(r"\s+", " ", "".join(post)).strip()
                 if post_t:
                     blocks.append(("p", post_t))
             else:
@@ -565,6 +565,11 @@ def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
 
 PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places split boxes on the second pass)
 \documentclass[10pt]{article}
+% Reproducible bytes: the trailer /ID is normally an MD5 of the output path and the clock,
+% and every build runs in a fresh scratch folder. Fixing it to the job name (with
+% SOURCE_DATE_EPOCH set by the build scripts for the dates) makes an unchanged source
+% rebuild to an identical PDF, so sync_remarkable.py does not re-upload it.
+\ifdefined\pdftrailerid\pdftrailerid{\jobname}\fi
 
 % reMarkable Paper Pro: 1620 x 2160 px @ 229 PPI.
 \usepackage[paperwidth=509.34pt,paperheight=679.13pt,margin=24pt,
@@ -634,7 +639,10 @@ __RULES__
 % last path recorded on any earlier page. Needs the usual second pass.
 \makeatletter
 \newcommand{\pathmark}[2]{\expandafter\gdef\csname hdr@#1\endcsname{#2}}
-\newcommand{\recordpath}[1]{\write\@auxout{\string\pathmark{\thepage}{#1}}}
+% \protected@write, not \write: robust commands in the path (\S, \textbackslash, \fbox
+% via \texorpdfstring) are written as themselves, not expanded into the .aux; \thepage
+% still expands at shipout.
+\newcommand{\recordpath}[1]{\protected@write\@auxout{}{\string\pathmark{\thepage}{#1}}}
 \newcommand{\pathheader}{%
   \begingroup\count@=\value{page}\advance\count@ by -1
   \loop\ifnum\count@>0

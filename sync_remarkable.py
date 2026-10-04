@@ -11,12 +11,16 @@ with a title number is US Code. Anything else is reported and skipped.
 
 Incremental: build/rm_manifest.json records the sha256 of each uploaded PDF.
   new file      -> rmapi put
-  changed file  -> rmapi put --force   (replaces the doc on the tablet)
+  changed file  -> rmapi put --force   (replaces the doc on the tablet: its annotations are lost)
   unchanged     -> nothing
 Nothing is ever deleted on the tablet; PDFs gone from pdf/ are only listed.
+More than MAX_UPDATES replacements in one run stop with a message unless --yes is given,
+since a FORCE=1 rebuild of every PDF would otherwise wipe every annotation in one go.
+build_all.sh sets SOURCE_DATE_EPOCH, so an unchanged source rebuilds to an identical PDF.
 
     ./sync_remarkable.py --dry-run     show the plan, touch nothing
     ./sync_remarkable.py               upload
+    ./sync_remarkable.py --yes         upload even when many PDFs would be replaced
 """
 import argparse, hashlib, json, os, re, shutil, subprocess, sys
 from pathlib import Path
@@ -29,6 +33,7 @@ REMOTE   = "/Archive/Laws"
 RMAPI    = os.path.expanduser("~/.local/bin/rmapi")
 RM_HOST  = "http://<rmfakecloud-host>:3000"     # rmfakecloud on the hub Pi
 RM_CONF  = os.path.expanduser("~/.config/rmapi/rmapi.conf")  # token from pairing
+MAX_UPDATES = 10   # more replacements than this in one run need --yes (each one drops annotations)
 
 USC_RE = re.compile(r"^(\d+)([a-z]?)-", re.I)
 
@@ -50,6 +55,14 @@ def sha256(p: Path) -> str:
         for block in iter(lambda: f.read(1 << 20), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def save_manifest(manifest: dict):
+    """Atomic: a kill mid-write would otherwise leave truncated JSON and stop every later run."""
+    MANIFEST.parent.mkdir(exist_ok=True)
+    tmp = MANIFEST.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(manifest, indent=1, sort_keys=True))
+    os.replace(tmp, MANIFEST)
 
 
 def rm_put(pdf: Path, folder: str, overwrite: bool, made: set) -> str:
@@ -80,6 +93,9 @@ def rm_put(pdf: Path, folder: str, overwrite: bool, made: set) -> str:
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="print the plan, upload nothing")
+    ap.add_argument("--yes", action="store_true",
+                    help="allow more than %d updates in one run (each update replaces the tablet copy "
+                         "and loses its annotations)" % MAX_UPDATES)
     args = ap.parse_args()
 
     if not args.dry_run and not shutil.which(RMAPI):
@@ -113,6 +129,11 @@ def main():
         print(f"{len(plan)} to upload, {len(skipped)} skipped, {len(gone)} gone"
               + ("   (dry run -- nothing changed)" if args.dry_run else ""))
         return
+    updates = sum(1 for p in plan if p[4] == "update")
+    if updates > MAX_UPDATES and not args.yes:
+        sys.exit(f"{updates} PDFs would be replaced on the tablet (annotations lost). "
+                 f"After a FORCE=1 rebuild this is expected; rerun with --yes if so, "
+                 f"otherwise check the plan above.")
 
     made, ok, failed = set(), 0, []
     for rel, pdf, folder, digest, action in plan:
@@ -127,8 +148,7 @@ def main():
             print(f"ok      {rel}  ->  {folder}/")
         manifest[rel] = {"sha256": digest, "folder": folder}
         ok += 1
-        MANIFEST.parent.mkdir(exist_ok=True)
-        MANIFEST.write_text(json.dumps(manifest, indent=1, sort_keys=True))   # save as we go
+        save_manifest(manifest)                                                  # save as we go
 
     print(f"uploaded {ok}, failed {len(failed)}" + (f"  -- rerun to retry" if failed else ""))
     sys.exit(1 if failed else 0)

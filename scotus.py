@@ -166,7 +166,7 @@ def fetch(args):
             new = False
         txt = out.with_suffix(".txt")
         if not txt.exists():
-            t = subprocess.run(["pdftotext", "-layout", str(out), str(txt)], capture_output=True)
+            t = subprocess.run(["pdftotext", "-layout", str(out), str(txt)], capture_output=True, timeout=600)
             if t.returncode:
                 return "!"
         link["pdf"], link["txt"] = str(out.relative_to(c.ROOT)), str(txt.relative_to(c.ROOT))
@@ -770,6 +770,21 @@ def nm(names, cid, n=48):
     return "%s (%s)" % (s, e.get("year") or "?")
 
 
+def cite_of(names, cid):
+    """The citation to fetch it by ("./case2md.py fetch --cite ..."), U.S. Reports first."""
+    return (names.get(cid) or {}).get("cite") or ""
+
+
+def all_rows(cp):
+    """Every authority: both sides first (ranked by the lesser side's mentions), then the
+    petitioners' side only, then the respondent's side only. -> [(cid, group)]."""
+    return ([(k, "both") for k in cp["contested"]] + [(k, "pet") for k in cp["only_p"]] +
+            [(k, "resp") for k in cp["only_r"]])
+
+
+RULED = "\\setlength{\\arrayrulewidth}{0.2pt}"          # thin lines between rows, to follow a row across
+
+
 def link_md(names, index, cid, n=60):
     e, label = index.get(str(cid)), c.esc(nm(names, cid, n), "md")
     return "[[%s\\|%s]]" % (e["slug"], label) if e else label
@@ -786,18 +801,17 @@ def couple_md(cp, names, index, fs, areas):
         mine = [f for f in fs if f["side"] == side]
         L.append("- **%s:** %d filings, %d cases, %d mentions" % (SIDE_NAME[side], len(mine), len(cp[key]), sum(cp[key].values())))
     L += ["- **Cited by both sides:** %d cases" % len(cp["contested"]), ""]
-    L += ["### Contested ground", "", "Cases both sides cite, ranked by how much the less-reliant side leans on them.", "",
-          "| Case | Pet. side | Resp. side | Pet. filings | Resp. filings | Below | Area |", "|---|--:|--:|--:|--:|:-:|---|"]
-    for k in cp["contested"][:TOP * 2]:
+    L += ["### Every authority, by side", "",
+          "Cited by both sides first (ranked by how much the less-reliant side leans on them), then the petitioners' "
+          "side only, then the respondent's side only. Mentions and filings per side; Cite is what "
+          "`./case2md.py fetch --cite` takes.", "",
+          "| # | Case | Cite | Pet. | Resp. | Pet. filings | Resp. filings | Below | Area |",
+          "|--:|---|---|--:|--:|--:|--:|:-:|---|"]
+    for i, (k, g) in enumerate(all_rows(cp), 1):
         a = (names[k].get("area") or (None, ""))[1] or ""
-        L.append("| %s | %d | %d | %d | %d | %s | %s |" % (link_md(names, index, k), cp["P"][k], cp["R"][k], cp["nP"][k], cp["nR"][k],
-                                                          "✓" if k in cp["below"] else "", E(a).replace("|", "/")))
-    for side, key, lst in (("petitioner", "P", "only_p"), ("respondent", "R", "only_r")):
-        L += ["", "### Cited only by the %s" % SIDE_NAME[side].lower(), ""]
-        L += ["- %s ×%d%s" % (link_md(names, index, k), cp[key][k], " · below ✓" if k in cp["below"] else "")
-              for k in cp[lst][:TOP]]
-        if len(cp[lst]) > TOP:
-            L.append("- … %d more" % (len(cp[lst]) - TOP))
+        L.append("| %d | %s | %s | %d | %d | %d | %d | %s | %s |" % (
+            i, link_md(names, index, k), cite_of(names, k), cp["P"][k], cp["R"][k], cp["nP"][k], cp["nR"][k],
+            "✓" if k in cp["below"] else "", E(a).replace("|", "/")))
     if cp["below"]:
         L += ["", "### Engagement with the decision below", "",
               "How many of each filing's cases the court of appeals' opinion also cites (%d cases there)." % len(cp["below"]), "",
@@ -833,17 +847,7 @@ def couple_tex(cp, names, fs, areas):
     def table(rows, head, spec):
         return ("{\\footnotesize\\setlength{\\tabcolsep}{3pt}\\begin{tabular}{%s}\n%s\\\\\\hline\n%s\\\\\n\\end{tabular}\\par}\\vspace{4pt}\n"
                 % (spec, " & ".join(head), "\\\\\n".join(" & ".join(r) for r in rows)))
-    rows = [[E(nm(names, k, 44)), str(cp["P"][k]), str(cp["R"][k]), "%d/%d" % (cp["nP"][k], cp["nR"][k]),
-             "x" if k in cp["below"] else ""] for k in cp["contested"][:TOP]]
-    if rows:
-        out.append("\\textbf{Contested ground} {\\footnotesize (both sides cite; mentions by each side, filings citing, in the decision below)}\\par")
-        for i in range(0, len(rows), 25):
-            out.append(table(rows[i:i + 25], ["Case", "Pet.", "Resp.", "Filings", "Below"], "p{6.6cm}rrrc"))
-    for side, key, lst in (("petitioner", "P", "only_p"), ("respondent", "R", "only_r")):
-        items = ["%s~$\\times$%d" % (E(nm(names, k, 40)), cp[key][k]) for k in cp[lst][:15]]
-        if items:
-            out.append("\\textbf{Only the %s:} {\\footnotesize %s%s}\\par\\vspace{3pt}" % (
-                E(SIDE_NAME[side].lower()), "; ".join(items), "; \\ldots\\ %d more" % (len(cp[lst]) - 15) if len(cp[lst]) > 15 else ""))
+    out.append("{\\footnotesize Every authority is listed by side in the table after this box (``Every authority, by side'').}\\par\\vspace{3pt}")
     if cp["below"]:
         out.append("\\textbf{Engagement with the decision below} {\\footnotesize (of each filing's cases, how many the "
                    "court of appeals also cites; %d there):} {\\footnotesize %s}\\par\\vspace{3pt}" % (
@@ -872,8 +876,35 @@ def couple_tex(cp, names, fs, areas):
     return ("\\pdfbookmark[1]{Authorities the filings share}{coupling}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!40!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
-            "\\textbf{Authorities the filings share.}\\par\\vspace{2pt}\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
+            "\\tocback\\tocadd{tocsec}{Authorities the filings share}\\textbf{Authorities the filings share.}\\par\\vspace{2pt}\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
         COUPLE_COLOR, COUPLE_COLOR.split("!")[0], "\n".join(out))
+
+
+def authorities_tex(cp, names):
+    """Every authority in one ruled longtable: both sides, then each side alone (the other side's
+    count is 0). Runs across pages with the header repeated."""
+    E = lambda t: c.esc(t, "tex")
+    rows, prev = [], None
+    for i, (k, g) in enumerate(all_rows(cp), 1):
+        if g != prev:                            # a labelled band where the groups change
+            label = {"both": "Cited by both sides", "pet": "Petitioners' side only", "resp": "Respondent's side only"}[g]
+            rows.append("\\multicolumn{7}{@{}l}{\\rule{0pt}{2.4ex}\\textbf{%s}}" % label)
+            prev = g
+        rows.append(" & ".join([str(i), E(nm(names, k, 70)), E(cite_of(names, k)), str(cp["P"][k] or "--"),
+                                str(cp["R"][k] or "--"), "%d/%d" % (cp["nP"][k], cp["nR"][k]),
+                                "x" if k in cp["below"] else ""]))
+    if not rows:
+        return ""
+    head = "\\# & Case & Cite & Pet. & Resp. & Filings & Below"
+    return ("\\pdfbookmark[1]{Every authority, by side}{authorities}\n"
+            "\\noindent\\tocback\\tocadd{tocsec}{Every authority, by side}{\\large\\bfseries Every authority, by side\\par}\\vspace{2pt}\n"
+            "{\\scriptsize\\itshape Not part of the record. Mentions by each side (its party's filings and amici); "
+            "Filings = petitioners'/respondent's filings citing it; Below = cited in the court of appeals' opinion. "
+            "Cite is what \\texttt{./case2md.py fetch --cite} takes.\\par}\\vspace{3pt}\n"
+            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
+            "\\begin{longtable}{@{}r p{8.1cm} p{3.3cm} r r r c@{}}\n"
+            "%s\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
+        RULED, head, "\\\\\\hline\n".join(rows))
 
 
 def docket_tex(data, qp_text):
@@ -890,7 +921,7 @@ def docket_tex(data, qp_text):
     if qp_text:
         lines.append("\\vspace{3pt}\\textbf{Questions presented} {\\footnotesize (the Clerk's statement)}\\par")
         lines += ["{\\small %s\\par}" % E(p) for p in qp_text]
-    return ("\\pdfbookmark[1]{The case}{docket}\n"
+    return ("\\tocadd{tocsec}{The case}\\pdfbookmark[1]{The case}{docket}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!60!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
         c.HEAD_COLOR, c.HEAD_COLOR.split("!")[0], "\n".join(lines))
@@ -992,54 +1023,84 @@ def status_columns(data, cp, names, gl, below_meta):
     return cols
 
 
+def status_parts(cols, contested):
+    """-> (common [(cid, mentions left, mentions right)], left-only [(cid, n)], right-only [(cid, n)]).
+    Common ones ranked by the lesser side's mentions; each side's own by its mentions."""
+    left, right = dict(cols[0][3]), dict(cols[1][3])
+    common = sorted((k for k in left if k in right), key=lambda k: (-min(left[k], right[k]), -(left[k] + right[k])))
+    return ([(k, left[k], right[k]) for k in common], [(k, n) for k, n in cols[0][3] if k not in right],
+            [(k, n) for k, n in cols[1][3] if k not in left])
+
+
 def status_md(cols, names, index, gl, contested):
     E = lambda t: c.esc(t, "md")
+    mark = lambda st: {"red": "🔴", "yellow": "🟡", "green": "🟢"}.get(st, "⚪")
+    common, lonly, ronly = status_parts(cols, contested)
+    (ls, ln, lr, _), (rs, rn, rr, _) = cols
     L = ["## Authorities and their status", "",
-         "*Every case each side cites (the party's filings and its amici), most-mentioned first. Status from "
-         "`casemap.py goodlaw` (rules %s): words in later opinions that could overrule it; red is a lead to check, "
-         "not a holding. ‡ = cited by both sides.*" % (next((g.get("version") for g in gl.values() if g), "?")), ""]
-    heads = ["%s (%s, %s)" % (E(nm_), side, role) for side, nm_, role, _ in cols]
-    L += ["| # | %s | # | %s |" % (heads[0], heads[1]), "|--:|---|--:|---|"]
-    rows = max(len(x[3]) for x in cols)
-    def cell(col, i):
-        lst = col[3]
+         "*Status from `casemap.py goodlaw` (rules %s): words in later opinions from courts that could overrule it; "
+         "red is a lead to check, not a holding.*" % (next((g.get("version") for g in gl.values() if g), "?")), "",
+         "### Common authorities", "", "| # | Case | Cite | Status | %s | %s |" % (E(ln), E(rn)), "|--:|---|---|---|--:|--:|"]
+    for i, (k, a, b) in enumerate(common, 1):
+        st, w = gl_word(gl.get(k))
+        L.append("| %d | %s | %s | %s %s | %d | %d |" % (i, link_md(names, index, k, 60), cite_of(names, k), mark(st), w, a, b))
+    L += ["", "### Each side's own", "",
+          "| # | %s (%s, %s below) | Cite | # | %s (%s, %s below) | Cite |" % (E(ln), ls, lr, E(rn), rs, rr),
+          "|--:|---|---|--:|---|---|"]
+    def cell(lst, i):
         if i >= len(lst):
-            return "", ""
+            return "", "", ""
         k, n = lst[i]
         st, w = gl_word(gl.get(k))
-        mark = {"red": "🔴", "yellow": "🟡", "green": "🟢"}.get(st, "⚪")
-        return str(i + 1), "%s %s ×%d — %s%s" % (mark, link_md(names, index, k, 50), n, w, " ‡" if k in contested else "")
-    for i in range(rows):
-        a, b = cell(cols[0], i), cell(cols[1], i)
-        L.append("| %s | %s | %s | %s |" % (a[0], a[1], b[0], b[1]))
+        return str(i + 1), "%s %s ×%d — %s" % (mark(st), link_md(names, index, k, 50), n, w), cite_of(names, k)
+    for i in range(max(len(lonly), len(ronly))):
+        L.append("| %s | %s | %s | %s | %s | %s |" % (cell(lonly, i) + cell(ronly, i)))
     return L + [""]
 
 
 def status_tex(cols, names, gl, contested):
-    """Two columns, plaintiff left, defendant right, numbered; a longtable so it runs across pages
-    with the party names repeated at the top of each."""
+    """Common authorities first, one ruled row each (status, cite, each side's mentions); then each
+    side's own in two numbered columns, plaintiff below on the left. Longtables, so they run across
+    pages with the header repeated."""
     E = lambda t: c.esc(t, "tex")
     col = {"red": c.GL_COLORS["red"][1], "yellow": c.GL_COLORS["yellow"][1], "green": c.GL_COLORS["green"][1]}
-    def cell(cl, i):
-        lst = cl[3]
+    dot = lambda st: "\\textcolor{%s}{$\\bullet$}" % col[st] if st in col else "$\\circ$"
+    common, lonly, ronly = status_parts(cols, contested)
+    (ls, ln, lr, _), (rs, rn, rr, _) = cols
+    out = ["\\clearpage\\noindent\\tocback\\tocadd{tocstage}{Authorities and their status}\\pdfbookmark[0]{Authorities and their status}{status}{\\Large\\bfseries Authorities and their status\\par}\\vspace{4pt}\n"
+           "{\\scriptsize\\itshape Not part of the record. Status from \\texttt{casemap.py goodlaw}: words in later opinions from "
+           "courts that could overrule it --- %s~good, %s~doubts, %s~likely overruled or superseded (a lead to check, with the "
+           "year the words start).\\par}\\vspace{4pt}\n" % (dot("green"), dot("yellow"), dot("red"))]
+    if common:
+        rows = []
+        for i, (k, a, b) in enumerate(common, 1):
+            st, w = gl_word(gl.get(k))
+            rows.append("%d & %s %s & %s & {\\scriptsize\\itshape %s} & %d & %d" % (
+                i, dot(st), E(nm(names, k, 62)), E(cite_of(names, k)), E(w), a, b))
+        out.append("\\noindent\\tocback\\tocadd{tocsec}{Common authorities}\\pdfbookmark[1]{Common authorities}{status-common}{\\large\\bfseries Common authorities\\par}\\vspace{2pt}\n"
+                   "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
+                   "\\begin{longtable}{@{}r p{7.4cm} p{3.0cm} p{2.4cm} r r@{}}\n"
+                   "\\# & Case & Cite & Status & \\parbox[b]{1.2cm}{\\raggedleft %s} & \\parbox[b]{1.2cm}{\\raggedleft %s}\\\\\\hline\\endhead\n"
+                   "%s\\\\\\hline\n\\end{longtable}}\n" % (RULED, E(ln[:18]), E(rn[:18]), "\\\\\\hline\n".join(rows)))
+
+    def cell(lst, i):
         if i >= len(lst):
             return ""
         k, n = lst[i]
         st, w = gl_word(gl.get(k))
-        dot = "\\textcolor{%s}{$\\bullet$}" % col[st] if st in col else "$\\circ$"
-        return "%d.~%s %s~{\\scriptsize$\\times$%d} {\\scriptsize\\itshape %s}%s" % (
-            i + 1, dot, E(nm(names, k, 40)), n, E(w), "\\,{\\scriptsize\\ddag}" if k in contested else "")
-    rows = max(len(x[3]) for x in cols)
-    head = " & ".join("\\textbf{%s}\\newline{\\scriptsize %s side, %s below}" % (E(nm_), side, role) for side, nm_, role, _ in cols)
-    body = "\\\\\n".join("%s & %s" % (cell(cols[0], i), cell(cols[1], i)) for i in range(rows))
-    return ("\\clearpage\\pdfbookmark[0]{Authorities and their status}{status}{\\Large\\bfseries Authorities and their status\\par}\\vspace{4pt}\n"
-            "{\\scriptsize\\itshape Not part of the record. Every case each side cites (the party's filings and its amici), "
-            "most-mentioned first. Status from \\texttt{casemap.py goodlaw}: words in later opinions from courts that could "
-            "overrule it --- \\textcolor{%s}{$\\bullet$}~good, \\textcolor{%s}{$\\bullet$}~doubts, \\textcolor{%s}{$\\bullet$}~likely "
-            "overruled or superseded (a lead to check, with the year the words start). \\ddag\\ cited by both sides.\\par}\\vspace{4pt}\n"
-            "{\\small\\setlength{\\tabcolsep}{3pt}\\renewcommand{\\arraystretch}{1.15}\n"
-            "\\begin{longtable}{@{}p{0.49\\linewidth}p{0.49\\linewidth}@{}}\n%s\\\\\\hline\\endhead\n%s\\\\\n\\end{longtable}}\n") % (
-        col["green"], col["yellow"], col["red"], head, body)
+        cite = cite_of(names, k)
+        return "%d.~%s %s~{\\scriptsize$\\times$%d}\\newline{\\scriptsize %s%s\\itshape %s}" % (
+            i + 1, dot(st), E(nm(names, k, 44)), n, E(cite), " --- " if cite else "", E(w))
+    rows = max(len(lonly), len(ronly))
+    if rows:
+        head = " & ".join("\\textbf{%s}\\newline{\\scriptsize %s side only, %s below}" % (E(n_), s_, r_)
+                          for s_, n_, r_ in ((ls, ln, lr), (rs, rn, rr)))
+        body = "\\\\\\hline\n".join("%s & %s" % (cell(lonly, i), cell(ronly, i)) for i in range(rows))
+        out.append("\\noindent\\tocback\\tocadd{tocsec}{Each side's own}\\pdfbookmark[1]{Each side's own}{status-own}{\\large\\bfseries Each side's own\\par}\\vspace{2pt}\n"
+                   "{\\small\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.15}\n"
+                   "\\begin{longtable}{@{}p{0.49\\linewidth}|p{0.49\\linewidth}@{}}\n%s\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n"
+                   % (RULED, head, body))
+    return "".join(out)
 
 
 # ---------------------------------------------------------------- build
@@ -1151,7 +1212,7 @@ def build(args):
     feed = data["feed"]
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
     meta = {"title": title, "name": "%s v. %s" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle"))),
-            "page": "1", "pretex": docket_tex(data, qp) + couple_tex(cp, names, fs, areas) +
+            "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) +
                                    (status_tex(cols, names, gl, set(cp["contested"])) if gl else ""),
             "stages": dict(STAGES),
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",

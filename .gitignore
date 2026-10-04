@@ -1,16 +1,30 @@
+# generated output and caches (rebuilt by the scripts)
 xml/
-__pycache__
 md/
-build/
-usc2md.py.bak
-pdf/
-bulk/
-bulk
 md-cases/
+md-cocite/
+pdf/
+build/
 cases/
 db/
+bulk/
+bulk
 # never commit data, wherever it ends up
 *.sqlite
 *.sqlite-*
 *.csv.bz2
-md-cocite/
+# hand-kept old versions and scratch: git history has them
+*.bak
+*.prevault
+*.pre-*
+*.orig
+__pycache__
+*.pyc
+.venv/
+Claude outputs/
+# TeX build artefacts from manual test compiles
+nav-test/*.aux
+nav-test/*.log
+nav-test/*.out
+nav-test/*.pdf
+nav-test/png/
