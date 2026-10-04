@@ -60,6 +60,8 @@ pub struct App {
     pub search_pending: Option<Page>,
     pub search_input: String,
     pub search_mode: search::Mode,
+    /// This session's searches, newest first, without repeats.
+    pub search_history: Vec<(String, search::Mode)>,
 }
 
 impl App {
@@ -93,6 +95,7 @@ impl App {
             search_pending: None,
             search_input: String::new(),
             search_mode: search::Mode::Name,
+            search_history: Vec::new(),
         };
         match Config::load() {
             Ok((cfg, path)) => {
@@ -185,6 +188,12 @@ impl App {
         if let Page::Search { query, mode } = &p {
             self.search_input = query.clone();
             self.search_mode = *mode;
+            if !query.is_empty() {
+                let entry = (query.clone(), *mode);
+                self.search_history.retain(|e| *e != entry);
+                self.search_history.insert(0, entry);
+                self.search_history.truncate(30);
+            }
         }
         self.request(&p);
     }
@@ -192,17 +201,25 @@ impl App {
     fn back(&mut self) {
         if self.pos > 0 {
             self.pos -= 1;
-            let p = self.current().clone();
-            self.request(&p);
+            self.arrive();
         }
     }
 
     fn forward(&mut self) {
         if self.pos + 1 < self.nav.len() {
             self.pos += 1;
-            let p = self.current().clone();
-            self.request(&p);
+            self.arrive();
         }
+    }
+
+    /// After moving through history: a search page puts its query back in the search box.
+    fn arrive(&mut self) {
+        let p = self.current().clone();
+        if let Page::Search { query, mode } = &p {
+            self.search_input = query.clone();
+            self.search_mode = *mode;
+        }
+        self.request(&p);
     }
 
     fn poll(&mut self) {
@@ -268,7 +285,8 @@ impl App {
             Page::Cases => "Built cases".into(),
             Page::Areas => "Areas".into(),
             Page::Search { query, .. } if query.is_empty() => "Search".into(),
-            Page::Search { query, .. } => format!("Search: {query}"),
+            Page::Search { query, mode: search::Mode::Name } => format!("Search: {query}"),
+            Page::Search { query, mode: search::Mode::Parenthetical } => format!("Parentheticals: {query}"),
             _ => self.titles.get(p).cloned().unwrap_or_else(|| "…".into()),
         }
     }
@@ -289,21 +307,33 @@ impl App {
                 self.goto = Some(Page::Home);
             }
             ui.separator();
-            // breadcrumb: the last few places visited, oldest first
-            let start = self.pos.saturating_sub(5);
-            for i in start..=self.pos {
+            // breadcrumb: the last few places visited, oldest first. A run of searches shows as
+            // its last search only; the searches themselves are listed in the search panel.
+            let is_search = |p: &Page| matches!(p, Page::Search { .. });
+            let trail: Vec<usize> = (0..=self.pos)
+                .filter(|&i| !(i < self.pos && is_search(&self.nav[i]) && is_search(&self.nav[i + 1])))
+                .collect();
+            let mut jump = None;
+            for &i in &trail[trail.len().saturating_sub(6)..] {
                 let t = self.title_of(&self.nav[i]);
                 let t = if t.chars().count() > 40 { format!("{}…", t.chars().take(39).collect::<String>()) } else { t };
                 if i == self.pos {
                     ui.strong(t);
                 } else {
                     if ui.link(t).clicked() {
-                        self.pos = i;
-                        let p = self.current().clone();
-                        self.request(&p);
+                        jump = Some(i);
                     }
                     ui.weak("›");
                 }
+            }
+            if let Some(i) = jump {
+                self.pos = i;
+                let p = self.current().clone();
+                if let Page::Search { query, mode } = &p {
+                    self.search_input = query.clone();
+                    self.search_mode = *mode;
+                }
+                self.request(&p);
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if let Some(t) = self.last_time {
