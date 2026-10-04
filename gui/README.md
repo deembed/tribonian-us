@@ -22,3 +22,7 @@ cargo run --release
 - Case tables sort by any column heading (click again to flip). The Good law column reads
   `cases/citedby/<ref>/profile.json`, so it is filled only for cases `casemap.py goodlaw` has run on.
 - Hollow markers on the history graph are links to lineages outside the area; click one to go there.
+- Search for Cases (`src/search.rs`, its own worker thread): case names (most cited first), a citation
+  such as `463 U.S. 29`, or Parentheticals (what later courts said a case stands for, ranked by how many
+  parentheticals describe it). Uses `search.sqlite` and `courtlistener.sqlite` from `bulk_dir` unless
+  `search_db` / `main_db` say otherwise. Tests: `cargo test` (query building, citation detection).

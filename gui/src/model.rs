@@ -12,6 +12,7 @@ pub enum Page {
     Sub { slice: i64, sub: i64 },
     Cases,
     Case(i64),
+    Search { query: String, mode: crate::search::Mode },
 }
 
 impl Page {
@@ -20,12 +21,13 @@ impl Page {
         match self {
             Page::Home => Section::Home,
             Page::Cases => Section::Cases,
+            Page::Search { .. } => Section::Search,
             _ => Section::Clusters,
         }
     }
     /// Pages that need the database (everything but the start screen and the case list).
     pub fn needs_db(&self) -> bool {
-        !matches!(self, Page::Home | Page::Cases)
+        !matches!(self, Page::Home | Page::Cases | Page::Search { .. })
     }
 }
 
@@ -34,6 +36,7 @@ pub enum Section {
     Home,
     Clusters,
     Cases,
+    Search,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -214,6 +217,8 @@ pub struct CaseData {
     pub name: String,
     pub cite: String,
     pub year: Option<i64>,
+    /// CourtListener court id (from the main database), "" when unknown.
+    pub court: String,
     pub slices: Vec<CaseSlice>,
     /// Sub-cluster lineage of its newest slice, and that lineage's area.
     pub lineage: Option<(i64, String)>,

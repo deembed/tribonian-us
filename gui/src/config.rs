@@ -18,6 +18,14 @@ pub struct Config {
     /// Where md-cases/ is mirrored inside the vault (sync_vault.sh).
     #[serde(default = "default_vault_cases")]
     pub obsidian_cases_dir: String,
+    /// casedb.py's full-text index; default bulk_dir/search.sqlite. Worth a copy on the SSD:
+    /// cold searches on the HDD take seconds.
+    #[serde(default)]
+    pub search_db: Option<PathBuf>,
+    /// casedb.py's main database (clusters, cites, dockets); default bulk_dir/courtlistener.sqlite.
+    /// Used for names, citations and courts of cases the cocite views don't hold.
+    #[serde(default)]
+    pub main_db: Option<PathBuf>,
 }
 
 fn default_view() -> String {
@@ -48,6 +56,12 @@ impl Config {
         ))
     }
 
+    pub fn search_db(&self) -> PathBuf {
+        self.search_db.clone().unwrap_or_else(|| self.bulk_dir.join("search.sqlite"))
+    }
+    pub fn main_db(&self) -> PathBuf {
+        self.main_db.clone().unwrap_or_else(|| self.bulk_dir.join("courtlistener.sqlite"))
+    }
     pub fn labels_file(&self) -> PathBuf {
         self.repo_dir.join("cocite_labels.json")
     }

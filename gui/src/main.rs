@@ -8,6 +8,7 @@ mod db;
 mod graph;
 mod model;
 mod pages;
+mod search;
 
 use cases::CaseFiles;
 use config::Config;
@@ -53,6 +54,12 @@ pub struct App {
     pub graph_opts: graph::GraphOpts,
     /// Sort of every case table: column and descending.
     pub case_sort: (pages::SortKey, bool),
+    stx: Option<Sender<search::Req>>,
+    srx: Option<Receiver<search::Resp>>,
+    pub search_cache: HashMap<Page, Result<search::Results, String>>,
+    pub search_pending: Option<Page>,
+    pub search_input: String,
+    pub search_mode: search::Mode,
 }
 
 impl App {
@@ -80,13 +87,23 @@ impl App {
             goto: None,
             graph_opts: graph::GraphOpts::default(),
             case_sort: (pages::SortKey::Weight, true),
+            stx: None,
+            srx: None,
+            search_cache: HashMap::new(),
+            search_pending: None,
+            search_input: String::new(),
+            search_mode: search::Mode::Name,
         };
         match Config::load() {
             Ok((cfg, path)) => {
                 let ctx = cc.egui_ctx.clone();
-                let (tx, rx) = db::spawn(cfg.labels_file(), cfg.cases_dir(), move || ctx.request_repaint());
+                let (tx, rx) = db::spawn(cfg.labels_file(), cfg.cases_dir(), cfg.main_db(), move || ctx.request_repaint());
                 app.tx = Some(tx);
                 app.rx = Some(rx);
+                let ctx2 = cc.egui_ctx.clone();
+                let (stx, srx) = search::spawn(cfg.search_db(), cfg.main_db(), cfg.cases_dir(), move || ctx2.request_repaint());
+                app.stx = Some(stx);
+                app.srx = Some(srx);
                 app.views = db::list_views(&cfg.bulk_dir);
                 app.files = CaseFiles::load(&cfg);
                 app.view_sel = app
@@ -116,6 +133,7 @@ impl App {
         self.view_err = None;
         self.cache.clear();
         self.errors.clear();
+        self.search_cache.clear();
         let _ = tx.send(db::Req::Open(self.views[i].path.clone()));
     }
 
@@ -132,6 +150,16 @@ impl App {
     }
 
     fn request(&mut self, page: &Page) {
+        if let Page::Search { query, mode } = page {
+            if query.trim().is_empty() || self.search_cache.contains_key(page) || self.search_pending.as_ref() == Some(page) {
+                return;
+            }
+            if let (Some(tx), Some(i)) = (&self.stx, self.view_sel) {
+                self.search_pending = Some(page.clone());
+                let _ = tx.send(search::Req { page: page.clone(), query: query.clone(), mode: *mode, view: self.views[i].path.clone() });
+            }
+            return;
+        }
         if !page.needs_db() || self.cache.contains_key(page) || self.meta.is_none() {
             return;
         }
@@ -154,6 +182,10 @@ impl App {
         self.pos = self.nav.len() - 1;
         self.filter.clear();
         let p = self.current().clone();
+        if let Page::Search { query, mode } = &p {
+            self.search_input = query.clone();
+            self.search_mode = *mode;
+        }
         self.request(&p);
     }
 
@@ -174,6 +206,18 @@ impl App {
     }
 
     fn poll(&mut self) {
+        if let Some(srx) = &self.srx {
+            let got: Vec<search::Resp> = srx.try_iter().collect();
+            for r in got {
+                if self.search_pending.as_ref() == Some(&r.page) {
+                    self.search_pending = None;
+                }
+                if let Ok(res) = &r.result {
+                    self.last_time = Some(res.elapsed);
+                }
+                self.search_cache.insert(r.page, r.result);
+            }
+        }
         let Some(rx) = &self.rx else { return };
         let msgs: Vec<db::Resp> = rx.try_iter().collect();
         for m in msgs {
@@ -223,6 +267,8 @@ impl App {
             Page::Home => "Start".into(),
             Page::Cases => "Built cases".into(),
             Page::Areas => "Areas".into(),
+            Page::Search { query, .. } if query.is_empty() => "Search".into(),
+            Page::Search { query, .. } => format!("Search: {query}"),
             _ => self.titles.get(p).cloned().unwrap_or_else(|| "…".into()),
         }
     }
@@ -263,7 +309,7 @@ impl App {
                 if let Some(t) = self.last_time {
                     ui.weak(format!("{} ms", t.as_millis()));
                 }
-                if self.pending.is_some() {
+                if self.pending.is_some() || self.search_pending.is_some() {
                     ui.spinner();
                 }
                 if let Some(m) = &self.meta {

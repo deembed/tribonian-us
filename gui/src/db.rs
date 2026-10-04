@@ -45,6 +45,49 @@ pub fn list_views(bulk: &Path) -> Vec<ViewInfo> {
     out
 }
 
+// ------------------------------------------------------------------ the main database
+
+/// A case as casedb.py's main database knows it (every case, not just the cited ones).
+#[derive(Clone, Debug, Default)]
+pub struct Described {
+    pub name: String,
+    pub cite: String,
+    pub year: Option<i64>,
+    pub court: String,
+}
+
+pub fn describe(main: &Connection, r: i64) -> Option<Described> {
+    let (name, short, date, court): (Option<String>, Option<String>, Option<String>, Option<String>) = main
+        .query_row(
+            "SELECT c.case_name, c.case_name_short, c.date_filed, d.court_id FROM clusters c
+             LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id = ?",
+            [r],
+            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?)),
+        )
+        .ok()?;
+    let cite: Option<(String, String, String)> = main
+        .query_row("SELECT volume, reporter, page FROM cites WHERE cluster_id = ? ORDER BY type LIMIT 1", [r], |x| {
+            Ok((x.get(0)?, x.get(1)?, x.get(2)?))
+        })
+        .ok();
+    Some(Described {
+        name: name.filter(|n| !n.is_empty()).or(short).unwrap_or_else(|| format!("cluster {r}")),
+        cite: cite.map(|(v, rep, p)| format!("{v} {rep} {p}")).unwrap_or_default(),
+        year: date.and_then(|d| d.get(..4).and_then(|y| y.parse().ok())),
+        court: court.unwrap_or_default(),
+    })
+}
+
+/// Cases with exactly this citation ("463 U.S. 29": volume, reporter, page).
+pub fn cite_lookup(main: &Connection, volume: &str, reporter: &str, page: &str) -> Vec<i64> {
+    let Ok(mut st) = main.prepare("SELECT DISTINCT cluster_id FROM cites WHERE volume = ? AND reporter = ? AND page = ?") else {
+        return Vec::new();
+    };
+    st.query_map(params![volume, reporter, page], |x| x.get(0))
+        .map(|rows| rows.flatten().collect())
+        .unwrap_or_default()
+}
+
 // ------------------------------------------------------------------ labels
 
 #[derive(Clone)]
@@ -83,6 +126,7 @@ pub struct Db {
     key_status: HashMap<String, String>,
     pub meta: ViewMeta,
     cases_dir: PathBuf,
+    main: Option<Connection>,
 }
 
 fn current_year() -> i64 {
@@ -94,7 +138,7 @@ fn current_year() -> i64 {
 }
 
 impl Db {
-    pub fn open(path: &Path, labels_file: &Path, cases_dir: &Path) -> Result<Db, String> {
+    pub fn open(path: &Path, labels_file: &Path, cases_dir: &Path, main_db: &Path) -> Result<Db, String> {
         let con = open_ro(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let schema = schema_of(&con);
         if schema != SCHEMA {
@@ -153,6 +197,8 @@ impl Db {
             key_status,
             meta: ViewMeta { stem, slices, newest_full },
             cases_dir: cases_dir.to_path_buf(),
+            // optional: without it, cases outside the view show as "cluster N"
+            main: open_ro(main_db).ok().filter(|c| c.query_row("SELECT 1 FROM clusters LIMIT 1", [], |_| Ok(())).is_ok()),
         })
     }
 
@@ -470,7 +516,7 @@ impl Db {
                 PageData::Unit { head, children: Vec::new(), cases }
             }
             Page::Case(r) => PageData::Case(self.case(*r)?),
-            Page::Home | Page::Cases => unreachable!("not a database page"),
+            Page::Home | Page::Cases | Page::Search { .. } => unreachable!("not a database page"),
         })
     }
 
@@ -535,7 +581,18 @@ impl Db {
     }
 
     fn case(&self, r: i64) -> rusqlite::Result<CaseData> {
-        let (name, cite, year) = self.case_name(r);
+        let (mut name, mut cite, mut year) = self.case_name(r);
+        let main = self.main.as_ref().and_then(|m| describe(m, r));
+        if let Some(d) = &main {
+            if name.starts_with("cluster ") {
+                name = d.name.clone();
+            }
+            if cite.is_empty() {
+                cite = d.cite.clone();
+            }
+            year = year.or(d.year);
+        }
+        let court = main.map(|d| d.court).unwrap_or_default();
         // nodes: one row per slice the case is a node in
         let mut st = self
             .con
@@ -606,6 +663,7 @@ impl Db {
             name,
             cite,
             year,
+            court,
             slices,
             lineage: lineage_named,
             area,
@@ -617,7 +675,7 @@ impl Db {
 }
 
 /// cases/citedby/<ref>/profile.json, written by case2md.py. Read only if it is there.
-fn read_goodlaw(cases_dir: &Path, r: i64) -> Option<GoodLaw> {
+pub fn read_goodlaw(cases_dir: &Path, r: i64) -> Option<GoodLaw> {
     let p = cases_dir.join("citedby").join(r.to_string()).join("profile.json");
     let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
     let g = &v["goodlaw"];
@@ -644,7 +702,7 @@ pub enum Resp {
 }
 
 /// Spawn the worker. It owns the connection; `wake` repaints the UI when a result is ready.
-pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, wake: impl Fn() + Send + 'static) -> (Sender<Req>, Receiver<Resp>) {
+pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, main_db: PathBuf, wake: impl Fn() + Send + 'static) -> (Sender<Req>, Receiver<Resp>) {
     let (tx_req, rx_req) = channel::<Req>();
     let (tx_resp, rx_resp) = channel::<Resp>();
     std::thread::spawn(move || {
@@ -653,7 +711,7 @@ pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, wake: impl Fn() + Send + 
         let delay = std::env::var("LAWGUI_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok());
         while let Ok(req) = rx_req.recv() {
             let resp = match req {
-                Req::Open(path) => match Db::open(&path, &labels_file, &cases_dir) {
+                Req::Open(path) => match Db::open(&path, &labels_file, &cases_dir, &main_db) {
                     Ok(d) => {
                         let m = d.meta.clone();
                         db = Some(d);

@@ -46,6 +46,7 @@ pub fn side_panel(app: &mut App, ui: &mut Ui, section: Section) {
     match section {
         Section::Clusters => clusters_side(app, ui),
         Section::Cases => cases_side(app, ui),
+        Section::Search => search_side(app, ui),
         Section::Home => {}
     }
 }
@@ -189,6 +190,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
     match &page {
         Page::Home => return home(app, ui),
         Page::Cases => return cases_home(app, ui),
+        Page::Search { .. } => return search_page(app, ui, &page),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -235,8 +237,9 @@ fn home(app: &mut App, ui: &mut Ui) {
             app.goto = Some(Page::Cases);
         }
         ui.add_space(8.0);
-        ui.add_enabled(false, egui::Button::new(RichText::new("Search for Cases").size(18.0)).min_size(size))
-            .on_disabled_hover_text("Planned for v1");
+        if ui.add_sized(size, egui::Button::new(RichText::new("Search for Cases").size(18.0))).clicked() {
+            app.goto = Some(Page::Search { query: String::new(), mode: app.search_mode });
+        }
         ui.add_space(8.0);
         ui.add_enabled(false, egui::Button::new(RichText::new("Sub-Cluster Search (draft)").size(18.0)).min_size(size))
             .on_disabled_hover_text("TBD: find cases to cite from a draft document");
@@ -689,10 +692,9 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         }
     }
     ui.label(format!("{} {}", c.cite, c.year.map(|y| format!("({y})")).unwrap_or_default()));
-    if let Some(e) = &entry {
-        if !e.court.is_empty() {
-            ui.weak(format!("court: {}", e.court));
-        }
+    let court = entry.as_ref().map(|e| e.court.clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| c.court.clone());
+    if !court.is_empty() {
+        ui.weak(format!("court: {court}"));
     }
     ui.weak(format!("CourtListener cluster {}", c.r#ref));
     ui.add_space(6.0);
@@ -899,5 +901,155 @@ fn skeleton(ui: &mut Ui, page: &Page) {
             bar(ui, 40.0, 12.0, 0.1);
         });
         ui.add_space(7.0);
+    }
+}
+
+// ================================================================== search
+
+fn search_side(app: &mut App, ui: &mut Ui) {
+    use crate::search::Mode;
+    ui.heading("Search for Cases");
+    let r = ui.add(
+        egui::TextEdit::singleline(&mut app.search_input)
+            .hint_text(if app.search_mode == Mode::Name { "name or citation" } else { "what the case stands for" })
+            .desired_width(f32::INFINITY),
+    );
+    if matches!(app.current(), Page::Search { query, .. } if query.is_empty()) && !r.has_focus() && app.search_input.is_empty() {
+        r.request_focus();
+        ui.ctx().request_repaint();
+    }
+    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let mut mode = app.search_mode;
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut mode, Mode::Name, "Case name");
+        ui.radio_value(&mut mode, Mode::Parenthetical, "Parentheticals");
+    });
+    let changed = mode != app.search_mode;
+    app.search_mode = mode;
+    if (ui.button("Search").clicked() || enter || (changed && !app.search_input.trim().is_empty()))
+        && !app.search_input.trim().is_empty()
+    {
+        app.goto = Some(Page::Search { query: app.search_input.trim().to_string(), mode });
+    }
+    ui.add_space(8.0);
+    ui.weak(match mode {
+        Mode::Name => "Every word must match; the last one matches as a prefix (\"chev\" finds Chevron). \
+                       A citation such as 463 U.S. 29 is looked up as a citation.",
+        Mode::Parenthetical => "Searches what later courts wrote about a case in their parentheticals. \
+                                Use \"quotes\" for a phrase. Cases are ranked by how many of the best-matching \
+                                parentheticals describe them.",
+    });
+    ui.add_space(6.0);
+    ui.weak("The index is search.sqlite (casedb.py). On the HDD a first search can take seconds; later ones are fast.");
+}
+
+/// Draw text with the \u{1}…\u{2} match markers from FTS5 snippet() in bold.
+fn snippet_label(ui: &mut Ui, text: &str) {
+    use egui::text::{LayoutJob, TextFormat};
+    let mut job = LayoutJob::default();
+    let normal = TextFormat { color: ui.visuals().text_color(), ..Default::default() };
+    let strong = TextFormat { color: ui.visuals().strong_text_color(), background: ui.visuals().faint_bg_color, ..Default::default() };
+    let mut bold = false;
+    let mut buf = String::new();
+    for ch in text.chars() {
+        if ch == '\u{1}' || ch == '\u{2}' {
+            if !buf.is_empty() {
+                job.append(&buf, 0.0, if bold { strong.clone() } else { normal.clone() });
+                buf.clear();
+            }
+            bold = ch == '\u{1}';
+        } else {
+            buf.push(ch);
+        }
+    }
+    if !buf.is_empty() {
+        job.append(&buf, 0.0, if bold { strong } else { normal });
+    }
+    job.wrap.max_width = 700.0;
+    ui.label(job);
+}
+
+fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
+    use crate::search::Mode;
+    let Page::Search { query, mode } = page else { return };
+    if query.is_empty() {
+        ui.heading("Search for Cases");
+        ui.label("Type a case name, a citation, or (with Parentheticals) what a case stands for, then press Enter.");
+        return;
+    }
+    let Some(res) = app.search_cache.get(page).cloned() else {
+        skeleton(ui, page);
+        return;
+    };
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            ui.colored_label(Color32::LIGHT_RED, format!("Search failed: {e}"));
+            return;
+        }
+    };
+    ui.heading(format!("Search: {query}"));
+    let what = match (mode, res.as_citation) {
+        (Mode::Name, true) => "looked up as a citation".to_string(),
+        (Mode::Name, false) => format!(
+            "{} names matched{}, most cited first",
+            res.read,
+            if res.capped { " (read stopped at the cap)" } else { "" }
+        ),
+        (Mode::Parenthetical, _) => format!(
+            "{} parentheticals matched{}; cases ranked by how many describe them, then by how often they are cited",
+            res.read,
+            if res.capped { " (read stopped at the cap)" } else { "" }
+        ),
+    };
+    ui.weak(format!("{} cases · {what} · {} ms", res.hits.len(), res.elapsed.as_millis()));
+    ui.add_space(8.0);
+    if res.hits.is_empty() {
+        ui.label(match mode {
+            Mode::Name => "No case found. Try fewer words, or Parentheticals.",
+            Mode::Parenthetical => "No parenthetical matches. Try fewer words or drop the quotes.",
+        });
+        return;
+    }
+    let f = app.filter.clone();
+    let mut go = None;
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        egui::Grid::new("hits").striped(true).num_columns(8).show(ui, |ui| {
+            ui.strong("Case");
+            ui.label("");
+            ui.strong("Cite");
+            ui.strong("Year");
+            ui.strong("Court");
+            ui.strong("Citing").on_hover_text("decisions citing it, summed over every slice of this view; blank = cited too rarely to be a node");
+            ui.strong("Good law");
+            ui.strong(if *mode == Mode::Parenthetical { "Parentheticals" } else { "" });
+            ui.end_row();
+            for h in res.hits.iter().filter(|h| matches(&f, &h.name) || matches(&f, &h.cite)) {
+                ui.vertical(|ui| {
+                    if ui.link(&h.name).clicked() {
+                        go = Some(Page::Case(h.r#ref));
+                    }
+                    if let Some(sn) = &h.snippet {
+                        snippet_label(ui, sn);
+                    }
+                });
+                built_tag(app, ui, h.r#ref);
+                ui.label(&h.cite);
+                ui.label(year(h.year));
+                ui.label(&h.court);
+                ui.label(if h.citing > 0 { h.citing.to_string() } else { String::new() });
+                goodlaw_cell(ui, &h.goodlaw);
+                if *mode == Mode::Parenthetical {
+                    ui.label(h.count.to_string());
+                } else {
+                    ui.label("");
+                }
+                ui.end_row();
+            }
+        });
+    });
+    if go.is_some() {
+        app.goto = go;
     }
 }

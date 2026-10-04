@@ -13,3 +13,10 @@ default_view = "cocite-appellate-sentence-m0.2"
 # Obsidian vault for "Open note"; leave out to open the .md file instead
 obsidian_vault = "usc-vault"
 obsidian_cases_dir = "08-Reference/Cases"
+
+# Full-text index (casedb.py) and main database, for Search for Cases and for names/courts of
+# cases outside the view. Defaults: bulk_dir/search.sqlite and bulk_dir/courtlistener.sqlite.
+# A first search on the HDD can take several seconds; a copy of search.sqlite (2.8 GB) on the
+# SSD makes it fast:
+# search_db = "/path/to/ssd/search.sqlite"
+# main_db = "/path/to/courtlistener/courtlistener.sqlite"
