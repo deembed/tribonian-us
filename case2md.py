@@ -416,7 +416,7 @@ def parse_html(s):
 
 CL = "https://www.courtlistener.com"
 FN_NAMES = {"*": "star", "†": "dagger", "‡": "ddagger", "§": "sect", "**": "star2"}
-MD_ESC = {"*": r"\*", "_": r"\_", "$": r"\$", "<": r"\<", "`": r"\`"}   # $ = Obsidian math
+MD_ESC = {"*": r"\*", "_": r"\_", "$": r"\$", "<": r"\<", "`": r"\`", "|": r"\|"}   # $ = Obsidian math; | would end a [[slug|label]]
 
 
 def esc(s, mode):
@@ -424,6 +424,41 @@ def esc(s, mode):
         from usc2md import tex_chars
         return tex_chars(s).replace("•", r"\textbullet{}")
     return "".join(MD_ESC.get(c, c) for c in s)
+
+
+_anchors = {}                                    # pdfbookmark names used so far in this PDF (render_tex resets it)
+
+
+def anchor(s):
+    """A hyperref destination for s: % # & § and spaces break pdflatex, so [A-Za-z0-9-] only,
+    and a repeat (two parts with the same path) gets --2, --3, ... since duplicates only warn."""
+    a = re.sub(r"[^A-Za-z0-9-]+", "-", s).strip("-") or "x"
+    _anchors[a] = _anchors.get(a, 0) + 1
+    return a if _anchors[a] == 1 else "%s--%d" % (a, _anchors[a])
+
+
+class Raw(str):
+    """A front-matter value written as is (dates, URLs, numbers-as-text, enums); other str values are quoted."""
+
+
+def yaml_head(fields):
+    r"""[(key, value)] -> front-matter lines, between the --- markers. str is a double-quoted YAML string
+    (\ and " escaped), Raw is written bare, list -> block list of quoted strings, bool/int -> YAML scalars,
+    None -> the key is left out. The sites pass fields in the order their notes already have, so nothing churns."""
+    q = lambda v: '"%s"' % v.replace("\\", "\\\\").replace('"', '\\"')
+    L = ["---"]
+    for k, v in fields:
+        if v is None:
+            continue
+        if isinstance(v, list):
+            L += ["%s:" % k] + ["  - %s" % q(x) for x in v]
+        elif isinstance(v, bool):
+            L.append("%s: %s" % (k, "true" if v else "false"))
+        elif isinstance(v, (Raw, int)):
+            L.append("%s: %s" % (k, v))
+        else:
+            L.append("%s: %s" % (k, q(v)))
+    return L + ["---"]
 
 
 def wrap(inner, left, right):
@@ -1108,20 +1143,13 @@ def fn_md(o, ctx, label):
 
 
 def front_matter(meta, stub):
-    L = ["---", 'title: "%s"' % meta["title"].replace('"', "'"), "aliases:"]
-    L += ['  - "%s"' % a.replace('"', "'") for a in meta["aliases"]]
-    L += ["type: case", "stub: %s" % ("true" if stub else "false"),
-          'citation: "%s"' % meta["cite"], "citations:"]
-    L += ['  - "%s"' % c for c in meta["cites"]]
-    L += ["court: %s" % meta["court"], 'docket: "%s"' % meta["docket"], "decided: %s" % meta["decided"]]
-    if meta["argued"]:
-        L.append('argued: "%s"' % meta["argued"])
-    L += ['judges: "%s"' % meta["judges"].replace('"', "'"), "courtlistener_cluster: %s" % meta["cluster"]]
-    if meta.get("cited_by") is not None:
-        L.append("cited_by_count: %s" % meta["cited_by"])
-    L += ["source: %s" % meta["url"], "retrieved: %s" % date.today().isoformat(), "synthetic: false", "---", "",
-          "# %s, %s (%s)" % (esc(meta["name"], "md"), meta["cite"], meta["year"]), ""]
-    return L
+    L = yaml_head([("title", meta["title"]), ("aliases", meta["aliases"]), ("type", Raw("case")), ("stub", stub),
+                   ("citation", meta["cite"]), ("citations", meta["cites"]), ("court", Raw(meta["court"])),
+                   ("docket", meta["docket"]), ("decided", Raw(meta["decided"])), ("argued", meta["argued"] or None),
+                   ("judges", meta["judges"]), ("courtlistener_cluster", Raw(meta["cluster"])),
+                   ("cited_by_count", Raw(meta["cited_by"]) if meta.get("cited_by") is not None else None),
+                   ("source", Raw(meta["url"])), ("retrieved", Raw(date.today().isoformat())), ("synthetic", False)])
+    return L + ["", "# %s, %s (%s)" % (esc(meta["name"], "md"), meta["cite"], meta["year"]), ""]
 
 
 def editorial(cluster):
@@ -1354,6 +1382,7 @@ def toc_head(part, el):
 def render_tex(meta, ops, fontpkg, style):
     from usc2md import PREAMBLE, RULES
     toc = meta.get("toc", True)              # contents page: cases, dockets, scotus.py (US Code has its own render_tex)
+    _anchors.clear()                         # bookmark names are unique per PDF
 
     def sec(tex, title):                     # a front box: contents entry + back arrow on its first line
         i = tex.find("\\begin{tcolorbox}")
@@ -1392,7 +1421,7 @@ def render_tex(meta, ops, fontpkg, style):
                     # PDF outline entry (the reMarkable's table of contents): "V-A · *46 · first words"
                     title = " · ".join(x for x in (part.path, "*" + ctx.page if ctx.page else "",
                                                   plain(el) if el is not None else "") if x)
-                    mark = "\\pdfbookmark[%d]{%s}{o%d-%s}" % (part.level + 1, esc(title, "tex"), ctx.oi, part.path)
+                    mark = "\\pdfbookmark[%d]{%s}{o%d-%s}" % (part.level + 1, esc(title, "tex"), ctx.oi, anchor(part.path))
                     lead = "\\recordpath{%s}" % ctx.path() + mark + "\\lab{%s.}" % esc(part.label, "tex")   # "I." not "I": a bare I reads as the pronoun
                     if toc and listed:
                         lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el)) + lead
@@ -2656,16 +2685,14 @@ def recap_build(args):
         slug = doc_slug(dslug, r)
         where = note_dir(slug, d, near=dslug)
         cite = "%s, No. %s, ECF No. %s (%s %s)" % (name, d.get("docket_number"), doc_key(r), court, long_date(r.get("entry_date_filed")))
-        head = ["---", 'title: "%s"' % cite.replace('"', "'"), "aliases:",
-                '  - "%s, ECF No. %s"' % (name.replace('"', "'"), doc_key(r)),
-                "type: court-document", 'document: "%s"' % o["title"].replace('"', "'"),
-                "court: %s" % d.get("court_id"), 'docket: "%s"' % d.get("docket_number"),
-                'docket_note: "[[%s]]"' % dslug, 'ecf: "%s"' % doc_key(r), "filed: %s" % r.get("entry_date_filed"),
-                'judge: "%s"' % o["who"], "pages: %s" % (r.get("page_count") or ""),
-                "courtlistener_docket: %s" % d.get("id"), "recap_document: %s" % r.get("id"),
-                'text_source: "%s"' % (r.get("text_source") or "CourtListener plain_text"),
-                "source: %s%s" % (CL, r.get("absolute_url") or ""), "retrieved: %s" % date.today().isoformat(),
-                "synthetic: false", "---", "", "# %s" % esc(cite, "md"), "",
+        head = yaml_head([("title", cite), ("aliases", ["%s, ECF No. %s" % (name, doc_key(r))]),
+                          ("type", Raw("court-document")), ("document", o["title"]), ("court", Raw(d.get("court_id"))),
+                          ("docket", "%s" % d.get("docket_number")), ("docket_note", "[[%s]]" % dslug), ("ecf", "%s" % doc_key(r)),
+                          ("filed", Raw(r.get("entry_date_filed"))), ("judge", o["who"]), ("pages", Raw(r.get("page_count") or "")),
+                          ("courtlistener_docket", Raw(d.get("id"))), ("recap_document", Raw(r.get("id"))),
+                          ("text_source", r.get("text_source") or "CourtListener plain_text"),
+                          ("source", Raw("%s%s" % (CL, r.get("absolute_url") or ""))), ("retrieved", Raw(date.today().isoformat())),
+                          ("synthetic", False)]) + ["", "# %s" % esc(cite, "md"), "",
                 "Docket: [[%s|%s, No. %s (%s)]]" % (dslug, esc(name, "md"), d.get("docket_number"), court), ""]
         tail = []
         named = opinions_named(r.get("cites") or [], con)
@@ -2700,14 +2727,13 @@ def recap_build(args):
     pdf_name = dslug + (("-ecf-" + "-".join(sorted(want, key=lambda x: (len(x), x)))) if want else "")
     rel_pdf = (pdf_dir(ndir) / (pdf_name + ".pdf")).relative_to(ROOT)
 
-    L = ["---", 'title: "%s"' % tex_meta["title"].replace('"', "'"), "aliases:",
-         '  - "%s"' % name.replace('"', "'"), '  - "No. %s"' % re.sub(r"^\d+:", "", d.get("docket_number") or ""),
-         "type: docket", "court: %s" % d.get("court_id"), 'docket: "%s"' % d.get("docket_number"),
-         'nature_of_suit: "%s"' % (d.get("nature_of_suit") or ""), 'cause: "%s"' % (d.get("cause") or ""),
-         "filed: %s" % (d.get("date_filed") or ""), "terminated: %s" % (d.get("date_terminated") or ""),
-         'judge: "%s"' % (d.get("assigned_to_str") or ""), 'referred_to: "%s"' % (d.get("referred_to_str") or ""),
-         "courtlistener_docket: %s" % d.get("id"), "source: %s%s" % (CL, d.get("absolute_url") or ""),
-         "retrieved: %s" % date.today().isoformat(), "synthetic: false", "---", "",
+    L = yaml_head([("title", tex_meta["title"]), ("aliases", [name, "No. %s" % re.sub(r"^\d+:", "", d.get("docket_number") or "")]),
+                   ("type", Raw("docket")), ("court", Raw(d.get("court_id"))), ("docket", "%s" % d.get("docket_number")),
+                   ("nature_of_suit", d.get("nature_of_suit") or ""), ("cause", d.get("cause") or ""),
+                   ("filed", Raw(d.get("date_filed") or "")), ("terminated", Raw(d.get("date_terminated") or "")),
+                   ("judge", d.get("assigned_to_str") or ""), ("referred_to", d.get("referred_to_str") or ""),
+                   ("courtlistener_docket", Raw(d.get("id"))), ("source", Raw("%s%s" % (CL, d.get("absolute_url") or ""))),
+                   ("retrieved", Raw(date.today().isoformat())), ("synthetic", False)]) + ["",
          "# %s, No. %s (%s)" % (esc(name, "md"), d.get("docket_number"), court), "",
          "%s · filed %s%s · %s" % (court, d.get("date_filed") or "?", " · closed %s" % d["date_terminated"] if d.get("date_terminated") else "",
                                    esc(d.get("nature_of_suit") or d.get("cause") or "", "md")), "",

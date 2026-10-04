@@ -105,7 +105,7 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 ./goodlaw_eval.py show "410 U.S. 113" R9                 # one test case under one ruleset
 ```
 
-`goodlaw_eval.py` tests the rules on 40 Supreme Court cases whose overruling year is known (set A tunes, set B checks) and 20 that were never overruled. A hit is red from one year before to five years after the overruling. The current rules (R9): set A 17 of 20 hits, controls 8 green, 2 yellow, 0 red; set B 18 of 20, controls 6 green, 4 yellow, 0 red. (The first version: 13 and 16 hits, 3 controls red.) Set B was looked at once during tuning (the same-name rule came from it), so it is not a perfectly clean holdout. After changing the rules in `casemap.py`, bump `GOODLAW_VERSION` and rerun `score`.
+`goodlaw_eval.py` tests the rules on 40 Supreme Court cases whose overruling year is known (set A tuned the rules; set B is a soft check) and 20 that were never overruled. A hit is red from one year before to five years after the overruling. The current rules (R9): set A 17 of 20 hits, controls 8 green, 2 yellow, 0 red; set B 18 of 20, controls 6 green, 4 yellow, 0 red. (The first version: 13 and 16 hits, 3 controls red.) Set B was consulted once during tuning (the same-name rule came from it), so it is a soft check, not a clean holdout; the controls were watched throughout. After changing the rules in `casemap.py`, bump `GOODLAW_VERSION` and rerun `score`.
 
 ```
 ./case2md.py fetch --cite "463 U.S. 29"         # or --cluster 110991   (uses the API)

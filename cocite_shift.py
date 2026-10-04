@@ -43,9 +43,11 @@ SHIFT = dict(share=0.25, growth=3.0, cohort_pct=0.10, min_n=5, cand=40)   # min_
 class CiteIndex:
     """Who cites whom, under a court view, from cocite-cache/ (memory-mapped)."""
 
-    def __init__(self, view):
+    def __init__(self, view, db=None):
         if not (CACHE / "by_cited.npy").exists():
             sys.exit("The cache has no cited-case index yet: run ./cocite.py prep")
+        if db is not None:                # the view's results must come from this cache (cocite.check_cache)
+            cc.check_cache(db)
         mm = lambda f: np.load(CACHE / f, mmap_mode="r")
         self.ci, self.cd, self.y, self.lvl = mm("citing.npy"), mm("cited.npy"), mm("year.npy"), mm("level.npy")
         self.order, self.cds = mm("by_cited.npy"), mm("cited_sorted.npy")
@@ -83,13 +85,14 @@ class CiteIndex:
         return np.asarray(self.cd[idx])
 
     def ref_year(self):
-        """Filing year of every case that itself cites something (0 = unknown)."""
+        """Filing year of every case, by cluster id (0 = unknown): prep's ref_year.npy, from the same
+        clusters.date_filed that case_years() dates A from, so A and its cohort share one clock. (Until
+        2026-10 this was taken from the citing side -- the year of a case's own citations -- so a case
+        that cites nothing had decade 0 and silently fell out of every cohort.)"""
         if self._ref_year is None:
-            ry = np.zeros(len(self.lvl), np.int16)
-            ci = np.asarray(self.ci)
-            ok = ci < len(ry)
-            ry[ci[ok]] = np.asarray(self.y)[ok]
-            self._ref_year = ry
+            if not (CACHE / "ref_year.npy").exists():
+                sys.exit("The cache has no filing years yet: run ./cocite.py prep (it adds only those)")
+            self._ref_year = np.load(CACHE / "ref_year.npy", mmap_mode="r")
         return self._ref_year
 
     def slice_counts(self, s):
@@ -286,7 +289,7 @@ def successor(ref, view="appellate"):          # the binary view: the shift eval
         if db is None or not (CACHE / "by_cited.npy").exists():
             return None
         if view not in _IDX:
-            _IDX[view] = CiteIndex(view)
+            _IDX[view] = CiteIndex(view, db)
         slices = [r[0] for r in db.execute("SELECT slice FROM slices ORDER BY slice")]
         yA = case_years(db, [ref])[ref]
         floor = SHIFT["min_n"] if yA >= max(slices) - SUCCESSOR_RECENT else SUCCESSOR_MIN
@@ -330,7 +333,7 @@ def cmd_shift(args):
     db = need_db()
     p = dict(SHIFT, share=args.share, growth=args.growth, cohort_pct=args.cohort_pct)
     view = args.courts or "all"
-    idx = CiteIndex(view)
+    idx = CiteIndex(view, db)
     slices = [r[0] for r in db.execute("SELECT slice FROM slices ORDER BY slice")]
     if args.eval:
         return shift_eval(db, idx, p, slices, args)

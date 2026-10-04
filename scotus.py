@@ -58,13 +58,19 @@ def get(url, out=None):
 
 
 def when(s):
-    """'Nov 14 2025' -> '2025-11-14'."""
+    """'Nov 14 2025' -> '2025-11-14'; '' when unparsed (callers treat '' as unknown, never compare it to a date)."""
     for fmt in ("%b %d %Y", "%B %d, %Y", "%m/%d/%Y"):
         try:
             return datetime.strptime((s or "").strip(), fmt).date().isoformat()
         except ValueError:
             pass
-    return s or ""
+    if s and s not in _undated:
+        _undated.add(s)
+        print("  ! unparsed date %r" % s)
+    return ""
+
+
+_undated = set()
 
 
 # ---------------------------------------------------------------- what each docket entry is
@@ -107,6 +113,8 @@ def stage_dates(entries):
 
 
 def stage_of(day, grant, argued):
+    if not day:   # unparsed date (when() already warned): nothing to compare, take the default
+        return "cert"
     if argued and day >= argued:
         return "after argument"
     if grant and day > grant:
@@ -811,7 +819,7 @@ def couple_md(cp, names, index, fs, areas):
         a = (names[k].get("area") or (None, ""))[1] or ""
         L.append("| %d | %s | %s | %d | %d | %d | %d | %s | %s |" % (
             i, link_md(names, index, k), cite_of(names, k), cp["P"][k], cp["R"][k], cp["nP"][k], cp["nR"][k],
-            "✓" if k in cp["below"] else "", E(a).replace("|", "/")))
+            "✓" if k in cp["below"] else "", E(a.replace("|", "/"))))      # before esc: it now writes \| itself
     if cp["below"]:
         L += ["", "### Engagement with the decision below", "",
               "How many of each filing's cases the court of appeals' opinion also cites (%d cases there)." % len(cp["below"]), "",
@@ -830,7 +838,7 @@ def couple_md(cp, names, index, fs, areas):
               "Mentions by the cited case's co-citation area (`cocite.py`, appellate view; area names written by Claude "
               "from each area's evidence).", "", "| Area | Pet. side | Resp. side |", "|---|--:|--:|"]
         for a, p, r, np_, nr in areas[:15]:
-            L.append("| %s | %d%% (%d) | %d%% (%d) |" % (E(a).replace("|", "/"), round(100 * p), np_, round(100 * r), nr))
+            L.append("| %s | %d%% (%d) | %d%% (%d) |" % (E(a.replace("|", "/")), round(100 * p), np_, round(100 * r), nr))
     return L + [""]
 
 
@@ -1232,11 +1240,11 @@ def build(args):
             o["byline_md"], o["byline_tex"] = "", ""
             o["tree"] = c.tree_of(o, o["levels"])
         cite = "%s, %s, No. %s (U.S. filed %s)" % (f["who"], f["abbr"], num, c.long_date(f["date"]))
-        head = ["---", 'title: "%s"' % cite.replace('"', "'"), "aliases:", '  - "%s %s"' % (f["abbr"].replace('"', "'"), num),
-                "type: supreme-court-filing", "kind: %s" % f["kind"], "stage: %s" % f["stage"], "side: %s" % (f["side"] or "none"),
-                'filer: "%s"' % f["who"].replace('"', "'"), 'docket: "%s"' % num, 'docket_note: "[[%s]]"' % slug,
-                "filed: %s" % f["date"], "source: %s" % f["link"]["url"], "retrieved: %s" % data.get("retrieved", ""),
-                "synthetic: false", "---", "", "# %s" % c.esc(cite, "md"), "",
+        head = c.yaml_head([("title", cite), ("aliases", ["%s %s" % (f["abbr"], num)]), ("type", c.Raw("supreme-court-filing")),
+                            ("kind", c.Raw(f["kind"])), ("stage", c.Raw(f["stage"])), ("side", c.Raw(f["side"] or "none")),
+                            ("filer", f["who"]), ("docket", num), ("docket_note", "[[%s]]" % slug), ("filed", c.Raw(f["date"])),
+                            ("source", c.Raw(f["link"]["url"])), ("retrieved", c.Raw(data.get("retrieved", ""))),
+                            ("synthetic", False)]) + ["", "# %s" % c.esc(cite, "md"), "",
                 "Docket: [[%s|No. %s]] · %s · [PDF](%s)" % (slug, num, c.esc(f["text"], "md"), f["link"]["url"]), ""]
         tail = ["## Authorities", "", "*Reporter citations in this filing, resolved through the local database; ×n = mentions.*", ""]
         for k, n in f["cites"].most_common():
@@ -1254,10 +1262,10 @@ def build(args):
         md = c.render_md(None, [o], "\n".join(tail) + "\n", head=head)
         (ndir / (f["slug"] + ".md")).write_text(md, encoding="utf-8")
 
-    L = ["---", 'title: "%s"' % title.replace('"', "'"), "aliases:", '  - "No. %s"' % num, '  - "%s"' % meta["name"].replace('"', "'"),
-         "type: supreme-court-docket", "status: pending", 'docket: "%s"' % num, "granted: %s" % (data.get("granted") or ""),
-         "argued: %s" % (data.get("argued") or ""), "decision_below: %s" % (cid or ""), "source: %s" % data["source"],
-         "retrieved: %s" % data.get("retrieved", ""), "synthetic: false", "---", "", "# %s" % c.esc(title, "md"), "",
+    L = c.yaml_head([("title", title), ("aliases", ["No. %s" % num, meta["name"]]), ("type", c.Raw("supreme-court-docket")),
+                     ("status", c.Raw("pending")), ("docket", num), ("granted", c.Raw(data.get("granted") or "")),
+                     ("argued", c.Raw(data.get("argued") or "")), ("decision_below", c.Raw(cid or "")), ("source", c.Raw(data["source"])),
+                     ("retrieved", c.Raw(data.get("retrieved", ""))), ("synthetic", False)]) + ["", "# %s" % c.esc(title, "md"), "",
          "%s, No. %s, decided %s · cert. granted %s%s" % (c.esc(feed.get("LowerCourt", ""), "md"), (feed.get("LowerCourtCaseNumbers") or "").strip("() "),
                                                          feed.get("LowerCourtDecision", ""), c.long_date(data.get("granted")) or "–",
                                                          " · argued %s" % c.long_date(data["argued"]) if data.get("argued") else ""), "",

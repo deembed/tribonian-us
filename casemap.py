@@ -231,8 +231,10 @@ def cmd_stubs(args):
 # sentences that name it ("Chevron is overruled."). A flag with its evidence, for deciding what
 # to read -- not a citator. Read: every citing opinion from a court at the case's level or above
 # (up to GOODLAW_MAX), plus the GOODLAW_RECENT newest from any court.
-# The rules were tuned with goodlaw_eval.py against 40 overruled Supreme Court cases and 20 that
-# never were (ruleset R9 there); rerun it after changing anything here.
+# The rules were tuned with goodlaw_eval.py (ruleset R9 there) on set A, 20 overruled Supreme Court
+# cases, with 20 never-overruled controls watched throughout; set B, 20 more overruled, was consulted
+# once (the same-name rule came from it), so it is a soft check, not a clean holdout. Rerun it after
+# changing anything here.
 GOODLAW_RECENT, GOODLAW_MAX = 500, 1500
 GOODLAW_VERSION = 5            # bump when the rules change: cached results are redone
 RANK = {"supreme": 3, "circuit": 2, "district": 1, "other": 0}
@@ -927,7 +929,7 @@ def cmd_citedby(args):
     except c.Unsupported as e:
         sys.exit("citedby needs the cited case's text, and %s" % e)
     pages = [int(s["page"]) for s in src if str(s["page"]).isdigit()]
-    first_page = int(meta["page"]) if meta["page"].isdigit() else min(pages)
+    first_page = int(meta["page"]) if meta["page"].isdigit() else min(pages, default=0)   # slip opinion, no star pages: analyze() finds no pins
     last_page = max(pages + [first_page])
     words = [norm(s["text"]).split() for s in src]
     shingles = {}
@@ -1045,7 +1047,7 @@ def cmd_citedby(args):
         n = Np if (args.full or Np <= args.sample_over) else sample_size(Np, args.margin)
         chosen = random.Random(cid).sample(pool, n)               # same case -> same sample, every run
         parallels = parallel_patterns(data["cluster"].get("citations"), meta["reporter"].split(" ", 1)[-1])
-        print("  reading %s" % ("all %d citing opinions" % Np if n == Np else "a random sample of %d of %d (±%d%% at 95%%)" % (n, Np, round(args.margin * 100))))
+        print("  reading %s" % ("all %d citing opinions" % Np if n == Np else "a random sample of %d of %d (sized for ±%d%% at 95%%)" % (n, Np, round(args.margin * 100))))
         for k, oid in enumerate(chosen, 1):
             row = con.execute("SELECT text FROM opinions WHERE id=?", (oid,)).fetchone()
             text = zlib.decompress(row[0]).decode("utf-8", "replace") if row and row[0] else ""
@@ -1070,13 +1072,16 @@ def cmd_citedby(args):
                     x["pins"] = sorted(got)
                     inferred += 1
         Neff = na if n == Np else Np                               # everything read -> no sampling error
+        half = moe(na / 2, na, Neff)                               # achieved worst-case half-width: pct() over na, not the design n
         scope = " at level: %s" % ", ".join(LEVEL_NAMES[k] for k in args.level) if args.level else ""
+        if half:
+            print("  %d of the %d read had a linked cite; percentages are of those, worst case ±%d%% at 95%%" % (na, n, round(half * 100)))
         L += ["### From the citing opinions' text", "",
               ("All %s citing opinions%s were read." % (format(Np, ","), scope)) if n == Np else
               ("A simple random sample of %d of the %s citing opinions%s was read (seed = cluster id, so reruns draw the same "
                "sample); ± is the 95%% margin with finite-population correction." % (n, format(Np, ","), scope)),
               "%d had a linked cite in their text; the rest were matched by CourtListener but not linked, or are plain text. "
-              "Percentages are of those %d." % (na, na), ""]
+              "Percentages are of those %d%s." % (na, na, " (worst case ±%d%% at 95%%)" % round(half * 100) if half else ""), ""]
         if na:
             pins = Counter(p for x in ok for p in x["pins"])
             npin = sum(1 for x in ok if x["pins"])

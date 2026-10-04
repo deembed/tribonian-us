@@ -614,7 +614,8 @@ def cmd_prox_evidence(args):
     import casemap
     slice_ = int(args.slice) - int(args.slice) % cocite.WIDTH
     con = cocite.main_db()
-    ci_all, cd_all, y_all, _, lvl = cocite.load_cache()
+    db = cocite.need_db()
+    ci_all, cd_all, y_all, _, lvl = cocite.load_cache(view=db)
     codes, tag = cocite.parse_courts(args.courts)
     ci, cd, y = np.asarray(ci_all), np.asarray(cd_all), np.asarray(y_all)
     sel = (y >= slice_) & (y < slice_ + cocite.WIDTH)
@@ -622,7 +623,7 @@ def cmd_prox_evidence(args):
         sel &= np.isin(np.asarray(lvl)[ci], codes)
     ci, cd = ci[sel], cd[sel]
     p = dict(cocite.DEFAULTS)
-    refs, n, N, skipped, ea, eb, es, mc = cocite.slice_pairs(ci, cd, p)
+    refs, n, N, skipped, ea, eb, es, mc, _ = cocite.slice_pairs(ci, cd, p)
     rows_u = np.unique(ci)                             # the population slice_pairs used: decisions citing 1..max_cites nodes
     on_node = np.isin(cd, refs)
     per_row = np.bincount(np.searchsorted(rows_u, ci[on_node]), minlength=len(rows_u))
@@ -688,7 +689,6 @@ def cmd_prox_evidence(args):
     for i, r in enumerate(cited.tolist()):
         by_case.setdefault(r, []).append(i)
     ops_con = ops_db()
-    db = cocite.need_db()
     import case2md
     con.execute("ATTACH DATABASE ? AS ops", ("file:%s?mode=ro" % casedb.OPS_DB,))
     text_cache = {}

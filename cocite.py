@@ -29,9 +29,9 @@ by filing year (2005-09, 2010-14, ...), and for each slice:
      random graphs score high modularity by chance (sparse ones 0.35-0.4), so a split is kept
      only if it beats chance: the cluster's pairs are rewired --nulls (5) times, keeping every
      case's number of partners and shuffling the weights, Leiden is run on each, and the real
-     split must score --sub-z (4) standard deviations above them. An unsplit cluster is its own
-     single sub-cluster (2010-14:5). Sub-clusters get their own lineages.
-  7. The same test, run on the whole slice (3 rewirings), gives each slice its modularity above
+     split must score above every one of them and --sub-z (4) standard deviations above their mean.
+     An unsplit cluster is its own single sub-cluster (2010-14:5). Sub-clusters get their own lineages.
+  7. The same rewiring, run on the whole slice (--nulls times), gives each slice its modularity above
      chance, which, unlike raw modularity, can be compared across slices.
 
 The citing unit is the decision (cluster), not the opinion, so a majority and a dissent
@@ -81,7 +81,7 @@ Shortcuts: appellate = scotus,circuit,state-supreme,state-appellate; federal = s
 
 Files (beside the main database, like search.sqlite; CL_COCITE_DB overrides):
     cocite.sqlite   results; derived, disposable, rebuilt when the bulk load changes
-    cocite-cache/   *.npy from prep: citing decision, cited case, year per edge; court level per case
+    cocite-cache/   *.npy from prep: citing decision, cited case, year per edge; court level and filing year per case
 
 Needs numpy, scipy and python-igraph (Linux Mint: sudo apt install python3-numpy python3-scipy python3-igraph).
 """
@@ -138,7 +138,7 @@ WIDTH = 5
 
 DEFAULTS = dict(min_cited=5, min_cited_frac=2e-5, min_support=5, max_cites=150, resolution=1.0, share=0.15,
                 top=20, min_size=3, seed=0, split_over=20, sub_z=4.0, nulls=5)
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"      # 4: partners.binary (2026-10)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
@@ -151,7 +151,8 @@ CREATE TABLE IF NOT EXISTS clusters(slice INTEGER, cl INTEGER, size INTEGER, anc
 CREATE TABLE IF NOT EXISTS subs(slice INTEGER, sub INTEGER, size INTEGER, anchor INTEGER,
     internal REAL, lineage INTEGER);
 CREATE TABLE IF NOT EXISTS members(slice INTEGER, cl INTEGER, ref INTEGER, home INTEGER, share REAL, weight REAL);
-CREATE TABLE IF NOT EXISTS partners(slice INTEGER, ref INTEGER, partner INTEGER, support INTEGER, lift REAL, cosine REAL);
+CREATE TABLE IF NOT EXISTS partners(slice INTEGER, ref INTEGER, partner INTEGER, support REAL, lift REAL, cosine REAL,
+    binary INTEGER);
 CREATE TABLE IF NOT EXISTS names(ref INTEGER PRIMARY KEY, name TEXT, cite TEXT, year INTEGER);
 CREATE TABLE IF NOT EXISTS links(level TEXT, slice_from INTEGER, cl_from INTEGER, slice_to INTEGER, cl_to INTEGER,
     shared INTEGER, jaccard REAL);
@@ -173,7 +174,10 @@ CREATE INDEX IF NOT EXISTS partners_by_ref ON partners(ref, slice);
 """
 # ("ref" = a cited case's cluster id; "cl" = a co-citation cluster's number within its slice.
 #  CourtListener calls a case a cluster too, so the case side is called ref here.
-#  A sub-cluster's number is cl * 1000 + j; j = 0 for a cluster too small to split.)
+#  A sub-cluster's number is cl * 1000 + j; j = 0 for a cluster too small to split.
+#  partners.support is the pair weight the view clusters on: decisions citing both in a binary view,
+#  mix x that + (1 - mix) x proximity under --mix. partners.binary is always the decision count,
+#  NULL in a pure --weight view, whose pairs come from positions, not the citation map.)
 
 
 def label(s):
@@ -212,11 +216,21 @@ def source_stamp(con):
         "SELECT name, finished FROM loaded WHERE name IN ('citation-map', 'opinion-clusters', 'opinions') ORDER BY name"))
 
 
-def out_db():
+def schema_exit(db):
+    sys.exit("%s has results schema %s, this code needs %s: rebuild with ./cocite.py build" % (
+        COCITE_DB.name, meta(db, "schema") or "1", SCHEMA_VERSION))
+
+
+def out_db(upgrade=False):
+    """The view, writable. Only build passes upgrade: a schema change then drops the results tables for
+    the rebuild. Anywhere else (areas, labels) a mismatch is an error, so nothing but build can throw
+    a built view away."""
     COCITE_DB.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(COCITE_DB, timeout=60)
     db.executescript("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);")
     if (meta(db, "schema") or "1") != SCHEMA_VERSION:       # results are derived: drop and rebuild (names are kept)
+        if not upgrade:
+            schema_exit(db)
         for (t,) in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('meta', 'names')").fetchall():
             db.execute("DROP TABLE %s" % t)
         db.executescript(SCHEMA)
@@ -224,6 +238,25 @@ def out_db():
         db.commit()
     db.executescript(SCHEMA)
     return db
+
+
+def view_stamp(db):
+    """The bulk load a view was built from (meta.stamp, written at the end of build); None before that."""
+    try:
+        return meta(db, "stamp")
+    except sqlite3.OperationalError:
+        return None
+
+
+def check_cache(db):
+    """The cache must be the one the view was built from: prep after a bulk load leaves every view
+    stale until it is rebuilt. A view with no stamp (never finished a build) only warns."""
+    stamp = view_stamp(db)
+    nm = Path(db.execute("PRAGMA database_list").fetchone()[2]).name
+    if stamp is None:
+        print("warning: %s records no bulk load stamp; cannot tell whether the cache matches it" % nm, flush=True)
+    elif (CACHE / "stamp.txt").read_text() != stamp:
+        sys.exit("cache is newer than this view (%s): rerun ./cocite.py build" % nm)
 
 
 def meta(db, key, value=None):
@@ -258,6 +291,9 @@ def cmd_prep(args):
         if not (CACHE / "by_cited.npy").exists():
             prep_order()
             added = True
+        if not (CACHE / "ref_year.npy").exists():
+            prep_years(con)                    # cache from before cocite_shift dated cohorts from it
+            added = True
         if not added:
             print("cache is current (%s); --force to redo" % CACHE)
         return
@@ -278,13 +314,7 @@ def cmd_prep(args):
     print("opinions: %s -> cases  (%.1f min)" % (format(len(a), ","), (time.time() - t0) / 60), flush=True)
     del a, b
 
-    t1 = time.time()
-    yrs = fetch_array(con.execute("SELECT id, coalesce(CAST(substr(date_filed, 1, 4) AS INTEGER), 0) FROM clusters"), 2)
-    ref_year = np.zeros(int(yrs[:, 0].max()) + 1, np.int16)
-    yrs[(yrs[:, 1] < 1700) | (yrs[:, 1] > 2100), 1] = 0          # junk dates (one says year 19): no year
-    ref_year[yrs[:, 0]] = yrs[:, 1]
-    print("cases: %s filing years  (%.1f min)" % (format(len(yrs), ","), (time.time() - t1) / 60), flush=True)
-    del yrs
+    ref_year = prep_years(con)
 
     t1 = time.time()
     cur = con.execute("SELECT citing, cited FROM edges WHERE citing IS NOT NULL AND cited IS NOT NULL")
@@ -329,6 +359,19 @@ def cmd_prep(args):
     prep_levels(con)
     prep_order()
     print("prep done in %.1f min -> %s" % ((time.time() - t0) / 60, CACHE))
+
+
+def prep_years(con):
+    """Every case's filing year by cluster id (0 = none) -> ref_year.npy. Gives the edges their citing
+    year here, and cocite_shift its cohorts' decades, so both sides of a comparison use one source."""
+    t1 = time.time()
+    yrs = fetch_array(con.execute("SELECT id, coalesce(CAST(substr(date_filed, 1, 4) AS INTEGER), 0) FROM clusters"), 2)
+    ref_year = np.zeros(int(yrs[:, 0].max()) + 1, np.int16)
+    yrs[(yrs[:, 1] < 1700) | (yrs[:, 1] > 2100), 1] = 0          # junk dates (one says year 19): no year
+    ref_year[yrs[:, 0]] = yrs[:, 1]
+    np.save(CACHE / "ref_year.npy", ref_year)
+    print("cases: %s filing years  (%.1f min)" % (format(len(yrs), ","), (time.time() - t1) / 60), flush=True)
+    return ref_year
 
 
 def prep_levels(con):
@@ -378,12 +421,16 @@ def prep_order():
     print("cited-case index: %s edges  (%.1f min)" % (format(len(cd), ","), (time.time() - t0) / 60))
 
 
-def load_cache(stamp=None):
+def load_cache(stamp=None, view=None):
+    """stamp (build): the main database's load, which the cache must be from. view (read commands): the
+    results database being read, which must have been built from this cache (check_cache)."""
     s = CACHE / "stamp.txt"
     if not s.exists():
         sys.exit("No cache yet: run ./cocite.py prep")
     if stamp is not None and s.read_text() != stamp:
         sys.exit("The cache is from an older bulk load: run ./cocite.py prep")
+    if view is not None:
+        check_cache(view)
     if not (CACHE / "level.npy").exists():
         sys.exit("The cache has no court levels yet: run ./cocite.py prep (it adds only those)")
     return (np.load(CACHE / "citing.npy", mmap_mode="r"), np.load(CACHE / "cited.npy", mmap_mode="r"),
@@ -416,7 +463,7 @@ def slice_pairs(ci, cd, p):
         import cocite_positions
         ea, eb, es = cocite_positions.weighted_pairs(p["weight"], rows_u[pop].astype(np.int64),
                                                      refs.astype(np.int64), p["min_support"])[:3]
-        return refs, n, N, skipped, ea, eb, es, mc
+        return refs, n, N, skipped, ea, eb, es, mc, None
     M = sparse.csc_matrix((np.ones(len(r), np.int32), (r, c)), shape=(len(rows_u), len(refs)))
     MT = M.T.tocsr()
     ea, eb, es = [], [], []
@@ -433,6 +480,7 @@ def slice_pairs(ci, cd, p):
         ea = eb = es = np.zeros(0, np.int64)
     else:
         ea, eb, es = np.concatenate(ea), np.concatenate(eb), np.concatenate(es)
+    bin_ = es                                        # decisions citing both, kept beside the mixed weight (partners.binary)
     if p.get("weight") and len(ea):                  # --mix: the binary pairs, weights mix * support + (1 - mix) * proximity
         import cocite_positions
         pa, pb, pw = cocite_positions.weighted_pairs(p["weight"], rows_u[pop].astype(np.int64),
@@ -446,7 +494,7 @@ def slice_pairs(ci, cd, p):
         prox = np.where((len(kp) > 0) & (kp[j] == kb_), pw[j], 0.0) if len(kp) else np.zeros(len(ea))
         m = float(p["mix"])
         es = m * es + (1 - m) * prox
-    return refs, n, N, skipped, ea, eb, es, mc
+    return refs, n, N, skipped, ea, eb, es, mc, bin_
 
 
 def leiden(nn, ea, eb, es, p):
@@ -463,7 +511,7 @@ def leiden(nn, ea, eb, es, p):
 
 def null_q(nn, ea, eb, es, p, reps):
     """Modularity Leiden finds in the same graph rewired at random: every node keeps its number
-    of partners, the weights are shuffled across edges. Mean and standard deviation over reps."""
+    of partners, the weights are shuffled across edges. Mean, standard deviation and max over reps."""
     import igraph as ig
     rng = np.random.default_rng(p["seed"])
     edges = np.column_stack([ea, eb]).tolist()
@@ -476,12 +524,12 @@ def null_q(nn, ea, eb, es, p, reps):
         part = g.community_leiden(objective_function="modularity", weights="w",
                                   resolution=p["resolution"], n_iterations=-1)
         qs.append(g.modularity(part.membership, weights="w", resolution=p["resolution"]))
-    return float(np.mean(qs)), float(np.std(qs, ddof=1)) if reps > 1 else 0.0
+    return float(np.mean(qs)), float(np.std(qs, ddof=1)) if reps > 1 else 0.0, float(np.max(qs))
 
 
 def build_slice(db, s, ci, cd, p, stamp):
     t0 = time.time()
-    refs, n, N, skipped, ea, eb, es, mc = slice_pairs(ci, cd, p)
+    refs, n, N, skipped, ea, eb, es, mc, bin_ = slice_pairs(ci, cd, p)
     nn = len(refs)
     memb = q = None
     if nn and len(ea):
@@ -522,8 +570,9 @@ def build_slice(db, s, ci, cd, p, stamp):
     lift = es * N / (nf[ea] * nf[eb]) if len(ea) else es.astype(float)
     ps, po = np.concatenate([ea, eb]), np.concatenate([eb, ea])
     pc, pl, psu = np.concatenate([cos, cos]), np.concatenate([lift, lift]), np.concatenate([es, es])
+    pbin = np.concatenate([bin_, bin_]) if bin_ is not None else np.full(len(ps), None)
     o = np.lexsort((-pc, ps))
-    ps, po, pc, pl, psu = ps[o], po[o], pc[o], pl[o], psu[o]
+    ps, po, pc, pl, psu, pbin = ps[o], po[o], pc[o], pl[o], psu[o], pbin[o]
     starts = np.r_[0, np.flatnonzero(np.diff(ps)) + 1] if len(ps) else np.zeros(0, np.int64)
     first = np.repeat(starts, np.diff(np.r_[starts, len(ps)])) if len(ps) else starts
     top = (np.arange(len(ps)) - first) < p["top"]
@@ -564,8 +613,11 @@ def build_slice(db, s, ci, cd, p, stamp):
         if len(la) < 3:
             continue
         sm, sq = leiden(len(mem), la, lb, iw[lo:hi], p)
-        m0, sd0 = null_q(len(mem), la, lb, iw[lo:hi], p, p["nulls"])
-        if sq <= m0 or (sq - m0) < p["sub_z"] * max(sd0, 1e-4):     # no better than chance: keep it whole
+        m0, sd0, mx0 = null_q(len(mem), la, lb, iw[lo:hi], p, p["nulls"])
+        # A z-score from --nulls (5) draws is soft: the sd of n = 5 has ~35% relative error, and the
+        # 1e-4 floor makes it pass whenever the nulls happen to agree. So the real split must also beat
+        # EVERY null outright (one-sided empirical test); that condition is what carries the decision.
+        if sq <= mx0 or (sq - m0) < p["sub_z"] * max(sd0, 1e-4):    # no better than chance: keep it whole
             unsplit += 1
             continue
         sz = np.bincount(sm)
@@ -600,11 +652,11 @@ def build_slice(db, s, ci, cd, p, stamp):
     db.executemany("INSERT INTO members VALUES (?,?,?,?,?,?)",
                    zip([s] * int(keep.sum()), clus[keep].tolist(), R[node[keep]].tolist(),
                        home[keep].astype(int).tolist(), share[keep].tolist(), sw[keep].tolist()))
-    db.executemany("INSERT INTO partners VALUES (?,?,?,?,?,?)",
+    db.executemany("INSERT INTO partners VALUES (?,?,?,?,?,?,?)",
                    zip([s] * int(top.sum()), R[ps[top]].tolist(), R[po[top]].tolist(),
-                       psu[top].tolist(), pl[top].tolist(), pc[top].tolist()))
+                       psu[top].tolist(), pl[top].tolist(), pc[top].tolist(), pbin[top].tolist()))
     clustered = int((memb > 0).sum())
-    q0, q0sd = null_q(nn, ea, eb, es, p, 3)
+    q0, q0sd, _ = null_q(nn, ea, eb, es, p, p["nulls"])        # the slice's own chance level, same reps as the split test
     db.execute("INSERT OR REPLACE INTO slices VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,?,?,?)",
                (s, label(s), stamp, json.dumps(p, sort_keys=True), N, skipped, nn, len(ea), K, clustered,
                 q, time.time() - t0, len(s_anchor), mc, q0, q0sd))
@@ -738,7 +790,21 @@ def open_view(view=NOTE_VIEW):
     path = BASE_DB if view in (None, "all") else BASE_DB.with_name("cocite-%s.sqlite" % view)
     if not path.exists():
         return None
-    return sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=30)
+    db = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=30)
+    if (meta(db, "schema") or "1") != SCHEMA_VERSION:       # loud, not a missing-column traceback mid-note
+        sys.exit("%s has results schema %s, this code needs %s: rebuild with ./cocite.py build" % (
+            path.name, meta(db, "schema") or "1", SCHEMA_VERSION))
+    return db
+
+
+def newest_full_slice(db, year=None):
+    """The cutoff year for 'newest complete slice': a slice is complete when it ends before it. From the
+    bulk load the view was built from (meta.stamp holds the loads' finish dates), so a note built in
+    2027 from 2026 data still calls 2025-29 partial; the wall clock only when the view has no stamp."""
+    if year:
+        return year
+    m = re.search(r"\d{4}-\d\d-\d\d", view_stamp(db) or "")
+    return int(m.group(0)[:4]) if m else time.localtime().tm_year
 
 
 def unit_name(db, s, k, level="cluster"):
@@ -765,6 +831,7 @@ def citing_breakdown(ref, db, view=NOTE_VIEW):
             return {int(k): v for k, v in hit["slices"].items()}
     except (FileNotFoundError, ValueError):
         pass
+    check_cache(db)
     ci = np.load(CACHE / "citing.npy", mmap_mode="r")
     cd = np.load(CACHE / "cited.npy", mmap_mode="r")
     y = np.load(CACHE / "year.npy", mmap_mode="r")
@@ -872,7 +939,7 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
     if not rows:
         return []
     index = index or {}
-    year = year or time.localtime().tm_year
+    year = newest_full_slice(db, year)
     full = [r for r in rows if r["slice"] + WIDTH - 1 < year] or rows       # the newest complete slice
     now = full[-1]
 
@@ -957,13 +1024,17 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
                         [(unit_name(db, now["slice"], int(k))[0] or k, n) for k, n in cur["cl"].items()])
             L += pie_md("Who cites it, %s: sub-clusters" % now["label"],
                         [(unit_name(db, now["slice"], int(k), "sub")[0] or k, n) for k, n in cur["sub"].items()])
-    L += ["", "**Usually cited with, %s** (decisions citing both, and their share of the %s decisions citing this case):"
-          % (now["label"], format(now["cited_by"], ",")), ""]
-    for pt in sorted(now["partners"], key=lambda p: -p["support"]):     # chosen by cosine, listed by count
+    # a weighted view (NOTE_VIEW is --mix 0.2) clusters on a weight, not the decision count: show both, labelled
+    weighted = any(pt["both"] != pt["support"] for pt in now["partners"])
+    L += ["", "**Usually cited with, %s** (decisions citing both, and their share of the %s decisions citing this case%s):"
+          % (now["label"], format(now["cited_by"], ","),
+             "; then the pair's weight, which also counts citations in one sentence" if weighted else ""), ""]
+    for pt in sorted(now["partners"], key=lambda p: -p["both"]):        # chosen by cosine, listed by count
         e = index.get(str(pt["ref"]))
         text = "%s, %s (%s)" % (e["short"] or e["name"], e["cite"], e["year"]) if e else pt["name"]
-        L.append("- %s · %s · %d%%" % (link(pt["ref"], text), format(pt["support"], ","),
-                                      round(100.0 * pt["support"] / max(now["cited_by"], 1))))
+        L.append("- %s · %s · %d%%%s" % (link(pt["ref"], text), format(pt["both"], ","),
+                                        round(100.0 * pt["both"] / max(now["cited_by"], 1)),
+                                        " · weight %.1f" % pt["support"] if weighted else ""))
     L.append("")
     for lin in shown:                     # one collapsed description per sub-cluster lineage in the table
         lab = label_of(db, lin)
@@ -991,7 +1062,7 @@ def case_tex(ref, esc, view=NOTE_VIEW, top=8, year=None):
     rows = [r for r in (summary(ref, db, top) or []) if r["home"]]
     if not rows:
         return ""
-    year = year or time.localtime().tm_year
+    year = newest_full_slice(db, year)
     full = [r for r in rows if r["slice"] + WIDTH - 1 < year] or rows
     now = full[-1]
     partial = lambda s: s + WIDTH - 1 >= year
@@ -1119,14 +1190,18 @@ def case_tex(ref, esc, view=NOTE_VIEW, top=8, year=None):
                "%s\\end{tabular}\\par}\\end{minipage}\\par" % "\n".join(tr))
 
     # ---- partners
-    pts = sorted(now["partners"], key=lambda p: -p["support"])
+    pts = sorted(now["partners"], key=lambda p: -p["both"])
     if pts:
-        cells = ["%s & %s & %d\\%% \\\\" % (E(p["name"], 75), format(p["support"], ","),
-                                         round(100.0 * p["support"] / max(now["cited_by"], 1))) for p in pts]
+        weighted = any(p["both"] != p["support"] for p in pts)      # as in case_md: the count, then the weight
+        cells = ["%s & %s & %d\\%%%s \\\\" % (E(p["name"], 75), format(p["both"], ","),
+                                           round(100.0 * p["both"] / max(now["cited_by"], 1)),
+                                           " & %.1f" % p["support"] if weighted else "") for p in pts]
         out.append("\\vspace{5pt}\\textbf{Usually cited with, %s.} {\\footnotesize Decisions citing both, and their share "
-                   "of the %s decisions citing this case.}\\par\\vspace{2pt}{\\scriptsize\\setlength{\\tabcolsep}{3pt}"
-                   "\\noindent\\begin{tabular}{@{}p{0.6\\linewidth} r r@{}}%s\\end{tabular}\\par}" % (
-                       lab(now["slice"]), format(now["cited_by"], ","), "\n".join(cells)))
+                   "of the %s decisions citing this case%s.}\\par\\vspace{2pt}{\\scriptsize\\setlength{\\tabcolsep}{3pt}"
+                   "\\noindent\\begin{tabular}{@{}p{0.6\\linewidth} r r%s@{}}%s\\end{tabular}\\par}" % (
+                       lab(now["slice"]), format(now["cited_by"], ","),
+                       "; then the pair's weight, which also counts citations in one sentence" if weighted else "",
+                       " r" if weighted else "", "\n".join(cells)))
     # ---- what the sub-clusters are
     notes = [label_of(db, l) for l in shown]
     notes = [n for n in notes if n]
@@ -1399,7 +1474,7 @@ def crawl_set(ref, view=NOTE_VIEW, top=60, scope="current", year=None):
     rows = db.execute("SELECT slice, cl, sub FROM nodes WHERE ref=? AND cl > 0 ORDER BY slice", (ref,)).fetchall()
     if not rows:
         return None
-    year = year or time.localtime().tm_year
+    year = newest_full_slice(db, year)
     full = [r for r in rows if r[0] + WIDTH - 1 < year] or rows
 
     def unit(s, cl, sb):
@@ -1460,7 +1535,7 @@ def cmd_build(args):
         keep = np.isin(np.asarray(lvl)[ci_np], codes)
         ci_all, cd_all, y_all = ci_np[keep], np.asarray(cd_all)[keep], np.asarray(y_all)[keep]
         print("courts %s: %s of %s citing edges kept" % (tag, format(int(keep.sum()), ","), format(len(keep), ",")))
-    db = out_db()
+    db = out_db(upgrade=True)
     p = params_of(args)
     p["courts"] = tag
     if getattr(args, "weight", None):                # binary builds keep their old params (no rebuild)
@@ -1470,7 +1545,10 @@ def cmd_build(args):
         if args.mix is not None:
             p["mix"] = args.mix
     yv = np.asarray(y_all)
-    first, last = int(yv[yv >= 1700].min()), int(yv.max())     # below 1700 = junk dates (see prep)
+    yv = yv[yv >= 1700]                                         # below 1700 = junk dates (see prep)
+    if not len(yv):                                             # e.g. --courts matching no citing decision
+        sys.exit("no citing decisions with a usable year%s; nothing to build" % (" under --courts %s" % tag if codes else ""))
+    first, last = int(yv.min()), int(yv.max())
     every = list(range(first - first % WIDTH, last + 1, WIDTH))
     picks = [int(x) - int(x) % WIDTH for x in args.slices.split(",")] if args.slices else every
     print("slices %s to %s; parameters %s" % (label(picks[0]), label(picks[-1]), json.dumps(p, sort_keys=True)))
@@ -1495,10 +1573,17 @@ def cmd_build(args):
     db.commit()
 
 
-def need_db():
+def need_db(write=False):
+    """The current view's results, read-only unless write (areas, labels): a read command never
+    upgrades or drops anything, and never locks a running build. A schema mismatch exits."""
     if not COCITE_DB.exists():
         sys.exit("No %s yet: ./cocite.py prep, then ./cocite.py build" % COCITE_DB)
-    return out_db()
+    if write:
+        return out_db()
+    db = sqlite3.connect("file:%s?mode=ro" % COCITE_DB, uri=True, timeout=60)
+    if (meta(db, "schema") or "1") != SCHEMA_VERSION:
+        schema_exit(db)
+    return db
 
 
 def name(db, ref):
@@ -1556,13 +1641,14 @@ def summary(ref, db=None, top=8):
     out = []
     for s, n, k, W, sb in db.execute("SELECT slice, n, cl, weight, sub FROM nodes WHERE ref=? ORDER BY slice", (ref,)).fetchall():
         mem = db.execute("SELECT cl, home, share FROM members WHERE slice=? AND ref=? ORDER BY share DESC", (s, ref)).fetchall()
-        parts = db.execute("SELECT partner, support, lift, cosine FROM partners WHERE slice=? AND ref=? "
+        parts = db.execute("SELECT partner, support, lift, cosine, binary FROM partners WHERE slice=? AND ref=? "
                            "ORDER BY cosine DESC LIMIT ?", (s, ref, top)).fetchall()
         out.append({"slice": s, "label": label(s), "cited_by": n, "home": k if k > 0 else None,
                     "sub": {"code": sb, "title": cl_title(db, s, sb, "sub")} if sb and sb > 0 else None,
                     "clusters": [{"cl": c, "title": cl_title(db, s, c), "home": bool(h), "share": round(sh, 3)} for c, h, sh in mem],
-                    "partners": [{"ref": pr, "name": name(db, pr), "support": su, "lift": round(li, 1), "cosine": round(co, 3)}
-                                 for pr, su, li, co in parts]})
+                    # support = the view's pair weight; both = decisions citing both (= support in a binary view)
+                    "partners": [{"ref": pr, "name": name(db, pr), "support": su, "both": bn if bn is not None else su,
+                                  "lift": round(li, 1), "cosine": round(co, 3)} for pr, su, li, co, bn in parts]})
     return out or None
 
 
@@ -1584,7 +1670,8 @@ def cmd_case(args):
             if c["home"] and r["sub"] and r["sub"]["code"] % 1000:
                 print("    sub         %s" % r["sub"]["title"])
         for pt in r["partners"]:
-            print("      with %-60s support %5d  lift %6.1f  cosine %.3f" % (pt["name"][:60], pt["support"], pt["lift"], pt["cosine"]))
+            print("      with %-60s both %5d  weight %7.1f  lift %6.1f  cosine %.3f" % (
+                pt["name"][:60], pt["both"], pt["support"], pt["lift"], pt["cosine"]))
 
 
 def cmd_cluster(args):
@@ -1690,7 +1777,7 @@ def cmd_together(args):
         sys.exit("give two or more --cite / --cluster")
     for r in refs:
         print("  %s" % name(db, r))
-    ci, cd, y, _, lvl = load_cache()
+    ci, cd, y, _, lvl = load_cache(view=db)
     codes, _tag = parse_courts(args.courts)
     if codes:
         keep = np.isin(np.asarray(lvl)[np.asarray(ci)], codes)
@@ -1727,9 +1814,9 @@ def cmd_together(args):
 
 def cmd_areas(args):
     import igraph as ig
-    db = need_db()
+    db = need_db(write=True)
     t0 = time.time()
-    ci_all, cd_all, y_all, _, lvl = load_cache()
+    ci_all, cd_all, y_all, _, lvl = load_cache(view=db)
     built = db.execute("SELECT slice, params FROM slices ORDER BY slice").fetchall()
     if not built:
         sys.exit("no slices built")
@@ -1751,7 +1838,7 @@ def cmd_areas(args):
         sel = order[lo:hi]
         if not len(sel):
             continue
-        refs, n, N, skipped, ea, eb, es, mc = slice_pairs(ci_np[sel], cd_np[sel], p)
+        refs, n, N, skipped, ea, eb, es, mc, _ = slice_pairs(ci_np[sel], cd_np[sel], p)
         if not len(ea):
             continue
         lin = np.array([lin_of.get((s, int(r)), (0, 0))[0] for r in refs], np.int64)
@@ -1834,7 +1921,8 @@ def cmd_areas(args):
         if not gold:
             sys.exit("no benchmark groups matched lineages here (%s)" % args.gold)
         print("benchmark: %d groups, %d lineages" % (len(set(gold.values())), len(gold)))
-        print("%-10s %7s %7s %7s %7s %7s %8s %7s" % ("method", "gamma", "shrink", "areas5+", "largest", "F1", "precis.", "recall"))
+        print("%-10s %7s %7s %7s %7s %7s %8s %7s %8s %8s" % ("method", "gamma", "shrink", "areas5+", "largest", "F1", "precis.",
+                                                             "recall", "gold.med", "nongold"))
         for spec in args.grid.split(";"):
             method, _, rest = spec.partition(":")
             gammas, _, shr = rest.partition("@")
@@ -1844,8 +1932,11 @@ def cmd_areas(args):
                     m0 = np.array(run(gamma, args.seed, gg, method).membership)
                     sz = sorted(np.bincount(m0).tolist(), reverse=True)
                     f1, pr, rc = gold_score(m0, gold)
-                    print("%-10s %7.3g %7.3g %7d %7d %7.3f %8.3f %7.3f" % (method, gamma, shrink, sum(1 for z in sz if z >= 5),
-                                                                       sz[0], f1, pr, rc), flush=True)
+                    gmed, ngs = gold_extent(m0, gold)
+                    print("%-10s %7.3g %7.3g %7d %7d %7.3f %8.3f %7.3f %8.0f %7.0f%%" % (
+                        method, gamma, shrink, sum(1 for z in sz if z >= 5), sz[0], f1, pr, rc, gmed, 100 * ngs), flush=True)
+        print("gold.med = median size (lineages) of the areas holding benchmark lineages; nongold = share of those "
+              "areas' lineages not in the benchmark (F1 is blind to both)")
         return
 
     if args.sweep:
@@ -1930,8 +2021,8 @@ def cmd_areas(args):
         inside = (loc[ka] >= 0) & (loc[kb] >= 0) & (ka != kb)
         la, lb, lw = loc[ka[inside]], loc[kb[inside]], kw[inside]
         sm, sq = leiden(len(mem), la, lb, lw, p_split)
-        m0, sd0 = null_q(len(mem), la, lb, lw, p_split, args.nulls)
-        verdict = sq > m0 and (sq - m0) >= args.sub_z * max(sd0, 1e-4)
+        m0, sd0, mx0 = null_q(len(mem), la, lb, lw, p_split, args.nulls)
+        verdict = sq > mx0 and (sq - m0) >= args.sub_z * max(sd0, 1e-4)   # beats every null, as in build_slice
         print("  split test, area %d (%d lineages): modularity %.3f vs %.3f +/- %.3f rewired -> %s" % (
             ar, len(mem), sq, m0, sd0, "split" if verdict else "kept whole"), flush=True)
         if not verdict:
@@ -1989,7 +2080,9 @@ def cmd_areas(args):
         gold = load_gold(db, args.gold, idx)
         if gold:
             f1, pr, rc = gold_score(memb, gold)
-            print("benchmark (this partition): F1 %.3f, precision %.3f, recall %.3f" % (f1, pr, rc))
+            gmed, ngs = gold_extent(memb, gold)
+            print("benchmark (this partition): F1 %.3f, precision %.3f, recall %.3f; areas holding benchmark lineages: "
+                  "median %d lineages, %.0f%% of them not in the benchmark" % (f1, pr, rc, gmed, 100 * ngs))
     if LABELS.exists():
         match_labels(db)
     show_areas(db, args.top)
@@ -2033,6 +2126,16 @@ def gold_score(memb, gold):
     pr = tp / (tp + fp) if tp + fp else 0.0
     rc = tp / (tp + fn) if tp + fn else 0.0
     return (2 * pr * rc / (pr + rc) if pr + rc else 0.0), pr, rc
+
+
+def gold_extent(memb, gold):
+    """What pairwise F1 cannot see: it is scored over benchmark lineages only, so an area that swallowed
+    thousands of unlabelled lineages still has perfect precision. (median size of the areas holding a
+    benchmark lineage, share of those areas' lineages that are not in the benchmark)."""
+    sz = np.bincount(memb)
+    sizes = [int(sz[a]) for a in {int(memb[i]) for i in gold}]
+    tot = sum(sizes)
+    return (float(np.median(sizes)) if sizes else 0.0), ((tot - len(gold)) / tot if tot else 0.0)
 
 
 def area_of(db, lineage):
@@ -2285,7 +2388,7 @@ def family_parents(db):
 
 def family_of(db, ref, year=None):
     """The cluster lineage a case sits in, in its newest complete slice."""
-    year = year or time.localtime().tm_year
+    year = newest_full_slice(db, year)
     rows = db.execute("SELECT n.slice, c.lineage FROM nodes n JOIN clusters c ON c.slice = n.slice AND c.cl = n.cl "
                       "WHERE n.ref = ? AND n.cl > 0 ORDER BY n.slice", (ref,)).fetchall()
     full = [r for r in rows if r[0] + WIDTH - 1 < year] or rows
@@ -2406,11 +2509,11 @@ def cmd_labels(args):
                        encoding="utf-8")
         tmp.replace(LABELS)
         print("labels: %d new, %d in %s" % (n_new, len(by_key), LABELS.name))
-        match_labels(need_db())
+        match_labels(need_db(write=True))
     elif args.action == "match":
-        match_labels(need_db())
+        match_labels(need_db(write=True))
     elif args.action == "check":
-        db = need_db()
+        db = need_db(write=True)                     # match_labels rewrites label_map and label_status
         match_labels(db, quiet=True)
         labs = {lab["key"]: lab for lab in load_labels()}
         rows = db.execute("SELECT key, level, lineage, jaccard, status FROM label_status ORDER BY status, jaccard").fetchall()
@@ -2489,7 +2592,7 @@ def main():
     p.add_argument("--split-over", dest="split_over", type=int, default=DEFAULTS["split_over"],
                    help="try to split every cluster at least this big (default %(default)s)")
     p.add_argument("--sub-z", dest="sub_z", type=float, default=DEFAULTS["sub_z"],
-                   help="a split must beat rewired copies by this many standard deviations (default %(default)s)")
+                   help="a split must beat every rewired copy, and their mean by this many standard deviations (default %(default)s)")
     p.add_argument("--nulls", type=int, default=DEFAULTS["nulls"],
                    help="rewired copies per split test (default %(default)s)")
     p.add_argument("--carry", type=float, default=0.2,

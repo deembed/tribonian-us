@@ -35,12 +35,6 @@ CONTROL_B = ["17 U.S. 316", "367 U.S. 643", "388 U.S. 1", "381 U.S. 479", "476 U
              "556 U.S. 662", "477 U.S. 242", "554 U.S. 570", "576 U.S. 644"]
 STRAT_PER_DECADE = 25
 FIRST_PARTY = False        # second parties ("Arizona", "Wainwright") match the wrong things; the short name is enough
-STATES = {"alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "florida", "georgia",
-          "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts",
-          "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "new hampshire", "new jersey",
-          "new mexico", "new york", "north carolina", "north dakota", "ohio", "oklahoma", "oregon", "pennsylvania", "rhode island",
-          "south carolina", "south dakota", "tennessee", "texas", "utah", "vermont", "virginia", "washington", "west virginia",
-          "wisconsin", "wyoming"}
 
 
 def lookup(con, cite):
@@ -57,7 +51,7 @@ def lookup(con, cite):
 def score_names(case):
     """Names used at score time: the cached short name (first entry), minus states and stop words."""
     ns = case["names"][:1]
-    return [n for n in ns if n.lower() not in STATES and n.lower() not in cm.NAME_STOP]
+    return [n for n in ns if n.lower() not in cm.STATES and n.lower() not in cm.NAME_STOP]
 
 
 def names_for(con, cid):
@@ -67,7 +61,7 @@ def names_for(con, cid):
     first = (full or "").split(" v. ")[0] if " v. " in (full or "") else ""
     for n in [short, first] if FIRST_PARTY else [short]:
         n = re.sub(r",.*$|\bet al\.?$", "", (n or "")).strip()
-        if n and len(n) >= 3 and n.lower() not in cm.NAME_STOP and n.lower() not in STATES and len(n.split()) <= 3 and n not in out:
+        if n and len(n) >= 3 and n.lower() not in cm.NAME_STOP and n.lower() not in cm.STATES and len(n.split()) <= 3 and n not in out:
             out.append(n)
     return out[:3]
 
@@ -91,12 +85,12 @@ def collect_one(con, cite):
     above = lambda r: rank(r) >= cm.RANK[my_level] if my_level != "other" else cm.level_of(r[3], r[4]) == "supreme"
     newest = sorted(rows, key=lambda r: r[2] or "", reverse=True)
     pick = {}
-    for r in [x for x in newest if above(x)][:1500]:
+    for r in [x for x in newest if above(x)][:cm.GOODLAW_MAX]:
         pick.setdefault(r[0], [r, set()])[1].add("above")
-    for r in newest[:500]:
+    for r in newest[:cm.GOODLAW_RECENT]:
         pick.setdefault(r[0], [r, set()])[1].add("newest")
     by_decade = {}
-    for r in newest[500:]:
+    for r in newest[cm.GOODLAW_RECENT:]:
         by_decade.setdefault((r[2] or "0000")[:3], []).append(r)
     for d, rs in by_decade.items():
         for r in rs[::max(1, len(rs) // STRAT_PER_DECADE)][:STRAT_PER_DECADE]:
@@ -151,78 +145,15 @@ def collect():
 WEAK_RE = re.compile(r"\b(questioned|criticized|called into (?:serious )?(?:question|doubt)|"
                      r"declin\w+ to (?:follow|extend)|no longer (?:good law|valid|followed)|"
                      r"limited (?:to its facts|by)|undermined|eroded)", re.I)
-V_PASSIVE = r"overruled|abrogated|superseded|rev'd|reversed|vacated|disapproved"
-V_MORE = V_PASSIVE + r"|overturned|repudiated|abandoned"
-HIST_TAIL = r"(?=\s*(?:by\b|in\b|on\b|sub\b|as\b|[,;.)\]]|$))"
-
-
-def make(rs):
-    """Compile a ruleset dict into its regexes."""
-    verbs = rs["verbs"]
-    c = dict(rs)
-    c["anchored"] = re.compile(r"^(?:\s*,\s*(?:at\s+)?\d[\d\s,–-]*)?(?:\s*,\s*\d+\s+[A-Z][\w. ]{1,12}\s+\d+(?:,\s*\d+)?)*"
-                               r"(?:\s*\([^()]{0,80}\))?\s*" + (r"[,;(]\s*" if rs.get("sep") else r"[,;]?\s*") +
-                               "(" + verbs + ")" + HIST_TAIL, re.I)
-    c["is_over"] = re.compile((r"^(?:\s*,\s*(?:at\s+)?\d[\d\s,–-]*)?(?:\s*\([^()]{0,80}\))?\s*,?\s*(?:which\s+|that\s+)?"
-                               if rs.get("tight_is") else r"^[^.;]{0,60}?\b") + r"(?:is|are|was|were|has been|have been)\s+(?:hereby\s+|now\s+|effectively\s+|"
-                              r"implicitly\s+|expressly\s+)?(" + verbs + r"|no longer good law)\b(?!\s+(?:in part|on other))", re.I)
-    return c
-
-
-def name_rxs(c, names):
-    out = []
-    nverbs = "|".join(v for v in c["verbs"].split("|") if v not in ("rev'd", "reversed", "vacated"))
-    for n in names:
-        q = re.escape(n)
-        out.append(("passive", re.compile(r"\b%s\b(?:[^.;]|(?<=\bv)\.){0,60}?\b(?:is|are|was|were|has been|have been|stands)\s+(?:hereby\s+|now\s+|"
-                                          r"therefore\s+|accordingly\s+|expressly\s+|effectively\s+)?(%s)\b(?!\s+(?:in part|on other))"
-                                          % (q, nverbs + ("|rejected" if c.get("rejected") else "")))))
-        out.append(("we", re.compile(r"\b(?:we|today we|we now|we hereby|the Court|this Court|the Supreme Court)\s+(?:\w+\s+){0,2}"
-                                     r"(overrule[sd]?|repudiate[sd]?|overturn(?:ed|s)?)\s+%s\b" % q, re.I)))
-        if c.get("ing_name"):
-            out.append(("ing", re.compile(r"\((overruling|abrogating|overturning|repudiating)\s+(?:in part\s+)?%s\b" % q)))
-    return out
-
-
-SENT_HYPO_RE = re.compile(r"\b(unless|until|if|whether|should|would|will|shall|urg\w*|ask\w*|invit\w*|predict\w*|may|might|could|"
-                          r"argu\w*|contend\w*|claim\w*|suggest\w*|assert\w*|insist\w*|maintain\w*|disagree\w*)\b", re.I)
 
 
 def classify(c, before, after):
-    hit = c["anchored"].match(after) or c["is_over"].match(after) or cm.OVERRULE_HERE_RE.search(before)
-    if hit and c.get("sent_guard"):
-        b, a = cm.sentence_window(before, after)
-        if SENT_HYPO_RE.search(b) or SENT_HYPO_RE.search(after[:hit.start()]):
-            hit = None
-    if hit:
-        return ("other grounds" if cm.OTHER_GROUNDS_RE.match(after[hit.end():]) else "strong"), hit.group(1).lower()
-    b, a = cm.sentence_window(before, after)
-    if c.get("weak_tight"):             # near the citation, not negated, not inside a quotation
-        b, a = b[-80:], a[:80]
-        for q in (b, a):
-            q2 = re.sub(r"[“\"][^”\"]*[”\"]", " ", q)
-            hit = WEAK_TIGHT_RE.search(q2)
-            if hit and not re.search(r"\b(not|never|no|nor)\b[^.;]{0,40}$", q2[:hit.start()]):
-                return "weak", hit.group(1).lower()
-        return None, None
-    hit = WEAK_RE.search(b + " \x00 " + a)
+    """casemap.classify, except that rulesets without weak_tight (R0-R8) take their softer words from WEAK_RE."""
+    k, w = cm.classify(c, before, after)
+    if c.get("weak_tight") or k in ("strong", "other grounds"):
+        return k, w
+    hit = WEAK_RE.search(" \x00 ".join(cm.sentence_window(before, after)))
     return ("weak", hit.group(1).lower()) if hit else (None, None)
-
-
-WEAK_TIGHT_RE = re.compile(r"\b(questioned|criticized|called into (?:serious )?(?:question|doubt)|declin\w+ to (?:follow|extend)|"
-                           r"no longer (?:good law|valid|followed)|limited to its facts|eroded)", re.I)
-
-
-def other_case(s, case, m):
-    """True when the name in this match is followed by 'v. <someone else>': a different case."""
-    parties = [x.strip().lower() for x in case["name"].split(" v. ")]
-    if len(parties) < 2:
-        return False
-    for n in score_names(case):
-        for k in re.finditer(r"\b%s\s+v\.\s+([A-Z][\w'-]+)" % re.escape(n), s[max(0, m.start() - 5):m.end() + 60]):
-            if k.group(1).lower() not in re.findall(r"[\w'-]+", parties[1]):
-                return True
-    return False
 
 
 def evaluate(case, rs):
@@ -234,7 +165,9 @@ def evaluate(case, rs):
         return st, y, r, ev
     c = rs["_c"]
     reads = [o for o in case["ops"] if set(o["why"]) & set(rs["read"])]
-    nrx = name_rxs(c, score_names(case)) if rs.get("names") else []
+    parties = [x.strip().lower() for x in case["name"].split(" v. ")]
+    names = score_names(case)
+    nrx = cm.name_rxs(c, names) if rs.get("names") else []
     ev, seen = [], set()
     for o in reads:
         found = []
@@ -242,7 +175,7 @@ def evaluate(case, rs):
             for s in o["sents"]:
                 for m in rx.finditer(s):
                     pre = s[max(0, m.start() - 60):m.start()]
-                    if other_case(s, case, m):
+                    if cm.other_case(s, parties, names, m):
                         continue
                     if kind_rx != "passive" and cm.HYPOTHETICAL_RE.search(pre):
                         continue
@@ -250,7 +183,7 @@ def evaluate(case, rs):
                         continue
                     if c.get("sent_guard"):
                         sent = re.split(cm.SENTENCE_END, s[:m.start()])[-1] + s[m.start():m.end()]
-                        if SENT_HYPO_RE.search(sent):
+                        if cm.SENT_HYPO_RE.search(sent):
                             continue
                     found.append(("strong", m.group(1).lower(), s))
                     break
@@ -284,8 +217,8 @@ def evaluate(case, rs):
     return status, yellow, red, ev
 
 
-BASE = {"verbs": V_PASSIVE, "names": True, "ing_name": False, "read": ["above", "newest"], "red_above": 1, "red_lower": 2}
-R3 = dict(BASE, sent_guard=True, sep=True, verbs=V_MORE, ing_name=True, rejected=True)
+BASE = {"verbs": cm.V_PASSIVE, "names": True, "ing_name": False, "read": ["above", "newest"], "red_above": 1, "red_lower": 2}
+R3 = dict(BASE, sent_guard=True, sep=True, verbs=cm.V_MORE, ing_name=True, rejected=True)
 RULESETS = {
     "R0 current (v4)":                           dict(BASE),
     "R1 sentence guard (unless/will/urge...)":   dict(BASE, sent_guard=True),
@@ -299,7 +232,7 @@ RULESETS = {
 }
 RULESETS["casemap.py now (= R9)"] = dict(cm.RULES, live=True)
 for rs in RULESETS.values():
-    rs["_c"] = make(rs)
+    rs["_c"] = cm.compile_rules(rs)
 
 
 def load_set(pairs, controls):
