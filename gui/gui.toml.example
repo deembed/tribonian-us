@@ -20,3 +20,6 @@ obsidian_cases_dir = "08-Reference/Cases"
 # SSD makes it fast:
 # search_db = "/path/to/ssd/search.sqlite"
 # main_db = "/path/to/courtlistener/courtlistener.sqlite"
+
+# Interpreter for Build on the case page (runs casemap.py / case2md.py in repo_dir)
+# python = "python3"

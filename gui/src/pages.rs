@@ -691,7 +691,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             ui.heading(&c.name);
         }
     }
-    ui.label(format!("{} {}", c.cite, c.year.map(|y| format!("({y})")).unwrap_or_default()));
+    ui.label(format!("{} {}", c.cite, c.year.map(|y| format!("({y})")).unwrap_or_default()).trim());
     let court = entry.as_ref().map(|e| e.court.clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| c.court.clone());
     if !court.is_empty() {
         ui.weak(format!("court: {court}"));
@@ -726,7 +726,25 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             ui.weak(if n.folder.is_empty() { "md-cases/".into() } else { format!("md-cases/{}/", n.folder) });
         }
         None => {
-            ui.weak("No note built for this case (building from here comes in v2).");
+            ui.weak("No note built for this case.");
+        }
+    });
+    // Build: the repo's own scripts, output in the log panel at the bottom
+    ui.horizontal(|ui| {
+        let label = if note.is_some() { "Rebuild note and PDF" } else { "Build note and PDF" };
+        let busy = app.job.is_some();
+        let r = ui.add_enabled(!busy, egui::Button::new(label)).on_hover_text(format!(
+            "runs ./casemap.py get --cluster {0} (only if the case has no file yet), then ./case2md.py build \
+             on its case file (writes cases/, md-cases/, pdf/ and the case profile with good law)",
+            c.r#ref
+        ));
+        let r = if busy { r.on_disabled_hover_text("a build is running") } else { r };
+        if r.clicked() {
+            let title = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
+            app.start_build(c.r#ref, title);
+        }
+        if note.is_some() {
+            ui.weak("sync_vault.sh / sync_remarkable.py still copy it to Obsidian and the tablet");
         }
     });
 
@@ -754,7 +772,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             }
         });
     } else {
-        ui.weak("Good law: not computed (casemap.py goodlaw writes it).");
+        ui.weak("Good law: not computed yet (a build computes it).");
     }
     ui.add_space(8.0);
 
@@ -936,11 +954,41 @@ fn search_side(app: &mut App, ui: &mut Ui) {
         Mode::Name => "Every word must match; the last one matches as a prefix (\"chev\" finds Chevron). \
                        A citation such as 463 U.S. 29 is looked up as a citation.",
         Mode::Parenthetical => "Searches what later courts wrote about a case in their parentheticals. \
-                                Use \"quotes\" for a phrase. Cases are ranked by how many of the best-matching \
-                                parentheticals describe them.",
+                                Use \"quotes\" for a phrase. Cases are ranked by how many matching \
+                                parentheticals describe them, then by how often they are cited.",
     });
     ui.add_space(6.0);
     ui.weak("The index is search.sqlite (casedb.py). On the HDD a first search can take seconds; later ones are fast.");
+    if !app.search_history.is_empty() {
+        ui.separator();
+        ui.strong("Recent searches");
+        let current = match app.current() {
+            Page::Search { query, mode } => Some((query.clone(), *mode)),
+            _ => None,
+        };
+        let mut go = None;
+        egui::ScrollArea::vertical().id_salt("recent").auto_shrink([false, false]).show(ui, |ui| {
+            for (q, m) in &app.search_history {
+                ui.horizontal(|ui| {
+                    let here = current.as_ref() == Some(&(q.clone(), *m));
+                    let text = if here { RichText::new(q).strong() } else { RichText::new(q) };
+                    if ui.link(text).clicked() {
+                        go = Some(Page::Search { query: q.clone(), mode: *m });
+                    }
+                    ui.weak(match m {
+                        Mode::Name => "names",
+                        Mode::Parenthetical => "parentheticals",
+                    });
+                    if app.search_cache.contains_key(&Page::Search { query: q.clone(), mode: *m }) {
+                        ui.weak("·").on_hover_text("results kept: opens instantly");
+                    }
+                });
+            }
+        });
+        if go.is_some() {
+            app.goto = go;
+        }
+    }
 }
 
 /// Draw text with the \u{1}…\u{2} match markers from FTS5 snippet() in bold.

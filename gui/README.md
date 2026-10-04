@@ -26,3 +26,7 @@ cargo run --release
   such as `463 U.S. 29`, or Parentheticals (what later courts said a case stands for, ranked by how many
   parentheticals describe it). Uses `search.sqlite` and `courtlistener.sqlite` from `bulk_dir` unless
   `search_db` / `main_db` say otherwise. Tests: `cargo test` (query building, citation detection).
+- Build on the case page runs `casemap.py get --cluster N` then `case2md.py build cases/<file>` in `repo_dir`
+  (interpreter: `python` in gui.toml), streaming output into a log panel at the bottom. A build only counts
+  as done when case2md prints its `wrote pdf/...` line, as in build_all.sh. Afterwards the app rereads the
+  case files and reloads the page. One build at a time.

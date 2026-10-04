@@ -6,6 +6,7 @@ mod cases;
 mod config;
 mod db;
 mod graph;
+mod jobs;
 mod model;
 mod pages;
 mod search;
@@ -62,6 +63,13 @@ pub struct App {
     pub search_mode: search::Mode,
     /// This session's searches, newest first, without repeats.
     pub search_history: Vec<(String, search::Mode)>,
+    pub show_history: bool,
+    /// The running Build, if any, its output, and how the last one ended.
+    pub job: Option<jobs::Running>,
+    pub job_log: Vec<String>,
+    pub job_last: Option<(String, bool)>,
+    pub show_log: bool,
+    egui_ctx: Option<egui::Context>,
 }
 
 impl App {
@@ -96,6 +104,12 @@ impl App {
             search_input: String::new(),
             search_mode: search::Mode::Name,
             search_history: Vec::new(),
+            show_history: false,
+            job: None,
+            job_log: Vec::new(),
+            job_last: None,
+            show_log: false,
+            egui_ctx: Some(cc.egui_ctx.clone()),
         };
         match Config::load() {
             Ok((cfg, path)) => {
@@ -138,6 +152,80 @@ impl App {
         self.errors.clear();
         self.search_cache.clear();
         let _ = tx.send(db::Req::Open(self.views[i].path.clone()));
+    }
+
+    /// Build (or rebuild) a case's note and PDF with the repo's scripts; output goes to the log panel.
+    pub fn start_build(&mut self, r: i64, title: String) {
+        let (Some(cfg), None) = (&self.cfg, &self.job) else { return };
+        let ctx = self.egui_ctx.clone();
+        self.job_log.clear();
+        self.job_last = None;
+        self.show_log = true;
+        self.job = Some(jobs::build_case(cfg.python.clone(), cfg.repo_dir.clone(), r, title, move || {
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        }));
+    }
+
+    fn poll_job(&mut self) {
+        let Some(job) = &self.job else { return };
+        let mut done = None;
+        for m in job.rx.try_iter() {
+            match m {
+                jobs::Msg::Line(l) => {
+                    self.job_log.push(l);
+                }
+                jobs::Msg::Done { ok } => done = Some(ok),
+            }
+        }
+        if self.job_log.len() > 5000 {
+            let cut = self.job_log.len() - 5000;
+            self.job_log.drain(..cut);
+        }
+        if let Some(ok) = done {
+            let job = self.job.take().unwrap();
+            self.job_last = Some((job.title, ok));
+            // the scripts changed notes, PDFs and profiles: reread the files, reload the pages
+            if let Some(cfg) = &self.cfg {
+                self.files = CaseFiles::load(cfg);
+            }
+            self.cache.clear();
+            self.errors.clear();
+            let p = self.current().clone();
+            self.request(&p);
+        }
+    }
+
+    fn log_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            match (&self.job, &self.job_last) {
+                (Some(j), _) => {
+                    ui.spinner();
+                    ui.strong(format!("Building {}", j.title));
+                }
+                (None, Some((t, true))) => {
+                    ui.colored_label(egui::Color32::from_rgb(70, 160, 90), format!("Built {t}"));
+                }
+                (None, Some((t, false))) => {
+                    ui.colored_label(egui::Color32::LIGHT_RED, format!("Build failed: {t} (see the output)"));
+                }
+                (None, None) => {
+                    ui.strong("Build output");
+                }
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.small_button("Hide").clicked() {
+                    self.show_log = false;
+                }
+            });
+        });
+        ui.separator();
+        egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false, false]).show(ui, |ui| {
+            for l in &self.job_log {
+                ui.label(egui::RichText::new(l).monospace().size(11.0));
+            }
+        });
     }
 
     pub fn slice_label(&self, s: i64) -> String {
@@ -291,51 +379,162 @@ impl App {
         }
     }
 
+    /// The section a page belongs to; a case page belongs to the section it was reached from.
+    fn section_at(&self, pos: usize) -> Section {
+        self.nav[..=pos]
+            .iter()
+            .rev()
+            .find(|p| !matches!(p, Page::Case(_)))
+            .map(|p| p.section())
+            .unwrap_or(Section::Clusters)
+    }
+
+    /// The real path to the current page: Start › … › here. Parents come from the page's data
+    /// (a sub-cluster knows its cluster, a lineage its area), so they show once it has loaded.
+    fn crumbs(&self) -> Vec<(String, Option<Page>)> {
+        let mut c: Vec<(String, Option<Page>)> = vec![("Start".into(), Some(Page::Home))];
+        let here = self.current().clone();
+        let data = self.cache.get(&here);
+        let slice = |s: i64| (self.slice_label(s), Some(Page::Slice(s)));
+        match &here {
+            Page::Home => return c,
+            Page::Areas => {}
+            Page::Area(_) => c.push(("Areas".into(), Some(Page::Areas))),
+            Page::Lineage(_) => {
+                c.push(("Areas".into(), Some(Page::Areas)));
+                if let Some(PageData::Lineage { area: Some((a, an)), .. }) = data {
+                    c.push((an.clone(), Some(Page::Area(*a))));
+                }
+            }
+            Page::Slice(_) => {}
+            Page::Cluster { slice: s, .. } => c.push(slice(*s)),
+            Page::Sub { slice: s, .. } => {
+                c.push(slice(*s));
+                if let Some(PageData::Unit { head, .. }) = data {
+                    if let Some(p) = &head.parent {
+                        c.push((format!("{} {}", p.code(&self.slice_label(p.slice)), p.name), Some(p.page())));
+                    }
+                }
+            }
+            Page::Cases => {}
+            Page::Search { .. } => {}
+            Page::Case(_) => match self.section_at(self.pos) {
+                Section::Cases => c.push(("Built cases".into(), Some(Page::Cases))),
+                Section::Search => {
+                    // back to the search the case was opened from
+                    let s = self.nav[..self.pos].iter().rev().find(|p| matches!(p, Page::Search { .. })).cloned();
+                    if let Some(s) = s {
+                        c.push((self.title_of(&s), Some(s)));
+                    }
+                }
+                _ => {
+                    let from = self.nav[..self.pos].iter().rev().find(|p| !matches!(p, Page::Case(_))).cloned();
+                    if let Some(p) = from {
+                        c.push((self.title_of(&p), Some(p)));
+                    }
+                }
+            },
+        }
+        c.push((self.title_of(&here), Some(here)));
+        c
+    }
+
+    fn history_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.heading("History");
+            if ui.small_button("Hide").clicked() {
+                self.show_history = false;
+            }
+        });
+        ui.weak("Every page visited, newest first. Click one to go back to it; Back/Forward walk this list.");
+        ui.separator();
+        let mut jump = None;
+        egui::ScrollArea::vertical().id_salt("history").auto_shrink([false, false]).show(ui, |ui| {
+            for i in (0..self.nav.len()).rev() {
+                let p = &self.nav[i];
+                let kind = match p {
+                    Page::Home => "start",
+                    Page::Areas => "areas",
+                    Page::Area(_) => "area",
+                    Page::Lineage(_) => "lineage",
+                    Page::Slice(_) => "slice",
+                    Page::Cluster { .. } => "cluster",
+                    Page::Sub { .. } => "sub-cluster",
+                    Page::Cases => "cases",
+                    Page::Case(_) => "case",
+                    Page::Search { .. } => "search",
+                };
+                let t = self.title_of(p);
+                let t = if t.chars().count() > 46 { format!("{}…", t.chars().take(45).collect::<String>()) } else { t };
+                ui.horizontal(|ui| {
+                    ui.weak(kind);
+                    let text = if i == self.pos { egui::RichText::new(t).strong() } else { egui::RichText::new(t) };
+                    if i == self.pos {
+                        ui.label(text);
+                    } else if ui.link(text).clicked() {
+                        jump = Some(i);
+                    }
+                });
+            }
+        });
+        if let Some(i) = jump {
+            self.pos = i;
+            self.arrive();
+        }
+    }
+
     fn top_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if ui.add_enabled(self.pos > 0, egui::Button::new("◀")).on_hover_text("Back (Alt+←)").clicked() {
+            if ui.add_enabled(self.pos > 0, egui::Button::new("◀")).on_hover_text("Back (Alt+Left)").clicked() {
                 self.back();
             }
             if ui
                 .add_enabled(self.pos + 1 < self.nav.len(), egui::Button::new("▶"))
-                .on_hover_text("Forward (Alt+→)")
+                .on_hover_text("Forward (Alt+Right)")
                 .clicked()
             {
                 self.forward();
             }
-            if ui.button("Start").clicked() {
-                self.goto = Some(Page::Home);
-            }
             ui.separator();
-            // breadcrumb: the last few places visited, oldest first. A run of searches shows as
-            // its last search only; the searches themselves are listed in the search panel.
-            let is_search = |p: &Page| matches!(p, Page::Search { .. });
-            let trail: Vec<usize> = (0..=self.pos)
-                .filter(|&i| !(i < self.pos && is_search(&self.nav[i]) && is_search(&self.nav[i + 1])))
-                .collect();
-            let mut jump = None;
-            for &i in &trail[trail.len().saturating_sub(6)..] {
-                let t = self.title_of(&self.nav[i]);
+            // where this page sits (not where you have been: that is the History panel)
+            let crumbs = self.crumbs();
+            let n = crumbs.len();
+            let mut go = None;
+            for (k, (t, p)) in crumbs.into_iter().enumerate() {
                 let t = if t.chars().count() > 40 { format!("{}…", t.chars().take(39).collect::<String>()) } else { t };
-                if i == self.pos {
+                if k + 1 == n {
                     ui.strong(t);
                 } else {
-                    if ui.link(t).clicked() {
-                        jump = Some(i);
+                    match p {
+                        Some(p) => {
+                            if ui.link(t).clicked() {
+                                go = Some(p);
+                            }
+                        }
+                        None => {
+                            ui.weak(t);
+                        }
                     }
                     ui.weak("›");
                 }
             }
-            if let Some(i) = jump {
-                self.pos = i;
-                let p = self.current().clone();
-                if let Page::Search { query, mode } = &p {
-                    self.search_input = query.clone();
-                    self.search_mode = *mode;
-                }
-                self.request(&p);
+            if go.is_some() {
+                self.goto = go;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if (self.job.is_some() || self.job_last.is_some())
+                    && ui.selectable_label(self.show_log, if self.job.is_some() { "Build…" } else { "Build log" }).clicked()
+                {
+                    self.show_log = !self.show_log;
+                }
+                if ui
+                    .selectable_label(self.show_history, format!("History ({})", self.nav.len()))
+                    .on_hover_text("every page visited, in order; click one to go back to it")
+                    .clicked()
+                {
+                    self.show_history = !self.show_history;
+                }
                 if let Some(t) = self.last_time {
                     ui.weak(format!("{} ms", t.as_millis()));
                 }
@@ -353,6 +552,7 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll();
+        self.poll_job();
         let ctx = ui.ctx().clone();
         if ctx.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)) {
             self.back();
@@ -366,12 +566,17 @@ impl eframe::App for App {
             ui.add_space(4.0);
         });
         // a case page keeps the side panel of the section it was reached from
-        let section = self.nav[..=self.pos]
-            .iter()
-            .rev()
-            .find(|p| !matches!(p, Page::Case(_)))
-            .map(|p| p.section())
-            .unwrap_or(Section::Clusters);
+        let section = self.section_at(self.pos);
+        if self.show_log {
+            egui::Panel::bottom("log").default_size(220.0).min_size(80.0).resizable(true).show(ui, |ui| {
+                self.log_panel(ui);
+            });
+        }
+        if self.show_history {
+            egui::Panel::right("history").default_size(300.0).min_size(200.0).max_size(500.0).show(ui, |ui| {
+                self.history_panel(ui);
+            });
+        }
         if section != Section::Home {
             egui::Panel::left("side").default_size(340.0).min_size(220.0).max_size(600.0).show(ui, |ui| {
                 pages::side_panel(self, ui, section);

@@ -26,6 +26,13 @@ pub struct Config {
     /// Used for names, citations and courts of cases the cocite views don't hold.
     #[serde(default)]
     pub main_db: Option<PathBuf>,
+    /// Interpreter for the repo's scripts (Build on the case page). Default "python3".
+    #[serde(default = "default_python")]
+    pub python: String,
+}
+
+fn default_python() -> String {
+    "python3".into()
 }
 
 fn default_view() -> String {
