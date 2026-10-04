@@ -10,6 +10,8 @@ mod jobs;
 mod model;
 mod pages;
 mod recent;
+mod scotus;
+mod scotus_page;
 mod search;
 
 use cases::CaseFiles;
@@ -42,6 +44,8 @@ pub enum QueuedJob {
     Build { quick: bool },
     /// arguments after the interpreter, e.g. casemap.py coupling --cluster N
     Script(Vec<String>),
+    /// several commands, stopping at the first failure; each with the line its success prints, if any
+    Steps(Vec<(Vec<String>, Option<String>)>),
 }
 
 impl Queued {
@@ -97,6 +101,11 @@ pub struct App {
     pub run_done: usize,
     pub run_failed: Vec<String>,
     pub show_log: bool,
+    /// cases/scotus/*.json (scotus.py fetch), and _recent.json (scotus.py recent)
+    pub dockets: Vec<scotus::Docket>,
+    pub docket_errors: Vec<String>,
+    pub recent: Result<Option<scotus::Recent>, String>,
+    pub scotus_ui: scotus_page::ScotusUi,
     egui_ctx: Option<egui::Context>,
 }
 
@@ -140,6 +149,10 @@ impl App {
             run_done: 0,
             run_failed: Vec::new(),
             show_log: false,
+            dockets: Vec::new(),
+            docket_errors: Vec::new(),
+            recent: Ok(None),
+            scotus_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
         };
         match Config::load() {
@@ -154,6 +167,8 @@ impl App {
                 app.srx = Some(srx);
                 app.views = db::list_views(&cfg.bulk_dir);
                 app.files = CaseFiles::load(&cfg);
+                app.cfg = Some(cfg.clone());
+                app.load_scotus();
                 app.view_sel = app
                     .views
                     .iter()
@@ -173,6 +188,37 @@ impl App {
             Err(e) => app.cfg_err = Some(e),
         }
         app
+    }
+
+    /// Reread scotus.py's files: at start and after every queued job.
+    pub fn load_scotus(&mut self) {
+        let Some(cfg) = &self.cfg else { return };
+        (self.dockets, self.docket_errors) = scotus::load_dockets(&cfg.cases_dir(), &cfg.repo_dir);
+        self.recent = scotus::load_recent(&cfg.cases_dir());
+    }
+
+    pub fn docket(&self, num: &str) -> Option<&scotus::Docket> {
+        self.dockets.iter().find(|d| d.number == num)
+    }
+
+    /// Queue scotus.py commands for a docket ("fetch", "build" or both, in that order) as one job.
+    /// `build` counts as done only when it prints its "wrote pdf/..." line, as for case builds.
+    pub fn enqueue_scotus(&mut self, num: &str, what: &[&str]) {
+        let steps = what
+            .iter()
+            .map(|w| (vec!["scotus.py".to_string(), w.to_string(), num.to_string()], (*w == "build").then(|| "wrote pdf/".to_string())))
+            .collect();
+        let title = format!("No. {num}: {}", what.join(" + "));
+        self.enqueue(Queued { r#ref: scotus::docket_key(num), title, job: QueuedJob::Steps(steps) });
+    }
+
+    /// Queue `scotus.py recent` (refreshes cases/scotus/_recent.json).
+    pub fn enqueue_recent(&mut self) {
+        self.enqueue(Queued {
+            r#ref: scotus::RECENT_KEY,
+            title: "Supreme Court recent activity".into(),
+            job: QueuedJob::Script(vec!["scotus.py".into(), "recent".into()]),
+        });
     }
 
     pub fn open_view(&mut self) {
@@ -236,6 +282,7 @@ impl App {
         self.job = Some(match q.job {
             QueuedJob::Build { quick } => jobs::build_case(python, repo, q.r#ref, title, quick, wake),
             QueuedJob::Script(args) => jobs::run_script(python, repo, q.r#ref, title, args, wake),
+            QueuedJob::Steps(steps) => jobs::run_steps(python, repo, q.r#ref, title, steps, wake),
         });
     }
 
@@ -264,6 +311,7 @@ impl App {
             if let Some(cfg) = &self.cfg {
                 self.files = CaseFiles::load(cfg);
             }
+            self.load_scotus();
             self.cache.clear();
             self.errors.clear();
             let p = self.current().clone();
@@ -475,6 +523,11 @@ impl App {
             Page::Search { query, .. } if query.is_empty() => "Search".into(),
             Page::Search { query, mode: search::Mode::Name } => format!("Search: {query}"),
             Page::Search { query, mode: search::Mode::Parenthetical } => format!("Parentheticals: {query}"),
+            Page::Scotus => "SCOTUS".into(),
+            Page::Docket(n) => match self.docket(n) {
+                Some(d) => format!("No. {n} {}", d.title()),
+                None => format!("No. {n}"),
+            },
             _ => self.titles.get(p).cloned().unwrap_or_else(|| "…".into()),
         }
     }
@@ -518,6 +571,8 @@ impl App {
             }
             Page::Cases => {}
             Page::Search { .. } => {}
+            Page::Scotus => {}
+            Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Case(_) => match self.section_at(self.pos) {
                 Section::Cases => c.push(("Built cases".into(), Some(Page::Cases))),
                 Section::Search => {
@@ -564,6 +619,8 @@ impl App {
                     Page::Cases => "cases",
                     Page::Case(_) => "case",
                     Page::Search { .. } => "search",
+                    Page::Scotus => "scotus",
+                    Page::Docket(_) => "docket",
                 };
                 let t = self.title_of(p);
                 let t = if t.chars().count() > 46 { format!("{}…", t.chars().take(45).collect::<String>()) } else { t };

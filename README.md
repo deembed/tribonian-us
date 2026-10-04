@@ -19,7 +19,7 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 | `cases/` | one `.json` per case with full text; `cases/recap/` for district-court dockets | `case2md.py fetch`, `casemap.py get`/`stubs` |
 | `cases/stubs/` | cases known only from the citation graph (no text yet) | `casemap.py map` |
 | `cases/unparsed/` | text fetched but not in a format `build` can read; left out of builds | `casemap.py stubs --api` |
-| `cases/scotus/` | pending Supreme Court dockets: `<docket>.json` plus `<docket>/` with the filed PDFs and their text | `scotus.py fetch` |
+| `cases/scotus/` | pending Supreme Court dockets: `<docket>.json` plus `<docket>/` with the filed PDFs and their text; `_recent.json` + `_recent/` (recent opinions, grants, orders) | `scotus.py fetch`, `scotus.py recent` |
 | `md/` | US Code notes, one per section, in `t<NN>/ch<NN>/` | `build_all.sh` |
 | `md-cases/` | case notes (full and stub); subfolders such as `FOIA/` and `Pending SCOTUS/` | `case2md.py`, `casemap.py`, `scotus.py` |
 | `md-cocite/` | co-citation notes: `Co-citation map.md`, `Areas/`, `Lineages/` | `cocite.py vault` |
@@ -138,8 +138,10 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 ./scotus.py build 25-579 --amici --appendix     # amicus briefs in the PDF too; keep the appendices
 ./scotus.py build 25-579 --depth 1 --text 1     # also case notes for the decision below and every cited case, then ./build_all.sh
 ./scotus.py build 25-579 --no-goodlaw --no-pdf  # skip the good-law check of the cited cases; skip pdflatex
+./scotus.py recent [--json] [--days 365]        # the Court's last year: opinions, grants, orders -> cases/scotus/_recent.json
 ```
 
+- **`recent`:** reads the slip-opinion pages (`opinions/slipopinion/<term>`), the Granted & Noted lists (`orders/<term>grantednotedlist.pdf`) and every order list and miscellaneous order of the last year (`orders/ordersofthecourt/<term>`, PDFs kept in `cases/scotus/_recent/`), and writes `cases/scotus/_recent.json` atomically. There is no public list of all pending cert petitions; one appears only when the Court acts on it. The GUI's SCOTUS page shows the result.
 - **`fetch`:** reads the docket's JSON feed and downloads each linked PDF (proofs of service and certificates skipped) to `cases/scotus/<docket>/`, with `pdftotext -layout` beside it. Not CourtListener, so no rate limit.
 - **`build`:** one PDF in parts: the question presented, the decision below (from the local database), the cert-stage filings, the merits filings. Notes: the docket note and one per filing, each with a Statutes cited list. Amicus notes are always written; `--amici` puts the briefs in the PDF as well. `--font`, `--style` and `--no-pdf` as for `case2md.py build`.
 - **Authorities and their status:** each filing's reporter citations resolved through the local database, and which filings share them. Two tables: *Common authorities* (one row per case both sides cite, with its good-law status and each side's mentions, plaintiff below on the left) and *Each side's own* (two columns, one per party). Status comes from `casemap.py goodlaw`, cached per case; red is a lead to check, not a holding. `--no-goodlaw` skips it (slow the first time).

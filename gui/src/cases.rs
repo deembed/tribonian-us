@@ -25,6 +25,10 @@ pub struct Note {
     pub r#ref: Option<i64>,
     pub title: String,
     pub pdf: Option<PathBuf>,
+    /// `scotus.py build` notes (docket and filing notes): the docket number from the front matter.
+    pub docket: Option<String>,
+    /// A filing note's `source`: the URL of the filed PDF, which matches the docket entry's link.
+    pub source: Option<String>,
 }
 
 #[derive(Default)]
@@ -98,6 +102,18 @@ impl CaseFiles {
                 .map(|e| if e.cite.is_empty() { e.name.clone() } else { format!("{}, {}", e.name, e.cite) })
                 .unwrap_or_else(|| stem.clone());
             let pdf = cfg.pdf_dir().join(&folder).join(format!("{stem}.pdf"));
+            // Supreme Court docket and filing notes are no cases in the index; their front matter says
+            // which docket they belong to, so View Cases can open the docket page for them
+            let (mut docket, mut source, mut title) = (None, None, title);
+            if r.is_none() && stem.starts_with("scotus-") {
+                let fm = head_matter(&p);
+                let get = |k: &str| fm.iter().find(|(x, _)| x == k).map(|(_, v)| v.clone()).filter(|v| !v.is_empty());
+                docket = get("docket");
+                source = get("source");
+                if let Some(t) = get("title") {
+                    title = t;
+                }
+            }
             folders.entry(folder.clone()).or_default().push(Note {
                 pdf: pdf.is_file().then_some(pdf),
                 stem,
@@ -105,6 +121,8 @@ impl CaseFiles {
                 path: p,
                 r#ref: r,
                 title,
+                docket,
+                source,
             });
         }
         for (f, notes) in folders.iter_mut() {
@@ -155,9 +173,45 @@ impl CaseFiles {
         out
     }
 
+    /// The notes `scotus.py build` wrote for a docket: (the docket note, the filing notes).
+    pub fn docket_notes(&self, num: &str) -> (Option<&Note>, Vec<&Note>) {
+        let mine: Vec<&Note> = self.folders.values().flatten().filter(|n| n.docket.as_deref() == Some(num)).collect();
+        let docket = mine.iter().find(|n| n.source.as_deref().is_some_and(|s| s.contains("/RSS/Cases/JSON/"))).copied();
+        let filings = mine.into_iter().filter(|n| docket.is_none_or(|d| d.path != n.path)).collect();
+        (docket, filings)
+    }
+
     pub fn count(&self) -> usize {
         self.folders.values().map(|v| v.len()).sum()
     }
+}
+
+/// The first lines of a note's YAML front matter as (key, value), quotes removed; list items skipped.
+/// Reads at most 8 KB: front matter is at the top, and filing notes run to 90 KB.
+fn head_matter(path: &Path) -> Vec<(String, String)> {
+    use std::io::Read;
+    let mut buf = Vec::new();
+    if let Ok(f) = std::fs::File::open(path) {
+        let _ = f.take(8192).read_to_end(&mut buf);
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines = text.lines();
+    let mut out = Vec::new();
+    if lines.next() != Some("---") {
+        return out;
+    }
+    for l in lines {
+        if l == "---" {
+            break;
+        }
+        if l.starts_with(' ') || l.starts_with('-') {
+            continue;
+        }
+        if let Some((k, v)) = l.split_once(':') {
+            out.push((k.trim().to_string(), v.trim().trim_matches('"').to_string()));
+        }
+    }
+    out
 }
 
 /// Open a file or URL with the desktop's default handler.

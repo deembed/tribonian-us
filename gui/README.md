@@ -10,7 +10,7 @@ cp gui.toml.example gui.toml     # then edit the paths
 cargo run --release
 ```
 
-- Start screen: View Clusters, View Cases. Search for Cases is v1; Sub-Cluster Search is TBD.
+- Start screen: View Clusters, View Cases, Search for Cases, SCOTUS. Sub-Cluster Search is TBD.
 - Back/forward: the arrow buttons or Alt+Left / Alt+Right. The breadcrumb shows the last few pages.
 - The app opens a view only if its `meta.schema` matches `db::SCHEMA` (cocite.py `SCHEMA_VERSION`);
   other views are listed greyed out. After a schema bump in cocite.py, update `db::SCHEMA` and the queries.
@@ -61,3 +61,17 @@ cargo run --release
   From the cached profile's citations per year; else CourtListener's citing count when it is 0; else, on the case page
   only and for cases cited at most 300 times, a live check of the newest citing decision. Red and yellow keep their
   colour and get a grey "dormant" tag; green or not calculated shows grey "dormant" with the reason.
+- **SCOTUS** (`src/scotus.rs`, `src/scotus_page.rs`): every docket `scotus.py fetch` saved in `cases/scotus/<docket>.json`
+  (status read from the docket's own entries, last entry, filings, whether the note/PDF is built). A docket page shows the
+  question presented (the Clerk's PDF text, else the docket note's section), the decision below (opens its case page),
+  the filings (note in Obsidian, local or web PDF; filing notes are matched by their front matter `source`), and the
+  proceedings and orders. **Fetch updates** / **Build** / **Fetch & build** queue `scotus.py fetch|build <docket>` through the
+  build queue; Build counts as done only on its `wrote pdf/...` line. "Add a docket" (side panel) takes `25-579` or
+  `No. 25-579` and queues fetch then build; applications (`25A374`) are refused, as `scotus.py fetch` can't read them.
+- **Recent activity** (SCOTUS page) reads `cases/scotus/_recent.json` from `scotus.py recent`: Decided (slip opinions),
+  Granted, awaiting decision (Granted & Noted lists), Orders (order lists; denials hidden unless asked). Each row opens a
+  fetched docket or offers Fetch & build. **Refresh** queues `scotus.py recent`. There is no public list of all pending
+  cert petitions, so the page offers the docket box instead.
+- Search for Cases (names mode) puts matching scotus.py dockets above the results: a docket number (`25-579`, `No. 25-579`)
+  or words in the case title. A docket number not fetched yet gets a Fetch & build button. In View Cases, the
+  `Pending SCOTUS/` docket and filing notes are links to their docket page.

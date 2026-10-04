@@ -47,6 +47,7 @@ pub fn side_panel(app: &mut App, ui: &mut Ui, section: Section) {
         Section::Clusters => clusters_side(app, ui),
         Section::Cases => cases_side(app, ui),
         Section::Search => search_side(app, ui),
+        Section::Scotus => crate::scotus_page::scotus_side(app, ui),
         Section::Home => {}
     }
 }
@@ -168,10 +169,25 @@ fn cases_side(app: &mut App, ui: &mut Ui) {
                                         go = Some(Page::Case(r));
                                     }
                                 }
-                                None => {
-                                    ui.add(egui::Label::new(RichText::new(&n.title).weak()).truncate())
-                                        .on_hover_text("not a case in _index.json (a docket, filing or cited-by note)");
-                                }
+                                None => match &n.docket {
+                                    // scotus.py's docket and filing notes open the docket page
+                                    Some(d) => {
+                                        let link = egui::Label::new(RichText::new(&n.title).color(ui.visuals().hyperlink_color))
+                                            .truncate()
+                                            .sense(egui::Sense::click());
+                                        let resp = ui.add(link).on_hover_text(format!("{}\nSupreme Court No. {d}: opens the docket page", n.title));
+                                        if resp.hovered() {
+                                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                        }
+                                        if resp.clicked() {
+                                            go = Some(Page::Docket(d.clone()));
+                                        }
+                                    }
+                                    None => {
+                                        ui.add(egui::Label::new(RichText::new(&n.title).weak()).truncate())
+                                            .on_hover_text("not a case in _index.json (a docket, filing or cited-by note)");
+                                    }
+                                },
                             }
                         });
                     }
@@ -191,6 +207,8 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::Home => return home(app, ui),
         Page::Cases => return cases_home(app, ui),
         Page::Search { .. } => return search_page(app, ui, &page),
+        Page::Scotus => return crate::scotus_page::scotus_home(app, ui),
+        Page::Docket(n) => return crate::scotus_page::docket_page(app, ui, n),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -239,6 +257,14 @@ fn home(app: &mut App, ui: &mut Ui) {
         ui.add_space(8.0);
         if ui.add_sized(size, egui::Button::new(RichText::new("Search for Cases").size(18.0))).clicked() {
             app.goto = Some(Page::Search { query: String::new(), mode: app.search_mode });
+        }
+        ui.add_space(8.0);
+        if ui
+            .add_sized(size, egui::Button::new(RichText::new("SCOTUS").size(18.0)))
+            .on_hover_text("Supreme Court: dockets fetched with scotus.py, recent opinions, grants and orders; add a docket by number")
+            .clicked()
+        {
+            app.goto = Some(Page::Scotus);
         }
         ui.add_space(8.0);
         ui.add_enabled(false, egui::Button::new(RichText::new("Sub-Cluster Search (draft)").size(18.0)).min_size(size))
@@ -1378,8 +1404,12 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     let Page::Search { query, mode } = page else { return };
     if query.is_empty() {
         ui.heading("Search for Cases");
-        ui.label("Type a case name, a citation, or (with Parentheticals) what a case stands for, then press Enter.");
+        ui.label("Type a case name, a citation, a Supreme Court docket number (25-579), or (with Parentheticals) what a case stands for, then press Enter.");
         return;
+    }
+    // pending Supreme Court cases aren't in the CourtListener database: match scotus.py's dockets first
+    if *mode == Mode::Name {
+        crate::scotus_page::docket_hits(app, ui, query);
     }
     let Some(res) = app.search_cache.get(page).cloned() else {
         skeleton(ui, page);

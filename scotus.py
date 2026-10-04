@@ -21,6 +21,13 @@ PDF for the tablet plus Obsidian notes, and the authorities the parties fight ov
                    casemap.py map does: full text for the first --text steps (default 1),
                    stubs beyond. Then ./build_all.sh builds their PDFs.
 
+    ./scotus.py recent [--json] [--days 365]
+        What the Court did in the last year, from its public pages -> cases/scotus/_recent.json:
+        opinions (opinions/slipopinion/<term>), cases granted review (orders/<term>grantednotedlist.pdf)
+        and the orders lists (orders/ordersofthecourt/<term>: grants, summary dispositions, denials,
+        orders in pending cases). Order PDFs are kept in cases/scotus/_recent/. There is no public
+        list of all pending petitions for certiorari; a petition appears only once the Court acts.
+
 No language model anywhere: regular expressions, text layout, set arithmetic.
 """
 import argparse, json, re, sqlite3, subprocess, sys, urllib.parse
@@ -49,8 +56,8 @@ def norm_number(s):
 
 def get(url, out=None):
     """curl, because supremecourt.gov's front end refuses some clients. -> bytes, or None on failure."""
-    cmd = ["curl", "-sSfL", "--retry", "2", "-m", "180", "-A", UA, "--", url]   # -- : a feed URL is never read as a flag
-    r = subprocess.run(cmd + (["-o", str(out)] if out else []), capture_output=True)
+    cmd = ["curl", "-sSfL", "--retry", "2", "-m", "180", "-A", UA] + (["-o", str(out)] if out else [])
+    r = subprocess.run(cmd + ["--", url], capture_output=True)   # -- : a feed URL is never read as a flag; -o must come before it
     if r.returncode:
         print("  ! %s: %s" % (url, r.stderr.decode(errors="replace").strip()[:200]))
         return None
@@ -1361,6 +1368,299 @@ def build_cmd(args):
         crawl(args, data, fs, cid)
 
 
+# ================================================================ recent activity
+# What the Court has done lately, from its own public pages (no API, no language model):
+#   decided  - the slip-opinion tables, /opinions/slipopinion/<YY>, one per term (HTML)
+#   granted  - the Granted & Noted lists, /orders/<YY>grantednotedlist.pdf (cases granted
+#              review for argument in that term, with the date granted and argued)
+#   orders   - the order lists and miscellaneous orders linked from
+#              /orders/ordersofthecourt/<YY> (PDFs): grants, summary dispositions, denials and
+#              orders in pending cases, each docket line under its section heading
+# There is no public list of every pending petition for certiorari: a petition shows up here
+# only once the Court acts on it. Term YY = October Term 20YY, which starts in October.
+# Order and list PDFs are kept in cases/scotus/_recent/ (a dated order list never changes; the
+# Granted & Noted lists do, so they are fetched again every run).
+
+RECENT_FILE = SCOTUS / "_recent.json"
+RECENT_DIR = SCOTUS / "_recent"
+RECENT_DAYS = 365
+DOCKET_RE = r"\d{2}-\d{1,5}|\d{2}A\d{1,4}|\d{1,3},?\s+ORIG\.?|\d{2}O\d{1,4}"
+TAG_RE = re.compile(r"<[^>]+>")
+TERM_END_MONTH = 10            # a term is named for the year its October starts
+
+
+def term_of(day):
+    """date -> the October Term it falls in, as two digits ('25' for Oct 2025 - Sep 2026)."""
+    y = day.year if day.month >= TERM_END_MONTH else day.year - 1
+    return "%02d" % (y % 100)
+
+
+def us_date(s):
+    """'6/30/26', '06/30/2026' -> '2026-06-30'; '' if it isn't one."""
+    m = re.search(r"\b(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})\b", s or "")
+    if not m:
+        return ""
+    y = int(m.group(3))
+    y = y + 2000 if y < 100 else y
+    try:
+        return date(y, int(m.group(1)), int(m.group(2))).isoformat()
+    except ValueError:
+        return ""
+
+
+def cell_text(html):
+    """Inner HTML of a table cell -> its text, entities decoded, spaces collapsed."""
+    import html as h
+    return " ".join(h.unescape(TAG_RE.sub(" ", html)).split())
+
+
+def first_docket(s):
+    """The first docket number in a string, normalized ('25-579', '25A374', '22O141'); '' if none."""
+    m = re.search(DOCKET_RE, s or "")
+    if not m:
+        return ""
+    d = m.group(0)
+    o = re.match(r"(\d+),?\s+ORIG", d)
+    return "%s Orig." % o.group(1) if o else d
+
+
+def parse_slipopinions(html, base, term):
+    """A slip-opinion page -> [{date, docket, dockets, name, pdf, justice, citation, term}].
+    Every <tr> of every table is read the same way, by what its cells look like rather than by
+    column position (the Court adds and drops columns, e.g. 'Revised'): the date is the first cell
+    shaped like M/D/YY, the docket the first cell holding a docket number, the name and PDF the
+    first link to an opinion PDF that is not a revision ('_diff_'), the citation the last cell."""
+    out, seen = [], set()
+    for row in re.findall(r"(?is)<tr\b.*?</tr>", html):
+        cells = re.findall(r"(?is)<td\b[^>]*>(.*?)</td>", row)
+        if len(cells) < 4:
+            continue
+        texts = [cell_text(x) for x in cells]
+        day = next((us_date(t) for t in texts if re.fullmatch(r"\d{1,2}/\d{1,2}/\d{2,4}", t)), "")
+        dk_cell = next((t for t in texts if re.fullmatch(r"(?:%s)(?:\s*[,&]\s*(?:%s))*" % (DOCKET_RE, DOCKET_RE), t)), "")
+        link = None
+        for href, inner in re.findall(r"""(?is)<a\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a>""", row):
+            if re.search(r"(?i)\.pdf\b", href) and "_diff_" not in href:
+                link = (urllib.parse.urljoin(base, href.strip()), cell_text(inner))
+                break
+        if not (day and dk_cell and link):
+            continue
+        dockets = [first_docket(x) for x in re.split(r"\s*[,&]\s*", dk_cell)]
+        key = (day, dockets[0], link[1])
+        if key in seen:
+            continue
+        seen.add(key)
+        just = next((t for t in texts if re.fullmatch(r"[A-Z]{1,3}", t)), "")
+        out.append({"date": day, "docket": dockets[0], "dockets": dockets, "name": link[1], "pdf": link[0],
+                    "justice": just, "citation": texts[-1] if texts[-1] != link[1] else "", "term": term})
+    return out
+
+
+def parse_granted(text, url, term):
+    """pdftotext -layout of a Granted & Noted list -> [{docket, name, court, granted, argued, term, list}].
+    An entry starts at a docket number at the left margin ('25-459 CFX SALAZAR V. PARAMOUNT GLOBAL';
+    CFX/CSX/... is the Clerk's case-type code, dropped). Consolidated cases list each docket with
+    ')' and a numbered name ('25-238)' / '1 CFX VIRAMONTES V. COOK COUNTY'), then one
+    'Court: ... Granted: 6/30/26' line and maybe 'Argument Date: 12/2/26' for the whole group."""
+    out, group, pending = [], [], []      # pending: docket numbers alone on a line, names to follow
+
+    def entry(dk, rest):
+        rest = re.sub(r"^\d\s+", "", rest.strip())
+        rest = re.sub(r"^(?:C[A-Z]{2}|CA)\s+", "", rest)
+        group.append({"docket": dk, "name": rest, "court": "", "granted": "", "argued": "", "term": term, "list": url})
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.match(r"^(%s)\)?\s*(.*)$" % DOCKET_RE, line)
+        if m:
+            if group and group[-1]["granted"]:      # a new entry after the last one's Granted: line
+                out.extend(group)
+                group.clear()
+            rest = m.group(2).strip()
+            if not rest or re.fullmatch(r"\d", rest):
+                pending.append(first_docket(m.group(1)))
+            else:
+                entry(first_docket(m.group(1)), rest)
+            continue
+        n = re.match(r"^\d\s+(.+)$", line)
+        if n and pending:
+            entry(pending.pop(0), n.group(1))
+            continue
+        g = re.search(r"(?i)\bGranted:\s*(\S+)", line)
+        cm = re.search(r"(?i)\bCourt:\s*(.+?)(?:\s+Granted:|$)", line)
+        a = re.search(r"(?i)\bArgument Date:\s*(\S+)", line)
+        for e in group:
+            if g:
+                e["granted"] = us_date(g.group(1))
+            if cm and not e["court"]:
+                e["court"] = cm.group(1).strip()
+            if a:
+                e["argued"] = us_date(a.group(1))
+    out.extend(group)
+    return out
+
+
+SECTION_RE = re.compile(r"^[A-Z][A-Z ,'\-–—()/.]{6,}$")
+ORDER_KINDS = [                       # section heading or order text -> kind, first match wins
+    (r"CERTIORARI\s+GRANTED|certiorari (?:is|are) granted|probable jurisdiction (?:is )?noted", "granted"),
+    (r"SUMMARY DISPOSITION|judgment is vacated, and the case is remanded|GRANTED, VACATED", "gvr"),
+    (r"REHEARINGS?\s+DENIED|rehearing is denied", "rehearing denied"),
+    (r"CERTIORARI\s+DENIED|certiorari (?:is|are) denied", "denied"),
+    (r"(MANDAMUS|PROHIBITION|HABEAS CORPUS)\s+DENIED", "denied"),
+    (r"ATTORNEY DISCIPLINE", "discipline"),
+    (r"ORDERS? IN PENDING CASES?", "pending"),
+]
+
+
+def order_kind(section, text):
+    for pat, kind in ORDER_KINDS:
+        if re.search(pat, section or ""):
+            return kind
+    for pat, kind in ORDER_KINDS:
+        if re.search(pat, text or "", re.I):
+            return kind
+    return "order"
+
+
+def parse_orders(text, day, url, label):
+    """pdftotext -layout of an order list or miscellaneous order -> [{date, docket, name, section,
+    kind, text, url, list}]. Docket lines ('25-579   DEPT. OF AIR FORCE, ET AL. V. GUAHAN, PRUTEHI')
+    sit under all-caps section headings (CERTIORARI GRANTED, CERTIORARI DENIED, ORDERS IN PENDING
+    CASES...); the indented prose after a run of docket lines is the order for all of them."""
+    out, section, run, prose = [], "", [], []
+
+    def close():
+        t = " ".join(" ".join(prose).split())
+        listed = order_kind(section, "") in ("denied", "rehearing denied")
+        for i, e in enumerate(run):
+            # under a list of denials, prose (a dissent, a granted motion) belongs to the line just
+            # above it, not to every docket since the last prose; elsewhere one order covers the run
+            mine = t if not listed or i == len(run) - 1 else ""
+            e["text"] = mine[:600]
+            e["kind"] = order_kind(section, mine)
+            out.append(e)
+        run.clear()
+        prose.clear()
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or re.fullmatch(r"\d{1,3}", line) or line.startswith("(ORDER LIST"):
+            continue
+        m = re.match(r"^(%s)\s{2,}(\S.*)$" % DOCKET_RE, line) or re.match(r"^(%s)\s+([A-Z0-9].*\bV\.\s.*|IN RE\b.*)$" % DOCKET_RE, line)
+        if m:
+            if prose:
+                close()
+            run.append({"date": day, "docket": first_docket(m.group(1)), "name": " ".join(m.group(2).split()),
+                        "section": section, "url": url, "list": label})
+            continue
+        if SECTION_RE.match(line) and not re.search(r"\bV\.\s", line) and not re.match(r"(?i)^(MONDAY|TUESDAY|WEDNESDAY|THURSDAY|FRIDAY|SATURDAY|SUNDAY)\b", line):
+            if run or prose:
+                close()
+            section = " ".join(line.split())
+            continue
+        if run:
+            prose.append(line)
+    close()
+    return out
+
+
+def orders_page(html, base):
+    """/orders/ordersofthecourt/<YY> -> [(date, label, pdf url)]: every link to a PDF under
+    courtorders/, its label (Order List, Miscellaneous Order...) and the M/D/YY date before it."""
+    out = []
+    for m in re.finditer(r"""(?is)(\d{1,2}/\d{1,2}/\d{2,4})(?:(?!\d{1,2}/\d{1,2}/\d{2}).){0,400}?<a\b[^>]*href\s*=\s*["']([^"']*courtorders/[^"']+\.pdf)["'][^>]*>(.*?)</a>""", html):
+        out.append((us_date(m.group(1)), cell_text(m.group(3)), urllib.parse.urljoin(base, m.group(2).strip())))
+    return out
+
+
+def pdf_text(url, keep=True):
+    """A PDF from the Court -> its pdftotext -layout text, or None. Kept in cases/scotus/_recent/
+    (keep=False: fetched again, for lists that change)."""
+    RECENT_DIR.mkdir(parents=True, exist_ok=True)
+    out = RECENT_DIR / re.sub(r"[^\w.\-]+", "_", Path(urllib.parse.urlparse(url).path).name)
+    if not keep or not out.exists() or out.stat().st_size == 0:
+        if get(url, out) is None:
+            return None
+    t = subprocess.run(["pdftotext", "-layout", str(out), "-"], capture_output=True, timeout=300)
+    return t.stdout.decode("utf-8", errors="replace") if t.returncode == 0 else None
+
+
+def recent(args):
+    """Fetch and parse the Court's recent activity -> cases/scotus/_recent.json (atomic write)."""
+    import os
+    from datetime import timedelta
+    today = date.today()
+    since = (today - timedelta(days=args.days)).isoformat()
+    terms = sorted({term_of(today - timedelta(days=args.days)), term_of(today)})
+    errors, sources = [], []
+
+    def page(url):
+        sources.append(url)
+        raw = get(url)
+        if raw is None:
+            errors.append("could not read %s" % url)
+        return raw.decode("utf-8", errors="replace") if raw else ""
+
+    decided = []
+    for t in terms:
+        url = SITE + "opinions/slipopinion/%s" % t
+        decided += parse_slipopinions(page(url), url, t)
+    decided = sorted((d for d in decided if d["date"] >= since), key=lambda d: d["date"], reverse=True)
+    print("decided: %d opinions since %s (terms %s)" % (len(decided), since, ", ".join(terms)))
+
+    granted = []
+    for t in sorted(set(terms) | {"%02d" % ((int(terms[-1]) + 1) % 100)}):
+        url = SITE + "orders/%sgrantednotedlist.pdf" % t
+        sources.append(url)
+        text = pdf_text(url, keep=False)
+        if text is None:
+            if t != terms[-1] and t in terms:
+                errors.append("could not read %s" % url)
+            continue                    # next term's list exists only once the Court grants for it
+        granted += parse_granted(text, url, t)
+    by_docket = {}
+    for d in decided:
+        for k in d["dockets"]:
+            by_docket.setdefault(k, d)
+    for g in granted:
+        d = by_docket.get(g["docket"])
+        g["decided"] = d["date"] if d else ""
+    print("granted: %d cases on the Granted & Noted lists, %d not yet decided" % (len(granted), sum(not g["decided"] for g in granted)))
+
+    orders = []
+    for t in terms:
+        url = SITE + "orders/ordersofthecourt/%s" % t
+        for day, label, pdf in orders_page(page(url), url):
+            if not day or day < since:
+                continue
+            text = pdf_text(pdf)
+            if text is None:
+                errors.append("could not read %s" % pdf)
+                continue
+            orders += parse_orders(text, day, pdf, label)
+    orders.sort(key=lambda o: o["date"], reverse=True)
+    kinds = Counter(o["kind"] for o in orders)
+    print("orders: %d docket lines since %s (%s)" % (len(orders), since, ", ".join("%d %s" % (n, k) for k, n in kinds.most_common())))
+
+    have = {p.stem for p in SCOTUS.glob("*.json") if not p.stem.startswith("_")}
+    data = {"retrieved": datetime.now().isoformat(timespec="seconds"), "since": since, "terms": terms,
+            "sources": sources, "errors": errors, "fetched": sorted(have),
+            "decided": decided, "granted": granted, "orders": orders}
+    for e in errors:
+        print("  ! " + e)
+    if args.json:
+        print(json.dumps(data, indent=1, ensure_ascii=False))
+    if not (decided or granted or orders):
+        sys.exit("nothing read (no network?); %s left as it was" % RECENT_FILE.relative_to(c.ROOT))
+    SCOTUS.mkdir(parents=True, exist_ok=True)
+    tmp = RECENT_FILE.with_suffix(".%d.tmp" % os.getpid())
+    tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, RECENT_FILE)       # atomic: the GUI may be reading it
+    print("saved %s" % RECENT_FILE.relative_to(c.ROOT))
+
+
 # ================================================================ main
 
 def main():
@@ -1383,6 +1683,10 @@ def main():
     b.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     b.set_defaults(func=build_cmd)
+    r = sub.add_parser("recent", help="the Court's recent opinions, grants and orders -> cases/scotus/_recent.json")
+    r.add_argument("--json", action="store_true", help="also print the result as JSON")
+    r.add_argument("--days", type=int, default=RECENT_DAYS, help="how far back (default %d)" % RECENT_DAYS)
+    r.set_defaults(func=recent)
     args = ap.parse_args()
     args.func(args)
 

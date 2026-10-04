@@ -689,7 +689,7 @@ impl Db {
                 PageData::Unit { head, children: Vec::new(), cases }
             }
             Page::Case(r) => PageData::Case(self.case(*r)?),
-            Page::Home | Page::Cases | Page::Search { .. } => unreachable!("not a database page"),
+            Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) => unreachable!("not a database page"),
         })
     }
 

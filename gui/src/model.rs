@@ -13,6 +13,10 @@ pub enum Page {
     Cases,
     Case(i64),
     Search { query: String, mode: crate::search::Mode },
+    /// Supreme Court dockets fetched by scotus.py, and its recent-activity summary
+    Scotus,
+    /// one docket, by number ("25-579")
+    Docket(String),
 }
 
 impl Page {
@@ -22,12 +26,13 @@ impl Page {
             Page::Home => Section::Home,
             Page::Cases => Section::Cases,
             Page::Search { .. } => Section::Search,
+            Page::Scotus | Page::Docket(_) => Section::Scotus,
             _ => Section::Clusters,
         }
     }
     /// Pages that need the database (everything but the start screen and the case list).
     pub fn needs_db(&self) -> bool {
-        !matches!(self, Page::Home | Page::Cases | Page::Search { .. })
+        !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_))
     }
 }
 
@@ -37,6 +42,7 @@ pub enum Section {
     Clusters,
     Cases,
     Search,
+    Scotus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

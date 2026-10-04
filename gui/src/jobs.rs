@@ -8,6 +8,9 @@
 //!
 //! The same queue also runs single script commands for a case (`run_script`): "Find coupled cases"
 //! queues `casemap.py coupling --cluster N`, which writes cases/citedby/<N>/coupling.json.
+//!
+//! And a run of commands that stops at the first failure (`run_steps`): the SCOTUS page's
+//! "Fetch & build" queues `scotus.py fetch <docket>` then `scotus.py build <docket>` as one job.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -130,6 +133,18 @@ pub fn run_script(python: String, repo: PathBuf, r: i64, title: String, args: Ve
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         let ok = run_step(&python, &repo, &args, None, &tx, &wake);
+        let _ = tx.send(Msg::Done { ok });
+        wake();
+    });
+    Running { title, r#ref: r, build: false, rx }
+}
+
+/// Run several commands in order, on one thread; stops at the first failure. Each step is
+/// (args after the interpreter, a line its success must print or None).
+pub fn run_steps(python: String, repo: PathBuf, r: i64, title: String, steps: Vec<(Vec<String>, Option<String>)>, wake: impl Fn() + Send + Sync + 'static) -> Running {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let ok = steps.iter().all(|(args, need)| run_step(&python, &repo, args, need.as_deref(), &tx, &wake));
         let _ = tx.send(Msg::Done { ok });
         wake();
     });
