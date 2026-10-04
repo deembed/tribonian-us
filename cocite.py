@@ -43,6 +43,7 @@ Commands
     ./cocite.py prep                                 # one pass over the database -> cache (rerun after a bulk load)
     ./cocite.py build [--slices 2005,2010] [--force] # cluster every slice (or just these), then lineage
     ./cocite.py status
+    ./cocite.py index [--courts appellate ...]       # add indexes newer than the view (no rebuild)
     ./cocite.py case --cite "463 U.S. 29" [--slice 2005] [--top 8]
     ./cocite.py cluster 2005-09:3                    # members of one cluster, its sub-clusters, before and after
     ./cocite.py cluster 2010-14:1.3                  # one sub-cluster
@@ -171,6 +172,8 @@ CREATE INDEX IF NOT EXISTS subs_by_key ON subs(slice, sub);
 CREATE INDEX IF NOT EXISTS members_by_ref ON members(ref, slice);
 CREATE INDEX IF NOT EXISTS members_by_cl ON members(slice, cl);
 CREATE INDEX IF NOT EXISTS partners_by_ref ON partners(ref, slice);
+CREATE INDEX IF NOT EXISTS subs_by_lineage ON subs(lineage, slice);
+CREATE INDEX IF NOT EXISTS clusters_by_lineage ON clusters(lineage, slice);
 """
 # ("ref" = a cited case's cluster id; "cl" = a co-citation cluster's number within its slice.
 #  CourtListener calls a case a cluster too, so the case side is called ref here.
@@ -1610,6 +1613,14 @@ def cl_title(db, s, k, level="cluster"):
     return "%s:%s · %s  [%d cases%s]" % (label(s), tag, head, r[0], tail)
 
 
+def cmd_index(args):
+    """Add any index SCHEMA lists that this view lacks (e.g. for the GUI); touches no data."""
+    db = need_db(write=True)          # out_db runs SCHEMA: CREATE INDEX IF NOT EXISTS
+    db.commit()
+    names = [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL ORDER BY name")]
+    print("%s: %d indexes (%s)" % (COCITE_DB.name, len(names), ", ".join(names)))
+
+
 def cmd_status(args):
     db = need_db()
     print("%s  (%.2f GB)" % (COCITE_DB, COCITE_DB.stat().st_size / 1e9))
@@ -2625,6 +2636,8 @@ def main():
     p.add_argument("--carry", type=float, default=0.2,
                    help="Jaccard a mutual best match needs to continue a lineage (default %(default)s)")
     p.set_defaults(func=cmd_build)
+    p = sub.add_parser("index", parents=[view], help="add missing indexes to a built view (no rebuild)")
+    p.set_defaults(func=cmd_index)
     p = sub.add_parser("status", parents=[view])
     p.set_defaults(func=cmd_status)
     p = sub.add_parser("diag", help="citing decisions per slice by court level")

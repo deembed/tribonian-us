@@ -1,0 +1,15 @@
+# Copy to gui.toml (git-ignored) and edit. The app looks for: its first argument,
+# then ./gui.toml, then gui.toml beside Cargo.toml.
+
+# Folder holding cocite*.sqlite (where bulk/ points)
+bulk_dir = "/path/to/courtlistener"
+
+# The LawFormatting repo: cases/, md-cases/, pdf/, cocite_labels.json
+repo_dir = "/path/to/LawFormatting"
+
+# View opened at start (a cocite*.sqlite file stem)
+default_view = "cocite-appellate-sentence-m0.2"
+
+# Obsidian vault for "Open note"; leave out to open the .md file instead
+obsidian_vault = "usc-vault"
+obsidian_cases_dir = "08-Reference/Cases"

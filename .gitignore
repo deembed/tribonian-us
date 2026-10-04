@@ -29,3 +29,7 @@ nav-test/*.log
 nav-test/*.out
 nav-test/*.pdf
 nav-test/png/
+
+# GUI (Rust): build folder and local config
+gui/target/
+gui/gui.toml
