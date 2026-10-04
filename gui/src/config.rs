@@ -85,6 +85,10 @@ impl Config {
     pub fn notes_dir(&self) -> PathBuf {
         self.repo_dir.join("md-cases")
     }
+    /// Where Export SVG on the area graph writes: the only place in the repo the app itself writes to.
+    pub fn exports_dir(&self) -> PathBuf {
+        self.repo_dir.join("build").join("exports")
+    }
     pub fn pdf_dir(&self) -> PathBuf {
         self.repo_dir.join("pdf")
     }

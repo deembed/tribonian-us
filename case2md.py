@@ -602,6 +602,8 @@ def profile_data(cid, scan=False):
             new["goodlaw"] = casemap.goodlaw(con, cid)
         except (sqlite3.Error, SystemExit) as e:   # casemap exits when the text database is missing
             print("  note: good-law check failed (%s)" % e)
+    elif old and old.get("goodlaw"):        # a quick build keeps the last check rather than dropping it
+        new["goodlaw"] = old["goodlaw"]
     write_profile(path, new)
     return new
 
@@ -1195,6 +1197,202 @@ def cocite_tex(meta):
         return ""
 
 
+# ---------------------------------------------------------------- what it draws on, coupled cases
+# Bibliographic coupling (cocite.draws_on / cocite.coupling): a case placed by what it cites, so it
+# works for cases the co-citation map never holds (cited too rarely, recent, unpublished). "What it
+# draws on" is cheap and in every build; "Coupled with" only when casemap.py coupling has cached it
+# (or build --coupling computes it first), because it reads the whole citation cache.
+DRAWS_COLOR = "orange!8"       # like the co-citation box: derived by counting, not the court's text
+COUPLING_COLOR = "orange!4"
+COUPLING_SHOW_REFS = 5         # shared references named per coupled case; the JSON has them all
+DRAWS_TOP = 8                  # sub-clusters listed; the rest are summed as "other sub-clusters"
+
+
+def shared_db():
+    """The one read-only database connection per process (profile_data opens it too), or None."""
+    if not _PROFILE_DB:
+        _PROFILE_DB.append(local_db())
+    return _PROFILE_DB[0]
+
+
+def bulk_stamp(con):
+    """The bulk data's date (the citation map's file date), as profile.json stamps it."""
+    row = con.execute("SELECT file FROM loaded WHERE name='citation-map'").fetchone()
+    m = re.search(r"\d{4}-\d\d-\d\d", row[0]) if row else None
+    return m.group(0) if m else ""
+
+
+def draws_data(cid):
+    """cocite.draws_on for this build: recomputed every time (it takes well under a second), never cached."""
+    con = shared_db() if cid is not None else None
+    if con is None:
+        return None
+    try:
+        import cocite
+        return cocite.draws_on(int(cid), con)
+    except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view/opinions not there, numpy missing
+        print("  (draws-on section skipped: %s)" % e, file=sys.stderr)
+        return None
+
+
+def coupling_path(cid):
+    return CASES / "citedby" / str(cid) / "coupling.json"
+
+
+def coupling_cache(cid, con=None, max_df=None, top=None):
+    """Compute the coupled cases (cocite.coupling) and cache them in cases/citedby/<cluster>/coupling.json,
+    stamped with the bulk data's date like profile.json. casemap.py coupling and build --coupling call this."""
+    import cocite
+    con = con or shared_db()
+    if con is None:
+        sys.exit("coupling needs the local database (./casedb.py status)")
+    res = cocite.coupling(int(cid), con, max_df or cocite.COUPLING_MAX_DF, top or cocite.COUPLING_TOP)
+    res["stamp"] = bulk_stamp(con)
+    res["computed"] = time.strftime("%Y-%m-%d %H:%M")
+    write_profile(coupling_path(cid), res)            # atomic: temp file, then rename
+    return res
+
+
+def coupling_data(cid, compute=False):
+    """The cached coupled cases, or None. compute=True (build --coupling) computes them first."""
+    if cid is None:
+        return None
+    if compute:
+        try:
+            return coupling_cache(cid)
+        except (ImportError, sqlite3.Error, SystemExit, OSError) as e:
+            print("  (coupling skipped: %s)" % e, file=sys.stderr)
+    try:
+        return json.loads(coupling_path(cid).read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def draws_md(meta):
+    d = meta.get("draws")
+    if not d:
+        return []
+
+    def wl(vault, text, cell=True):                  # a vault note link, as cocite.case_md makes them
+        text = (text or "").replace("|", "/")
+        return "[[%s%s%s]]" % (vault, "\\|" if cell else "|", text) if vault else text
+    L = ["## What it draws on", "",
+         "*Where the %d cases this one cites sit in the co-citation map: each cited case's sub-cluster in %s, the "
+         "newest full slice (bibliographic coupling: a case placed by what it cites, so it works for any case). "
+         "Counted from the citations; sub-cluster names were written by Claude from each cluster's evidence and "
+         "are not part of the record.*" % (d["refs"], d["label"]), ""]
+    if not d.get("node"):
+        L += ["*This case is not in the co-citation map itself (cited too rarely, or too recently), so this is where "
+              "the map places it.*", ""]
+    if d["subs"]:
+        L += ["| Sub-cluster | Cites | Share | Area |", "|---|---:|---:|---|"]
+        for s in d["subs"][:DRAWS_TOP]:
+            L.append("| `%s` %s | %d | %d%% | %s |" % (s["code"], wl(s.get("vault"), s["name"]), s["n"],
+                                                      round(100 * s["share"]), wl(s.get("area_vault"), s.get("area_name") or "")))
+        rest = d["subs"][DRAWS_TOP:]
+        if rest:
+            n = sum(s["n"] for s in rest)
+            L.append("| *%d other sub-clusters* | %d | %d%% | |" % (len(rest), n, round(100.0 * n / d["refs"])))
+        L.append("")
+    if d["unclustered"]:
+        L += ["**Unclustered:** %d of the %d cited cases are in no sub-cluster of %s (cited too rarely then)." % (
+            d["unclustered"], d["refs"], d["label"]), ""]
+    if d["areas"]:
+        L += ["**Areas:** " + " · ".join("%s %d%%" % (wl(a.get("vault"), a["name"], False), round(100 * a["share"]))
+                                         for a in d["areas"][:6]), ""]
+    return L
+
+
+def draws_tex(meta):
+    d = meta.get("draws")
+    if not d:
+        return ""
+    E = lambda t: esc(t or "", "tex")
+    lab = E(d["label"].replace("-", "\u2013"))
+    out = ["{\\scriptsize\\itshape Not part of the record. Where the %d cases this one cites sit in the co-citation map: "
+           "each one's sub-cluster in %s, the newest full slice. Counted from the citations; sub-cluster names were "
+           "written by Claude from each cluster's evidence.\\par}\\vspace{3pt}" % (d["refs"], lab)]
+    if not d.get("node"):
+        out.append("\\textbf{Not in the co-citation map itself} {\\footnotesize (cited too rarely, or too recently)}: "
+                   "this is where its own citations place it.\\par\\vspace{2pt}")
+    subs = d["subs"][:DRAWS_TOP]
+    if subs:
+        mx = max(s["share"] for s in subs) or 1
+        rows = ["\\raggedright\\textcolor{gray}{\\texttt{%s}} %s & %d & \\textcolor{orange!70!black}{\\rule{%.2fcm}{0.55em}}\\ %d\\%% "
+                "& \\raggedright %s \\tabularnewline" % (E(s["code"]), E(s["name"]), s["n"], max(0.05, 1.8 * s["share"] / mx),
+                                                        round(100 * s["share"]), E(s.get("area_name")))
+                for s in subs]
+        rest = d["subs"][DRAWS_TOP:]
+        if rest:
+            n = sum(s["n"] for s in rest)
+            rows.append("\\emph{%d other sub-clusters} & %d & %d\\%% & \\tabularnewline" % (len(rest), n, round(100.0 * n / d["refs"])))
+        out.append("{\\scriptsize\\setlength{\\tabcolsep}{3pt}\\renewcommand{\\arraystretch}{1.15}\\noindent"
+                   "\\begin{tabular}{@{}p{0.42\\linewidth} r p{0.2\\linewidth} p{0.26\\linewidth}@{}}"
+                   "\\textbf{Sub-cluster} & \\textbf{Cites} & \\textbf{Share} & \\textbf{Area}\\tabularnewline\\hline %s"
+                   "\\end{tabular}\\par}" % "\n".join(rows))
+    tail = []
+    if d["unclustered"]:
+        tail.append("%d of the %d cited cases are in no sub-cluster of %s (cited too rarely then)." % (
+            d["unclustered"], d["refs"], lab))
+    if d["areas"]:
+        tail.append("\\textbf{Areas:} " + " \\textperiodcentered{} ".join(
+            "%s %d\\%%" % (E(a["name"]), round(100 * a["share"])) for a in d["areas"][:6]) + ".")
+    if tail:
+        out.append("\\vspace{3pt}{\\footnotesize %s\\par}" % " ".join(tail))
+    return ("\\pdfbookmark[1]{What it draws on}{drawson}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!50!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
+            "\\textbf{What it draws on.}\\par\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
+        DRAWS_COLOR, DRAWS_COLOR.split("!")[0], "\n".join(out))
+
+
+def coupling_note(c, tex=False):
+    """The one-line method note both outputs carry."""
+    fmt = lambda n: format(n, ",")
+    return ("Cases that cite the most of the same cases as this one, rare shared citations counting more: each shared "
+            "cited case, cited by df decisions, adds log(N/df), N = %s decisions citing anything. Cited cases cited "
+            "by more than %s decisions are left out (%d of this case's %d). Computed %s from the bulk data of %s by "
+            "%s." % (fmt(c["N"]), fmt(c["max_df"]), c["skipped"], c["refs"], c.get("computed", "?"), c.get("stamp") or "?",
+                     "\\texttt{casemap.py coupling}" if tex else "`./casemap.py coupling`"))
+
+
+def coupling_md(meta):
+    c = meta.get("coupling")
+    if not c or not c.get("results"):
+        return []
+    index = load_index()
+
+    def link(r, text):
+        e = index.get(str(r))
+        return "[[%s|%s]]" % (e["slug"], text.replace("|", "/")) if e else text
+    L = ["## Coupled with", "", "*%s Not part of the record.*" % coupling_note(c), ""]
+    for i, x in enumerate(c["results"], 1):
+        where = ", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)
+        refs = "; ".join(esc(r["name"], "md") for r in x["refs"][:COUPLING_SHOW_REFS])
+        more = " …" if len(x["refs"]) > COUPLING_SHOW_REFS else ""
+        L.append("%d. %s%s · score %.1f · %d shared: %s%s" % (i, link(x["cluster"], esc(x["name"], "md")),
+                                                             " (%s)" % where if where else "", x["score"], x["shared"], refs, more))
+    return L + [""]
+
+
+def coupling_tex(meta):
+    c = meta.get("coupling")
+    if not c or not c.get("results"):
+        return ""
+    E = lambda t: esc(t or "", "tex")
+    items = "".join("\\item[\\textbf{%d}] %s%s {\\footnotesize\\ score %.1f; shared: %s%s}\n" % (
+        x["shared"], E(x["name"]), " (%s)" % E(", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)) if x["cite"] or x["year"] else "",
+        x["score"], E("; ".join(r["name"] for r in x["refs"][:COUPLING_SHOW_REFS])), " \\dots" if len(x["refs"]) > COUPLING_SHOW_REFS else "")
+        for x in c["results"])
+    return ("\\pdfbookmark[1]{Coupled with}{coupling}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!50!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
+            "\\textbf{Coupled with.} {\\footnotesize Not part of the record. %s The number is the count of shared cited cases.}\\par\\vspace{2pt}\n"
+            "\\begin{list}{}{\\leftmargin=2.2em\\labelwidth=1.8em\\labelsep=0.4em\\itemsep=1pt\\parsep=0pt\\topsep=2pt}\n%s"
+            "\\end{list}\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
+        COUPLING_COLOR, COUPLING_COLOR.split("!")[0], coupling_note(c, True), items)
+
+
 def render_stub(meta, tail, why="Text not fetched.", cluster=None):
     L = front_matter(meta, True) + profile_md(meta) + cocite_md(meta) + parens_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
@@ -1202,7 +1400,7 @@ def render_stub(meta, tail, why="Text not fetched.", cluster=None):
 
 
 def render_md(meta, ops, tail="", cluster=None, head=None):
-    L = list(head) if head is not None else front_matter(meta, False) + profile_md(meta) + cocite_md(meta) + parens_md(meta) + headmatter_md(meta) + editorial(cluster or {})
+    L = list(head) if head is not None else front_matter(meta, False) + profile_md(meta) + cocite_md(meta) + draws_md(meta) + coupling_md(meta) + parens_md(meta) + headmatter_md(meta) + editorial(cluster or {})
     notes = []
     for o in ops:
         ctx = o["ctx"]
@@ -1395,7 +1593,8 @@ def render_tex(meta, ops, fontpkg, style):
         head = toc_entry("tocsec", "Headmatter") + head          # the yellow box: listed, no arrow
     contents = "" if not toc or meta.get("pretex") else "\\contentspage\n" if head else "\\contentsbody\n"
     body = [TOC_DEFS if toc else "", meta.get("pretex", ""), head, contents, sec(profile_tex(meta), "Case profile"),
-            sec(cocite_tex(meta), "Co-citation"), sec(parens_tex(meta), "How later courts describe it")]
+            sec(cocite_tex(meta), "Co-citation"), sec(draws_tex(meta), "What it draws on"),
+            sec(coupling_tex(meta), "Coupled with"), sec(parens_tex(meta), "How later courts describe it")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
     for n, o in enumerate(ops):
         ctx = o["ctx"]
@@ -1580,7 +1779,11 @@ def build(args):
         meta, ops, warnings = prepare(data, index)
     except Unsupported as e:
         sys.exit("Cannot build: %s" % e)
-    meta["profile"] = profile_data(meta["cluster"], scan=True)
+    # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
+    meta["profile"] = profile_data(meta["cluster"], scan=not getattr(args, "no_goodlaw", False))
+    # bibliographic coupling: what it draws on (always, cheap); coupled cases only if cached or --coupling
+    meta["draws"] = draws_data(meta["cluster"])
+    meta["coupling"] = coupling_data(meta["cluster"], compute=getattr(args, "coupling", False))
 
     (here / "build").mkdir(exist_ok=True)
     ndir = note_dir(meta["slug"], data.get("docket"))
@@ -2905,6 +3108,10 @@ def main():
     b.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
     b.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
+    b.add_argument("--no-goodlaw", action="store_true",
+                   help="skip the good-law check (slow: reads up to ~2,000 citing opinions); keeps an earlier result")
+    b.add_argument("--coupling", action="store_true",
+                   help="compute the coupled cases first (casemap.py coupling); without it they show only when already cached")
     b.set_defaults(func=build)
     fd = sub.add_parser("find", help="search case names and courts' parentheticals (local database)")
     fd.add_argument("words", nargs="+", help='all must match; quote a phrase: glomar "state farm"')

@@ -9,6 +9,7 @@ mod graph;
 mod jobs;
 mod model;
 mod pages;
+mod recent;
 mod search;
 
 use cases::CaseFiles;
@@ -28,6 +29,29 @@ fn main() -> eframe::Result<()> {
         ..Default::default()
     };
     eframe::run_native("lawgui", opts, Box::new(|cc| Ok(Box::new(App::new(cc)))))
+}
+
+/// One entry in the build queue: a case's Build / Quick build, or a single script command.
+pub struct Queued {
+    pub r#ref: i64,
+    pub title: String,
+    pub job: QueuedJob,
+}
+
+pub enum QueuedJob {
+    Build { quick: bool },
+    /// arguments after the interpreter, e.g. casemap.py coupling --cluster N
+    Script(Vec<String>),
+}
+
+impl Queued {
+    /// The name in the status line and the output panel; quick builds carry "(quick)".
+    fn label(&self) -> String {
+        match self.job {
+            QueuedJob::Build { quick: true } => format!("{} (quick)", self.title),
+            _ => self.title.clone(),
+        }
+    }
 }
 
 pub struct App {
@@ -61,13 +85,13 @@ pub struct App {
     pub search_pending: Option<Page>,
     pub search_input: String,
     pub search_mode: search::Mode,
-    /// This session's searches, newest first, without repeats.
+    /// Searches, newest first, without repeats; kept between sessions (`recent.rs`).
     pub search_history: Vec<(String, search::Mode)>,
     pub show_history: bool,
     /// The running Build, if any, its output, and how the last one ended.
     pub job: Option<jobs::Running>,
     pub job_log: Vec<String>,
-    pub queue: std::collections::VecDeque<(i64, String)>,
+    pub queue: std::collections::VecDeque<Queued>,
     /// The current run: builds since the queue last emptied.
     pub run_total: usize,
     pub run_done: usize,
@@ -107,7 +131,7 @@ impl App {
             search_pending: None,
             search_input: String::new(),
             search_mode: search::Mode::Name,
-            search_history: Vec::new(),
+            search_history: recent::load(),
             show_history: false,
             job: None,
             job_log: Vec::new(),
@@ -163,8 +187,18 @@ impl App {
 
     /// Queue a Build of a case's note and PDF. A queue that has emptied starts a fresh run:
     /// counts and output begin again.
-    pub fn enqueue_build(&mut self, r: i64, title: String) {
-        if self.is_queued(r) {
+    pub fn enqueue_build(&mut self, r: i64, title: String, quick: bool) {
+        self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Build { quick } });
+    }
+
+    /// Queue one script command for a case (e.g. Find coupled cases), through the same queue,
+    /// status line and output panel as Build; the page reloads when it finishes.
+    pub fn enqueue_script(&mut self, r: i64, title: String, args: Vec<String>) {
+        self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Script(args) });
+    }
+
+    fn enqueue(&mut self, q: Queued) {
+        if self.is_queued(q.r#ref) {
             return;
         }
         if self.job.is_none() && self.queue.is_empty() {
@@ -173,13 +207,15 @@ impl App {
             self.run_failed.clear();
             self.job_log.clear();
         }
-        self.queue.push_back((r, title));
+        self.queue.push_back(q);
         self.run_total += 1;
         self.start_next();
     }
 
+    /// Anything for this case queued or running: its Build, Quick build and Find coupled cases
+    /// buttons are disabled meanwhile.
     pub fn is_queued(&self, r: i64) -> bool {
-        self.job.as_ref().is_some_and(|j| j.r#ref == r) || self.queue.iter().any(|q| q.0 == r)
+        self.job.as_ref().is_some_and(|j| j.r#ref == r) || self.queue.iter().any(|q| q.r#ref == r)
     }
 
     fn start_next(&mut self) {
@@ -187,14 +223,20 @@ impl App {
             return;
         }
         let Some(cfg) = &self.cfg else { return };
-        let Some((r, title)) = self.queue.pop_front() else { return };
+        let Some(q) = self.queue.pop_front() else { return };
         let ctx = self.egui_ctx.clone();
-        self.job_log.push(format!("── {title}"));
-        self.job = Some(jobs::build_case(cfg.python.clone(), cfg.repo_dir.clone(), r, title, move || {
+        let wake = move || {
             if let Some(c) = &ctx {
                 c.request_repaint();
             }
-        }));
+        };
+        let title = q.label();
+        self.job_log.push(format!("── {title}"));
+        let (python, repo) = (cfg.python.clone(), cfg.repo_dir.clone());
+        self.job = Some(match q.job {
+            QueuedJob::Build { quick } => jobs::build_case(python, repo, q.r#ref, title, quick, wake),
+            QueuedJob::Script(args) => jobs::run_script(python, repo, q.r#ref, title, args, wake),
+        });
     }
 
     fn poll_job(&mut self) {
@@ -236,7 +278,8 @@ impl App {
             match &self.job {
                 Some(j) => {
                     ui.spinner();
-                    ui.label(format!("Building {} of {}: {}", self.run_done + 1, self.run_total, j.title));
+                    let verb = if j.build { "Building" } else { "Running" };
+                    ui.label(format!("{verb} {} of {}: {}", self.run_done + 1, self.run_total, j.title));
                     if !self.queue.is_empty() {
                         ui.weak(format!("· {} queued", self.queue.len()));
                     }
@@ -267,7 +310,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.strong("Build output");
             if !self.queue.is_empty() {
-                let names: Vec<&str> = self.queue.iter().map(|q| q.1.as_str()).collect();
+                let names: Vec<String> = self.queue.iter().map(|q| q.label()).collect();
                 ui.weak(format!("next: {}", names.join(", ")));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -336,7 +379,8 @@ impl App {
                 let entry = (query.clone(), *mode);
                 self.search_history.retain(|e| *e != entry);
                 self.search_history.insert(0, entry);
-                self.search_history.truncate(30);
+                self.search_history.truncate(recent::CAP);
+                recent::save(&self.search_history);
             }
         }
         self.request(&p);

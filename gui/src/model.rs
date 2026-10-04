@@ -230,6 +230,64 @@ pub struct CaseData {
     pub details: Option<Details>,
     /// cases/citedby/<ref>/profile.json if a build cached it, else what can be read quickly.
     pub profile: Option<Profile>,
+    /// Where the cases it cites sit (computed live, as cocite.draws_on does).
+    pub draws: Option<DrawsOn>,
+    /// cases/citedby/<ref>/coupling.json, written by `casemap.py coupling` (explicit only).
+    pub coupling: Option<Coupling>,
+}
+
+/// One sub-cluster the case's references sit in, with how many of them.
+#[derive(Clone, Debug)]
+pub struct DrawsSub {
+    pub unit: UnitRow,
+    pub n: i64,
+    pub area: Option<(i64, String)>,
+}
+
+/// "What it draws on": each cited case's home sub-cluster in the newest full slice (bibliographic
+/// coupling's cheap half; the same definition as cocite.draws_on).
+#[derive(Clone, Debug, Default)]
+pub struct DrawsOn {
+    pub slice: i64,
+    /// distinct cases it cites
+    pub refs: i64,
+    /// of those, how many are in no sub-cluster of that slice
+    pub unclustered: i64,
+    pub subs: Vec<DrawsSub>,
+    /// (area, name, references in it), largest first
+    pub areas: Vec<(i64, String, i64)>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CoupledRef {
+    pub r#ref: i64,
+    pub name: String,
+    /// decisions citing it (its document frequency)
+    pub df: i64,
+}
+
+#[derive(Clone, Debug)]
+pub struct Coupled {
+    pub r#ref: i64,
+    pub name: String,
+    pub cite: String,
+    pub year: String,
+    pub court: String,
+    pub score: f64,
+    pub shared: i64,
+    pub refs: Vec<CoupledRef>,
+}
+
+/// coupling.json: the cases sharing the most (rare) references with this one.
+#[derive(Clone, Debug, Default)]
+pub struct Coupling {
+    pub computed: String,
+    pub stamp: String,
+    pub refs: i64,
+    pub skipped: i64,
+    pub max_df: i64,
+    pub n: i64,
+    pub results: Vec<Coupled>,
 }
 
 #[derive(Clone, Debug, Default)]

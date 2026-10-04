@@ -91,6 +91,8 @@ Each case note and PDF has, above the opinions:
 
 - **Case profile** (light-blue box in the PDF): cited-by counts per year as a bar chart, the last 5 full years against the 5 before (rising / steady / falling), and the **good-law check**. It needs the local database; the counts are cached in `cases/citedby/<cluster>/profile.json` and recounted when the bulk data changes.
 - **Headmatter** (yellow box in the PDF): parties, docket number, dates, counsel, from the published report (Harvard CAP), when the cluster has it.
+- **What it draws on** (orange box in the PDF, after the co-citation box): where the cases this one cites sit in the co-citation map, each cited case's sub-cluster in the newest full slice, with counts, shares, areas and how many cited cases are unclustered (`cocite.draws_on`, bibliographic coupling). It works for any case, so for a case the map doesn't hold (cited too rarely, recent, unpublished) it is the main placement. Every build; well under a second.
+- **Coupled with** (pale orange box): the cases citing the most of the same cases, rare shared citations weighted up. Only when `./casemap.py coupling` has cached `cases/citedby/<cluster>/coupling.json` for the case, or with `build --coupling`, which computes it first.
 
 Good-law check: no language model, just the words later courts use about this case, next to its citations and in sentences that name it ("Chevron is overruled."). It reads every citing opinion from a court that could overrule the case (up to 1,500), plus the 500 newest from any court.
 
@@ -114,7 +116,7 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 
 ```
 ./case2md.py fetch --cite "463 U.S. 29"         # or --cluster 110991   (uses the API)
-./case2md.py build cases/463-u-s-29_*.json      # -> md-cases/, build/, pdf/   (--no-pdf: notes only)
+./case2md.py build cases/463-u-s-29_*.json      # -> md-cases/, build/, pdf/   (--no-pdf: notes only; --no-goodlaw: skip the slow good-law check; --coupling: compute the coupled cases first)
 ./case2md.py find glomar                        # search your notes, then the local database (--max N results per list)
 ./case2md.py find glomar --get 3                # take result 3 from the database and build it
 ./case2md.py recap fetch --docket 4949363       # the court's orders and opinions (uses the API)
@@ -151,6 +153,7 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 ./casemap.py map --cite "463 U.S. 29"           # notes for the root's co-citation sub-cluster (the default, --by cluster)
 ./casemap.py map --cite "463 U.S. 29" --depth 2 # the citation walk instead: everything within 2 citation steps
 ./casemap.py citedby cases/463-u-s-29_*.json    # "Cited by" section: who cites it, for what
+./casemap.py coupling --cluster 9493818         # coupled cases: who cites the same (rare) cases -> coupling.json
 ./casemap.py stubs --list                       # stub notes, most-cited first
 ./casemap.py stubs                              # fill stubs from the local database
 ./casemap.py stubs --api --max 20               # fall back to CourtListener for the rest
@@ -161,6 +164,7 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 - **`map --by cluster`** (the default): the cases in the root's sub-cluster lineage in the newest full slice of `cocite.py`'s case-note view, plus cases that joined it since, heaviest first, up to `--cluster-max` (60); all get full text (`--text 0`: stubs only). `--scope all` takes every lineage the root has belonged to; `--courts` picks another `cocite.py` view.
 - **`map --depth N`** (or `--by depth`): the citation walk. `--text K` gives full text to the first K steps (default `depth - 1`); the outer ring becomes stubs. `--max` (3000) caps either kind of map.
 - **`citedby`:** options are `--list`, `--full`, `--level`, `--sample-over`, `--margin`, `--top`, `--steps` and `--min-run`; see `./casemap.py citedby -h`.
+- **`coupling`:** bibliographic coupling. For each case it cites, cited by df decisions (at most `--max-df`, default 2000; more-cited ones are left out and counted), every other decision citing it scores log(N/df), N = decisions citing anything; the top `--top` (30) by total score, with the shared cited cases. Reads `bulk/cocite-cache/` (run `./cocite.py prep` first), a few seconds for most cases, up to half a minute for a case citing 150+ cases on a cold disk. Prints a table (`--json`: the JSON) and caches `cases/citedby/<cluster>/coupling.json` with the bulk data's stamp; never run by a build. The GUI's "Find coupled cases" runs it.
 - **`stubs`:** a stub becomes a full case only if `build` can read its text. Otherwise it stays a stub and the output says why. After filling stubs, run `./build_all.sh cases`, or use `./build_all.sh --stubs` to do both.
 - **`fixlinks`:** takes no options (it is handled before argparse); rewrites notes and saved Cited-by sections in place and needs the local database.
 

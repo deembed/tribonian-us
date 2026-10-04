@@ -1218,6 +1218,147 @@ def case_tex(ref, esc, view=NOTE_VIEW, top=8, year=None):
         COCITE_COLOR, COCITE_COLOR.split("!")[0], "\n".join(out))
 
 
+# ================================================================ bibliographic coupling: what a case cites
+# Co-citation places a case by who cites it, so a case cited too rarely (recent, unpublished, a state
+# intermediate court's) is a node in no slice and the map says nothing about it. What a case itself
+# cites works for any case. Two uses, both counting only:
+#   draws_on: its references' home sub-clusters in the newest full slice -> which bodies of law it
+#             draws on. Cheap (one indexed query plus one nodes lookup), so every build shows it.
+#   coupling: the cases that share the most references with it, rare shared references weighted up
+#             (Kessler's bibliographic coupling, with an inverse-document-frequency weight). Reads the
+#             cocite-cache edge arrays; run only on request (casemap.py coupling), cached as JSON.
+
+def cited_refs(con, ref):
+    """Distinct cases this case's opinions cite (cluster ids), itself excluded. `con` is the main
+    database with the opinion database attached as ops (case2md.local_db, casemap.open_db):
+    the case's opinion ids -> edges_out -> cited opinion ids -> their cluster ids."""
+    return [r for (r,) in con.execute(
+        "SELECT DISTINCT o2.cluster_id FROM ops.opinions o1 JOIN edges e ON e.citing = o1.id "
+        "JOIN ops.opinions o2 ON o2.id = e.cited WHERE o1.cluster_id = ? AND o2.cluster_id IS NOT NULL "
+        "AND o2.cluster_id != ?", (ref, ref))]
+
+
+def full_slice_of(db, year=None):
+    """The newest complete slice (the one case notes and the GUI place cases in), or None."""
+    year = newest_full_slice(db, year)
+    r = db.execute("SELECT max(slice) FROM slices WHERE slice + ? < ?", (WIDTH - 1, year)).fetchone()
+    return r[0] if r else None
+
+
+def draws_on(ref, con, view=NOTE_VIEW, year=None):
+    """Where the cases this one cites sit: each reference's home sub-cluster in the newest full slice.
+    One slice only, deliberately: sub-cluster codes belong to a slice, and mixing slices would list the
+    same body of law under several names. A reference that is no node of that slice (or a node outside
+    any sub-cluster) counts as unclustered; old references in an old case mostly are, and the count
+    says so. -> {"slice", "label", "refs", "unclustered", "node", "subs": [...], "areas": [...]}, or
+    None when the view isn't built or the case cites nothing in the citation map."""
+    db = open_view(view)
+    if db is None:
+        return None
+    refs = cited_refs(con, ref)
+    s = full_slice_of(db, year)
+    if not refs or s is None:
+        return None
+    sub_of = {}
+    for i in range(0, len(refs), 500):                   # nodes_by_slice: one indexed lookup per chunk
+        ch = refs[i:i + 500]
+        sub_of.update(db.execute("SELECT ref, sub FROM nodes WHERE slice = ? AND ref IN (%s)" % ",".join("?" * len(ch)),
+                                 [s] + ch).fetchall())
+    counts = Counter(k for k in (sub_of.get(r) for r in refs) if k and k > 0)
+    vl_lin, vl_area = vault_links(db)
+    subs, areas = [], Counter()
+    area_names = {}
+    for k, n in sorted(counts.items(), key=lambda x: (-x[1], x[0])):
+        nm, lin, _ = unit_name(db, s, k, "sub")
+        try:
+            ar = area_of(db, lin)
+        except sqlite3.OperationalError:              # a view built before areas existed
+            ar = None
+        if ar is not None:
+            areas[ar] += n
+            area_names.setdefault(ar, area_name(db, ar))
+        subs.append({"sub": k, "code": sub_label(k), "n": n, "share": round(n / len(refs), 3), "name": nm or sub_label(k),
+                     "lineage": lin, "vault": vl_lin.get(lin), "area": ar, "area_name": area_names.get(ar),
+                     "area_vault": vl_area.get(ar)})
+    node = db.execute("SELECT 1 FROM nodes WHERE ref = ? AND cl > 0 LIMIT 1", (ref,)).fetchone() is not None
+    return {"slice": s, "label": label(s), "refs": len(refs), "unclustered": len(refs) - sum(counts.values()),
+            "node": node, "subs": subs,
+            "areas": [{"area": a, "name": area_names[a], "n": n, "share": round(n / len(refs), 3), "vault": vl_area.get(a)}
+                      for a, n in areas.most_common()]}
+
+
+COUPLING_MAX_DF = 2000  # references cited by more decisions than this are skipped: shared by nearly everyone
+COUPLING_TOP = 30
+
+
+def case_label(con, ref):
+    """(short name, first citation, year, court id) from the main database, for lists."""
+    r = con.execute("SELECT coalesce(nullif(c.case_name_short, ''), nullif(c.case_name, ''), nullif(c.case_name_full, ''), "
+                    "d.case_name), substr(c.date_filed, 1, 4), d.court_id "
+                    "FROM clusters c LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id = ?", (ref,)).fetchone()
+    ct = con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id = ? ORDER BY type LIMIT 1", (ref,)).fetchone()
+    return ((r[0] if r and r[0] else "cluster %d" % ref), " ".join(ct) if ct else "",
+            (r[1] if r else None) or "", (r[2] if r else None) or "")
+
+
+def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP):
+    """Cases sharing the most references with this one, rare references weighted up: for each
+    reference R cited by df(R) <= max_df decisions, every other decision citing R scores
+    log(N / df(R)), N = decisions citing anything. Decisions and references are cases (clusters),
+    as in cocite-cache: citing.npy (sorted by citing decision) and the by-cited index from prep, so
+    N is exact, not estimated. -> dict for coupling.json (case2md.coupling_cache adds the stamp)."""
+    if not (CACHE / "cited_sorted.npy").exists():
+        sys.exit("No citation cache at %s: run ./cocite.py prep" % CACHE)
+    stale = (CACHE / "stamp.txt").read_text() != source_stamp(con)
+    refs = cited_refs(con, ref)
+    # citing.npy whole (about 290 MB, one sequential read): thousands of scattered reads into a
+    # memory map are far slower on the hard disk than reading it once
+    ci = np.load(CACHE / "citing.npy")
+    cds = np.load(CACHE / "cited_sorted.npy", mmap_mode="r")
+    order = np.load(CACHE / "by_cited.npy", mmap_mode="r")
+    N = int(np.count_nonzero(ci[1:] != ci[:-1])) + 1 if len(ci) else 0
+    per, skipped, missing = {}, [], 0
+    for R in refs:
+        lo, hi = int(np.searchsorted(cds, R)), int(np.searchsorted(cds, R, side="right"))
+        df = hi - lo
+        if df == 0:                       # an edge prep dropped (citing decision without a year)
+            missing += 1
+        elif df > max_df:
+            skipped.append((R, df))
+        else:
+            per[R] = (np.asarray(ci[np.asarray(order[lo:hi])]), math.log(N / df), df)
+    out = {"cluster": ref, "refs": len(refs), "used": len(per), "skipped": len(skipped), "missing": missing,
+           "max_df": max_df, "N": N, "stale_cache": stale, "results": []}
+    if not per:
+        return out
+    D = np.concatenate([v[0] for v in per.values()])
+    W = np.concatenate([np.full(len(v[0]), v[1]) for v in per.values()])
+    keep = D != ref
+    cand, inv = np.unique(D[keep], return_inverse=True)
+    score, shared = np.bincount(inv, W[keep]), np.bincount(inv)
+    best = np.lexsort((-shared, -score))[:top]        # score, then shared count
+    best_ids = cand[best]
+    which = {int(c): [] for c in best_ids}
+    for R, (d, w, df) in sorted(per.items(), key=lambda x: -x[1][1]):     # rarest reference first
+        for c in np.intersect1d(d, best_ids).tolist():
+            which[c].append(R)
+    names = {}
+
+    def nm(r):
+        if r not in names:
+            names[r] = case_label(con, r)
+        return names[r]
+    for i in best.tolist():
+        c = int(cand[i])
+        n, cite, yr, court = nm(c)
+        out["results"].append({"cluster": c, "name": n, "cite": cite, "year": yr, "court": court,
+                               "score": round(float(score[i]), 2), "shared": int(shared[i]),
+                               "refs": [{"cluster": R, "name": nm(R)[0], "cite": nm(R)[1], "year": nm(R)[2],
+                                         "df": per[R][2]} for R in which[c]]})
+    out["skipped_refs"] = [{"cluster": R, "name": nm(R)[0], "df": df} for R, df in sorted(skipped, key=lambda x: -x[1])]
+    return out
+
+
 # ================================================================ vault: generated map of content
 # `vault` writes md-cocite/: one note per area, one per lineage that reaches --min-size cases
 # (an explainer: who joined and left each slice, merges and splits), and an index MOC.

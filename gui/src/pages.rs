@@ -338,7 +338,12 @@ fn area_page(
             let labels: std::collections::HashMap<i64, String> =
                 slices.iter().map(|&s| (s, app.slice_label(s))).collect();
             let sl = move |s: i64| labels.get(&s).cloned().unwrap_or_default();
-            if let Some(p) = crate::graph::area_graph(ui, &mut app.graph_opts, &slices, lineages, graph, &sl) {
+            let export = app.cfg.as_ref().map(|c| crate::graph::ExportInfo {
+                dir: c.exports_dir(),
+                area_code: area_code(area),
+                area_name: name.to_string(),
+            });
+            if let Some(p) = crate::graph::area_graph(ui, &mut app.graph_opts, &slices, lineages, graph, &sl, export) {
                 app.goto = Some(p);
             }
         });
@@ -731,18 +736,26 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
     });
     // Build: the repo's own scripts, queued; status and output in the panel at the bottom
     ui.horizontal(|ui| {
-        let label = if note.is_some() { "Rebuild note and PDF" } else { "Build note and PDF" };
         let queued = app.is_queued(c.r#ref);
-        let r = ui.add_enabled(!queued, egui::Button::new(label)).on_hover_text(format!(
-            "adds it to the build queue: ./casemap.py get --cluster {0} (only if the case has no file yet), \
-             then ./case2md.py build on its case file (writes cases/, md-cases/, pdf/ and the case profile \
-             with good law, which is the slow part)",
-            c.r#ref
-        ));
-        let r = if queued { r.on_disabled_hover_text("already queued or building") } else { r };
-        if r.clicked() {
-            let title = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
-            app.enqueue_build(c.r#ref, title);
+        let title = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
+        let quick = ui
+            .add_enabled(!queued, egui::Button::new("Quick build"))
+            .on_hover_text(format!(
+                "note, PDF and case profile, without the good-law check (fast). Queues ./casemap.py get --cluster {0} \
+                 (only if the case has no file yet), then ./case2md.py build --no-goodlaw. An earlier good-law result is kept.",
+                c.r#ref
+            ));
+        let full = ui
+            .add_enabled(!queued, egui::Button::new("Build"))
+            .on_hover_text(
+                "everything, including the good-law check, which reads up to ~2,000 citing opinions and takes a long time. \
+                 Queues the same commands without --no-goodlaw.",
+            );
+        if quick.clicked() {
+            app.enqueue_build(c.r#ref, title.clone(), true);
+        }
+        if full.clicked() {
+            app.enqueue_build(c.r#ref, title, false);
         }
         if queued {
             ui.weak("in the build queue");
@@ -779,7 +792,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             ui.label("Good law:");
             ui.weak("not calculated").on_hover_text(
                 "The check reads every citing opinion from a court that could overrule the case, plus the 500 newest \
-                 (up to about 2,000), so it takes a long time. Build calculates it and caches it.",
+                 (up to about 2,000), so it takes a long time. Build calculates it and caches it; Quick build skips it.",
             );
         });
     }
@@ -855,6 +868,9 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         });
     }
     ui.add_space(8.0);
+    draws_section(app, ui, c);
+    coupling_section(app, ui, c);
+    ui.add_space(8.0);
     if let Some(ps) = c.partner_slice {
         ui.strong(format!("Partners in {} (most often cited with it, by cosine)", app.slice_label(ps)));
         egui::Grid::new("partners").striped(true).num_columns(7).show(ui, |ui| {
@@ -880,6 +896,150 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
                 ui.end_row();
             }
         });
+    }
+}
+
+/// "What it draws on": where the cases this one cites sit (each one's sub-cluster in the newest full
+/// slice). Bibliographic coupling's cheap half, read live, so it places any case, even one the
+/// co-citation map never holds.
+fn draws_section(app: &mut App, ui: &mut Ui, c: &CaseData) {
+    let Some(d) = &c.draws else { return };
+    let sl = app.slice_label(d.slice);
+    egui::CollapsingHeader::new(RichText::new(format!("What it draws on ({} cited cases)", d.refs)).strong())
+        .default_open(true)
+        .show(ui, |ui| {
+            wrapped_weak(ui, format!(
+                "Where the cases it cites sit: each one's sub-cluster in {sl}, the newest full slice. Counted from its citations."
+            ));
+            if c.slices.is_empty() {
+                ui.label("Not in the co-citation map itself, so this is where its own citations place it.");
+            }
+            let max = d.subs.iter().map(|s| s.n).max().unwrap_or(1).max(1) as f32;
+            let bar = ui.visuals().selection.bg_fill;
+            egui::Grid::new("draws").striped(true).num_columns(4).show(ui, |ui| {
+                ui.strong("Cites");
+                ui.strong("Share");
+                ui.strong("Sub-cluster");
+                ui.strong("Area");
+                ui.end_row();
+                for s in &d.subs {
+                    ui.label(s.n.to_string());
+                    ui.horizontal(|ui| {
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(90.0, 10.0), egui::Sense::hover());
+                        let w = (rect.width() * s.n as f32 / max).max(1.0);
+                        ui.painter().rect_filled(egui::Rect::from_min_size(rect.min, egui::vec2(w, rect.height())), 0.0, bar);
+                        ui.label(format!("{:.0}%", 100.0 * s.n as f64 / d.refs.max(1) as f64));
+                    });
+                    if ui.link(format!("{} {}", s.unit.code(&sl), s.unit.name)).clicked() {
+                        app.goto = Some(s.unit.page());
+                    }
+                    match &s.area {
+                        Some((a, an)) => {
+                            if ui.link(an).clicked() {
+                                app.goto = Some(Page::Area(*a));
+                            }
+                        }
+                        None => {
+                            ui.label("–");
+                        }
+                    }
+                    ui.end_row();
+                }
+            });
+            if d.unclustered > 0 {
+                ui.weak(format!(
+                    "{} of the {} cited cases are in no sub-cluster of {sl} (cited too rarely then).",
+                    d.unclustered, d.refs
+                ));
+            }
+            if !d.areas.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Areas:");
+                    for (a, an, n) in d.areas.iter().take(6) {
+                        if ui.link(an).clicked() {
+                            app.goto = Some(Page::Area(*a));
+                        }
+                        ui.weak(format!("{:.0}%", 100.0 * *n as f64 / d.refs.max(1) as f64));
+                    }
+                });
+            }
+        });
+}
+
+/// A weak (grey) note that wraps at the panel's width instead of widening the page.
+fn wrapped_weak(ui: &mut Ui, text: String) {
+    ui.add(egui::Label::new(RichText::new(text).weak()).wrap());
+}
+
+/// "Coupled cases": what `casemap.py coupling` cached, and the button that queues it. Never run
+/// automatically: it reads the whole citation cache.
+fn coupling_section(app: &mut App, ui: &mut Ui, c: &CaseData) {
+    let queued = app.is_queued(c.r#ref);
+    let button = |app: &mut App, ui: &mut Ui, text: &str| {
+        let b = ui.add_enabled(!queued, egui::Button::new(text)).on_hover_text(format!(
+            "Finds the cases that cite the most of the same cases as this one, rare shared citations counting more \
+             (bibliographic coupling). Queues ./casemap.py coupling --cluster {}, which reads the whole citation cache \
+             (about 300 MB), so it takes seconds to a minute. Only on request: builds never run it. A later build then \
+             shows the result in the note and the PDF.",
+            c.r#ref
+        ));
+        if b.clicked() {
+            app.enqueue_script(
+                c.r#ref,
+                format!("Coupled cases: {}", c.name),
+                vec!["casemap.py".into(), "coupling".into(), "--cluster".into(), c.r#ref.to_string()],
+            );
+        }
+    };
+    match &c.coupling {
+        None => {
+            ui.horizontal(|ui| {
+                button(app, ui, "Find coupled cases");
+                if queued {
+                    ui.weak("in the build queue");
+                }
+            });
+        }
+        Some(k) => {
+            egui::CollapsingHeader::new(RichText::new(format!("Coupled cases ({})", k.results.len())).strong())
+                .default_open(true)
+                .show(ui, |ui| {
+                    wrapped_weak(ui, format!(
+                        "Cases citing the most of the same cases as this one; each shared cited case adds log(N/df), so rare ones \
+                         count more. Computed {} from the bulk data of {}. {} of its {} cited cases were left out (cited by more \
+                         than {} decisions). Hover a case for the cited cases it shares.",
+                        k.computed, k.stamp, k.skipped, k.refs, k.max_df
+                    ));
+                    egui::Grid::new("coupled").striped(true).num_columns(6).show(ui, |ui| {
+                        ui.strong("Case");
+                        ui.label("");
+                        ui.strong("Score");
+                        ui.strong("Shared");
+                        ui.strong("Cite");
+                        ui.strong("Court, year");
+                        ui.end_row();
+                        for x in &k.results {
+                            let shared: Vec<String> = x.refs.iter().map(|r| format!("{} (cited by {})", r.name, r.df)).collect();
+                            let name = if x.name.chars().count() > 70 { format!("{}…", x.name.chars().take(69).collect::<String>()) } else { x.name.clone() };
+                            if ui.link(name).on_hover_text(format!("Shared cited cases, rarest first:\n{}", shared.join("\n"))).clicked() {
+                                app.goto = Some(Page::Case(x.r#ref));
+                            }
+                            built_tag(app, ui, x.r#ref);
+                            ui.label(format!("{:.1}", x.score));
+                            ui.label(x.shared.to_string());
+                            ui.label(&x.cite);
+                            ui.label(format!("{} {}", x.court, x.year).trim());
+                            ui.end_row();
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        button(app, ui, "Find coupled cases again");
+                        if queued {
+                            ui.weak("in the build queue");
+                        }
+                    });
+                });
+        }
     }
 }
 
@@ -972,7 +1132,13 @@ fn search_side(app: &mut App, ui: &mut Ui) {
     ui.weak("The index is search.sqlite (casedb.py). On the HDD a first search can take seconds; later ones are fast.");
     if !app.search_history.is_empty() {
         ui.separator();
-        ui.strong("Recent searches");
+        ui.horizontal(|ui| {
+            ui.strong("Recent searches");
+            if ui.link("Clear").on_hover_text("forget every recent search").clicked() {
+                app.search_history.clear();
+                crate::recent::save(&app.search_history);
+            }
+        });
         let current = match app.current() {
             Page::Search { query, mode } => Some((query.clone(), *mode)),
             _ => None,
@@ -1172,7 +1338,7 @@ fn case_details(app: &mut App, ui: &mut Ui, c: &CaseData, note: Option<&crate::c
             });
         }
         _ => {
-            ui.weak("Case profile (citations per year, successor): not cached; Build writes it.");
+            ui.weak("Case profile (citations per year, successor): not cached; Quick build or Build writes it.");
         }
     }
     // how later courts describe it

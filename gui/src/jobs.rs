@@ -3,7 +3,11 @@
 //!
 //! Build = `casemap.py get --cluster N` (case JSON and note, from the local database; skipped when
 //! the case file already exists), then `case2md.py build cases/<file>` (note, PDF, and the case
-//! profile with good-law status).
+//! profile with good-law status). Quick build passes --no-goodlaw: the same minus the slow
+//! good-law check, which reads up to ~2,000 citing opinions.
+//!
+//! The same queue also runs single script commands for a case (`run_script`): "Find coupled cases"
+//! queues `casemap.py coupling --cluster N`, which writes cases/citedby/<N>/coupling.json.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -18,6 +22,8 @@ pub enum Msg {
 pub struct Running {
     pub title: String,
     pub r#ref: i64,
+    /// a Build or Quick build (else a single script command): only the status line's wording differs
+    pub build: bool,
     pub rx: Receiver<Msg>,
 }
 
@@ -88,7 +94,7 @@ fn run_step(python: &str, repo: &Path, args: &[String], need: Option<&str>, tx: 
 }
 
 /// Build (or rebuild) one case's note and PDF, on a thread; messages arrive on the returned job.
-pub fn build_case(python: String, repo: PathBuf, r: i64, title: String, wake: impl Fn() + Send + Sync + 'static) -> Running {
+pub fn build_case(python: String, repo: PathBuf, r: i64, title: String, quick: bool, wake: impl Fn() + Send + Sync + 'static) -> Running {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         let ok = (|| {
@@ -104,10 +110,28 @@ pub fn build_case(python: String, repo: PathBuf, r: i64, title: String, wake: im
                 let _ = tx.send(Msg::Line("casemap.py get did not record a case file in cases/_index.json".into()));
                 return false;
             };
-            run_step(&python, &repo, &["case2md.py".into(), "build".into(), format!("cases/{full}")], Some("wrote "), &tx, &wake)
+            // Quick build: everything but the good-law check (case2md.py --no-goodlaw keeps an earlier result)
+            let mut args: Vec<String> = vec!["case2md.py".into(), "build".into()];
+            if quick {
+                args.push("--no-goodlaw".into());
+            }
+            args.push(format!("cases/{full}"));
+            run_step(&python, &repo, &args, Some("wrote "), &tx, &wake)
         })();
         let _ = tx.send(Msg::Done { ok });
         wake();
     });
-    Running { title, r#ref: r, rx }
+    Running { title, r#ref: r, build: true, rx }
+}
+
+/// Run one script command for a case (args after the interpreter, e.g. casemap.py coupling --cluster N),
+/// on a thread; done when it exits 0.
+pub fn run_script(python: String, repo: PathBuf, r: i64, title: String, args: Vec<String>, wake: impl Fn() + Send + Sync + 'static) -> Running {
+    let (tx, rx) = channel();
+    std::thread::spawn(move || {
+        let ok = run_step(&python, &repo, &args, None, &tx, &wake);
+        let _ = tx.send(Msg::Done { ok });
+        wake();
+    });
+    Running { title, r#ref: r, build: false, rx }
 }

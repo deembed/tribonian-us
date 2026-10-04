@@ -24,6 +24,12 @@
             sample sized for --margin (default +/-5% at 95%); --full reads all.
         --list also writes md-cases/<slug>--cited-by.md, the complete list.
 
+    ./casemap.py coupling --cluster 9493818 [--max-df 2000] [--top 30] [--json]
+        Coupled cases: the cases citing the most of the same cases as this one, rare
+        shared citations weighted up (log N/df). Works for any case, cited or not. Reads
+        the co-citation citation cache (cocite.py prep); never run by a build. Writes
+        cases/citedby/<cluster>/coupling.json, which case2md.py build then shows.
+
     ./casemap.py stubs [--list] [--max N] [--api] [slug or cluster id ...]
         Turn stub notes into full cases: for each stub (most-cited first) take the text
         from the local database and write cases/<cite>_<name>.json plus the full note,
@@ -34,7 +40,7 @@
 Everything downloaded is cached under cases/. No language model anywhere:
 counting, regular expressions, string matching.
 """
-import argparse, bisect, html, json, math, random, re, sqlite3, sys, zlib
+import argparse, bisect, html, json, math, random, re, sqlite3, sys, time, zlib
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -1157,6 +1163,33 @@ def cmd_citedby(args):
     print("  wrote the '## Cited by' section into md-cases/%s.md (raw numbers: cases/citedby/%d/results.json)" % (ent["slug"], cid))
 
 
+def cmd_coupling(args):
+    """Coupled cases: those citing the most of the same cases as this one, rare shared citations
+    weighted up (cocite.coupling). Explicit only, never part of a build: it reads the whole citation
+    cache (cocite-cache, about 300 MB). Cached in cases/citedby/<cluster>/coupling.json, where
+    case2md.py build picks it up for the "Coupled with" section."""
+    con, done = open_db()
+    cid = root_cluster(args, con)
+    t0 = time.time()
+    res = c.coupling_cache(cid, con, args.max_df, args.top)
+    if args.as_json:
+        print(json.dumps(res, indent=1))
+        return
+    import cocite
+    name, cite, yr, court = cocite.case_label(con, cid)
+    print("%s (%s): cites %d cases; %d used, %d cited by more than %s decisions left out%s" % (
+        name, ", ".join(t for t in (cite, court, yr) if t), res["refs"], res["used"], res["skipped"], format(res["max_df"], ","),
+        ", %d not in the citation cache" % res["missing"] if res["missing"] else ""))
+    if res.get("stale_cache"):
+        print("  note: the citation cache is from an older bulk load (./cocite.py prep refreshes it)")
+    print("%4s %7s %6s  %s" % ("#", "score", "shared", "case"))
+    for i, x in enumerate(res["results"], 1):
+        print("%4d %7.1f %6d  %s%s" % (i, x["score"], x["shared"], x["name"],
+                                       " (%s)" % ", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)))
+        print("%19s shared: %s" % ("", "; ".join(r["name"] for r in x["refs"][:6]) + (" ..." if len(x["refs"]) > 6 else "")))
+    print("wrote %s  (%.1f s)" % (c.coupling_path(cid).relative_to(c.ROOT), time.time() - t0))
+
+
 def cmd_fixlinks(args):
     """Give every bare https://www.courtlistener.com/opinion/<id>/ link in md-cases/ and in the
     saved Cited-by sections its slug, without rerunning anything."""
@@ -1185,7 +1218,8 @@ def main():
     st.add_argument("--max", type=int, help="at most this many (the most-cited first)")
     st.add_argument("--api", action="store_true", help="fall back to the CourtListener API when the database has no readable text")
     st.set_defaults(func=cmd_stubs)
-    for name, fn in (("get", cmd_get), ("map", cmd_map), ("citedby", cmd_citedby), ("goodlaw", cmd_goodlaw)):
+    for name, fn in (("get", cmd_get), ("map", cmd_map), ("citedby", cmd_citedby), ("goodlaw", cmd_goodlaw),
+                     ("coupling", cmd_coupling)):
         p = sub.add_parser(name)
         p.add_argument("json", nargs="?", help="a cases/*.json file")
         p.add_argument("--cluster", type=int, help="or a CourtListener cluster id")
@@ -1205,6 +1239,11 @@ def main():
                            "it since; all = every lineage it has belonged to (default current)")
             p.add_argument("--courts", help="--by cluster: cocite.py view (default: the case notes' view, cocite.NOTE_VIEW)")
             p.add_argument("--max", type=int, default=3000, help="stop if the map would exceed this many notes")
+        elif name == "coupling":
+            p.add_argument("--max-df", dest="max_df", type=int, default=2000,
+                           help="leave out cited cases cited by more decisions than this (default 2000)")
+            p.add_argument("--top", type=int, default=30, help="how many coupled cases (default 30)")
+            p.add_argument("--json", dest="as_json", action="store_true", help="print the result as JSON")
         elif name == "goodlaw":
             p.add_argument("--show", metavar="WORD", help="print every citation window in the opinions read that contain WORD")
         elif name == "citedby":

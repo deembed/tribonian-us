@@ -2,7 +2,7 @@
 
 Read-only desktop browser over what the LawFormatting scripts produce: co-citation areas, lineages,
 slices, clusters and sub-clusters (`cocite*.sqlite`), and the built case notes (`cases/_index.json`,
-`md-cases/`, `pdf/`). It never writes to any of them. Scope: `claude/scope-gui.md` in the Project.
+`md-cases/`, `pdf/`). It never writes to any of them (its own writes: SVG exports and the recent-searches list, below). Scope: `claude/scope-gui.md` in the Project.
 
 ```
 cd gui
@@ -17,7 +17,13 @@ cargo run --release
 - Lineage pages need the `subs(lineage)` / `clusters(lineage)` indexes: `./cocite.py index --courts ...`
   once per view built before 2026-10-04 (a new build includes them).
 - Area pages carry a history graph (`src/graph.rs`), drawn like `git log --graph`: one lane per lineage,
-  time running down (or up, with "Newest at top"). Click a dot to open its lineage.
+  time running down (or up, with "Newest at top"), or "Left to right" (slice labels along the top, names of
+  labelled lineages in a band under the lanes, starting under their first dot). Click a dot to open its lineage.
+- Export SVG (beside the graph controls) writes the graph as shown, orientation and filters included, on a white
+  background, to `<repo_dir>/build/exports/area-<code>-<orientation>.svg` and opens it. This is the only file
+  the app itself writes; everything else on disk comes from the Python scripts.
+- Recent searches are kept between sessions in `$XDG_DATA_HOME/lawgui/recent-searches.json`
+  (default `~/.local/share/lawgui/`), newest first, at most 30. "Clear" beside the heading empties it.
 - Test aid: `LAWGUI_DELAY_MS=800 cargo run` slows every page load, to see the loading placeholders.
 - Case tables sort by any column heading (click again to flip). The Good law column reads
   `cases/citedby/<ref>/profile.json`, so it is filled only for cases `casemap.py goodlaw` has run on.
@@ -36,5 +42,14 @@ cargo run --release
   or read live from the parentheticals), and the note's front matter. Good law says "not calculated" until a
   build computes it (it reads up to ~2,000 citing opinions, so it is slow). `opinions_db` in gui.toml
   (default repo_dir/db/opinions.sqlite) maps a case to its opinions for the live parentheticals.
+- Two buttons on the case page: **Quick build** (`case2md.py build --no-goodlaw`: note, PDF and profile without
+  the slow good-law check, keeping an earlier result) and **Build** (everything).
 - Builds queue: the status line at the bottom shows "Building k of n" and what is queued, then "Done" (with any
   failures). A build added after "Done" starts a new run with fresh counts. "Output" opens the log.
+- **What it draws on** (case page, live): the case's opinions (`opinions_db`) -> `edges` in the main database
+  -> the cited cases, then each cited case's sub-cluster in the newest full slice: count, share bar, clickable
+  sub-cluster and area, and how many cited cases are in no sub-cluster. Same definition as `cocite.draws_on`,
+  which the notes and PDFs use. It places any case, also one the co-citation map never holds.
+- **Find coupled cases** queues `casemap.py coupling --cluster N` through the build queue ("Running k of n").
+  It writes `cases/citedby/<N>/coupling.json`; the page then shows **Coupled cases**: score, shared cited
+  cases (hover a case for the list, rarest first), and when it was computed. Never run automatically.

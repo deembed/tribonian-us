@@ -200,6 +200,51 @@ pub fn read_profile(cases_dir: &Path, r: i64) -> Option<Profile> {
     })
 }
 
+/// cases/citedby/<ref>/coupling.json, written by `casemap.py coupling`. Read only if it is there.
+pub fn read_coupling(cases_dir: &Path, r: i64) -> Option<Coupling> {
+    let p = cases_dir.join("citedby").join(r.to_string()).join("coupling.json");
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
+    let s = |x: &serde_json::Value| x.as_str().map(String::from).or_else(|| x.as_i64().map(|n| n.to_string())).unwrap_or_default();
+    let results = v["results"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|x| Coupled {
+                    r#ref: x["cluster"].as_i64().unwrap_or(0),
+                    name: s(&x["name"]),
+                    cite: s(&x["cite"]),
+                    year: s(&x["year"]),
+                    court: s(&x["court"]),
+                    score: x["score"].as_f64().unwrap_or(0.0),
+                    shared: x["shared"].as_i64().unwrap_or(0),
+                    refs: x["refs"]
+                        .as_array()
+                        .map(|rs| {
+                            rs.iter()
+                                .map(|y| CoupledRef { r#ref: y["cluster"].as_i64().unwrap_or(0), name: s(&y["name"]), df: y["df"].as_i64().unwrap_or(0) })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(Coupling {
+        computed: s(&v["computed"]),
+        stamp: s(&v["stamp"]),
+        refs: v["refs"].as_i64().unwrap_or(0),
+        skipped: v["skipped"].as_i64().unwrap_or(0),
+        max_df: v["max_df"].as_i64().unwrap_or(0),
+        n: v["N"].as_i64().unwrap_or(0),
+        results,
+    })
+}
+
+/// "1,2,3" for an IN (...) list of ids (integers only, so nothing to escape).
+fn id_list(ids: &[i64]) -> String {
+    ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+}
+
 /// Cases with exactly this citation ("463 U.S. 29": volume, reporter, page).
 pub fn cite_lookup(main: &Connection, volume: &str, reporter: &str, page: &str) -> Vec<i64> {
     let Ok(mut st) = main.prepare("SELECT DISTINCT cluster_id FROM cites WHERE volume = ? AND reporter = ? AND page = ?") else {
@@ -735,6 +780,64 @@ impl Db {
         Some(Profile { cached: false, parens_total: total, groups, ..Default::default() })
     }
 
+    /// What it draws on, live: the case's opinions (opinions database) -> edges_out (main database)
+    /// -> the cited opinions' cases, then each cited case's sub-cluster in the newest full slice.
+    /// The same definition as cocite.draws_on, which the notes and PDFs use. A handful of indexed
+    /// queries; None without the main and opinions databases or when the case cites nothing.
+    fn draws_on(&self, r: i64) -> Option<DrawsOn> {
+        let (main, ops) = (self.main.as_ref()?, self.ops.as_ref()?);
+        let own: Vec<i64> = ops.prepare("SELECT id FROM opinions WHERE cluster_id = ?").ok()?.query_map([r], |x| x.get(0)).ok()?.flatten().collect();
+        if own.is_empty() {
+            return None;
+        }
+        let cited_ops: Vec<i64> = main
+            .prepare(&format!("SELECT DISTINCT cited FROM edges WHERE citing IN ({})", id_list(&own)))
+            .ok()?
+            .query_map([], |x| x.get::<_, Option<i64>>(0))
+            .ok()?
+            .flatten()
+            .flatten()
+            .collect();
+        let mut refs = std::collections::BTreeSet::new();
+        for ch in cited_ops.chunks(500) {
+            let mut st = ops.prepare(&format!("SELECT DISTINCT cluster_id FROM opinions WHERE id IN ({})", id_list(ch))).ok()?;
+            refs.extend(st.query_map([], |x| x.get::<_, Option<i64>>(0)).ok()?.flatten().flatten());
+        }
+        refs.remove(&r);
+        if refs.is_empty() {
+            return None;
+        }
+        let refs: Vec<i64> = refs.into_iter().collect();
+        let s = self.meta.newest_full;
+        let mut count: HashMap<i64, i64> = HashMap::new();
+        for ch in refs.chunks(500) {
+            let mut st = self.con.prepare(&format!("SELECT sub FROM nodes WHERE slice = ? AND ref IN ({})", id_list(ch))).ok()?;
+            for k in st.query_map([s], |x| x.get::<_, Option<i64>>(0)).ok()?.flatten().flatten() {
+                if k > 0 {
+                    *count.entry(k).or_default() += 1;
+                }
+            }
+        }
+        let clustered: i64 = count.values().sum();
+        let mut counted: Vec<(i64, i64)> = count.into_iter().collect();
+        counted.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let mut subs = Vec::new();
+        let mut areas: Vec<(i64, String, i64)> = Vec::new();
+        for (k, n) in counted {
+            let Some(unit) = self.unit(Level::Sub, s, k) else { continue };
+            let area = self.area_of(unit.lineage);
+            if let Some((a, an)) = &area {
+                match areas.iter_mut().find(|x| x.0 == *a) {
+                    Some(x) => x.2 += n,
+                    None => areas.push((*a, an.clone(), n)),
+                }
+            }
+            subs.push(DrawsSub { unit, n, area });
+        }
+        areas.sort_by(|a, b| b.2.cmp(&a.2));
+        Some(DrawsOn { slice: s, refs: refs.len() as i64, unclustered: refs.len() as i64 - clustered, subs, areas })
+    }
+
     fn head(&self, unit: UnitRow, parent: Option<UnitRow>) -> UnitHead {
         let lin = unit.lineage;
         let span: Option<(i64, i64)> = self
@@ -845,6 +948,8 @@ impl Db {
             goodlaw: read_goodlaw(&self.cases_dir, r),
             details: self.main.as_ref().and_then(|m| details(m, r)),
             profile: read_profile(&self.cases_dir, r).or_else(|| self.live_profile(r)),
+            draws: self.draws_on(r),
+            coupling: read_coupling(&self.cases_dir, r),
         })
     }
 }
