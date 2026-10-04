@@ -2108,7 +2108,34 @@ def load_gold(db, path, idx):
                 missing.append(nm)
     if missing:
         print("benchmark: %d names not found or not a node here: %s" % (len(missing), "; ".join(missing[:6])))
+    # record what this view could not score, so gold-common can intersect views (see cmd_gold_common)
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    (EVIDENCE_DIR / ("gold-missing-%s.json" % COCITE_DB.stem)).write_text(
+        json.dumps({"gold": str(path), "missing": sorted(missing)}, indent=1, ensure_ascii=False), encoding="utf-8")
     return out
+
+
+def cmd_gold_common(args):
+    """build/cocite/gold-common.json: the benchmark groups restricted to the names every listed view
+    can score. A label that fails to re-attach in one view would otherwise drop out of that view's
+    benchmark only, and two views would be scored on different names. Reads the gold-missing-*.json
+    files that load_gold writes, so run `areas --grid cpm:0.5@10` (fast, writes nothing) in each
+    view first."""
+    groups = json.loads(Path(args.gold).read_text(encoding="utf-8"))
+    missing, seen = set(), []
+    for v in args.views:
+        p = EVIDENCE_DIR / ("gold-missing-%s.json" % v)
+        if not p.exists():
+            sys.exit("no %s: run ./cocite.py areas --grid cpm:0.5@10 for that view first" % p.name)
+        m = json.loads(p.read_text(encoding="utf-8"))["missing"]
+        missing |= set(m); seen.append("%s drops %d" % (v, len(m)))
+    common = {g: [n for n in names if n not in missing] for g, names in groups.items()}
+    common = {g: n for g, n in common.items() if len(n) >= 2}        # a group of one scores no pairs
+    out = EVIDENCE_DIR / "gold-common.json"
+    out.write_text(json.dumps(common, indent=1, ensure_ascii=False), encoding="utf-8")
+    print("%s: %d groups, %d names (from %d groups, %d names; %s)" % (
+        out.relative_to(HERE), len(common), sum(map(len, common.values())),
+        len(groups), sum(map(len, groups.values())), "; ".join(seen)))
 
 
 def gold_score(memb, gold):
@@ -2695,6 +2722,10 @@ def main():
     p.add_argument("--cite", action="append", default=[])
     p.add_argument("--cluster", type=int, action="append")
     p.set_defaults(func=cmd_together)
+    p = sub.add_parser("gold-common", help="benchmark names every listed view can score -> build/cocite/gold-common.json")
+    p.add_argument("views", nargs="+", help="results file stems, e.g. cocite-appellate cocite-appellate-sentence-m0.2")
+    p.add_argument("--gold", default=str(HERE / "cocite_gold.json"))
+    p.set_defaults(func=cmd_gold_common)
     args = ap.parse_args()
     global COCITE_DB
     tags = []
