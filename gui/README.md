@@ -53,3 +53,11 @@ cargo run --release
 - **Find coupled cases** queues `casemap.py coupling --cluster N` through the build queue ("Running k of n").
   It writes `cases/citedby/<N>/coupling.json`; the page then shows **Coupled cases**: score, shared cited
   cases (hover a case for the list, rarest first), and when it was computed. Never run automatically.
+- **Why red / yellow / green** (case page, under Good law; open for red and yellow): casemap.py's rule for that colour,
+  what the check read (every citing opinion from a court that could overrule the case, up to 1,500, plus the 500 newest),
+  and each warning from the profile: year, court, kind, the word, "from a court above", the citing case (a link) and the
+  snippet with the citation highlighted. The Good law cell in tables shows the first three as a hover.
+- **Grey = dormant**: never cited, or not cited in the last 5 full years before the bulk data's date (case2md RECENT).
+  From the cached profile's citations per year; else CourtListener's citing count when it is 0; else, on the case page
+  only and for cases cited at most 300 times, a live check of the newest citing decision. Red and yellow keep their
+  colour and get a grey "dormant" tag; green or not calculated shows grey "dormant" with the reason.

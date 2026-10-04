@@ -54,15 +54,17 @@ pub struct Described {
     pub cite: String,
     pub year: Option<i64>,
     pub court: String,
+    /// CourtListener's count of citing cases (clusters.citation_count)
+    pub cited: Option<i64>,
 }
 
 pub fn describe(main: &Connection, r: i64) -> Option<Described> {
-    let (name, short, date, court): (Option<String>, Option<String>, Option<String>, Option<String>) = main
+    let (name, short, date, court, cited): (Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>) = main
         .query_row(
-            "SELECT c.case_name, c.case_name_short, c.date_filed, d.court_id FROM clusters c
+            "SELECT c.case_name, c.case_name_short, c.date_filed, d.court_id, c.citation_count FROM clusters c
              LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id = ?",
             [r],
-            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?)),
+            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?)),
         )
         .ok()?;
     let cite: Option<(String, String, String)> = main
@@ -75,6 +77,7 @@ pub fn describe(main: &Connection, r: i64) -> Option<Described> {
         cite: cite.map(|(v, rep, p)| format!("{v} {rep} {p}")).unwrap_or_default(),
         year: date.and_then(|d| d.get(..4).and_then(|y| y.parse().ok())),
         court: court.unwrap_or_default(),
+        cited,
     })
 }
 
@@ -297,7 +300,7 @@ pub struct Db {
     ops: Option<Connection>,
 }
 
-fn current_year() -> i64 {
+pub fn current_year() -> i64 {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
@@ -494,6 +497,7 @@ impl Db {
                 weight: r.get::<_, Option<f64>>(1)?.unwrap_or(0.0),
                 citing: r.get::<_, Option<i64>>("citing").ok().flatten(),
                 goodlaw: None,
+                dormant: None,
                 name: r.get::<_, Option<String>>("name")?.unwrap_or_default(),
                 cite: r.get::<_, Option<String>>("cite")?.unwrap_or_default(),
                 year: r.get::<_, Option<i64>>("year")?,
@@ -505,7 +509,7 @@ impl Db {
             if c.name.is_empty() {
                 c.name = format!("cluster {}", c.r#ref);
             }
-            c.goodlaw = read_goodlaw(&self.cases_dir, c.r#ref);
+            (c.goodlaw, c.dormant) = read_standing(&self.cases_dir, c.r#ref);
         }
         Ok(out)
     }
@@ -838,6 +842,59 @@ impl Db {
         Some(DrawsOn { slice: s, refs: refs.len() as i64, unclustered: refs.len() as i64 - clustered, subs, areas })
     }
 
+    /// The bulk data's year: casedb's citation-map file name in the main database, else this year.
+    fn data_year(&self) -> i64 {
+        self.main
+            .as_ref()
+            .and_then(|m| m.query_row("SELECT file FROM loaded WHERE name='citation-map'", [], |x| x.get::<_, String>(0)).ok())
+            .and_then(|f| {
+                // the first "YYYY-MM-DD" in the file name
+                let w = f.as_bytes().windows(10).find(|w| w.iter().enumerate().all(|(k, c)| if k == 4 || k == 7 { *c == b'-' } else { c.is_ascii_digit() }))?;
+                stamp_year(std::str::from_utf8(w).ok()?)
+            })
+            .unwrap_or_else(current_year)
+    }
+
+    /// Dormant or not, read live for a case with no cached profile: the case's opinions -> `edges`
+    /// (citing opinions) -> their cases -> the newest date_filed. Only for cases CourtListener says
+    /// are cited at most LIVE_DORMANT_MAX times, so it stays fast. None when nothing dated is found.
+    fn live_dormancy(&self, r: i64) -> Option<Dormancy> {
+        let (main, ops) = (self.main.as_ref()?, self.ops.as_ref()?);
+        let own: Vec<i64> = ops.prepare("SELECT id FROM opinions WHERE cluster_id = ?").ok()?.query_map([r], |x| x.get(0)).ok()?.flatten().collect();
+        if own.is_empty() {
+            return None;
+        }
+        let citing: Vec<i64> = main
+            .prepare(&format!("SELECT DISTINCT citing FROM edges WHERE cited IN ({})", id_list(&own)))
+            .ok()?
+            .query_map([], |x| x.get::<_, Option<i64>>(0))
+            .ok()?
+            .flatten()
+            .flatten()
+            .collect();
+        let mut clusters = std::collections::BTreeSet::new();
+        for ch in citing.chunks(500) {
+            let mut st = ops.prepare(&format!("SELECT DISTINCT cluster_id FROM opinions WHERE id IN ({})", id_list(ch))).ok()?;
+            clusters.extend(st.query_map([], |x| x.get::<_, Option<i64>>(0)).ok()?.flatten().flatten());
+        }
+        clusters.remove(&r);
+        let clusters: Vec<i64> = clusters.into_iter().collect();
+        let mut last: Option<i64> = None;
+        for ch in clusters.chunks(500) {
+            let d: Option<String> = main
+                .query_row(&format!("SELECT max(date_filed) FROM clusters WHERE id IN ({})", id_list(ch)), [], |x| x.get(0))
+                .ok()
+                .flatten();
+            last = last.max(d.as_deref().and_then(stamp_year));
+        }
+        let last = last?;
+        Some(Dormancy::from_years(
+            &[(last, 1)],
+            self.data_year(),
+            &format!("checked just now: {} citing decisions in the local citation data, newest filed {last}", clusters.len()),
+        ))
+    }
+
     fn head(&self, unit: UnitRow, parent: Option<UnitRow>) -> UnitHead {
         let lin = unit.lineage;
         let span: Option<(i64, i64)> = self
@@ -868,7 +925,7 @@ impl Db {
             }
             year = year.or(d.year);
         }
-        let court = main.map(|d| d.court).unwrap_or_default();
+        let court = main.as_ref().map(|d| d.court.clone()).unwrap_or_default();
         // nodes: one row per slice the case is a node in
         let mut st = self
             .con
@@ -934,6 +991,19 @@ impl Db {
                 partners.push(x?);
             }
         }
+        let (goodlaw, mut dormant) = read_standing(&self.cases_dir, r);
+        if dormant.is_none() {
+            dormant = match main.and_then(|d| d.cited) {
+                Some(0) => Some(Dormancy {
+                    dormant: true,
+                    last: None,
+                    from: self.data_year() - RECENT,
+                    source: "CourtListener's citing count is 0".into(),
+                }),
+                Some(n) if n <= LIVE_DORMANT_MAX => self.live_dormancy(r),
+                _ => None,
+            };
+        }
         Ok(CaseData {
             r#ref: r,
             name,
@@ -945,7 +1015,8 @@ impl Db {
             area,
             partner_slice,
             partners,
-            goodlaw: read_goodlaw(&self.cases_dir, r),
+            goodlaw,
+            dormant,
             details: self.main.as_ref().and_then(|m| details(m, r)),
             profile: read_profile(&self.cases_dir, r).or_else(|| self.live_profile(r)),
             draws: self.draws_on(r),
@@ -954,19 +1025,57 @@ impl Db {
     }
 }
 
-/// cases/citedby/<ref>/profile.json, written by case2md.py. Read only if it is there.
-pub fn read_goodlaw(cases_dir: &Path, r: i64) -> Option<GoodLaw> {
+/// The live dormancy check runs only for cases cited at most this often (CourtListener's count).
+pub const LIVE_DORMANT_MAX: i64 = 300;
+
+/// A year written as "2006" or 2006.
+fn year_of(v: &serde_json::Value) -> Option<i64> {
+    v.as_i64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+/// cases/citedby/<ref>/profile.json, written by case2md.py: the good-law result (when casemap.py
+/// goodlaw has run) and, from the citations per year, whether the case is dormant. Read only if it is there.
+pub fn read_standing(cases_dir: &Path, r: i64) -> (Option<GoodLaw>, Option<Dormancy>) {
     let p = cases_dir.join("citedby").join(r.to_string()).join("profile.json");
-    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
+    let Some(v) = std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else {
+        return (None, None);
+    };
+    let stamp = v["stamp"].as_str().map(String::from);
+    let dormant = v["years"].as_object().map(|o| {
+        let years: Vec<(i64, i64)> = o.iter().filter_map(|(k, n)| Some((k.parse().ok()?, n.as_i64()?))).collect();
+        let year = stamp.as_deref().and_then(stamp_year).unwrap_or_else(current_year);
+        Dormancy::from_years(&years, year, "citations per year in the cached case profile")
+    });
     let g = &v["goodlaw"];
-    Some(GoodLaw {
-        status: g["status"].as_str()?.to_string(),
-        yellow_year: g["yellow_year"].as_i64(),
-        red_year: g["red_year"].as_i64(),
+    let goodlaw = g["status"].as_str().map(|status| GoodLaw {
+        status: status.to_string(),
+        yellow_year: year_of(&g["yellow_year"]),
+        red_year: year_of(&g["red_year"]),
         read: g["read"].as_i64(),
         of: g["of"].as_i64(),
-        stamp: v["stamp"].as_str().map(String::from),
-    })
+        stamp: stamp.clone(),
+        level: g["level"].as_str().unwrap_or("").to_string(),
+        version: g["version"].as_i64(),
+        evidence: g["evidence"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .map(|e| Evidence {
+                        cluster: e["cluster"].as_i64().unwrap_or(0),
+                        name: e["name"].as_str().unwrap_or("").to_string(),
+                        court: e["court"].as_str().unwrap_or("").to_string(),
+                        year: year_of(&e["year"]).map(|y| y.to_string()).unwrap_or_default(),
+                        above: e["above"].as_bool().unwrap_or(false),
+                        kind: e["kind"].as_str().unwrap_or("").to_string(),
+                        word: e["word"].as_str().unwrap_or("").to_string(),
+                        snippet: e["snippet"].as_str().unwrap_or("").to_string(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        n_evidence: g["n_evidence"].as_i64().unwrap_or(0),
+    });
+    (goodlaw, dormant)
 }
 
 // ------------------------------------------------------------------ worker thread

@@ -133,6 +133,8 @@ pub struct CaseRow {
     pub citing: Option<i64>,
     /// From cases/citedby/<ref>/profile.json, when casemap.py goodlaw has run for the case.
     pub goodlaw: Option<GoodLaw>,
+    /// From the same profile's citations per year, when it is cached.
+    pub dormant: Option<Dormancy>,
     /// Extra column, e.g. "home" or "share 0.32".
     pub note: String,
 }
@@ -201,6 +203,23 @@ pub struct Partner {
     pub cosine: f64,
 }
 
+/// One warning casemap.py found about the case in a citing opinion (goodlaw "evidence").
+#[derive(Clone, Debug, Default)]
+pub struct Evidence {
+    /// the citing case (CourtListener cluster)
+    pub cluster: i64,
+    pub name: String,
+    pub court: String,
+    pub year: String,
+    /// true: from a court that could overrule the case (its level or above)
+    pub above: bool,
+    /// "strong" | "other grounds" | "weak"
+    pub kind: String,
+    pub word: String,
+    /// the words around the citation; the citation itself is marked ⟦…⟧
+    pub snippet: String,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct GoodLaw {
     pub status: String,
@@ -209,6 +228,62 @@ pub struct GoodLaw {
     pub read: Option<i64>,
     pub of: Option<i64>,
     pub stamp: Option<String>,
+    /// the case's court level: supreme | circuit | district | other
+    pub level: String,
+    /// casemap.py GOODLAW_VERSION the result was computed with
+    pub version: Option<i64>,
+    /// the first 25 (casemap.py keeps no more), strongest first
+    pub evidence: Vec<Evidence>,
+    pub n_evidence: i64,
+}
+
+/// casemap.py GOODLAW_MAX and GOODLAW_RECENT: what the good-law check reads.
+pub const GOODLAW_MAX: i64 = 1500;
+pub const GOODLAW_RECENT: i64 = 500;
+/// case2md.py RECENT: "recent" = the last 5 full years before the bulk data's date.
+pub const RECENT: i64 = 5;
+
+/// Whether a case is still being cited (grey "dormant" when it is not).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dormancy {
+    pub dormant: bool,
+    /// newest year a decision cited it; None = never cited (or not known, when `dormant` is false)
+    pub last: Option<i64>,
+    /// first year of the recent window
+    pub from: i64,
+    /// where the answer comes from, for the hover text
+    pub source: String,
+}
+
+impl Dormancy {
+    /// From citations per year (a cached profile): exact. `data_year` is the bulk data's year;
+    /// the window is the RECENT full years before it (a citation in the data's own, partial year counts too).
+    pub fn from_years(years: &[(i64, i64)], data_year: i64, source: &str) -> Dormancy {
+        let from = data_year - RECENT;
+        let last = years.iter().filter(|y| y.1 > 0).map(|y| y.0).max();
+        Dormancy { dormant: last.is_none_or(|l| l < from), last, from, source: source.into() }
+    }
+    /// "never cited" / "last cited 2007"
+    pub fn reason(&self) -> String {
+        match self.last {
+            None => "never cited".into(),
+            Some(y) => format!("last cited {y}"),
+        }
+    }
+    pub fn hover(&self) -> String {
+        format!(
+            "Dormant: {}; no decision cited it in {}–{} or later (the last {RECENT} full years before the bulk data's date). Source: {}.",
+            self.reason(),
+            self.from,
+            self.from + RECENT - 1,
+            self.source
+        )
+    }
+}
+
+/// The year of a "2026-06-30" stamp.
+pub fn stamp_year(stamp: &str) -> Option<i64> {
+    stamp.get(..4)?.parse().ok()
 }
 
 #[derive(Clone, Debug)]
@@ -226,6 +301,8 @@ pub struct CaseData {
     pub partner_slice: Option<i64>,
     pub partners: Vec<Partner>,
     pub goodlaw: Option<GoodLaw>,
+    /// Cached profile's years, else CourtListener's count (0), else a live check (small cases only).
+    pub dormant: Option<Dormancy>,
     /// From the main database, for any case.
     pub details: Option<Details>,
     /// cases/citedby/<ref>/profile.json if a build cached it, else what can be read quickly.
@@ -411,5 +488,20 @@ impl PageData {
             PageData::Unit { head, .. } => format!("{} {}", head.unit.code(&slice_label(head.unit.slice)), head.unit.name),
             PageData::Case(c) => c.name.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dormancy_window() {
+        // stamp 2026-06-30: the recent window is 2021-2025 (and the partial 2026)
+        let d = Dormancy::from_years(&[(1999, 3), (2020, 1)], 2026, "t");
+        assert!(d.dormant && d.last == Some(2020) && d.from == 2021);
+        assert!(!Dormancy::from_years(&[(2021, 1)], 2026, "t").dormant);
+        let never = Dormancy::from_years(&[], 2026, "t");
+        assert!(never.dormant && never.reason() == "never cited");
     }
 }

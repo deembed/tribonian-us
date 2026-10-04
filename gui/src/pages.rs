@@ -575,34 +575,109 @@ fn cite_key(c: &str) -> (String, i64, i64) {
     (c.to_string(), 0, 0)
 }
 
-fn goodlaw_rank(g: &Option<GoodLaw>) -> i32 {
+const GREY: Color32 = Color32::from_rgb(140, 140, 140);
+
+fn gl_color(status: &str) -> Color32 {
+    match status {
+        "red" => Color32::from_rgb(210, 70, 60),
+        "yellow" => Color32::from_rgb(210, 170, 40),
+        "green" => Color32::from_rgb(70, 160, 90),
+        _ => GREY,
+    }
+}
+
+/// Hover on the Good law column heading.
+const GL_HELP: &str = "From casemap.py goodlaw (warning words in the opinions that cite the case; no language model), \
+where it has been run for the case.\n\
+Red: a court that could overrule the case used an overruling word about it (overruled, abrogated, superseded, reversed, \
+vacated, …), or two lower courts did.\n\
+Yellow: doubts: one such word short of red or one \"on other grounds\", three softer words (questioned, criticized, \
+declined to follow, …), or two softer words from courts that could overrule it.\n\
+Green: none of that in the opinions read.\n\
+Grey (dormant): never cited, or not cited in the last 5 full years before the bulk data's date. A red or yellow case \
+that is dormant keeps its colour and gets a grey \"dormant\" tag. Shown where a cached profile has the citations per \
+year, or CourtListener's citing count is 0.";
+
+/// Sort order: red, yellow, green, dormant, unknown.
+fn goodlaw_rank(g: &Option<GoodLaw>, d: &Option<Dormancy>) -> i32 {
+    let dormant = d.as_ref().is_some_and(|d| d.dormant);
     match g.as_ref().map(|g| g.status.as_str()) {
-        Some("red") => 3,
-        Some("yellow") => 2,
-        Some("green") => 1,
+        Some("red") => 4,
+        Some("yellow") => 3,
+        _ if dormant => 1,
+        Some("green") => 2,
         _ => 0,
     }
 }
 
-fn goodlaw_cell(ui: &mut Ui, g: &Option<GoodLaw>) {
-    match g {
-        Some(g) => {
-            let (col, year) = match g.status.as_str() {
-                "red" => (Color32::from_rgb(210, 70, 60), g.red_year),
-                "yellow" => (Color32::from_rgb(210, 170, 40), g.yellow_year),
-                "green" => (Color32::from_rgb(70, 160, 90), None),
-                _ => (Color32::GRAY, None),
-            };
-            let text = match year {
-                Some(y) => format!("{} {y}", g.status),
-                None => g.status.clone(),
-            };
-            ui.colored_label(col, text);
-        }
-        None => {
-            ui.weak("–").on_hover_text("not computed (casemap.py goodlaw)");
-        }
+/// The citation mark ⟦…⟧ in a snippet as the \u{1}…\u{2} markers snippet_label highlights.
+fn evidence_marks(snippet: &str) -> String {
+    trim_snippet(snippet).replace('⟦', "\u{1}").replace('⟧', "\u{2}")
+}
+
+/// casemap.py cuts snippets at a fixed width: drop the stray punctuation that leaves at the start.
+fn trim_snippet(s: &str) -> &str {
+    s.trim_start_matches(|c: char| c == '.' || c == ',' || c == ';' || c == ')' || c.is_whitespace())
+}
+
+fn kind_label(kind: &str) -> &str {
+    match kind {
+        "other grounds" => "on other grounds",
+        "weak" => "softer word",
+        k => k,
     }
+}
+
+/// The first few warnings as plain text, for a table cell's hover.
+fn evidence_hover(g: &GoodLaw) -> String {
+    let mut out = Vec::new();
+    for e in g.evidence.iter().take(3) {
+        out.push(format!(
+            "{} {}: {} “{}”{}\n{}",
+            e.year,
+            e.court,
+            kind_label(&e.kind),
+            e.word,
+            if e.above { " (from a court above)" } else { "" },
+            trim_snippet(&e.snippet).replace(['⟦', '⟧'], "")
+        ));
+    }
+    if g.n_evidence > out.len() as i64 {
+        out.push(format!("… {} more on the case page", g.n_evidence - out.len() as i64));
+    }
+    if out.is_empty() {
+        out.push(format!("No warning words found in the {} citing opinions read.", g.read.unwrap_or(0)));
+    }
+    out.join("\n\n")
+}
+
+fn goodlaw_cell(ui: &mut Ui, g: &Option<GoodLaw>, d: &Option<Dormancy>) {
+    let dormant = d.as_ref().filter(|d| d.dormant);
+    ui.horizontal(|ui| {
+        match (g, dormant) {
+            (Some(g), _) if g.status == "red" || g.status == "yellow" => {
+                let year = if g.status == "red" { g.red_year } else { g.yellow_year };
+                let text = year.map(|y| format!("{} {y}", g.status)).unwrap_or_else(|| g.status.clone());
+                ui.colored_label(gl_color(&g.status), text).on_hover_text(evidence_hover(g));
+                if let Some(d) = dormant {
+                    ui.label(RichText::new("dormant").small().color(GREY)).on_hover_text(d.hover());
+                }
+            }
+            (_, Some(d)) => {
+                let mut h = d.hover();
+                if let Some(g) = g {
+                    h = format!("{h}\n\nGood-law check: {}. {}", g.status, evidence_hover(g));
+                }
+                ui.colored_label(GREY, "dormant").on_hover_text(h);
+            }
+            (Some(g), None) => {
+                ui.colored_label(gl_color(&g.status), &g.status).on_hover_text(evidence_hover(g));
+            }
+            (None, None) => {
+                ui.weak("–").on_hover_text("not computed (casemap.py goodlaw)");
+            }
+        }
+    });
 }
 
 /// A sortable table of cases. `weight_help` names the weight column's meaning; None hides it.
@@ -617,7 +692,7 @@ fn case_grid(app: &mut App, ui: &mut Ui, id: &str, cases: &[CaseRow], weight_hel
             SortKey::Year => a.year.cmp(&b.year),
             SortKey::Weight => a.weight.total_cmp(&b.weight),
             SortKey::Citing => a.citing.cmp(&b.citing),
-            SortKey::GoodLaw => goodlaw_rank(&a.goodlaw).cmp(&goodlaw_rank(&b.goodlaw)),
+            SortKey::GoodLaw => goodlaw_rank(&a.goodlaw, &a.dormant).cmp(&goodlaw_rank(&b.goodlaw, &b.dormant)),
         };
         if desc { o.reverse() } else { o }
     });
@@ -652,7 +727,7 @@ fn case_grid(app: &mut App, ui: &mut Ui, id: &str, cases: &[CaseRow], weight_hel
         } else {
             ui.label("");
         }
-        header(ui, "Good law", SortKey::GoodLaw, "from casemap.py goodlaw, where it has been run for the case");
+        header(ui, "Good law", SortKey::GoodLaw, GL_HELP);
         ui.label("");
         ui.end_row();
         for c in rows {
@@ -668,7 +743,7 @@ fn case_grid(app: &mut App, ui: &mut Ui, id: &str, cases: &[CaseRow], weight_hel
                 ui.label("");
             }
             ui.label(c.citing.map(|n| n.to_string()).unwrap_or_default());
-            goodlaw_cell(ui, &c.goodlaw);
+            goodlaw_cell(ui, &c.goodlaw, &c.dormant);
             ui.label(RichText::new(&c.note).small());
             ui.end_row();
         }
@@ -764,37 +839,43 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         }
     });
 
-    // good law
-    if let Some(g) = &c.goodlaw {
-        let col = match g.status.as_str() {
-            "green" => Color32::from_rgb(70, 160, 90),
-            "yellow" => Color32::from_rgb(210, 170, 40),
-            "red" => Color32::from_rgb(210, 70, 60),
-            _ => Color32::GRAY,
-        };
-        ui.horizontal(|ui| {
-            ui.label("Good law:");
-            ui.colored_label(col, RichText::new(&g.status).strong());
+    // good law, and whether it is still cited
+    let dormant = c.dormant.as_ref().filter(|d| d.dormant);
+    ui.horizontal(|ui| {
+        ui.label("Good law:").on_hover_text(GL_HELP);
+        let shown = c.goodlaw.as_ref().filter(|g| g.status == "red" || g.status == "yellow" || dormant.is_none());
+        if let Some(g) = shown {
+            ui.colored_label(gl_color(&g.status), RichText::new(&g.status).strong());
             if let Some(y) = g.red_year {
                 ui.label(format!("red since {y}"));
             } else if let Some(y) = g.yellow_year {
                 ui.label(format!("yellow since {y}"));
             }
-            if let (Some(r), Some(o)) = (g.read, g.of) {
-                ui.weak(format!("read {r} of {o} citing opinions"));
+        }
+        if let Some(d) = dormant {
+            let text = if shown.is_some() { RichText::new("dormant").small() } else { RichText::new("dormant").strong() };
+            ui.colored_label(GREY, text).on_hover_text(d.hover());
+            ui.label(RichText::new(d.reason()).color(GREY)).on_hover_text(d.hover());
+            if let Some(g) = c.goodlaw.as_ref().filter(|_| shown.is_none()) {
+                ui.weak(format!("good-law check: {}", g.status));
             }
-            if let Some(s) = &g.stamp {
-                ui.weak(format!("data {s}"));
+        }
+        match &c.goodlaw {
+            Some(g) => {
+                if let Some(s) = &g.stamp {
+                    ui.weak(format!("data {s}"));
+                }
             }
-        });
-    } else {
-        ui.horizontal(|ui| {
-            ui.label("Good law:");
-            ui.weak("not calculated").on_hover_text(
-                "The check reads every citing opinion from a court that could overrule the case, plus the 500 newest \
-                 (up to about 2,000), so it takes a long time. Build calculates it and caches it; Quick build skips it.",
-            );
-        });
+            None => {
+                ui.weak(if dormant.is_some() { "good-law check not calculated" } else { "not calculated" }).on_hover_text(
+                    "The check reads every citing opinion from a court that could overrule the case, plus the 500 newest \
+                     (up to about 2,000), so it takes a long time. Build calculates it and caches it; Quick build skips it.",
+                );
+            }
+        }
+    });
+    if let Some(g) = &c.goodlaw {
+        why_section(app, ui, c, g);
     }
     ui.add_space(6.0);
     case_details(app, ui, c, note.as_ref());
@@ -897,6 +978,98 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             }
         });
     }
+}
+
+/// casemap.py's rule for each colour, in one sentence.
+fn rule_sentence(status: &str) -> &'static str {
+    match status {
+        "red" => "Red: a court that could overrule the case used an overruling word about it (overruled, abrogated, superseded, \
+                  reversed, vacated, disapproved, overturned, repudiated, abandoned), next to its citation or in a sentence \
+                  naming it, not \"on other grounds\" and not in a hypothetical or an argument; or two lower courts did.",
+        "yellow" => "Yellow: doubts. One overruling word that falls short of red, or one \"on other grounds\"; or three softer \
+                     words (questioned, criticized, called into question, declined to follow or extend, no longer good law, \
+                     limited to its facts, eroded); or two softer words from courts that could overrule it.",
+        _ => "Green: no overruling word, no \"on other grounds\", and too few softer words for yellow, in the citing opinions read.",
+    }
+}
+
+/// Which courts "could overrule" a case at this level (casemap.py can_overrule).
+fn level_phrase(level: &str) -> &'static str {
+    match level {
+        "supreme" => "the Supreme Court",
+        "circuit" => "a federal court of appeals or the Supreme Court",
+        "district" => "a federal district court, a court of appeals or the Supreme Court",
+        _ => "the Supreme Court or the case's own court",
+    }
+}
+
+/// "Why red/yellow/green": the rule, what was read, and each warning with its words.
+fn why_section(app: &mut App, ui: &mut Ui, c: &CaseData, g: &GoodLaw) {
+    egui::CollapsingHeader::new(RichText::new(format!("Why {}", g.status)).strong())
+        .id_salt(("why", c.r#ref))
+        .default_open(g.status != "green")
+        .show(ui, |ui| {
+            wrapped_weak(ui, rule_sentence(&g.status).to_string());
+            if let (Some(r), Some(o)) = (g.read, g.of) {
+                let level = if g.level.is_empty() { String::new() } else { format!(" (case level: {})", g.level) };
+                ui.add(
+                    egui::Label::new(format!(
+                        "Read {} of {} citing opinions{level}: every one from a court that could overrule it ({}), up to {}, \
+                         plus the {} newest from any court.",
+                        thousands(r),
+                        thousands(o),
+                        level_phrase(&g.level),
+                        thousands(GOODLAW_MAX),
+                        GOODLAW_RECENT
+                    ))
+                    .wrap(),
+                );
+            }
+            if let (Some(y), Some(p)) = (g.red_year, c.profile.as_ref().filter(|p| p.cached)) {
+                let later: i64 = p.years.iter().filter(|x| x.0 > y).map(|x| x.1).sum();
+                ui.label(format!("Still cited by {later} cases after {y}."));
+            }
+            if g.evidence.is_empty() {
+                ui.label("No warning words were found in the opinions read.");
+            }
+            for e in &g.evidence {
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(&e.year).strong());
+                    ui.label(&e.court);
+                    ui.label(kind_label(&e.kind));
+                    ui.label(RichText::new(format!("“{}”", e.word)).strong());
+                    if e.above {
+                        ui.weak("from a court above").on_hover_text("a court that could overrule the case (its level or above)");
+                    }
+                    let name = if e.name.is_empty() { format!("cluster {}", e.cluster) } else { e.name.clone() };
+                    if e.cluster > 0 && ui.link(name).clicked() {
+                        app.goto = Some(Page::Case(e.cluster));
+                    }
+                });
+                let job = snippet_job(ui, &evidence_marks(&e.snippet));
+                ui.add(egui::Label::new(job).wrap());
+            }
+            let more = g.n_evidence - g.evidence.len() as i64;
+            if more > 0 {
+                ui.weak(format!("… {more} more (the profile keeps the first {}).", g.evidence.len()));
+            }
+            if let Some(v) = g.version {
+                ui.weak(format!("casemap.py good-law rules, version {v}. A flag for deciding what to read, not a citator."));
+            }
+        });
+}
+
+fn thousands(n: i64) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i > 0 && (s.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// "What it draws on": where the cases this one cites sit (each one's sub-cluster in the newest full
@@ -1170,6 +1343,13 @@ fn search_side(app: &mut App, ui: &mut Ui) {
 
 /// Draw text with the \u{1}…\u{2} match markers from FTS5 snippet() in bold.
 fn snippet_label(ui: &mut Ui, text: &str) {
+    let mut job = snippet_job(ui, text);
+    job.wrap.max_width = 700.0;
+    ui.label(job);
+}
+
+/// The \u{1}…\u{2} markers as bold text on a faint background.
+fn snippet_job(ui: &Ui, text: &str) -> egui::text::LayoutJob {
     use egui::text::{LayoutJob, TextFormat};
     let mut job = LayoutJob::default();
     let normal = TextFormat { color: ui.visuals().text_color(), ..Default::default() };
@@ -1190,8 +1370,7 @@ fn snippet_label(ui: &mut Ui, text: &str) {
     if !buf.is_empty() {
         job.append(&buf, 0.0, if bold { strong } else { normal });
     }
-    job.wrap.max_width = 700.0;
-    ui.label(job);
+    job
 }
 
 fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
@@ -1247,7 +1426,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
             ui.strong("Year");
             ui.strong("Court");
             ui.strong("Citing").on_hover_text("decisions citing it, summed over every slice of this view; blank = cited too rarely to be a node");
-            ui.strong("Good law");
+            ui.strong("Good law").on_hover_text(GL_HELP);
             ui.strong(if *mode == Mode::Parenthetical { "Parentheticals" } else { "" });
             ui.end_row();
             for h in res.hits.iter().filter(|h| matches(&f, &h.name) || matches(&f, &h.cite)) {
@@ -1264,7 +1443,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
                 ui.label(year(h.year));
                 ui.label(&h.court);
                 ui.label(if h.citing > 0 { h.citing.to_string() } else { String::new() });
-                goodlaw_cell(ui, &h.goodlaw);
+                goodlaw_cell(ui, &h.goodlaw, &h.dormant);
                 if *mode == Mode::Parenthetical {
                     ui.label(h.count.to_string());
                 } else {

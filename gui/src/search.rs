@@ -7,7 +7,7 @@
 //! Names, citations and years for the hits come from the open cocite view's `names` table.
 
 use crate::db::open_ro;
-use crate::model::{GoodLaw, Page};
+use crate::model::{Dormancy, GoodLaw, Page, RECENT};
 use rusqlite::{Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -33,6 +33,8 @@ pub struct Hit {
     pub count: usize,
     pub snippet: Option<String>,
     pub goodlaw: Option<GoodLaw>,
+    /// From the cached profile, else CourtListener's citing count when it is 0.
+    pub dormant: Option<Dormancy>,
     /// Citing decisions summed over every slice of the view (0 = never a node: rarely cited).
     pub citing: i64,
     pub court: String,
@@ -164,6 +166,7 @@ fn run(search: &Connection, main: Option<&Connection>, view: &Connection, totals
                     count: 0,
                     snippet: None,
                     goodlaw: None,
+                    dormant: None,
                     citing: totals.get(&r).copied().unwrap_or(0),
                     court: String::new(),
                 });
@@ -200,6 +203,7 @@ fn run(search: &Connection, main: Option<&Connection>, view: &Connection, totals
                     count: 0,
                     snippet: None,
                     goodlaw: None,
+                    dormant: None,
                     citing: totals.get(&r).copied().unwrap_or(0),
                     court: String::new(),
                 });
@@ -239,6 +243,7 @@ fn run(search: &Connection, main: Option<&Connection>, view: &Connection, totals
                     count,
                     snippet: sn,
                     goodlaw: None,
+                    dormant: None,
                     citing: totals.get(&r).copied().unwrap_or(0),
                     court: String::new(),
                 });
@@ -246,8 +251,12 @@ fn run(search: &Connection, main: Option<&Connection>, view: &Connection, totals
         }
     }
     for h in hits.iter_mut() {
-        h.goodlaw = crate::db::read_goodlaw(cases_dir, h.r#ref);
+        (h.goodlaw, h.dormant) = crate::db::read_standing(cases_dir, h.r#ref);
         if let Some(d) = main.and_then(|m| crate::db::describe(m, h.r#ref)) {
+            if h.dormant.is_none() && d.cited == Some(0) {
+                let from = crate::db::current_year() - RECENT;
+                h.dormant = Some(Dormancy { dormant: true, last: None, from, source: "CourtListener's citing count is 0".into() });
+            }
             if h.name.is_empty() || h.name.starts_with("cluster ") {
                 h.name = d.name;
             }
