@@ -729,21 +729,24 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             ui.weak("No note built for this case.");
         }
     });
-    // Build: the repo's own scripts, output in the log panel at the bottom
+    // Build: the repo's own scripts, queued; status and output in the panel at the bottom
     ui.horizontal(|ui| {
         let label = if note.is_some() { "Rebuild note and PDF" } else { "Build note and PDF" };
-        let busy = app.job.is_some();
-        let r = ui.add_enabled(!busy, egui::Button::new(label)).on_hover_text(format!(
-            "runs ./casemap.py get --cluster {0} (only if the case has no file yet), then ./case2md.py build \
-             on its case file (writes cases/, md-cases/, pdf/ and the case profile with good law)",
+        let queued = app.is_queued(c.r#ref);
+        let r = ui.add_enabled(!queued, egui::Button::new(label)).on_hover_text(format!(
+            "adds it to the build queue: ./casemap.py get --cluster {0} (only if the case has no file yet), \
+             then ./case2md.py build on its case file (writes cases/, md-cases/, pdf/ and the case profile \
+             with good law, which is the slow part)",
             c.r#ref
         ));
-        let r = if busy { r.on_disabled_hover_text("a build is running") } else { r };
+        let r = if queued { r.on_disabled_hover_text("already queued or building") } else { r };
         if r.clicked() {
             let title = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
-            app.start_build(c.r#ref, title);
+            app.enqueue_build(c.r#ref, title);
         }
-        if note.is_some() {
+        if queued {
+            ui.weak("in the build queue");
+        } else if note.is_some() {
             ui.weak("sync_vault.sh / sync_remarkable.py still copy it to Obsidian and the tablet");
         }
     });
@@ -772,8 +775,16 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             }
         });
     } else {
-        ui.weak("Good law: not computed yet (a build computes it).");
+        ui.horizontal(|ui| {
+            ui.label("Good law:");
+            ui.weak("not calculated").on_hover_text(
+                "The check reads every citing opinion from a court that could overrule the case, plus the 500 newest \
+                 (up to about 2,000), so it takes a long time. Build calculates it and caches it.",
+            );
+        });
     }
+    ui.add_space(6.0);
+    case_details(app, ui, c, note.as_ref());
     ui.add_space(8.0);
 
     // where it sits
@@ -1099,5 +1110,160 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     });
     if go.is_some() {
         app.goto = go;
+    }
+}
+
+// ------------------------------------------------------------------ case page: fast details
+
+/// Everything that can be shown at once without a build: the main database's details, the cached
+/// (or quickly read) profile, how later courts describe the case, and the note's front matter.
+fn case_details(app: &mut App, ui: &mut Ui, c: &CaseData, note: Option<&crate::cases::Note>) {
+    if let Some(d) = &c.details {
+        egui::Grid::new("details").num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
+            let row = |ui: &mut Ui, k: &str, v: &str| {
+                if !v.is_empty() {
+                    ui.weak(k);
+                    ui.add(egui::Label::new(v).wrap());
+                    ui.end_row();
+                }
+            };
+            row(ui, "Docket", &d.docket);
+            row(ui, "Filed", &d.date_filed);
+            row(ui, "Judges", &d.judges);
+            row(ui, "Status", &d.precedential);
+            if let Some(n) = d.cl_cited {
+                row(ui, "Cited by", &format!("{n} cases (CourtListener's count)"));
+            }
+            row(ui, "Citations", &d.citations.join(" · "));
+        });
+    }
+    // case profile
+    match &c.profile {
+        Some(p) if p.cached => {
+            egui::CollapsingHeader::new(RichText::new("Case profile").strong()).default_open(true).show(ui, |ui| {
+                if !p.years.is_empty() {
+                    let total: i64 = p.years.iter().map(|y| y.1).sum();
+                    let peak = p.years.iter().max_by_key(|y| y.1).copied().unwrap_or((0, 0));
+                    ui.label(format!(
+                        "Cited by {total} cases, {}–{} · busiest year {} ({})",
+                        p.years[0].0,
+                        p.years[p.years.len() - 1].0,
+                        peak.0,
+                        peak.1
+                    ));
+                    year_bars(ui, &p.years);
+                }
+                if let Some((slice, name, r, share, citing)) = &p.successor {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!("Role changed {slice}: likely successor"));
+                        if let Some(r) = r {
+                            if ui.link(name).clicked() {
+                                app.goto = Some(Page::Case(*r));
+                            }
+                        } else {
+                            ui.label(name);
+                        }
+                        ui.weak(format!("({:.0}% of the {citing} decisions citing this case also cite it; co-citation, not the text)", share * 100.0));
+                    });
+                }
+                if !p.stamp.is_empty() {
+                    ui.weak(format!("cached by the last build · bulk data of {}", p.stamp));
+                }
+            });
+        }
+        _ => {
+            ui.weak("Case profile (citations per year, successor): not cached; Build writes it.");
+        }
+    }
+    // how later courts describe it
+    if let Some(p) = &c.profile {
+        if !p.groups.is_empty() {
+            egui::CollapsingHeader::new(RichText::new(format!("How later courts describe it ({} parentheticals)", p.parens_total)).strong())
+                .default_open(true)
+                .show(ui, |ui| {
+                    for g in &p.groups {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(format!("{}×", g.n)).strong());
+                            ui.add(egui::Label::new(format!("“{}”", g.text)).wrap());
+                            let who = format!("{} ({} {})", g.case, g.court, g.year);
+                            match g.r#ref {
+                                Some(r) => {
+                                    if ui.link(RichText::new(who).small()).clicked() {
+                                        app.goto = Some(Page::Case(r));
+                                    }
+                                }
+                                None => {
+                                    ui.weak(who);
+                                }
+                            }
+                        });
+                    }
+                    if !p.cached {
+                        ui.weak("Read just now from CourtListener's parentheticals, grouped by its similarity groups.");
+                    }
+                });
+        }
+    }
+    if let Some(d) = &c.details {
+        if !d.syllabus.is_empty() {
+            egui::CollapsingHeader::new(RichText::new("Syllabus").strong()).default_open(true).show(ui, |ui| {
+                ui.add(egui::Label::new(&d.syllabus).wrap());
+            });
+        }
+        if !d.summary.is_empty() {
+            egui::CollapsingHeader::new(RichText::new("Summary").strong()).default_open(true).show(ui, |ui| {
+                ui.add(egui::Label::new(&d.summary).wrap());
+            });
+        }
+        if d.syllabus.is_empty() && d.summary.is_empty() {
+            ui.weak("No syllabus or questions presented in the bulk data for this case.");
+        }
+        if !d.headmatter.is_empty() {
+            egui::CollapsingHeader::new(RichText::new("Headmatter (parties, docket, dates, counsel)").strong())
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.add(egui::Label::new(&d.headmatter).wrap());
+                });
+        }
+    }
+    if let Some(n) = note {
+        let fm = app.files.front_matter(&n.path);
+        if !fm.is_empty() {
+            egui::CollapsingHeader::new(RichText::new("Note front matter").strong()).default_open(false).show(ui, |ui| {
+                egui::Grid::new("frontmatter").num_columns(2).spacing([12.0, 2.0]).show(ui, |ui| {
+                    for (k, v) in fm.iter() {
+                        ui.weak(k);
+                        ui.add(egui::Label::new(v).wrap());
+                        ui.end_row();
+                    }
+                });
+            });
+        }
+    }
+}
+
+/// Citing cases per year as a strip of bars, the busiest year full height.
+fn year_bars(ui: &mut Ui, years: &[(i64, i64)]) {
+    let (first, last) = (years[0].0, years[years.len() - 1].0);
+    let n = (last - first + 1).max(1) as f32;
+    let w = (n * 6.0).clamp(120.0, 600.0);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(w, 44.0), egui::Sense::hover());
+    let max = years.iter().map(|y| y.1).max().unwrap_or(1).max(1) as f32;
+    let col = ui.visuals().selection.bg_fill;
+    let bw = rect.width() / n;
+    for (y, c) in years {
+        let x = rect.left() + (y - first) as f32 * bw;
+        let h = rect.height() * (*c as f32 / max);
+        ui.painter().rect_filled(
+            egui::Rect::from_min_max(egui::pos2(x, rect.bottom() - h), egui::pos2(x + (bw - 1.0).max(1.0), rect.bottom())),
+            0.0,
+            col,
+        );
+    }
+    if let Some(p) = resp.hover_pos() {
+        let y = first + ((p.x - rect.left()) / bw).floor() as i64;
+        if let Some((_, c)) = years.iter().find(|(yy, _)| *yy == y) {
+            resp.on_hover_text(format!("{y}: {c} citing cases"));
+        }
     }
 }

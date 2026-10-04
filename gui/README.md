@@ -30,3 +30,11 @@ cargo run --release
   (interpreter: `python` in gui.toml), streaming output into a log panel at the bottom. A build only counts
   as done when case2md prints its `wrote pdf/...` line, as in build_all.sh. Afterwards the app rereads the
   case files and reloads the page. One build at a time.
+- The case page shows at once, with no build: details from the main database (docket, dates, judges,
+  CourtListener's citing count, every citation, headmatter, syllabus/summary when present), the cached case
+  profile (citations per year, successor) when a build wrote one, how later courts describe the case (cached,
+  or read live from the parentheticals), and the note's front matter. Good law says "not calculated" until a
+  build computes it (it reads up to ~2,000 citing opinions, so it is slow). `opinions_db` in gui.toml
+  (default repo_dir/db/opinions.sqlite) maps a case to its opinions for the live parentheticals.
+- Builds queue: the status line at the bottom shows "Building k of n" and what is queued, then "Done" (with any
+  failures). A build added after "Done" starts a new run with fresh counts. "Output" opens the log.

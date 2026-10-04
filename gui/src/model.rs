@@ -226,6 +226,48 @@ pub struct CaseData {
     pub partner_slice: Option<i64>,
     pub partners: Vec<Partner>,
     pub goodlaw: Option<GoodLaw>,
+    /// From the main database, for any case.
+    pub details: Option<Details>,
+    /// cases/citedby/<ref>/profile.json if a build cached it, else what can be read quickly.
+    pub profile: Option<Profile>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Details {
+    pub citations: Vec<String>,
+    pub docket: String,
+    pub date_filed: String,
+    pub judges: String,
+    /// CourtListener's own count of citing cases (clusters.citation_count).
+    pub cl_cited: Option<i64>,
+    pub precedential: String,
+    /// The published report's headmatter (parties, docket, dates, counsel) as plain text.
+    pub headmatter: String,
+    pub syllabus: String,
+    pub summary: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ParenGroup {
+    pub n: i64,
+    pub text: String,
+    pub r#ref: Option<i64>,
+    pub case: String,
+    pub year: String,
+    pub court: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Profile {
+    /// true: read from profile.json (a build wrote it); false: computed just now, parentheticals only.
+    pub cached: bool,
+    pub stamp: String,
+    /// citing cases per year (cached profiles only)
+    pub years: Vec<(i64, i64)>,
+    pub parens_total: i64,
+    pub groups: Vec<ParenGroup>,
+    /// cocite's likely successor: (slice, name, ref, share, citing)
+    pub successor: Option<(String, String, Option<i64>, f64, i64)>,
 }
 
 /// An area's lineages slice by slice, for the history graph.

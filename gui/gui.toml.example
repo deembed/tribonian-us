@@ -23,3 +23,6 @@ obsidian_cases_dir = "08-Reference/Cases"
 
 # Interpreter for Build on the case page (runs casemap.py / case2md.py in repo_dir)
 # python = "python3"
+
+# Opinion-text database (for the live "How later courts describe it"); default repo_dir/db/opinions.sqlite
+# opinions_db = "/path/to/LawFormatting/db/opinions.sqlite"

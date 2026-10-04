@@ -29,6 +29,8 @@ pub struct Note {
 
 #[derive(Default)]
 pub struct CaseFiles {
+    /// Parsed front matter, per note, read on first view.
+    fm: std::cell::RefCell<HashMap<PathBuf, Vec<(String, String)>>>,
     pub index: HashMap<i64, IndexEntry>,
     pub folders: BTreeMap<String, Vec<Note>>,
     pub by_ref: HashMap<i64, (String, usize)>,
@@ -120,6 +122,37 @@ impl CaseFiles {
     pub fn note_of(&self, r: i64) -> Option<&Note> {
         let (f, i) = self.by_ref.get(&r)?;
         self.folders.get(f)?.get(*i)
+    }
+
+    /// The note's YAML front matter as (key, value) rows; list items are joined with " · ".
+    pub fn front_matter(&self, path: &Path) -> Vec<(String, String)> {
+        if let Some(v) = self.fm.borrow().get(path) {
+            return v.clone();
+        }
+        let mut out: Vec<(String, String)> = Vec::new();
+        if let Ok(text) = std::fs::read_to_string(path) {
+            let mut lines = text.lines();
+            if lines.next() == Some("---") {
+                for l in lines {
+                    if l == "---" {
+                        break;
+                    }
+                    let unq = |v: &str| v.trim().trim_matches('"').to_string();
+                    if let Some(item) = l.trim_start().strip_prefix("- ") {
+                        if let Some(last) = out.last_mut() {
+                            if !last.1.is_empty() {
+                                last.1.push_str(" · ");
+                            }
+                            last.1.push_str(&unq(item));
+                        }
+                    } else if let Some((k, v)) = l.split_once(':') {
+                        out.push((k.trim().to_string(), unq(v)));
+                    }
+                }
+            }
+        }
+        self.fm.borrow_mut().insert(path.to_path_buf(), out.clone());
+        out
     }
 
     pub fn count(&self) -> usize {

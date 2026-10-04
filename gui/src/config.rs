@@ -26,6 +26,10 @@ pub struct Config {
     /// Used for names, citations and courts of cases the cocite views don't hold.
     #[serde(default)]
     pub main_db: Option<PathBuf>,
+    /// casedb.py's opinion-text database, for the opinions behind a case (its parentheticals);
+    /// default repo_dir/db/opinions.sqlite.
+    #[serde(default)]
+    pub opinions_db: Option<PathBuf>,
     /// Interpreter for the repo's scripts (Build on the case page). Default "python3".
     #[serde(default = "default_python")]
     pub python: String,
@@ -68,6 +72,9 @@ impl Config {
     }
     pub fn main_db(&self) -> PathBuf {
         self.main_db.clone().unwrap_or_else(|| self.bulk_dir.join("courtlistener.sqlite"))
+    }
+    pub fn opinions_db(&self) -> PathBuf {
+        self.opinions_db.clone().unwrap_or_else(|| self.repo_dir.join("db").join("opinions.sqlite"))
     }
     pub fn labels_file(&self) -> PathBuf {
         self.repo_dir.join("cocite_labels.json")

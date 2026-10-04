@@ -78,6 +78,128 @@ pub fn describe(main: &Connection, r: i64) -> Option<Described> {
     })
 }
 
+/// Docket, dates, judges, every citation and the published headmatter, from the main database.
+pub fn details(main: &Connection, r: i64) -> Option<Details> {
+    let row: (Option<String>, Option<String>, Option<i64>, Option<String>, Option<String>, Option<String>, Option<Vec<u8>>, Option<String>) = main
+        .query_row(
+            "SELECT c.date_filed, c.judges, c.citation_count, c.precedential_status, c.syllabus, c.summary, c.headmatter, d.docket_number
+             FROM clusters c LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id = ?",
+            [r],
+            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?, x.get(5)?, x.get(6).ok().flatten(), x.get(7)?)),
+        )
+        .ok()?;
+    let mut citations = Vec::new();
+    if let Ok(mut st) = main.prepare("SELECT volume, reporter, page FROM cites WHERE cluster_id = ? ORDER BY type") {
+        if let Ok(rows) = st.query_map([r], |x| Ok(format!("{} {} {}", x.get::<_, String>(0)?, x.get::<_, String>(1)?, x.get::<_, String>(2)?))) {
+            citations = rows.flatten().collect();
+        }
+    }
+    let headmatter = row.6.map(|b| {
+        let mut out = String::new();
+        let mut z = flate2::read::ZlibDecoder::new(&b[..]);
+        if std::io::Read::read_to_string(&mut z, &mut out).is_err() {
+            out = String::from_utf8_lossy(&b).into_owned();
+        }
+        html_text(&out)
+    });
+    Some(Details {
+        citations,
+        docket: row.7.unwrap_or_default(),
+        date_filed: row.0.unwrap_or_default(),
+        judges: row.1.unwrap_or_default(),
+        cl_cited: row.2,
+        precedential: row.3.unwrap_or_default(),
+        headmatter: headmatter.unwrap_or_default(),
+        syllabus: html_text(&row.4.unwrap_or_default()),
+        summary: html_text(&row.5.unwrap_or_default()),
+    })
+}
+
+/// HTML to plain text: block ends become line breaks, tags go, the common entities are decoded,
+/// and each line's spaces are collapsed.
+pub fn html_text(h: &str) -> String {
+    let mut out = String::new();
+    let mut tag = String::new();
+    let mut in_tag = false;
+    for ch in h.chars() {
+        match (in_tag, ch) {
+            (false, '<') => {
+                in_tag = true;
+                tag.clear();
+            }
+            (true, '>') => {
+                in_tag = false;
+                let t = tag.trim_start_matches('/').split_whitespace().next().unwrap_or("").to_lowercase();
+                if matches!(t.as_str(), "br" | "p" | "div" | "parties" | "docketnumber" | "otherdate" | "decisiondate" | "attorneys" | "court" | "judges" | "syllabus" | "summary" | "li")
+                {
+                    out.push('\n');
+                }
+            }
+            (true, c) => tag.push(c),
+            (false, c) => out.push(c),
+        }
+    }
+    let out = out
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&nbsp;", " ")
+        .replace("&#8212;", "—")
+        .replace("&#167;", "§");
+    out.lines()
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// cases/citedby/<ref>/profile.json, written by case2md.py (a build). Read only if it is there.
+pub fn read_profile(cases_dir: &Path, r: i64) -> Option<Profile> {
+    let p = cases_dir.join("citedby").join(r.to_string()).join("profile.json");
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
+    let mut years: Vec<(i64, i64)> = v["years"]
+        .as_object()
+        .map(|o| o.iter().filter_map(|(k, n)| Some((k.parse().ok()?, n.as_i64()?))).collect())
+        .unwrap_or_default();
+    years.sort();
+    let pg = &v["parens"];
+    let groups = pg["groups"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .map(|g| ParenGroup {
+                    n: g["n"].as_i64().unwrap_or(0),
+                    text: g["text"].as_str().unwrap_or("").to_string(),
+                    r#ref: g["cluster"].as_i64(),
+                    case: g["case"].as_str().unwrap_or("").to_string(),
+                    year: g["year"].as_str().map(String::from).or_else(|| g["year"].as_i64().map(|y| y.to_string())).unwrap_or_default(),
+                    court: g["court"].as_str().unwrap_or("").to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let sc = &v["successor"];
+    let successor = sc["name"].as_str().map(|n| {
+        (
+            sc["slice"].as_str().unwrap_or("").to_string(),
+            n.to_string(),
+            sc["ref"].as_i64(),
+            sc["share"].as_f64().unwrap_or(0.0),
+            sc["citing"].as_i64().unwrap_or(0),
+        )
+    });
+    Some(Profile {
+        cached: true,
+        stamp: v["stamp"].as_str().unwrap_or("").to_string(),
+        years,
+        parens_total: pg["total"].as_i64().unwrap_or(0),
+        groups,
+        successor,
+    })
+}
+
 /// Cases with exactly this citation ("463 U.S. 29": volume, reporter, page).
 pub fn cite_lookup(main: &Connection, volume: &str, reporter: &str, page: &str) -> Vec<i64> {
     let Ok(mut st) = main.prepare("SELECT DISTINCT cluster_id FROM cites WHERE volume = ? AND reporter = ? AND page = ?") else {
@@ -127,6 +249,7 @@ pub struct Db {
     pub meta: ViewMeta,
     cases_dir: PathBuf,
     main: Option<Connection>,
+    ops: Option<Connection>,
 }
 
 fn current_year() -> i64 {
@@ -138,7 +261,7 @@ fn current_year() -> i64 {
 }
 
 impl Db {
-    pub fn open(path: &Path, labels_file: &Path, cases_dir: &Path, main_db: &Path) -> Result<Db, String> {
+    pub fn open(path: &Path, labels_file: &Path, cases_dir: &Path, main_db: &Path, ops_db: &Path) -> Result<Db, String> {
         let con = open_ro(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let schema = schema_of(&con);
         if schema != SCHEMA {
@@ -199,6 +322,7 @@ impl Db {
             cases_dir: cases_dir.to_path_buf(),
             // optional: without it, cases outside the view show as "cluster N"
             main: open_ro(main_db).ok().filter(|c| c.query_row("SELECT 1 FROM clusters LIMIT 1", [], |_| Ok(())).is_ok()),
+            ops: open_ro(ops_db).ok().filter(|c| c.query_row("SELECT 1 FROM opinions LIMIT 1", [], |_| Ok(())).is_ok()),
         })
     }
 
@@ -562,6 +686,55 @@ impl Db {
         Ok(GraphData { cells, edges, outside })
     }
 
+    /// What can be read in well under a second without a build: CourtListener's parentheticals
+    /// about the case's opinions, in its similarity groups (as case2md.parens_data does).
+    fn live_profile(&self, r: i64) -> Option<Profile> {
+        let (main, ops) = (self.main.as_ref()?, self.ops.as_ref()?);
+        let ids: Vec<i64> = ops
+            .prepare("SELECT id FROM opinions WHERE cluster_id = ?")
+            .ok()?
+            .query_map([r], |x| x.get(0))
+            .ok()?
+            .flatten()
+            .collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let list = ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+        let total: i64 = main
+            .query_row(&format!("SELECT count(*) FROM parens WHERE described IN ({list})"), [], |x| x.get(0))
+            .ok()?;
+        let mut groups = Vec::new();
+        let mut st = main
+            .prepare(&format!(
+                "SELECT group_id, count(*) AS n FROM parens WHERE described IN ({list}) AND group_id IS NOT NULL \
+                 GROUP BY group_id ORDER BY n DESC LIMIT 12"
+            ))
+            .ok()?;
+        let gs: Vec<(i64, i64)> = st.query_map([], |x| Ok((x.get(0)?, x.get(1)?))).ok()?.flatten().collect();
+        for (gid, n) in gs {
+            let best: Option<(String, i64)> = main
+                .query_row(
+                    &format!("SELECT text, describing FROM parens WHERE described IN ({list}) AND group_id = ? ORDER BY score DESC LIMIT 1"),
+                    [gid],
+                    |x| Ok((x.get::<_, Option<String>>(0)?.unwrap_or_default(), x.get::<_, Option<i64>>(1)?.unwrap_or(0))),
+                )
+                .ok();
+            let Some((text, describing)) = best else { continue };
+            let by: Option<i64> = ops.query_row("SELECT cluster_id FROM opinions WHERE id = ?", [describing], |x| x.get(0)).ok();
+            let d = by.and_then(|c| describe(main, c)).unwrap_or_default();
+            groups.push(ParenGroup {
+                n,
+                text: text.split_whitespace().collect::<Vec<_>>().join(" "),
+                r#ref: by,
+                case: d.name,
+                year: d.year.map(|y| y.to_string()).unwrap_or_default(),
+                court: d.court,
+            });
+        }
+        Some(Profile { cached: false, parens_total: total, groups, ..Default::default() })
+    }
+
     fn head(&self, unit: UnitRow, parent: Option<UnitRow>) -> UnitHead {
         let lin = unit.lineage;
         let span: Option<(i64, i64)> = self
@@ -670,6 +843,8 @@ impl Db {
             partner_slice,
             partners,
             goodlaw: read_goodlaw(&self.cases_dir, r),
+            details: self.main.as_ref().and_then(|m| details(m, r)),
+            profile: read_profile(&self.cases_dir, r).or_else(|| self.live_profile(r)),
         })
     }
 }
@@ -702,7 +877,7 @@ pub enum Resp {
 }
 
 /// Spawn the worker. It owns the connection; `wake` repaints the UI when a result is ready.
-pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, main_db: PathBuf, wake: impl Fn() + Send + 'static) -> (Sender<Req>, Receiver<Resp>) {
+pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, main_db: PathBuf, ops_db: PathBuf, wake: impl Fn() + Send + 'static) -> (Sender<Req>, Receiver<Resp>) {
     let (tx_req, rx_req) = channel::<Req>();
     let (tx_resp, rx_resp) = channel::<Resp>();
     std::thread::spawn(move || {
@@ -711,7 +886,7 @@ pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, main_db: PathBuf, wake: i
         let delay = std::env::var("LAWGUI_DELAY_MS").ok().and_then(|v| v.parse::<u64>().ok());
         while let Ok(req) = rx_req.recv() {
             let resp = match req {
-                Req::Open(path) => match Db::open(&path, &labels_file, &cases_dir, &main_db) {
+                Req::Open(path) => match Db::open(&path, &labels_file, &cases_dir, &main_db, &ops_db) {
                     Ok(d) => {
                         let m = d.meta.clone();
                         db = Some(d);

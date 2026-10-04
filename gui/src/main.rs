@@ -67,7 +67,11 @@ pub struct App {
     /// The running Build, if any, its output, and how the last one ended.
     pub job: Option<jobs::Running>,
     pub job_log: Vec<String>,
-    pub job_last: Option<(String, bool)>,
+    pub queue: std::collections::VecDeque<(i64, String)>,
+    /// The current run: builds since the queue last emptied.
+    pub run_total: usize,
+    pub run_done: usize,
+    pub run_failed: Vec<String>,
     pub show_log: bool,
     egui_ctx: Option<egui::Context>,
 }
@@ -107,14 +111,17 @@ impl App {
             show_history: false,
             job: None,
             job_log: Vec::new(),
-            job_last: None,
+            queue: std::collections::VecDeque::new(),
+            run_total: 0,
+            run_done: 0,
+            run_failed: Vec::new(),
             show_log: false,
             egui_ctx: Some(cc.egui_ctx.clone()),
         };
         match Config::load() {
             Ok((cfg, path)) => {
                 let ctx = cc.egui_ctx.clone();
-                let (tx, rx) = db::spawn(cfg.labels_file(), cfg.cases_dir(), cfg.main_db(), move || ctx.request_repaint());
+                let (tx, rx) = db::spawn(cfg.labels_file(), cfg.cases_dir(), cfg.main_db(), cfg.opinions_db(), move || ctx.request_repaint());
                 app.tx = Some(tx);
                 app.rx = Some(rx);
                 let ctx2 = cc.egui_ctx.clone();
@@ -154,13 +161,35 @@ impl App {
         let _ = tx.send(db::Req::Open(self.views[i].path.clone()));
     }
 
-    /// Build (or rebuild) a case's note and PDF with the repo's scripts; output goes to the log panel.
-    pub fn start_build(&mut self, r: i64, title: String) {
-        let (Some(cfg), None) = (&self.cfg, &self.job) else { return };
+    /// Queue a Build of a case's note and PDF. A queue that has emptied starts a fresh run:
+    /// counts and output begin again.
+    pub fn enqueue_build(&mut self, r: i64, title: String) {
+        if self.is_queued(r) {
+            return;
+        }
+        if self.job.is_none() && self.queue.is_empty() {
+            self.run_total = 0;
+            self.run_done = 0;
+            self.run_failed.clear();
+            self.job_log.clear();
+        }
+        self.queue.push_back((r, title));
+        self.run_total += 1;
+        self.start_next();
+    }
+
+    pub fn is_queued(&self, r: i64) -> bool {
+        self.job.as_ref().is_some_and(|j| j.r#ref == r) || self.queue.iter().any(|q| q.0 == r)
+    }
+
+    fn start_next(&mut self) {
+        if self.job.is_some() {
+            return;
+        }
+        let Some(cfg) = &self.cfg else { return };
+        let Some((r, title)) = self.queue.pop_front() else { return };
         let ctx = self.egui_ctx.clone();
-        self.job_log.clear();
-        self.job_last = None;
-        self.show_log = true;
+        self.job_log.push(format!("── {title}"));
         self.job = Some(jobs::build_case(cfg.python.clone(), cfg.repo_dir.clone(), r, title, move || {
             if let Some(c) = &ctx {
                 c.request_repaint();
@@ -185,7 +214,10 @@ impl App {
         }
         if let Some(ok) = done {
             let job = self.job.take().unwrap();
-            self.job_last = Some((job.title, ok));
+            self.run_done += 1;
+            if !ok {
+                self.run_failed.push(job.title.clone());
+            }
             // the scripts changed notes, PDFs and profiles: reread the files, reload the pages
             if let Some(cfg) = &self.cfg {
                 self.files = CaseFiles::load(cfg);
@@ -194,25 +226,49 @@ impl App {
             self.errors.clear();
             let p = self.current().clone();
             self.request(&p);
+            self.start_next();
         }
+    }
+
+    /// The status line at the very bottom: the queue while it runs, "Done" once it empties.
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            match &self.job {
+                Some(j) => {
+                    ui.spinner();
+                    ui.label(format!("Building {} of {}: {}", self.run_done + 1, self.run_total, j.title));
+                    if !self.queue.is_empty() {
+                        ui.weak(format!("· {} queued", self.queue.len()));
+                    }
+                }
+                None => {
+                    if self.run_failed.is_empty() {
+                        ui.colored_label(egui::Color32::from_rgb(70, 160, 90), "Done");
+                    } else {
+                        ui.colored_label(
+                            egui::Color32::LIGHT_RED,
+                            format!("Done · {} failed: {}", self.run_failed.len(), self.run_failed.join(", ")),
+                        );
+                    }
+                }
+            }
+            if !self.run_failed.is_empty() && self.job.is_some() {
+                ui.colored_label(egui::Color32::LIGHT_RED, format!("· {} failed", self.run_failed.len()));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.selectable_label(self.show_log, "Output").clicked() {
+                    self.show_log = !self.show_log;
+                }
+            });
+        });
     }
 
     fn log_panel(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            match (&self.job, &self.job_last) {
-                (Some(j), _) => {
-                    ui.spinner();
-                    ui.strong(format!("Building {}", j.title));
-                }
-                (None, Some((t, true))) => {
-                    ui.colored_label(egui::Color32::from_rgb(70, 160, 90), format!("Built {t}"));
-                }
-                (None, Some((t, false))) => {
-                    ui.colored_label(egui::Color32::LIGHT_RED, format!("Build failed: {t} (see the output)"));
-                }
-                (None, None) => {
-                    ui.strong("Build output");
-                }
+            ui.strong("Build output");
+            if !self.queue.is_empty() {
+                let names: Vec<&str> = self.queue.iter().map(|q| q.1.as_str()).collect();
+                ui.weak(format!("next: {}", names.join(", ")));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("Hide").clicked() {
@@ -523,11 +579,6 @@ impl App {
                 self.goto = go;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if (self.job.is_some() || self.job_last.is_some())
-                    && ui.selectable_label(self.show_log, if self.job.is_some() { "Build…" } else { "Build log" }).clicked()
-                {
-                    self.show_log = !self.show_log;
-                }
                 if ui
                     .selectable_label(self.show_history, format!("History ({})", self.nav.len()))
                     .on_hover_text("every page visited, in order; click one to go back to it")
@@ -567,6 +618,13 @@ impl eframe::App for App {
         });
         // a case page keeps the side panel of the section it was reached from
         let section = self.section_at(self.pos);
+        if self.run_total > 0 {
+            egui::Panel::bottom("status").resizable(false).show(ui, |ui| {
+                ui.add_space(2.0);
+                self.status_bar(ui);
+                ui.add_space(2.0);
+            });
+        }
         if self.show_log {
             egui::Panel::bottom("log").default_size(220.0).min_size(80.0).resizable(true).show(ui, |ui| {
                 self.log_panel(ui);
