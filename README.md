@@ -30,7 +30,7 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 | `bulk/`, `db/` | CourtListener bulk files and the local SQLite databases | `casedb.py` |
 | `tests/` | smoke tests: `python3 -m unittest discover tests` | you |
 
-Everything the scripts generate is ignored by git (`.gitignore`); tracked are the scripts, the docs, `tests/`, `cocite_labels.json` and `cocite_gold.json` (hand- and model-written inputs that can't be rebuilt), and `templates/`.
+Everything the scripts generate is ignored by git (`.gitignore`); tracked are the scripts, the docs, `tests/`, `data/cocite_labels.json` and `data/cocite_gold.json` (hand- and model-written inputs that can't be rebuilt), and `templates/`.
 
 ## build_all.sh — build everything out of date, in parallel
 
@@ -241,19 +241,19 @@ Housekeeping: `prep` must be rerun after a bulk load. Read commands (`status`, `
 ./cocite.py evidence --courts appellate                 # build/cocite/evidence-<view>.jsonl: the biggest unlabelled lineages, with evidence
 ./cocite.py evidence --courts appellate --family-of "463 U.S. 29"   # every sub-cluster lineage under this case's cluster, labelled together
 ./cocite.py evidence --courts appellate --stale         # lineages whose labels drifted or were displaced
-./cocite.py labels import labels.jsonl                  # descriptions -> cocite_labels.json (git-tracked)
+./cocite.py labels import labels.jsonl                  # descriptions -> data/cocite_labels.json (git-tracked)
 ./cocite.py labels match --courts appellate             # re-attach labels to lineages after a rebuild
 ./cocite.py labels check --courts appellate             # stable / drifted / displaced / orphaned counts
 ./cocite.py labels list --courts appellate
 ./cocite.py areas --courts appellate --method cpm --resolution 0.5 --shrink 10 --consensus 20   # the settled setting: group lineages into areas
-./cocite.py areas --courts appellate --grid "cpm:0.5,1@0,10;modularity:1,2"   # score settings against cocite_gold.json, write nothing
+./cocite.py areas --courts appellate --grid "cpm:0.5,1@0,10;modularity:1,2"   # score settings against data/cocite_gold.json, write nothing
 ./cocite.py area-evidence --courts appellate            # build/cocite/areas-<view>.jsonl, for naming the areas (--top 80)
 ./cocite.py gold-common cocite-appellate cocite-appellate-sentence-m0.2   # benchmark names every listed view can score -> build/cocite/gold-common.json
 ./cocite.py vault --courts appellate                    # md-cocite/: Co-citation map.md, Areas/, Lineages/ (--min-size 30, --core 12, --link-min 0.1, --out)
 ```
 
 - **Labels:** a language model writes a name and description per lineage from the evidence file; `labels import` stores them with a fingerprint (the lineage's heaviest cases) so they re-attach after a rebuild. `evidence` options: `--top`, `--top-clusters`, `--min-slices`, `--min-size`, `--redo`, `--family`, `--min-family-size`.
-- **Areas:** sub-cluster lineages pooled over all slices into broad areas. The settled flags are `--method cpm --resolution 0.5 --shrink 10 --consensus 20` (`--consensus-rounds` 6, `--consensus-tau` 0.5; `--split-over` 150, `--sub-z`, `--nulls` for splitting giants). `--grid` scores many settings against `--gold` (default `cocite_gold.json`) by pairwise F1 and writes nothing; `--sweep` compares resolutions. The grid line's two extra columns, `gold.med` (median lineages in the areas holding benchmark lineages) and `nongold` (share of those areas' lineages outside the benchmark), say how much of each area the benchmark actually grades. Why these settings: `ARCHITECTURE.md` §7.4.
+- **Areas:** sub-cluster lineages pooled over all slices into broad areas. The settled flags are `--method cpm --resolution 0.5 --shrink 10 --consensus 20` (`--consensus-rounds` 6, `--consensus-tau` 0.5; `--split-over` 150, `--sub-z`, `--nulls` for splitting giants). `--grid` scores many settings against `--gold` (default `data/cocite_gold.json`) by pairwise F1 and writes nothing; `--sweep` compares resolutions. The grid line's two extra columns, `gold.med` (median lineages in the areas holding benchmark lineages) and `nongold` (share of those areas' lineages outside the benchmark), say how much of each area the benchmark actually grades. Why these settings: `ARCHITECTURE.md` §7.4.
 - **`gold-common`:** needs a `--grid` run in each view first (it reads the `gold-missing-<view>.json` each one writes), then intersects the benchmark so two views are scored on the same names.
 - **`vault`:** generator-owned notes; `sync_vault.sh` mirrors them. Fixed headings so a personal map of content can transclude them; starter in `templates/cocite-personal-moc.md`.
 
@@ -330,3 +330,9 @@ Files in the same bulk-data folder (`https://com-courtlistener-storage.s3-us-wes
 Columns `casedb.py` doesn't load are still in the files already downloaded to `bulk/`. `./casedb.py columns` lists, for each file, the columns loaded and the ones left out, and shows every column of the files that aren't loaded at all. Keeping one means adding it to `TABLES` in `casedb.py` and reloading that table with `./casedb.py load --force <name>`.
 
 **API only, no bulk file:** RECAP docket entries and filed documents (what `case2md.py recap fetch` uses), and anything newer than the last quarterly export.
+
+## License and how this was written
+
+MIT — see `LICENSE`.
+
+Most of the code and documentation in this repository was written by Claude (Anthropic's AI model), working from my specifications, design decisions and review. The design, the selection and arrangement of the parts, and the edits are mine. Parts that are purely AI-generated may not be protected by copyright; the MIT license covers whatever is, and the no-warranty terms apply to all of it.

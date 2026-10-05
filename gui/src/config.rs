@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     /// Folder holding cocite*.sqlite (the bulk/ symlink target).
     pub bulk_dir: PathBuf,
-    /// The LawFormatting repo: cases/, md-cases/, pdf/, cocite_labels.json.
+    /// The LawFormatting repo: cases/, md-cases/, pdf/, data/cocite_labels.json.
     pub repo_dir: PathBuf,
     /// File stem of the view opened at start, e.g. "cocite-appellate-sentence-m0.2".
     #[serde(default = "default_view")]
@@ -77,7 +77,7 @@ impl Config {
         self.opinions_db.clone().unwrap_or_else(|| self.repo_dir.join("db").join("opinions.sqlite"))
     }
     pub fn labels_file(&self) -> PathBuf {
-        self.repo_dir.join("cocite_labels.json")
+        self.repo_dir.join("data").join("cocite_labels.json")
     }
     pub fn cases_dir(&self) -> PathBuf {
         self.repo_dir.join("cases")

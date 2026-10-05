@@ -4,7 +4,7 @@
 # Folder holding cocite*.sqlite (where bulk/ points)
 bulk_dir = "/path/to/courtlistener"
 
-# The LawFormatting repo: cases/, md-cases/, pdf/, cocite_labels.json
+# The LawFormatting repo: cases/, md-cases/, pdf/, data/cocite_labels.json
 repo_dir = "/path/to/LawFormatting"
 
 # View opened at start (a cocite*.sqlite file stem)

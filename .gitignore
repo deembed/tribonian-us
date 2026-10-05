@@ -10,6 +10,7 @@ cases/
 db/
 bulk/
 bulk
+nav-test/
 # never commit data, wherever it ends up
 *.sqlite
 *.sqlite-*

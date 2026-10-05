@@ -62,7 +62,7 @@ Commands
                                                      # blind evidence: pairs by sentence share, for a reader
     ./cocite.py diag                                 # citing decisions per slice by court level
     ./cocite.py evidence --courts appellate          # build/cocite/evidence-*.jsonl: what to describe, and the evidence
-    ./cocite.py labels import labels.jsonl           # descriptions -> cocite_labels.json, attached to lineages
+    ./cocite.py labels import labels.jsonl           # descriptions -> data/cocite_labels.json, attached to lineages
     ./cocite.py labels list --courts appellate
 
 Proximity weights: --weight on build and the read commands replaces "decisions citing both" with
@@ -2383,12 +2383,12 @@ def cmd_area_evidence(args):
 # Evidence is computed here, by script, from the clustering and from the parentheticals other
 # courts wrote about each member ("holding that ..."). The one-line name and the description are
 # written from that evidence by a language model, outside this script, and kept in
-# cocite_labels.json next to it (tracked in git: unlike everything else, it can't be rebuilt).
+# data/cocite_labels.json beside it (tracked in git: unlike everything else, it can't be rebuilt).
 # Lineage numbers change with every build, so a label is tied to a fingerprint (the lineage's 30
 # heaviest members) and re-attached after a build to whichever lineage overlaps it best.
 
 HERE = Path(__file__).resolve().parent
-LABELS = HERE / "cocite_labels.json"
+LABELS = HERE / "data" / "cocite_labels.json"
 EVIDENCE_DIR = HERE / "build" / "cocite"
 FINGER = 30
 STABLE = 0.7          # a label still matching its lineage at this Jaccard or better counts as unchanged
@@ -2829,7 +2829,7 @@ def main():
                    help="cpm: add shrink x median strength to each side of the association-strength division")
     p.add_argument("--grid", help='score many settings against the benchmark, nothing written: '
                    '"cpm:1,2,4@0,1,10;modularity:1,2,4,8"')
-    p.add_argument("--gold", default=str(HERE / "cocite_gold.json"), help="benchmark groupings (default %(default)s)")
+    p.add_argument("--gold", default=str(HERE / "data" / "cocite_gold.json"), help="benchmark groupings (default %(default)s)")
     p.add_argument("--consensus", type=int, default=1,
                    help="runs per consensus round; 20 gives one reproducible partition (default 1 = a single run)")
     p.add_argument("--consensus-rounds", dest="consensus_rounds", type=int, default=6)
@@ -2878,7 +2878,7 @@ def main():
     p.set_defaults(func=cmd_together)
     p = sub.add_parser("gold-common", help="benchmark names every listed view can score -> build/cocite/gold-common.json")
     p.add_argument("views", nargs="+", help="results file stems, e.g. cocite-appellate cocite-appellate-sentence-m0.2")
-    p.add_argument("--gold", default=str(HERE / "cocite_gold.json"))
+    p.add_argument("--gold", default=str(HERE / "data" / "cocite_gold.json"))
     p.set_defaults(func=cmd_gold_common)
     args = ap.parse_args()
     global COCITE_DB
