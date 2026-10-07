@@ -31,7 +31,7 @@ pub struct Running {
 }
 
 /// The case's JSON file as cases/_index.json names it (written by `casemap.py get`).
-fn full_file(repo: &Path, r: i64) -> Option<String> {
+pub fn full_file(repo: &Path, r: i64) -> Option<String> {
     let text = std::fs::read_to_string(repo.join("cases").join("_index.json")).ok()?;
     let v: serde_json::Value = serde_json::from_str(&text).ok()?;
     v[r.to_string()]["full"].as_str().filter(|s| !s.is_empty()).map(String::from)

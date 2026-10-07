@@ -4,6 +4,7 @@
     US Code  pdf/5-usc-ch05.pdf        -> /Archive/Laws/USC/Title-05/5-usc-ch05
     Cases    pdf/FOIA/710-f3d-422-*.pdf -> /Archive/Laws/Cases/FOIA/710-f3d-422-*
              pdf/473-f3d-370-*.pdf      -> /Archive/Laws/Cases/473-f3d-370-*
+    Sub-clusters pdf/Co-citation/2020-24/*.pdf -> /Archive/Laws/Co-citation/2020-24/*
 
 A PDF is a case if md-cases/ has a note with the same stem (case2md.py mirrors
 md-cases/<dir>/ into pdf/<dir>/); otherwise a top-level PDF whose name starts
@@ -44,6 +45,8 @@ USC_RE = re.compile(r"^(\d+)([a-z]?)-", re.I)
 def remote_folder(pdf: Path, case_stems: set):
     """Tablet folder for a local PDF, or None if it can't be classified."""
     rel = pdf.relative_to(PDF)
+    if rel.parts[0] == "Co-citation":                 # cocite.py subdoc: sub-cluster explainers
+        return "/".join([REMOTE, *rel.parts[:-1]])
     if pdf.stem in case_stems or len(rel.parts) > 1:
         return "/".join([REMOTE, "Cases", *rel.parts[:-1]])
     m = USC_RE.match(pdf.name)

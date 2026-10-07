@@ -2,6 +2,7 @@
 //! Start screen -> View Clusters (areas, lineages, slices, clusters, sub-clusters) and View Cases,
 //! all leading to one shared case page. See claude/scope-gui.md in the Project.
 
+mod apisearch;
 mod cases;
 mod config;
 mod db;
@@ -12,6 +13,7 @@ mod pages;
 mod recent;
 mod scotus;
 mod scotus_page;
+mod subdoc;
 mod search;
 
 use cases::CaseFiles;
@@ -92,6 +94,14 @@ pub struct App {
     /// Searches, newest first, without repeats; kept between sessions (`recent.rs`).
     pub search_history: Vec<(String, search::Mode)>,
     pub show_history: bool,
+    /// "Include CourtListener": also search the API for cases newer than the local database.
+    pub include_api: bool,
+    pub api_cache: HashMap<Page, Result<apisearch::ApiResults, String>>,
+    api_pending: std::collections::HashSet<Page>,
+    atx: Sender<apisearch::Resp>,
+    arx: Receiver<apisearch::Resp>,
+    /// Names of API hits, for the case page of a case not in the local database yet.
+    pub api_names: HashMap<i64, String>,
     /// The running Build, if any, its output, and how the last one ended.
     pub job: Option<jobs::Running>,
     pub job_log: Vec<String>,
@@ -111,6 +121,7 @@ pub struct App {
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> App {
+        let (atx, arx) = std::sync::mpsc::channel();
         let mut app = App {
             cfg: None,
             cfg_path: None,
@@ -142,6 +153,12 @@ impl App {
             search_mode: search::Mode::Name,
             search_history: recent::load(),
             show_history: false,
+            include_api: false,
+            api_cache: HashMap::new(),
+            api_pending: Default::default(),
+            atx,
+            arx,
+            api_names: HashMap::new(),
             job: None,
             job_log: Vec::new(),
             queue: std::collections::VecDeque::new(),
@@ -237,10 +254,27 @@ impl App {
         self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Build { quick } });
     }
 
+    /// Queue `casemap.py recent` (citing cases newer than the bulk data, from the API) and then a full
+    /// build, whose good-law check reads them. Needs the case file; false when there is none yet.
+    pub fn enqueue_recent_citers(&mut self, r: i64, title: String) -> bool {
+        let Some(full) = self.cfg.as_ref().and_then(|cfg| jobs::full_file(&cfg.repo_dir, r)) else { return false };
+        let steps = vec![
+            (vec!["casemap.py".into(), "recent".into(), "--cluster".into(), r.to_string()], None),
+            (vec!["case2md.py".into(), "build".into(), format!("cases/{full}")], Some("wrote ".to_string())),
+        ];
+        self.enqueue(Queued { r#ref: r, title: format!("{title}: recent citers + build"), job: QueuedJob::Steps(steps) });
+        true
+    }
+
     /// Queue one script command for a case (e.g. Find coupled cases), through the same queue,
     /// status line and output panel as Build; the page reloads when it finishes.
     pub fn enqueue_script(&mut self, r: i64, title: String, args: Vec<String>) {
         self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Script(args) });
+    }
+
+    /// Queue several script commands as one job under a key of the caller's (e.g. cocite.py subdoc).
+    pub fn enqueue_steps(&mut self, r: i64, title: String, steps: Vec<(Vec<String>, Option<String>)>) {
+        self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Steps(steps) });
     }
 
     fn enqueue(&mut self, q: Queued) {
@@ -389,6 +423,7 @@ impl App {
 
     fn request(&mut self, page: &Page) {
         if let Page::Search { query, mode } = page {
+            self.request_api(page);
             if query.trim().is_empty() || self.search_cache.contains_key(page) || self.search_pending.as_ref() == Some(page) {
                 return;
             }
@@ -458,7 +493,36 @@ impl App {
         self.request(&p);
     }
 
+    /// The CourtListener half of a search, when "Include CourtListener" is on; once per page.
+    fn request_api(&mut self, page: &Page) {
+        let Page::Search { query, .. } = page else { return };
+        if !self.include_api || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
+            return;
+        }
+        let Some(cfg) = &self.cfg else { return };
+        let ctx = self.egui_ctx.clone();
+        self.api_pending.insert(page.clone());
+        apisearch::spawn(cfg.python.clone(), cfg.repo_dir.clone(), page.clone(), self.atx.clone(), move || {
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        });
+    }
+
+    pub fn api_pending(&self, page: &Page) -> bool {
+        self.api_pending.contains(page)
+    }
+
     fn poll(&mut self) {
+        for r in self.arx.try_iter().collect::<Vec<_>>() {
+            self.api_pending.remove(&r.page);
+            if let Ok(res) = &r.result {
+                for h in &res.hits {
+                    self.api_names.insert(h.cluster, h.name.clone());
+                }
+            }
+            self.api_cache.insert(r.page, r.result);
+        }
         if let Some(srx) = &self.srx {
             let got: Vec<search::Resp> = srx.try_iter().collect();
             for r in got {

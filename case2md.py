@@ -406,8 +406,9 @@ class Tree(HTMLParser):
 
 
 def parse_html(s):
+    from usc2md import FOLD                  # ligatures and odd spaces -> plain text, once, at parse time
     t = Tree()
-    t.feed(s)
+    t.feed(s.translate(FOLD))
     t.close()
     return t.root
 
@@ -582,6 +583,9 @@ def profile_data(cid, scan=False):
         stamp = re.search(r"\d{4}-\d\d-\d\d", row[0]).group(0) if row else ""
         import casemap
         fresh = (old.get("goodlaw") or {}).get("version") == casemap.GOODLAW_VERSION if old else False
+        rp = casemap.recent_path(cid)             # recent citers searched since the last check: read them
+        if fresh and rp.exists() and rp.stat().st_mtime > path.stat().st_mtime:
+            fresh = False
         if old and old.get("stamp") == stamp and (fresh or not scan) and "parens" in old:
             if "successor" not in old:               # cached before the successor line existed: add it only
                 old["successor"] = successor_data(cid)
@@ -730,6 +734,10 @@ def goodlaw_md(st):
     L = ["**Good-law check: %s** — %s. Read %s of %s citing opinions (every one from a court that could overrule it, "
          "plus the %d newest)." % (gl["status"].upper(), GL_WORDS[gl["status"]], format(gl["read"], ","), format(gl["of"], ","),
                                    __import__("casemap").GOODLAW_RECENT), ""]
+    rc = gl.get("recent")
+    if rc:
+        L += ["Includes %d citing cases filed after %s that the local database lacks (CourtListener search, %s; "
+              "%d of them read)." % (rc["listed"], rc["after"], rc["searched"], rc["read"]), ""]
     if gl.get("red_year"):
         later = sum(n for y, n in st["years"].items() if y > int(gl["red_year"]))
         L += ["Still cited by %s cases after %s." % (format(later, ","), gl["red_year"]), ""]
@@ -847,6 +855,10 @@ def goodlaw_tex(st):
     items = "".join("{\\scriptsize %s (%s): %s ``%s''%s --- \\emph{%s}\\par}" % (
         e["year"], esc(e["court"], "tex"), e["kind"], esc(e["word"], "tex"), ", could overrule" if e["above"] else "",
         esc(e["name"][:60], "tex")) for e in gl["evidence"][:6])
+    rc = gl.get("recent")
+    if rc:
+        items += "{\\scriptsize includes %d citing cases filed after %s (CourtListener search, %s)\\par}" % (
+            rc["listed"], esc(rc["after"], "tex"), esc(rc["searched"], "tex"))
     return head + items
 
 
@@ -1222,14 +1234,33 @@ def bulk_stamp(con):
     return m.group(0) if m else ""
 
 
-def draws_data(cid):
+def json_cited(cid, data=None):
+    """Opinion ids the case's own JSON says it cites (`opinions_cited` on each opinion). The fallback
+    for cases newer than the bulk data: they have no rows in `edges`, but the API copy lists them."""
+    if data is None:
+        ent = load_index().get(str(cid), {})
+        f = CASES / ent["full"] if ent.get("full") else None
+        try:
+            data = json.loads(f.read_text(encoding="utf-8")) if f else {}
+        except (OSError, ValueError):
+            data = {}
+    ids = set()
+    for o in data.get("opinions") or []:
+        for u in o.get("opinions_cited") or []:
+            m = re.search(r"/opinions/(\d+)/", str(u))
+            if m:
+                ids.add(int(m.group(1)))
+    return sorted(ids)
+
+
+def draws_data(cid, data=None):
     """cocite.draws_on for this build: recomputed every time (it takes well under a second), never cached."""
     con = shared_db() if cid is not None else None
     if con is None:
         return None
     try:
         import cocite
-        return cocite.draws_on(int(cid), con)
+        return cocite.draws_on(int(cid), con, opinions=json_cited(cid, data))
     except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view/opinions not there, numpy missing
         print("  (draws-on section skipped: %s)" % e, file=sys.stderr)
         return None
@@ -1246,7 +1277,8 @@ def coupling_cache(cid, con=None, max_df=None, top=None):
     con = con or shared_db()
     if con is None:
         sys.exit("coupling needs the local database (./casedb.py status)")
-    res = cocite.coupling(int(cid), con, max_df or cocite.COUPLING_MAX_DF, top or cocite.COUPLING_TOP)
+    res = cocite.coupling(int(cid), con, max_df or cocite.COUPLING_MAX_DF, top or cocite.COUPLING_TOP,
+                         opinions=json_cited(cid))
     res["stamp"] = bulk_stamp(con)
     res["computed"] = time.strftime("%Y-%m-%d %H:%M")
     write_profile(coupling_path(cid), res)            # atomic: temp file, then rename
@@ -1782,7 +1814,7 @@ def build(args):
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
     meta["profile"] = profile_data(meta["cluster"], scan=not getattr(args, "no_goodlaw", False))
     # bibliographic coupling: what it draws on (always, cheap); coupled cases only if cached or --coupling
-    meta["draws"] = draws_data(meta["cluster"])
+    meta["draws"] = draws_data(meta["cluster"], data)
     meta["coupling"] = coupling_data(meta["cluster"], compute=getattr(args, "coupling", False))
 
     (here / "build").mkdir(exist_ok=True)
@@ -1848,8 +1880,10 @@ def unmapped_note():
     """Say which characters the PDF could not print (usc2md.tex_safe dropped or marked them)."""
     import usc2md
     for ch, n in sorted(usc2md.UNMAPPED.items()):
-        print("  note: %s (U+%04X) x%d %s in the PDF" % (ch, ord(ch), n, "dropped (scan speck)" if 0x2580 <= ord(ch) <= 0x25FF
-                                                     or 0x80 <= ord(ch) < 0xA0 else "shown as a boxed ?"))
+        o = ord(ch)
+        print("  note: %s(U+%04X) x%d %s in the PDF" % (ch + " " if ch.isprintable() else "", o, n,
+              "dropped (control character)" if o < 0x20 or 0x7F <= o < 0xA0 else
+              "dropped (scan speck)" if 0x2580 <= o <= 0x25FF else "shown as a boxed ?"))
     usc2md.UNMAPPED.clear()
 
 
@@ -2197,6 +2231,8 @@ SLIP_RUNHEAD_RE = re.compile(r"^\s*(?:(\d{1,3})\s{2,}%s|%s\s{2,}(\d{1,3}))\s*$" 
 def layout_pages(text, heads=None):
     """-> (lines, footnotes [[label, page index, paragraphs]], page labels by page index).
     heads: a list to fill with each page's opinion label (Supreme Court slip opinions), else ''."""
+    from usc2md import FOLD
+    text = text.translate(FOLD)
     lines, footnotes, labels, nxt = [], [], [], 1
     set_vocab(text)
     for pi, pg in enumerate(text.replace("\r", "").split("\f")):
@@ -2579,14 +2615,19 @@ def fill_opinion(o, blocks, footnotes):
 # caption ends where the first judge starts writing ("MILLETT, Circuit Judge: ..."), and each
 # later "KATSAS, Circuit Judge, concurring: ..." starts a separate opinion.
 
-SLIP_AUTHOR_RE = re.compile(r"^(?:(PER CURIAM)|((?:[A-Z][a-z]+ )?[A-Z][A-Z'’\-]+(?: [A-Z][A-Z'’\-]+)?),"
+# a judge's name: up to four capitalised words, accented capitals included ("MARIA ARAÚJO KAHN",
+# "JOHN M. WALKER"); the first word may be in title case ("Maria KAHN")
+_UC = "A-ZÀ-ÖØ-Þ"
+SLIP_AUTHOR_RE = re.compile(r"^(?:(PER CURIAM)|((?:[A-Z][a-z]+ )?[%s][%s'’\-]+(?: [%s][%s'’\-]*\.?){0,3}),"
+                            % (_UC, _UC, _UC, _UC) +
                             r" (?:Senior |Chief )?(?:Circuit |District |Magistrate )?Judge(?:,? ([^:]{3,120}?))?)[.:]\s*(.*)$")
 
 
 def slip_links(html):
     """{citation text, whitespace normalized: href} from CourtListener's links in the <pre> text."""
+    from usc2md import FOLD                  # folded like the text they are matched against
     out = {}
-    for href, t in re.findall(r'<a href="(/opinion/[^"]+)"[^>]*>(.*?)</a>', html or "", re.S):
+    for href, t in re.findall(r'<a href="(/opinion/[^"]+)"[^>]*>(.*?)</a>', (html or "").translate(FOLD), re.S):
         t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", t)).strip()
         if len(t) >= 8:
             out.setdefault(t, href)
@@ -2658,7 +2699,7 @@ def read_slip(op, oi, warn):
         elif m.group(1):
             who, kind = "Per Curiam", "per curiam"
         else:
-            who, kind = "%s, J." % m.group(2).title(), clean(m.group(3) or "")
+            who, kind = "%s, J." % m.group(2).split()[-1].title(), clean(m.group(3) or "")   # surname: "Kahn, J."
         o = {"oi": oi + len(out), "kind": kind, "author": "", "byline": byline if k == 0 else [],
              "flat": [], "footnotes": {}, "api": op, "start": labels[seg[0].pi], "who": who}
         fill_opinion(o, blocks, fns)
@@ -3060,6 +3101,77 @@ def find(args):
         print("next: ./case2md.py find %s --get N" % shlex.join(args.words))
 
 
+# ---------------------------------------------------------------- API search (the local database's gap)
+# The bulk data stops at its dump date; CourtListener's search knows what came after. One request per
+# search (20 results), cached under cases/api/search/ so repeating a search costs nothing. The GUI's
+# "Include CourtListener" runs this and reads the JSON it prints.
+
+API_LAG_DAYS = 30        # cases filed shortly before a dump often reach CourtListener after it
+
+
+def api_search(query, mode="name", after=None, max_age=24):
+    """-> {"after", "count", "hits": [...], "cached", "fetched"}. mode: name (case_name), cite (citation)
+    or text (full text). after: "YYYY-MM-DD", "" for all dates, None = the bulk dump date less API_LAG_DAYS.
+    Each hit says whether the local database already has it (local) and whether a case file exists (have)."""
+    import datetime, hashlib, html as _html
+    con = shared_db()
+    if after is None:
+        stamp = bulk_stamp(con) if con is not None else ""
+        after = (str(date.fromisoformat(stamp) - datetime.timedelta(days=API_LAG_DAYS)) if stamp else "")
+    params = {"type": "o", "order_by": "score desc"}
+    params[{"name": "case_name", "cite": "citation", "text": "q"}[mode]] = query
+    if after:
+        params["filed_after"] = after
+    key = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16]
+    path = CASES / "api" / "search" / (key + ".json")
+    out = None
+    try:
+        out = json.loads(path.read_text(encoding="utf-8"))
+        if time.time() - out.get("time", 0) > max_age * 3600:
+            out = None
+    except (OSError, ValueError):
+        pass
+    cached = out is not None
+    if out is None:
+        res = call("%s/search/?%s" % (API, urllib.parse.urlencode(params)), token())
+        hits = []
+        for r in res.get("results") or []:
+            sn = next((o.get("snippet") for o in r.get("opinions") or [] if (o.get("snippet") or "").strip()), "")
+            sn = re.sub(r"\s+", " ", _html.unescape(sn.replace("<mark>", "\x01").replace("</mark>", "\x02"))).strip()
+            sn = sn if "\x01" in sn else ""          # without a highlighted match it's just the caption
+            hits.append({"cluster": r.get("cluster_id"), "name": r.get("caseName") or "",
+                         "cite": ", ".join(r.get("citation") or []), "date": r.get("dateFiled") or "",
+                         "court": r.get("court_citation_string") or r.get("court_id") or "",
+                         "cited": r.get("citeCount") or 0, "snippet": sn})
+        out = {"params": params, "time": time.time(), "count": res.get("count"), "hits": hits}
+        write_profile(path, out)
+    ids = [h["cluster"] for h in out["hits"] if h["cluster"]]
+    local = set()
+    if con is not None and ids:
+        local = {r for (r,) in con.execute("SELECT id FROM clusters WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)}
+    index = load_index()
+    for h in out["hits"]:
+        e = index.get(str(h["cluster"]), {})
+        h["local"] = h["cluster"] in local
+        h["have"] = bool(e.get("full") and (CASES / e["full"]).exists())
+    return {"after": after, "count": out["count"], "hits": out["hits"], "cached": cached,
+            "fetched": time.strftime("%Y-%m-%d %H:%M", time.localtime(out["time"]))}
+
+
+def api_search_cmd(args):
+    res = api_search(" ".join(args.words), args.mode, "" if args.all else args.after, args.max_age)
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False))
+        return
+    print("CourtListener, filed %s: %s matches (%s)" % ("after " + res["after"] if res["after"] else "any date",
+                                                      res["count"], "cached " + res["fetched"] if res["cached"] else "1 request"))
+    for i, h in enumerate(res["hits"], 1):
+        tag = "have" if h["have"] else "local" if h["local"] else "NEW"
+        print("  %2d. %-5s %s%s (%s %s)  cluster %s" % (i, tag, h["name"][:70], ", " + h["cite"] if h["cite"] else "",
+                                                     h["court"], h["date"][:4], h["cluster"]))
+    print("  NEW = not in the local database; get one with: ./casemap.py get --cluster ID")
+
+
 def iter_tag(el, tag):
     for k in el.kids:
         if isinstance(k, El):
@@ -3113,6 +3225,15 @@ def main():
     b.add_argument("--coupling", action="store_true",
                    help="compute the coupled cases first (casemap.py coupling); without it they show only when already cached")
     b.set_defaults(func=build)
+    sa = sub.add_parser("api-search", help="search CourtListener for cases newer than the local database (1 request, cached)")
+    sa.add_argument("words", nargs="+")
+    sa.add_argument("--mode", choices=["name", "cite", "text"], default="name",
+                    help="name = case name (default), cite = a citation, text = the opinions' full text")
+    sa.add_argument("--after", help="filed after this date (default: the bulk data's date less %d days)" % API_LAG_DAYS)
+    sa.add_argument("--all", action="store_true", help="any filing date")
+    sa.add_argument("--max-age", dest="max_age", type=float, default=24, help="hours a cached search is reused (default 24)")
+    sa.add_argument("--json", action="store_true", help="print JSON (for the GUI)")
+    sa.set_defaults(func=api_search_cmd)
     fd = sub.add_parser("find", help="search case names and courts' parentheticals (local database)")
     fd.add_argument("words", nargs="+", help='all must match; quote a phrase: glomar "state farm"')
     fd.add_argument("--get", type=int, metavar="N", help="fetch result N from the local database and build its PDF")

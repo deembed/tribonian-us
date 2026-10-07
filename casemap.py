@@ -40,7 +40,7 @@
 Everything downloaded is cached under cases/. No language model anywhere:
 counting, regular expressions, string matching.
 """
-import argparse, bisect, html, json, math, random, re, sqlite3, sys, time, zlib
+import argparse, bisect, html, json, math, os, random, re, sqlite3, sys, time, urllib.parse, zlib
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -141,13 +141,34 @@ def cmd_get(args):
     cid = root_cluster(args, con)
     data = db_case(con, cid, True)
     if data is None:
-        sys.exit("cluster %s is not in the database" % cid)
+        if getattr(args, "no_api", False):
+            sys.exit("cluster %s is not in the database" % cid)
+        return get_api(cid, index)
     save_case(data, index, True)
     c.save_index(index)
     kind = c.write_note(cid, index)
     e = index[str(cid)]
     print("%s, %s (%s): %d opinions, cites %d cases -> cases/%s, md-cases/%s.md (%s)" % (
         e["short"] or e["name"], e["cite"], e["year"], len(data["opinions"]), len(data["cites"]), e["full"], e["slug"], kind))
+    print("PDF: ./case2md.py build cases/%s" % e["full"])
+
+
+def get_api(cid, index):
+    """The fallback for a case the bulk data doesn't have (filed after the last dump): download it
+    with case2md's fetch, about 2 + (number of opinions) requests. Same cases/*.json shape, so
+    build doesn't know the difference; references come from its `opinions_cited` (case2md.json_cited)."""
+    print("cluster %s is not in the local database (newer than the bulk data?); downloading it from CourtListener"
+          % cid, file=sys.stderr)
+    tok = c.token()
+    cluster = c.call("%s/clusters/%s/" % (c.API, cid), tok, soft=True)
+    if cluster is None:
+        sys.exit("cluster %s: CourtListener has no such case either" % cid)
+    out = c.fetch_cluster(cluster, tok)
+    data = json.loads(out.read_text(encoding="utf-8"))
+    e = c.register(data, index, out)
+    c.save_index(index)
+    print("%s, %s (%s): %d opinions, cites %d opinions -> cases/%s (from the API)" % (
+        e["short"] or e["name"], e["cite"], e["year"], len(data["opinions"]), len(c.json_cited(cid, data)), e["full"]))
     print("PDF: ./case2md.py build cases/%s" % e["full"])
 
 
@@ -437,22 +458,32 @@ def citing_rows(con, cid):
         "WHERE e.cited IN (SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ?", (cid, cid)).fetchall()
 
 
-def goodlaw_case(con, cid, strat=0, show=None):
-    """Read this case's citing opinions -> the case dict evaluate() takes. strat > 0 adds that many
-    older opinions per decade (goodlaw_eval.py uses it to try reading more)."""
+def goodlaw_subject(con, cid):
+    """The case being checked: (its row, its court level, its citations, its short names, a regex for
+    them, overrules(court_id, jurisdiction) -> could that court overrule it)."""
     me = con.execute("SELECT cl.date_filed, d.court_id, ct.jurisdiction, cl.case_name, cl.case_name_short FROM clusters cl "
                      "LEFT JOIN dockets d ON d.id = cl.docket_id LEFT JOIN courts ct ON ct.id = d.court_id WHERE cl.id = ?", (cid,)).fetchone()
     my_level, my_court = (level_of(me[1], me[2]), me[1]) if me else ("other", None)
     cites = con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id = ?", (cid,)).fetchall()
     names = case_names(me[4] if me else "", me[3] if me else "")
     name_rx = re.compile(r"\b(?:%s)\b" % "|".join(re.escape(n) for n in names)) if names else None
+
+    def overrules(court_id, jurisdiction):
+        lv = level_of(court_id, jurisdiction)
+        if my_level == "other":
+            return lv == "supreme" or bool(court_id and court_id == my_court)
+        return RANK[lv] >= RANK[my_level]
+    return me, my_level, cites, names, name_rx, overrules
+
+
+def goodlaw_case(con, cid, strat=0, show=None):
+    """Read this case's citing opinions -> the case dict evaluate() takes. strat > 0 adds that many
+    older opinions per decade (goodlaw_eval.py uses it to try reading more)."""
+    me, my_level, cites, names, name_rx, overrules = goodlaw_subject(con, cid)
     rows = citing_rows(con, cid)
 
     def can_overrule(r):
-        lv = level_of(r[3], r[4])
-        if my_level == "other":
-            return lv == "supreme" or bool(r[3] and r[3] == my_court)
-        return RANK[lv] >= RANK[my_level]
+        return overrules(r[3], r[4])
     newest = sorted(rows, key=lambda r: r[2] or "", reverse=True)
     pick = {}
     for r in [x for x in newest if can_overrule(x)][:GOODLAW_MAX]:
@@ -488,9 +519,18 @@ def goodlaw_case(con, cid, strat=0, show=None):
 def goodlaw(con, cid, show=None):
     """-> {"status": green|yellow|red, "yellow_year", "red_year", "read", "of", "evidence": [...]}"""
     case = goodlaw_case(con, cid, show=show)
+    rec = recent_data(con, cid)
+    if rec:                                   # citing cases newer than the bulk data (casemap.py recent)
+        have = {o["cluster"] for o in case["ops"]}
+        case["ops"] += [o for o in rec["ops"] if o["cluster"] not in have]
+        case["of"] += rec["listed"]
     status, yellow, red, ev = evaluate(case, RULES)
-    return {"status": status, "yellow_year": yellow, "red_year": red, "level": case["level"], "version": GOODLAW_VERSION,
-            "read": len(case["ops"]), "of": case["of"], "evidence": ev[:25], "n_evidence": len(ev)}
+    out = {"status": status, "yellow_year": yellow, "red_year": red, "level": case["level"], "version": GOODLAW_VERSION,
+           "read": len(case["ops"]), "of": case["of"], "evidence": ev[:25], "n_evidence": len(ev)}
+    if rec:
+        out["recent"] = {"after": rec["after"], "found": rec["found"], "listed": rec["listed"], "read": len(rec["ops"]),
+                         "searched": rec["searched"]}
+    return out
 
 
 def cmd_goodlaw(args):
@@ -502,6 +542,131 @@ def cmd_goodlaw(args):
         cid, r["status"].upper(), r["yellow_year"], r["red_year"], r["read"], r["of"], r["level"]))
     for e in r["evidence"]:
         print("  %s %-12s %-13s %-18s %s| %s" % (e["year"], e["court"][:12], e["kind"], e["word"], "above " if e["above"] else "", e["snippet"][:160]))
+
+# ================================================================ recent citers (after the bulk data)
+# The good-law check reads citing opinions from the local database, which ends at the bulk dump: an
+# overruling filed since is exactly what it can't see. `recent` asks CourtListener's search who has cited
+# the case since (cites:(opinion ids), 20 per request), reads the text of those that could overrule it
+# plus the newest few (1 request each, cached under cases/api/opinions/), and stores their reading
+# windows in cases/citedby/<cluster>/recent.json; goodlaw() adds them to its reading set from then on.
+RECENT_PAGES, RECENT_TEXTS, RECENT_NEWEST = 3, 25, 10
+API_LAG_DAYS = 30            # as case2md.API_LAG_DAYS: cases filed just before a dump reach it late
+
+
+def recent_path(cid):
+    return c.CASES / "citedby" / str(cid) / "recent.json"
+
+
+def recent_data(con, cid):
+    """The stored recent citers, if they were searched against this bulk data (a newer dump covers them)."""
+    try:
+        rec = json.loads(recent_path(cid).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return rec if rec.get("stamp") == c.bulk_stamp(con) else None
+
+
+def own_records(con, cid):
+    """-> (opinion ids, cluster ids) of this case and its other records (CourtListener often holds a case
+    twice, slip opinion and reporter version, sharing a reporter citation), plus the case file's own
+    opinions (a case fetched from the API isn't in the database)."""
+    clusters = {cid}
+    for v, rp, pg in con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id = ?", (cid,)).fetchall():
+        clusters.update(r for (r,) in con.execute("SELECT cluster_id FROM cites WHERE volume=? AND reporter=? AND page=?", (v, rp, pg)))
+    ids = {r for k in clusters for (r,) in con.execute("SELECT id FROM ops.opinions WHERE cluster_id = ?", (k,))}
+    ent = c.load_index().get(str(cid), {})
+    if ent.get("full"):
+        try:
+            data = json.loads((c.CASES / ent["full"]).read_text(encoding="utf-8"))
+            ids.update(o["id"] for o in data.get("opinions") or [] if o.get("id"))
+        except (OSError, ValueError):
+            pass
+    return sorted(ids), sorted(clusters)
+
+
+def api_opinion_text(oid, tok):
+    """One opinion's text from the API (html_with_citations, else plain text), cached."""
+    import gzip, html
+    path = c.CASES / "api" / "opinions" / ("%d.html.gz" % oid)
+    if path.exists():
+        return gzip.decompress(path.read_bytes()).decode("utf-8")
+    o = c.call("%s/opinions/%d/?fields=id,html_with_citations,plain_text" % (c.API, oid), tok, soft=True) or {}
+    raw = o.get("html_with_citations") or ("<pre>%s</pre>" % html.escape(o["plain_text"]) if o.get("plain_text") else "")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".%d.tmp" % os.getpid())
+    tmp.write_bytes(gzip.compress(raw.encode("utf-8")))
+    os.replace(tmp, path)
+    return raw
+
+
+def cmd_recent(args):
+    """Who has cited the case since the bulk data, and what they say about it (for the good-law check)."""
+    import datetime
+    con, done = open_db()
+    cid = root_cluster(args, con)
+    stamp = c.bulk_stamp(con)
+    after = args.after or (str(datetime.date.fromisoformat(stamp) - datetime.timedelta(days=API_LAG_DAYS)) if stamp else "")
+    oids, clusters = own_records(con, cid)
+    if not oids:
+        sys.exit("cluster %s: no opinion ids, here or in a case file (./casemap.py get --cluster %s first)" % (cid, cid))
+    me, my_level, cites, names, name_rx, overrules = goodlaw_subject(con, cid)
+    tok = c.token()
+    params = {"type": "o", "q": "cites:(%s)" % " OR ".join(map(str, oids)), "order_by": "dateFiled desc"}
+    if after:
+        params["filed_after"] = after
+    url, hits, found = "%s/search/?%s" % (c.API, urllib.parse.urlencode(params)), [], 0
+    for _ in range(args.pages):
+        res = c.call(url, tok)
+        found = res.get("count") or found
+        hits += res.get("results") or []
+        url = res.get("next")
+        if not url:
+            break
+    # citing cases the local database lacks (those it has, goodlaw already reads), one per cluster
+    ids = list({h["cluster_id"] for h in hits if h.get("cluster_id") and h["cluster_id"] not in clusters})
+    local = {r for (r,) in con.execute("SELECT id FROM clusters WHERE id IN (%s)" % ",".join("?" * len(ids)), ids)} if ids else set()
+    jur = dict(con.execute("SELECT id, jurisdiction FROM courts"))
+    citers, seen = [], set()
+    for h in hits:
+        k = h.get("cluster_id")
+        if not k or k in clusters or k in local or k in seen:
+            continue
+        seen.add(k)
+        court = h.get("court_id") or ""
+        citers.append({"cluster": k, "name": h.get("caseName") or "", "date": h.get("dateFiled") or "",
+                       "court": h.get("court_citation_string") or court, "court_id": court,
+                       "level": level_of(court, jur.get(court)), "above": overrules(court, jur.get(court)),
+                       "opinions": [o["id"] for o in h.get("opinions") or [] if o.get("id")]})
+    pick = [x for x in citers if x["above"]] + [x for x in citers if not x["above"]][:RECENT_NEWEST]
+    pick = pick[:args.texts]
+    ops = []
+    for x in pick:
+        for oid in x["opinions"]:
+            raw = api_opinion_text(oid, tok)
+            if not raw:
+                continue
+            wins, sents = [], []
+            for k in [cid] + [k for k in clusters if k != cid]:     # links may point at another record of the case
+                wins, sents = opinion_windows(raw, k, cites, name_rx)
+                if wins:
+                    break
+            ops.append({"oid": oid, "cluster": x["cluster"], "name": x["name"], "slug": "x", "year": x["date"][:4],
+                        "court": x["court"], "level": x["level"], "above": x["above"],
+                        "why": ["above"] if x["above"] else ["newest"], "wins": wins, "sents": sents})
+    rec = {"cluster": cid, "stamp": stamp, "after": after, "searched": time.strftime("%Y-%m-%d %H:%M"),
+           "found": found, "listed": len(citers), "citers": citers, "ops": ops}
+    c.write_profile(recent_path(cid), rec)
+    print("%s: %s citing decisions filed after %s; %d not in the local database (%d could overrule it); read %d opinions" % (
+        cid, found, after or "any date", len(citers), sum(x["above"] for x in citers), len(ops)))
+    if found and found > len(hits):
+        print("  listed the newest %d of %d (--pages %d); citing cases from the local database are read anyway" % (
+            len(hits), found, args.pages))
+    for x in citers[:15]:
+        print("  %s %-10s %s%s" % (x["date"], x["court"][:10], x["name"][:70], "  · could overrule" if x["above"] else ""))
+    ent = c.load_index().get(str(cid), {})
+    print("next: the good-law check reads them on the next full build" +
+          (": ./case2md.py build cases/%s" % ent["full"] if ent.get("full") else ""))
+
 
 # ================================================================ map (outbound)
 
@@ -1219,12 +1384,22 @@ def main():
     st.add_argument("--api", action="store_true", help="fall back to the CourtListener API when the database has no readable text")
     st.set_defaults(func=cmd_stubs)
     for name, fn in (("get", cmd_get), ("map", cmd_map), ("citedby", cmd_citedby), ("goodlaw", cmd_goodlaw),
-                     ("coupling", cmd_coupling)):
+                     ("coupling", cmd_coupling), ("recent", cmd_recent)):
         p = sub.add_parser(name)
         p.add_argument("json", nargs="?", help="a cases/*.json file")
         p.add_argument("--cluster", type=int, help="or a CourtListener cluster id")
         p.add_argument("--cite", help='or a citation, e.g. "401 U.S. 402"')
         p.set_defaults(func=fn)
+        if name == "recent":
+            p.add_argument("--after", help="filed after this date (default: the bulk data's date less %d days)" % API_LAG_DAYS)
+            p.add_argument("--pages", type=int, default=RECENT_PAGES,
+                           help="search pages of 20, newest first (default %d; 1 request each)" % RECENT_PAGES)
+            p.add_argument("--texts", type=int, default=RECENT_TEXTS,
+                           help="at most this many citing cases read (1 request per opinion): every one that could "
+                           "overrule it, then the %d newest (default %d)" % (RECENT_NEWEST, RECENT_TEXTS))
+        if name == "get":
+            p.add_argument("--no-api", dest="no_api", action="store_true",
+                           help="don't download a case the local database lacks (default: fetch it from CourtListener)")
         if name == "map":
             p.add_argument("--by", choices=["cluster", "depth"], help="cluster (the default) = the cases in the root's "
                            "co-citation sub-cluster (cocite.py); depth = follow its citations --depth steps out "

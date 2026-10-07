@@ -548,6 +548,13 @@ fn unit_page(app: &mut App, ui: &mut Ui, head: &UnitHead, children: &[UnitRow], 
             }
         });
     }
+    if u.level == Level::Sub {
+        ui.add_space(4.0);
+        crate::subdoc::bar(app, ui, u.slice, u.k);
+    } else if children.is_empty() {
+        ui.add_space(4.0);
+        crate::subdoc::bar(app, ui, u.slice, u.k * 1000); // an unsplit cluster is its own sub-cluster
+    }
     ui.add_space(8.0);
     let f = app.filter.clone();
     if !children.is_empty() {
@@ -793,9 +800,16 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
                 ui.weak(format!("short name: {}", c.name));
             }
         }
-        _ => {
-            ui.heading(&c.name);
-        }
+        _ => match app.api_names.get(&c.r#ref) {
+            // not in the local database yet: the name CourtListener's search gave
+            Some(n) if c.name.starts_with("cluster ") || c.name.is_empty() => {
+                ui.heading(n);
+                ui.weak("not in the local database: Quick build downloads it from CourtListener");
+            }
+            _ => {
+                ui.heading(&c.name);
+            }
+        },
     }
     ui.label(format!("{} {}", c.cite, c.year.map(|y| format!("({y})")).unwrap_or_default()).trim());
     let court = entry.as_ref().map(|e| e.court.clone()).filter(|c| !c.is_empty()).unwrap_or_else(|| c.court.clone());
@@ -854,6 +868,17 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             );
         if quick.clicked() {
             app.enqueue_build(c.r#ref, title.clone(), true);
+        }
+        let recent = ui
+            .add_enabled(!queued && note.is_some(), egui::Button::new("Recent citers"))
+            .on_hover_text(
+                "ask CourtListener who has cited this case since the bulk data (./casemap.py recent: 1 request per 20 \
+                 citing cases, plus 1 per opinion read, up to 25), then Build: the good-law check reads them too. \
+                 Only the cases the local database lacks are added.",
+            )
+            .on_disabled_hover_text("build the case first");
+        if recent.clicked() {
+            app.enqueue_recent_citers(c.r#ref, title.clone());
         }
         if full.clicked() {
             app.enqueue_build(c.r#ref, title, false);
@@ -1314,6 +1339,11 @@ fn search_side(app: &mut App, ui: &mut Ui) {
     });
     let changed = mode != app.search_mode;
     app.search_mode = mode;
+    ui.checkbox(&mut app.include_api, "Include CourtListener").on_hover_text(
+        "also search CourtListener for cases filed after the local database's bulk data (less a month): \
+         1 API request per search, reused for a day (./case2md.py api-search). Cases already in the local \
+         database are left to the local results.",
+    );
     if (ui.button("Search").clicked() || enter || (changed && !app.search_input.trim().is_empty()))
         && !app.search_input.trim().is_empty()
     {
@@ -1411,6 +1441,9 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     if *mode == Mode::Name {
         crate::scotus_page::docket_hits(app, ui, query);
     }
+    if app.include_api {
+        api_hits(app, ui, page);
+    }
     let Some(res) = app.search_cache.get(page).cloned() else {
         skeleton(ui, page);
         return;
@@ -1483,6 +1516,79 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
             }
         });
     });
+    if go.is_some() {
+        app.goto = go;
+    }
+}
+
+/// "Include CourtListener": the API's matches that the local database doesn't have, above the local
+/// results. A name opens the case page; Get downloads and builds it (Quick build: casemap.py get falls
+/// back to the API for a case the database lacks).
+fn api_hits(app: &mut App, ui: &mut Ui, page: &Page) {
+    let Some(res) = app.api_cache.get(page).cloned() else {
+        if app.api_pending(page) {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.weak("Searching CourtListener…");
+            });
+        }
+        return;
+    };
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            ui.colored_label(Color32::LIGHT_RED, format!("CourtListener search failed: {e}"));
+            ui.separator();
+            return;
+        }
+    };
+    let new: Vec<_> = res.hits.iter().filter(|h| !h.local).collect();
+    ui.strong(format!("CourtListener: {} not in the local database", new.len()));
+    ui.weak(format!(
+        "filed {} · {} matches, first {} read ({} already local) · {}",
+        if res.after.is_empty() { "any date".to_string() } else { format!("after {}", res.after) },
+        res.count.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
+        res.hits.len(),
+        res.hits.len() - new.len(),
+        if res.cached { format!("cached {}", res.fetched) } else { "1 API request".to_string() }
+    ));
+    let mut go = None;
+    let mut get = None;
+    if !new.is_empty() {
+        egui::Grid::new("api_hits").striped(true).num_columns(6).show(ui, |ui| {
+            for h in &new {
+                ui.vertical(|ui| {
+                    if ui.link(&h.name).clicked() {
+                        go = Some(Page::Case(h.cluster));
+                    }
+                    if !h.snippet.is_empty() {
+                        snippet_label(ui, &h.snippet);
+                    }
+                });
+                built_tag(app, ui, h.cluster);
+                ui.label(&h.cite);
+                ui.label(&h.date);
+                ui.label(&h.court);
+                let queued = app.is_queued(h.cluster);
+                if ui
+                    .add_enabled(!queued && app.files.note_of(h.cluster).is_none(), egui::Button::new("Get"))
+                    .on_hover_text(format!(
+                        "download from CourtListener and build (about 3 API requests): ./casemap.py get --cluster {}, \
+                         then ./case2md.py build --no-goodlaw",
+                        h.cluster
+                    ))
+                    .clicked()
+                {
+                    get = Some((h.cluster, h.name.clone()));
+                }
+                ui.end_row();
+            }
+        });
+    }
+    ui.separator();
+    if let Some((r, name)) = get {
+        app.enqueue_build(r, name, true);
+    }
     if go.is_some() {
         app.goto = go;
     }

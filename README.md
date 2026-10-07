@@ -22,8 +22,8 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 | `cases/scotus/` | pending Supreme Court dockets: `<docket>.json` plus `<docket>/` with the filed PDFs and their text; `_recent.json` + `_recent/` (recent opinions, grants, orders) | `scotus.py fetch`, `scotus.py recent` |
 | `md/` | US Code notes, one per section, in `t<NN>/ch<NN>/` | `build_all.sh` |
 | `md-cases/` | case notes (full and stub); subfolders such as `FOIA/` and `Pending SCOTUS/` | `case2md.py`, `casemap.py`, `scotus.py` |
-| `md-cocite/` | co-citation notes: `Co-citation map.md`, `Areas/`, `Lineages/` | `cocite.py vault` |
-| `pdf/` | the PDFs; case PDFs mirror `md-cases/` subfolders | `build_all.sh`, `case2md.py build`, `scotus.py build` |
+| `md-cocite/` | co-citation notes: `Co-citation map.md`, `Areas/`, `Lineages/`; `Sub-clusters/<slice>/` explainers | `cocite.py vault`, `cocite.py subdoc` |
+| `pdf/` | the PDFs; case PDFs mirror `md-cases/` subfolders; `Co-citation/<slice>/` sub-cluster explainers | `build_all.sh`, `case2md.py build`, `scotus.py build` |
 | `build/` | `.tex`, logs, scratch; disposable | the build |
 | `state/` | `built.tsv` (what each job built), skip stamps, `rm_manifest.json` (what is on the tablet); keep | `build_all.sh`, `sync_remarkable.py` |
 | `build/cocite/` | co-citation evidence files, benchmark output, shift eval | `cocite.py` |
@@ -197,6 +197,8 @@ The bulk files are in `bulk/` (`CL_BULK`), the database is `bulk/courtlistener.s
 ./cocite.py tree 2010                      # one slice: clusters, each with its sub-clusters
 ./cocite.py note --cite "463 U.S. 29"     # preview the ## Co-citation section a case note gets (appellate view)
 ./cocite.py lineage 17                     # one lineage across slices
+./cocite.py subdoc 2020-24:2.3              # explain one sub-cluster -> md-cocite/Sub-clusters/2020-24/ + pdf/Co-citation/2020-24/
+./cocite.py subdoc 2020-24:2.3 --goodlaw    # the same, after the good-law check on members never checked (slow)
 ./cocite.py together --cite "550 U.S. 544" --cite "556 U.S. 662"   # same cluster? decisions citing both
 ./cocite.py diag                           # citing decisions per slice, by court level
 ./cocite.py build --courts appellate       # only appellate citing decisions -> bulk/cocite-appellate.sqlite
@@ -257,6 +259,8 @@ Housekeeping: `prep` must be rerun after a bulk load. Read commands (`status`, `
 - **`gold-common`:** needs a `--grid` run in each view first (it reads the `gold-missing-<view>.json` each one writes), then intersects the benchmark so two views are scored on the same names.
 - **`vault`:** generator-owned notes; `sync_vault.sh` mirrors them. Fixed headings so a personal map of content can transclude them; starter in `templates/cocite-personal-moc.md`.
 
+**Sub-cluster explainer (`subdoc`, in `cocite_subdoc.py`):** one note and one PDF per sub-cluster in one slice (an unsplit cluster is its own: `2020:27`). Sections: the label and description (marked as written by a language model), where it sits (cluster, lineage, area); a table of every member, most central first, with decisions citing it in the slice, citing cases in all (cached profile, else CourtListener's count) and good law; the lineage's timeline, merges and splits, and the cases that joined or left it on either side of the slice, grouped by the sub-cluster they came from or went to; then each case: citations, good law (cached; red/yellow warnings; grey = dormant), successor line, other clusters it ties to, the three members it travels with most, and every parenthetical group (up to 8, as on case notes; cached profile, else read live). Default view: the case-note view; `--view appellate` etc. picks another (files then go under a `<view>/` folder). `--json` prints the data and writes nothing; `--no-pdf`; `--font`. No language model runs. The GUI's sub-cluster pages queue it ("Explain").
+
 **Good-law signals (`shift`, in `cocite_shift.py`):** per slice transition, four signals: (1) a later-decided successor B, cited by at least 25% of the decisions citing A and growing at least 3 times faster; (2) A's sub-cluster lineage breaks; (3) A's citing count falls further than 90% of cases like it (same decade, similar count); (4) A slides from the core of its sub-cluster to the edge. On `goodlaw_eval.py`'s cases (appellate view), signal 1 fires at the overruling for 37 of 41 and names the overruling decision for 35, but it also fires for 11 of the 20 never-overruled cases (a newer leading case taking over: Heller→Bruen, Twombly→Iqbal). No signal fires before an overruling more often than chance. Case notes show signal 1 as a line in the case-profile box ("Role changed 2005-09: likely successor Bowles ..."); it never changes the good-law colour. Every transition of the eval: `build/cocite/shift-eval-<view>.tsv`.
 
 Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a slice is rebuilt when the bulk load or the parameters change. `cocite.summary(cluster_id)` returns what a case note will show.
@@ -264,7 +268,7 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 ## Syncing
 
 - **`./sync_vault.sh`:** mirrors `md/` into `~/Obsidian/usc-vault/08-Reference/USC`, `md-cases/` into `08-Reference/Cases` and `md-cocite/` into `08-Reference/Co-citation`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. It refuses to run when a source holds fewer than 90% of the notes already in the vault (a partial build); `FORCE=1` overrides. Options: `VAULT=/path`, `DRY=1`, `FORCE=1`. `build_all.sh` exits non-zero when any job failed, so `./build_all.sh && ./sync_vault.sh` is safe.
-- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmfakecloud and rmapi, under `/Archive/Laws/USC/Title-NN/` and `/Archive/Laws/Cases/...`. It never deletes on the tablet. `state/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
+- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmfakecloud and rmapi, under `/Archive/Laws/USC/Title-NN/`, `/Archive/Laws/Cases/...` and `/Archive/Laws/Co-citation/<slice>/` (sub-cluster explainers). It never deletes on the tablet. `state/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
 
 ## Other
 

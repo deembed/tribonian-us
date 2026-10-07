@@ -88,10 +88,10 @@ UNMAPPED = {}
 
 def tex_safe(c):
     o = ord(c)
-    if (o < 0x180 and not 0x80 <= o < 0xA0) or c in TEX_OK:
+    if (0x20 <= o < 0x180 and not 0x7F <= o < 0xA0) or c in "\t\n\r" or c in TEX_OK:
         return c
     UNMAPPED[c] = UNMAPPED.get(c, 0) + 1
-    if 0x80 <= o < 0xA0 or 0x2580 <= o <= 0x25FF:
+    if o < 0x20 or 0x7F <= o < 0xA0 or 0x2580 <= o <= 0x25FF:     # control characters (BEL in a parenthetical), specks
         return ""
     return r"\texorpdfstring{{\fboxsep0.6pt\fbox{\scriptsize ?}}}{?}"
 
@@ -113,6 +113,10 @@ def tex_chars(s):
 
 
 ODD_SPACES = {0x202F: 0xA0, 0x2009: 0xA0, 0x2007: 0xA0}
+# Typographic ligatures (pdftotext keeps them from slip opinions and filings: "Plaintiﬀs"). Folded to
+# plain letters at parse time, like the odd spaces: T1 can't set them, and search needs the letters.
+LIGATURES = {0xFB00: "ff", 0xFB01: "fi", 0xFB02: "fl", 0xFB03: "ffi", 0xFB04: "ffl", 0xFB05: "st", 0xFB06: "st"}
+FOLD = {**ODD_SPACES, **LIGATURES}
 
 
 # ---------------------------------------------------------------- parsing
@@ -124,9 +128,9 @@ def strip_ns(tree):
         # no-break space here, once, so no later path can leak one to pdflatex
         # (which has no U+202F) or into markdown headings and file names.
         if el.text:
-            el.text = unicodedata.normalize("NFC", el.text.translate(ODD_SPACES))
+            el.text = unicodedata.normalize("NFC", el.text.translate(FOLD))
         if el.tail:
-            el.tail = unicodedata.normalize("NFC", el.tail.translate(ODD_SPACES))
+            el.tail = unicodedata.normalize("NFC", el.tail.translate(FOLD))
         if isinstance(el.tag, str) and "}" in el.tag:
             el.tag = el.tag.split("}", 1)[1]
         for k in list(el.attrib):

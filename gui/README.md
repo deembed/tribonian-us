@@ -53,6 +53,10 @@ cargo run --release
 - **Find coupled cases** queues `casemap.py coupling --cluster N` through the build queue ("Running k of n").
   It writes `cases/citedby/<N>/coupling.json`; the page then shows **Coupled cases**: score, shared cited
   cases (hover a case for the list, rarest first), and when it was computed. Never run automatically.
+- **Explain (note + PDF)** on every sub-cluster page (and unsplit clusters) queues `cocite.py subdoc <slice:sub> --view <open view>`:
+  every member case with its citing counts, parentheticals and good law, plus the lineage's joins and departures. **Explain +
+  good law** adds `--goodlaw` (runs the slow check on members with none cached first). **Open PDF** / **Open note** appear
+  once the files exist (`pdf/Co-citation/<slice>/`, `md-cocite/Sub-clusters/<slice>/`; another view adds a `<view>/` folder).
 - **Why red / yellow / green** (case page, under Good law; open for red and yellow): casemap.py's rule for that colour,
   what the check read (every citing opinion from a court that could overrule the case, up to 1,500, plus the 500 newest),
   and each warning from the profile: year, court, kind, the word, "from a court above", the citing case (a link) and the

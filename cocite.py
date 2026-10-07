@@ -52,6 +52,7 @@ Commands
     ./cocite.py areas --courts appellate             # areas: sub-cluster lineages grouped once, over all slices
     ./cocite.py area-evidence --courts appellate     # build/cocite/areas-*.jsonl, for naming them
     ./cocite.py lineage 17                           # one lineage, slice by slice
+    ./cocite.py subdoc 2020-24:2.3 [--goodlaw]       # explain one sub-cluster: note + PDF (cocite_subdoc.py)
     ./cocite.py together --cite "550 U.S. 544" --cite "556 U.S. 662"
                                                      # falsification check: same cluster? pair support, lift
     ./cocite.py shift --cite "375 U.S. 384" --courts appellate
@@ -1228,14 +1229,25 @@ def case_tex(ref, esc, view=NOTE_VIEW, top=8, year=None):
 #             (Kessler's bibliographic coupling, with an inverse-document-frequency weight). Reads the
 #             cocite-cache edge arrays; run only on request (casemap.py coupling), cached as JSON.
 
-def cited_refs(con, ref):
+def cited_refs(con, ref, opinions=()):
     """Distinct cases this case's opinions cite (cluster ids), itself excluded. `con` is the main
     database with the opinion database attached as ops (case2md.local_db, casemap.open_db):
-    the case's opinion ids -> edges_out -> cited opinion ids -> their cluster ids."""
-    return [r for (r,) in con.execute(
+    the case's opinion ids -> edges_out -> cited opinion ids -> their cluster ids.
+    A case newer than the bulk data has no edges; then `opinions` (cited opinion ids, from the case's
+    API copy: case2md.json_cited) are mapped to their clusters instead."""
+    refs = [r for (r,) in con.execute(
         "SELECT DISTINCT o2.cluster_id FROM ops.opinions o1 JOIN edges e ON e.citing = o1.id "
         "JOIN ops.opinions o2 ON o2.id = e.cited WHERE o1.cluster_id = ? AND o2.cluster_id IS NOT NULL "
         "AND o2.cluster_id != ?", (ref, ref))]
+    if refs or not opinions:
+        return refs
+    ids, out = list(opinions), set()
+    for i in range(0, len(ids), 500):
+        ch = ids[i:i + 500]
+        out.update(r for (r,) in con.execute("SELECT cluster_id FROM ops.opinions WHERE id IN (%s) "
+                                             "AND cluster_id IS NOT NULL" % ",".join("?" * len(ch)), ch))
+    out.discard(ref)
+    return sorted(out)
 
 
 def full_slice_of(db, year=None):
@@ -1245,7 +1257,7 @@ def full_slice_of(db, year=None):
     return r[0] if r else None
 
 
-def draws_on(ref, con, view=NOTE_VIEW, year=None):
+def draws_on(ref, con, view=NOTE_VIEW, year=None, opinions=()):
     """Where the cases this one cites sit: each reference's home sub-cluster in the newest full slice.
     One slice only, deliberately: sub-cluster codes belong to a slice, and mixing slices would list the
     same body of law under several names. A reference that is no node of that slice (or a node outside
@@ -1255,7 +1267,7 @@ def draws_on(ref, con, view=NOTE_VIEW, year=None):
     db = open_view(view)
     if db is None:
         return None
-    refs = cited_refs(con, ref)
+    refs = cited_refs(con, ref, opinions)
     s = full_slice_of(db, year)
     if not refs or s is None:
         return None
@@ -1301,7 +1313,7 @@ def case_label(con, ref):
             (r[1] if r else None) or "", (r[2] if r else None) or "")
 
 
-def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP):
+def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP, opinions=()):
     """Cases sharing the most references with this one, rare references weighted up: for each
     reference R cited by df(R) <= max_df decisions, every other decision citing R scores
     log(N / df(R)), N = decisions citing anything. Decisions and references are cases (clusters),
@@ -1310,7 +1322,7 @@ def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP):
     if not (CACHE / "cited_sorted.npy").exists():
         sys.exit("No citation cache at %s: run ./cocite.py prep" % CACHE)
     stale = (CACHE / "stamp.txt").read_text() != source_stamp(con)
-    refs = cited_refs(con, ref)
+    refs = cited_refs(con, ref, opinions)
     # citing.npy whole (about 290 MB, one sequential read): thousands of scattered reads into a
     # memory map are far slower on the hard disk than reading it once
     ci = np.load(CACHE / "citing.npy")
@@ -1599,7 +1611,8 @@ def cmd_vault(args):
     names_file = out_dir / ".names.json"               # for case notes: lineage -> note, area -> note
     names_file.write_text(json.dumps({"db": COCITE_DB.name, "lineage": {str(k): v for k, v in names.items()},
                                       "area": {str(ar): area_note_name(db, ar) for ar, *_ in areas}}), encoding="utf-8")
-    stale = [p for p in out_dir.rglob("*.md") if p.resolve() not in written]
+    stale = [p for p in out_dir.rglob("*.md") if p.resolve() not in written      # Sub-clusters/: cocite.py subdoc's
+             and p.relative_to(out_dir).parts[0] != "Sub-clusters"]
     print("vault: %d lineage notes, %d area notes -> %s%s  (%.1f min)" % (
         len(names), len(moc), out_dir, ("; %d old notes no longer generated (sync_vault.sh drops them from the vault; "
                                         "remove them here with: rm -r %s)" % (len(stale), out_dir)) if stale else "",
@@ -2869,6 +2882,8 @@ def main():
     p.add_argument("--cohort-pct", dest="cohort_pct", type=float, default=0.10,
                    help="collapse: fires when at most this share of the cohort fell further")
     p.set_defaults(func=cmd_shift)
+    import cocite_subdoc
+    cocite_subdoc.add_parser(sub, view)
     import cocite_positions
     cocite_positions.add_parser(sub)
     cocite_positions.add_evidence_parser(sub, view)

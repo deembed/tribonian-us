@@ -34,3 +34,4 @@ nav-test/png/
 # GUI (Rust): build folder and local config
 gui/target/
 gui/gui.toml
+gitmessage
