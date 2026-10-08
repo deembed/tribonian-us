@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Mirror pdf/ onto the reMarkable (via rmfakecloud + rmapi), split like the vault:
 
-    US Code  pdf/5-usc-ch05.pdf        -> /Archive/Laws/USC/Title-05/5-usc-ch05
-    Cases    pdf/FOIA/710-f3d-422-*.pdf -> /Archive/Laws/Cases/FOIA/710-f3d-422-*
-             pdf/473-f3d-370-*.pdf      -> /Archive/Laws/Cases/473-f3d-370-*
-    Sub-clusters pdf/Co-citation/2020-24/*.pdf -> /Archive/Laws/Co-citation/2020-24/*
+    US Code  pdf/5-usc-ch05.pdf        -> /LawFormatter/Laws/USC/Title-05/5-usc-ch05
+    Cases    pdf/FOIA/710-f3d-422-*.pdf -> /LawFormatter/Laws/Cases/FOIA/710-f3d-422-*
+             pdf/473-f3d-370-*.pdf      -> /LawFormatter/Laws/Cases/473-f3d-370-*
+    Sub-clusters pdf/Co-citation/2020-24/*.pdf -> /LawFormatter/Laws/Co-citation/2020-24/*
 
 A PDF is a case if md-cases/ has a note with the same stem (case2md.py mirrors
 md-cases/<dir>/ into pdf/<dir>/); otherwise a top-level PDF whose name starts
@@ -33,7 +33,7 @@ MANIFEST = ROOT / "state" / "rm_manifest.json"     # durable, so rm -rf build/ n
 if not MANIFEST.exists() and (ROOT / "build" / "rm_manifest.json").exists():   # moved here 2026-10-04
     MANIFEST.parent.mkdir(exist_ok=True)
     (ROOT / "build" / "rm_manifest.json").rename(MANIFEST)
-REMOTE   = "/Archive/Laws"
+REMOTE   = "/LawFormatter/Laws"
 RMAPI    = os.path.expanduser("~/.local/bin/rmapi")
 RM_HOST  = "http://<rmfakecloud-host>:3000"     # rmfakecloud on the hub Pi
 RM_CONF  = os.path.expanduser("~/.config/rmapi/rmapi.conf")  # token from pairing
