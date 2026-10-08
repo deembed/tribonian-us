@@ -1074,6 +1074,8 @@ pub fn read_standing(cases_dir: &Path, r: i64) -> (Option<GoodLaw>, Option<Dorma
             })
             .unwrap_or_default(),
         n_evidence: g["n_evidence"].as_i64().unwrap_or(0),
+        quick: if g["mode"].as_str() == Some("quick") { Some(g["quick"].as_i64().unwrap_or(100)) } else { None },
+        window: g["window"].as_array().and_then(|w| Some((w.first()?.as_i64()?, w.get(1)?.as_i64()?))),
     });
     (goodlaw, dormant)
 }

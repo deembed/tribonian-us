@@ -42,7 +42,7 @@ cargo run --release
   or read live from the parentheticals), and the note's front matter. Good law says "not calculated" until a
   build computes it (it reads up to ~2,000 citing opinions, so it is slow). `opinions_db` in gui.toml
   (default repo_dir/db/opinions.sqlite) maps a case to its opinions for the live parentheticals.
-- Two buttons on the case page: **Quick build** (`case2md.py build --no-goodlaw`: note, PDF and profile without
+- Two buttons on the case page: **Quick build** (`case2md.py build --quick-goodlaw`: note, PDF and profile with the quick good-law check, the newest 100 citing opinions, instead of
   the slow good-law check, keeping an earlier result) and **Build** (everything).
 - Builds queue: the status line at the bottom shows "Building k of n" and what is queued, then "Done" (with any
   failures). A build added after "Done" starts a new run with fresh counts. "Output" opens the log.
@@ -55,7 +55,7 @@ cargo run --release
   cases (hover a case for the list, rarest first), and when it was computed. Never run automatically.
 - **Explain (note + PDF)** on every sub-cluster page (and unsplit clusters) queues `cocite.py subdoc <slice:sub> --view <open view>`:
   every member case with its citing counts, parentheticals and good law, plus the lineage's joins and departures. **Explain +
-  good law** adds `--goodlaw` (runs the slow check on members with none cached first). **Open PDF** / **Open note** appear
+  good law** adds `--goodlaw` (the quick check on members with none cached first; `--goodlaw full` from a terminal for the slow one). **Open PDF** / **Open note** appear
   once the files exist (`pdf/Co-citation/<slice>/`, `md-cocite/Sub-clusters/<slice>/`; another view adds a `<view>/` folder).
 - **Why red / yellow / green** (case page, under Good law; open for red and yellow): casemap.py's rule for that colour,
   what the check read (every citing opinion from a court that could overrule the case, up to 1,500, plus the 500 newest),

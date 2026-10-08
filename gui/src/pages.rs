@@ -689,9 +689,7 @@ fn goodlaw_cell(ui: &mut Ui, g: &Option<GoodLaw>, d: &Option<Dormancy>) {
     ui.horizontal(|ui| {
         match (g, dormant) {
             (Some(g), _) if g.status == "red" || g.status == "yellow" => {
-                let year = if g.status == "red" { g.red_year } else { g.yellow_year };
-                let text = year.map(|y| format!("{} {y}", g.status)).unwrap_or_else(|| g.status.clone());
-                ui.colored_label(gl_color(&g.status), text).on_hover_text(evidence_hover(g));
+                ui.colored_label(gl_color(&g.status), g.short()).on_hover_text(evidence_hover(g));
                 if let Some(d) = dormant {
                     ui.label(RichText::new("dormant").small().color(GREY)).on_hover_text(d.hover());
                 }
@@ -856,15 +854,16 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         let quick = ui
             .add_enabled(!queued, egui::Button::new("Quick build"))
             .on_hover_text(format!(
-                "note, PDF and case profile, without the good-law check (fast). Queues ./casemap.py get --cluster {0} \
-                 (only if the case has no file yet), then ./case2md.py build --no-goodlaw. An earlier good-law result is kept.",
+                "note, PDF and case profile, with the quick good-law check: only the newest 100 citing opinions, so the status \
+                 now but not the year it changed. Queues ./casemap.py get --cluster {0} (only if the case has no file yet), \
+                 then ./case2md.py build --quick-goodlaw. A current full result is kept.",
                 c.r#ref
             ));
         let full = ui
             .add_enabled(!queued, egui::Button::new("Build"))
             .on_hover_text(
-                "everything, including the good-law check, which reads up to ~2,000 citing opinions and takes a long time. \
-                 Queues the same commands without --no-goodlaw.",
+                "everything, including the full good-law check, which reads up to ~2,000 citing opinions and takes a long time \
+                 but finds the year it changed. Queues the same commands without --quick-goodlaw.",
             );
         if quick.clicked() {
             app.enqueue_build(c.r#ref, title.clone(), true);
@@ -897,6 +896,10 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         let shown = c.goodlaw.as_ref().filter(|g| g.status == "red" || g.status == "yellow" || dormant.is_none());
         if let Some(g) = shown {
             ui.colored_label(gl_color(&g.status), RichText::new(&g.status).strong());
+            if let Some(n) = g.quick {
+                ui.label(RichText::new("quick check").small())
+                    .on_hover_text(format!("Read only the newest {n} citing opinions: the status now, not the year it changed. Build runs the full check."));
+            }
             if let Some(y) = g.red_year {
                 ui.label(format!("red since {y}"));
             } else if let Some(y) = g.yellow_year {
@@ -920,7 +923,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             None => {
                 ui.weak(if dormant.is_some() { "good-law check not calculated" } else { "not calculated" }).on_hover_text(
                     "The check reads every citing opinion from a court that could overrule the case, plus the 500 newest \
-                     (up to about 2,000), so it takes a long time. Build calculates it and caches it; Quick build skips it.",
+                     (up to about 2,000), so it takes a long time. Build calculates it and caches it; Quick build runs the quick check (the newest 100 citing opinions).",
                 );
             }
         }
@@ -1061,7 +1064,18 @@ fn why_section(app: &mut App, ui: &mut Ui, c: &CaseData, g: &GoodLaw) {
         .default_open(g.status != "green")
         .show(ui, |ui| {
             wrapped_weak(ui, rule_sentence(&g.status).to_string());
-            if let (Some(r), Some(o)) = (g.read, g.of) {
+            if let (Some(n), Some(r), Some(o)) = (g.quick, g.read, g.of) {
+                let when = g.window.map(|(a, b)| if a == b { format!(", filed {a}") } else { format!(", filed {a}–{b}") }).unwrap_or_default();
+                ui.add(
+                    egui::Label::new(format!(
+                        "Quick check: read only the newest {} of {} citing opinions (at most {n}{when}). This is the status now; \
+                         an older change falls outside what was read, so there is no year. Build runs the full check.",
+                        thousands(r),
+                        thousands(o)
+                    ))
+                    .wrap(),
+                );
+            } else if let (Some(r), Some(o)) = (g.read, g.of) {
                 let level = if g.level.is_empty() { String::new() } else { format!(" (case level: {})", g.level) };
                 ui.add(
                     egui::Label::new(format!(

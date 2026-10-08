@@ -10,14 +10,15 @@ the cached case profiles. No language model runs here; the label and description
 once from script-built evidence (cocite_labels.json) and are marked as such.
 
     ./cocite.py subdoc 2020-24:2.3                  # md-cocite/Sub-clusters/2020-24/<...>.md + pdf/Co-citation/2020-24/<...>.pdf
-    ./cocite.py subdoc 2020-24:2.3 --goodlaw        # first run the good-law check on members never checked (slow)
+    ./cocite.py subdoc 2020-24:2.3 --goodlaw        # first the quick good-law check (newest 100 citers) on members never checked
+    ./cocite.py subdoc 2020-24:2.3 --goodlaw full   # the full check instead (slow; gives the year it changed)
     ./cocite.py subdoc 2020-24:2.3 --json           # the data on stdout; writes nothing
     ./cocite.py subdoc 2020-24:2.3 --no-pdf         # the note and the .tex only
     ./cocite.py subdoc 2020:7                       # an unsplit cluster is its own sub-cluster
     ./cocite.py subdoc 2020-24:2.3 --view appellate # another view (default: the case-note view)
 
-Good law per case: the cached result (cases/citedby/<ref>/profile.json, from a full build or
---goodlaw), else "not calculated". Grey "dormant": never cited, or no citing decision in the last
+Good law per case: the cached result (cases/citedby/<ref>/profile.json, from a build or --goodlaw;
+"(quick)" when only the newest 100 citing opinions were read), else "not calculated". Grey "dormant": never cited, or no citing decision in the last
 5 full years before the bulk data's date; from the profile's citations per year, else
 CourtListener's citing count when it is 0, else a live look-up for cases cited at most 300 times.
 """
@@ -40,8 +41,10 @@ def add_parser(sub, view):
     p.add_argument("which", help="slice:sub-cluster, e.g. 2020-24:2.3 (or 2020:7 for an unsplit cluster)")
     p.add_argument("--view", help="results file stem after cocite-, e.g. appellate-sentence-m0.2 (default, the "
                                   "case-note view), appellate, or all; overrides --courts/--weight/--mix")
-    p.add_argument("--goodlaw", action="store_true", help="run the good-law check on members with no cached "
-                                                          "result first (reads their citing opinions: slow)")
+    p.add_argument("--goodlaw", nargs="?", const="quick", choices=["quick", "full"],
+                   help="first run the good-law check on members with no current result: quick (the default: the "
+                   "newest 100 citing opinions, status now) or full (every one from a court that could overrule it: "
+                   "slow, gives the year it changed)")
     p.add_argument("--json", action="store_true", help="print the data as JSON; write nothing")
     p.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     p.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
@@ -237,15 +240,97 @@ def lineage_data(db, s, j, lin, members, names):
     return out
 
 
-def ensure_goodlaw(refs, names):
-    """The good-law check (casemap.goodlaw via case2md.profile_data) for members with no current result."""
+def split_by_sub(db, s, refs, view):
+    """How each case's co-citations in slice s divide among the slice's sub-clusters: ref -> Counter(sub ->
+    weight), weight = decisions citing both, summed over the partners in that sub-cluster (sub -1: nodes in
+    no sub-cluster). Read from cocite-cache/ (decision -> cited case) with the slice's own filters: the
+    view's courts, decisions filed in the slice, decisions citing more than max_cites of its nodes left
+    out, pairs under min_support dropped. Binary counts: a sentence view's proximity weights aren't in
+    the cache. -> (splits, None) or (None, why not)."""
+    import numpy as np
+    cache = C.CACHE
+    if not (cache / "by_cited.npy").exists() or not (cache / "level.npy").exists():
+        return None, "no co-citation cache (./cocite.py prep)"
+    stamp = C.view_stamp(db)
+    if stamp and (cache / "stamp.txt").read_text() != stamp:
+        return None, "the co-citation cache is newer than this view (rebuild the view)"
+    r = db.execute("SELECT params FROM slices WHERE slice=?", (s,)).fetchone()
+    params = json.loads(r[0]) if r and r[0] else {}
+    max_cites, min_support = params.get("max_cites", 150), params.get("min_support", 5)
+    codes, _ = C.parse_courts(view)
+    # Read whole, not memory-mapped: the lookups below jump all over these arrays (binary searches, every
+    # citing decision's row), and on the HDD each jump is a seek. Sequential reads of ~1 GB beat that by far.
+    t0 = time.time()
+    print("  loading the co-citation cache (%s, about 1 GB)..." % cache, file=sys.stderr, flush=True)
+    ci = np.load(cache / "citing.npy")
+    cd = np.load(cache / "cited.npy")
+    y = np.load(cache / "year.npy")
+    lvl = np.load(cache / "level.npy")
+    order = np.load(cache / "by_cited.npy", mmap_mode="r")      # read in contiguous slices only
+    cds = np.load(cache / "cited_sorted.npy")
+    print("  loaded in %.0f s; splitting each case's co-citations by sub-cluster" % (time.time() - t0),
+          file=sys.stderr, flush=True)
+    node_sub = {ref: (sub if sub and sub > 0 else -1) for ref, sub in db.execute("SELECT ref, sub FROM nodes WHERE slice=?", (s,))}
+    cited_nodes = {}                          # decision -> the slice's nodes it cites (None: over max_cites)
+    out = {}
+    for k, ref in enumerate(refs, 1):
+        if k % 50 == 0:
+            print("  split %d of %d cases" % (k, len(refs)), file=sys.stderr, flush=True)
+        lo, hi = int(np.searchsorted(cds, ref)), int(np.searchsorted(cds, ref, side="right"))
+        rows = np.asarray(order[lo:hi]).astype(np.int64)
+        if not len(rows):
+            out[ref] = {}
+            continue
+        D, Y = np.asarray(ci[rows]).astype(np.int64), np.asarray(y[rows])
+        keep = (Y >= s) & (Y < s + C.WIDTH)
+        if codes:
+            keep &= np.isin(np.asarray(lvl[D]), codes)
+        per = defaultdict(int)
+        for d in np.unique(D[keep]).tolist():
+            lst = cited_nodes.get(d, 0)
+            if lst == 0:
+                a, b = int(np.searchsorted(ci, d)), int(np.searchsorted(ci, d, side="right"))
+                lst = [x for x in np.asarray(cd[a:b]).tolist() if x in node_sub]
+                lst = None if len(lst) > max_cites else lst
+                cited_nodes[d] = lst
+            for x in lst or ():
+                if x != ref:
+                    per[x] += 1
+        split = defaultdict(int)
+        for x, n in per.items():
+            if n >= min_support:
+                split[node_sub[x]] += n
+        out[ref] = dict(split)
+    return out, None
+
+
+def fit_of(split, here, db, s, cache):
+    """-> {'share': this sub-cluster's part of the case's co-citations, 'best': True when no other
+    sub-cluster holds more, 'top': [(unit, share)] best three, 'total'}."""
+    total = sum(split.values())
+    if not total:
+        return {"share": None, "best": True, "top": [], "total": 0}
+    ranked = sorted(((k, v) for k, v in split.items() if k > 0), key=lambda kv: -kv[1])
+    top = [{"unit": unit_ref(db, s, k, cache), "share": v / total, "here": k == here} for k, v in ranked[:3]]
+    share = split.get(here, 0) / total
+    return {"share": share, "best": bool(ranked) and ranked[0][0] == here, "top": top, "total": total,
+            "none": split.get(-1, 0) / total}
+
+
+def ensure_goodlaw(refs, names, mode="quick"):
+    """The good-law check (casemap.goodlaw via case2md.profile_data) for members with no current result.
+    quick: any current result will do; full: a quick result is redone."""
     import casemap
-    todo = [r for r in refs if ((read_profile(r) or {}).get("goodlaw") or {}).get("version") != casemap.GOODLAW_VERSION]
-    print("good law: %d of %d members need the check" % (len(todo), len(refs)), file=sys.stderr)
+
+    def current(r):
+        g = (read_profile(r) or {}).get("goodlaw") or {}
+        return g.get("version") == casemap.GOODLAW_VERSION and (mode == "quick" or g.get("mode") != "quick")
+    todo = [r for r in refs if not current(r)]
+    print("good law (%s): %d of %d members need the check" % (mode, len(todo), len(refs)), file=sys.stderr)
     for i, r in enumerate(todo, 1):
         t0 = time.time()
         print("  good law %d/%d: %s" % (i, len(todo), names.get(r, r)), file=sys.stderr, flush=True)
-        case2md.profile_data(r, scan=True)
+        case2md.profile_data(r, scan=mode == "full", quick=casemap.GOODLAW_QUICK if mode == "quick" else None)
         print("    %.0f s" % (time.time() - t0), file=sys.stderr, flush=True)
 
 
@@ -253,13 +338,14 @@ def gather(db, view, s, j, goodlaw=False):
     con = case2md.local_db()
     size, anchor, internal, lin = db.execute("SELECT size, anchor, internal, lineage FROM subs WHERE slice=? AND sub=?",
                                              (s, j)).fetchone()
-    rows = db.execute("SELECT ref, n, subw, cl FROM nodes WHERE slice=? AND sub=? ORDER BY subw DESC, n DESC", (s, j)).fetchall()
+    rows = db.execute("SELECT ref, n, subw, cl, weight FROM nodes WHERE slice=? AND sub=? ORDER BY subw DESC, n DESC",
+                      (s, j)).fetchall()
     members = [r[0] for r in rows]
     info = main_info(con, members)
     short = {r: C.short(db, r) for r in members}
     full = {r: (info.get(r) or {}).get("name") or short[r] for r in members}
     if goodlaw:
-        ensure_goodlaw(members, full)
+        ensure_goodlaw(members, full, goodlaw)
     lab = C.label_of(db, lin)
     try:
         st = db.execute("SELECT status FROM label_status WHERE lineage=?", (lin,)).fetchone()
@@ -277,8 +363,9 @@ def gather(db, view, s, j, goodlaw=False):
     vlin, varea = C.vault_links(db)
     memberset = set(members)
     ucache = {}
+    splits, why_no_split = split_by_sub(db, s, members, view)
     cases = []
-    for rank, (ref, n, subw, home_cl) in enumerate(rows, 1):
+    for rank, (ref, n, subw, home_cl, wtot) in enumerate(rows, 1):
         if rank % 100 == 0:
             print("  read %d of %d cases" % (rank, len(rows)), file=sys.stderr, flush=True)
         prof = read_profile(ref)
@@ -310,13 +397,20 @@ def gather(db, view, s, j, goodlaw=False):
             "n_slice": n, "weight": subw, "total": total, "total_source": "profile" if years else ("courtlistener" if total is not None else None),
             "recent": recent, "goodlaw": None if not gl else {
                 "status": gl.get("status"), "yellow_year": gl.get("yellow_year"), "red_year": gl.get("red_year"),
-                "read": gl.get("read"), "of": gl.get("of"), "n_evidence": gl.get("n_evidence", len(gl.get("evidence") or [])),
+                "read": gl.get("read"), "of": gl.get("of"), "mode": gl.get("mode") or "full", "window": gl.get("window"),
+                "n_evidence": gl.get("n_evidence", len(gl.get("evidence") or [])),
                 "evidence": (gl.get("evidence") or [])[:EVIDENCE_SHOWN] if gl.get("status") in ("red", "yellow") else []},
             "dormant": dormancy(prof, i, con, ref, end),
             "successor": (prof or {}).get("successor"),
             "also": also, "partners": partners, "parens": parens,
             "note": ent.get("slug"), "built": bool(ent.get("full")),
+            "fit": fit_of(splits[ref], j, db, s, ucache) if splits is not None else
+                   {"share": (subw or 0) / wtot if wtot else None, "best": True, "top": [], "total": None, "view_weight": True},
         })
+    # order: best fit here first, then the rest; each by this sub-cluster's share of the case's co-citations
+    cases.sort(key=lambda c: (not c["fit"]["best"], -(c["fit"]["share"] or 0), -c["weight"]))
+    for i, c in enumerate(cases, 1):
+        c["rank"] = i
     return {
         "schema": "1", "view": view, "slice": s, "slice_label": C.label(s), "partial": s + C.WIDTH - 1 >= cutoff,
         "sub": j, "code": "%s:%s" % (C.label(s), C.sub_label(j)), "split": j % 1000 != 0,
@@ -331,6 +425,7 @@ def gather(db, view, s, j, goodlaw=False):
         "area": {"id": area, "name": C.area_name(db, area), "note": varea.get(area)} if area else None,
         "data_date": stamp, "recent_window": [end - case2md.RECENT + 1, end],
         "lineage": lineage_data(db, s, j, lin, members, short),
+        "fit_source": "cache" if splits is not None else why_no_split,
         "cases": cases,
         "generated": time.strftime("%Y-%m-%d"),
     }
@@ -347,7 +442,7 @@ def gl_word(c):
     parts = []
     if g and g.get("status"):
         y = g.get("red_year") if g["status"] == "red" else g.get("yellow_year") if g["status"] == "yellow" else None
-        parts.append(g["status"] + (" %s" % y if y else ""))
+        parts.append(g["status"] + ("?" if g.get("mode") == "quick" else "") + (" %s" % y if y else ""))
     else:
         parts.append("not calculated")
     if d and d["dormant"]:
@@ -360,7 +455,7 @@ def gl_short(c):
     g, d = c["goodlaw"], c["dormant"]
     if g and g.get("status"):
         y = g.get("red_year") if g["status"] == "red" else g.get("yellow_year") if g["status"] == "yellow" else None
-        w = g["status"] + (" %s" % y if y else "")
+        w = g["status"] + ("?" if g.get("mode") == "quick" else "") + (" %s" % y if y else "")
     else:
         w = "not calc."
     return w + (" · dormant" if d and d["dormant"] else "")
@@ -382,6 +477,51 @@ def cited_line(c, d):
         t += " · %d–%d: %s" % (d["recent_window"][0], d["recent_window"][1], fmt(c["recent"]))
     t += " · weight in the sub-cluster %s" % fmt(round(c["weight"] or 0))
     return t
+
+
+def pct(x):
+    return "–" if x is None else "%.0f%%" % (100 * x)
+
+
+def fit_line(c, d):
+    f = c["fit"]
+    if f.get("view_weight"):
+        return "Fit: %s of its pair weight in %s is with this sub-cluster's members (best fit elsewhere unknown: %s)" % (
+            pct(f["share"]), d["slice_label"], d["fit_source"])
+    if f["share"] is None:
+        return "Fit: no co-citations in %s that pass the slice's filters" % d["slice_label"]
+    t = "Fit: %s of its co-citations in %s are with this sub-cluster's members" % (pct(f["share"]), d["slice_label"])
+    if f["best"]:
+        t += "; this is its best-fitting sub-cluster"
+        if len(f["top"]) > 1:
+            t += " (next: %s %s, %s)" % (f["top"][1]["unit"]["code"], f["top"][1]["unit"]["name"], pct(f["top"][1]["share"]))
+    elif f["top"]:
+        b = f["top"][0]
+        t += "; fits best in %s %s (%s)" % (b["unit"]["code"], b["unit"]["name"], pct(b["share"]))
+    return t
+
+
+def case_groups(d):
+    return [("Best fit here", [c for c in d["cases"] if c["fit"]["best"]]),
+            ("Fit better in another sub-cluster", [c for c in d["cases"] if not c["fit"]["best"]])]
+
+
+def cases_note(d):
+    t = ("Ordered by fit: the share of each case's co-citations in %s that are with this sub-cluster's members "
+         "(decisions citing both, from the co-citation cache; binary counts, so a sentence view's own weights can "
+         "differ a little). Cases whose best-fitting sub-cluster is this one come first. " % d["slice_label"])
+    if d.get("fit_source") != "cache":
+        t = ("Ordered by the share of each case's pair weight inside this sub-cluster; the best fit elsewhere is unknown (%s). "
+             % d.get("fit_source"))
+    return t + ("In slice: decisions in %s citing it%s. In all: every citing case in the bulk data (cached profile) or "
+                "CourtListener's count. Good law: red, yellow or green from the cached check; ? = quick check (the newest "
+                "100 citing opinions: status now, no year); dormant = no citing decision %d or later." % (
+                    d["slice_label"], " (appellate courts)" if "appellate" in d["view"] else "", d["recent_window"][0]))
+
+
+def best_elsewhere(c):
+    f = c["fit"]
+    return None if f["best"] or not f["top"] else f["top"][0]
 
 
 def court_year(c):
@@ -452,14 +592,19 @@ def render_md(d):
         d["view"], d["data_date"] or "?", *d["recent_window"]))
     L += where + [""]
 
-    L += ["## Cases", "", "*Most central first (weight: the case's pair weights with the other members). \"In slice\": "
-          "decisions in %s citing it; \"In all\": every citing case in the bulk data (cached profile) or CourtListener's count.*" % d["slice_label"], "",
-          "| # | Case | Cite | Court, year | In slice | In all | Good law |", "|---|---|---|---|---|---|---|"]
-    for c in d["cases"]:
-        nm = "[[%s\\|%s]]" % (c["note"], e(c["name"][:80])) if c["note"] else e(c["name"][:80])
-        L.append("| %d | %s | %s | %s | %s | %s | %s |" % (c["rank"], nm, e(c["cite"]), e(court_year(c)), fmt(c["n_slice"]),
-                                                          fmt(c["total"]), gl_word(c)))
-    L.append("")
+    L += ["## Cases", "", "*%s*" % e(cases_note(d)), ""]
+    for head, group in case_groups(d):
+        if not group:
+            continue
+        L += ["### %s (%d)" % (head, len(group)), "", "| # | Case | Cite | Court, year | In slice | In all | Fit here | Best fit | Good law |",
+              "|---|---|---|---|---|---|---|---|---|"]
+        for c in group:
+            nm = "[[%s\\|%s]]" % (c["note"], e(c["name"][:80])) if c["note"] else e(c["name"][:80])
+            b = best_elsewhere(c)
+            L.append("| %d | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                c["rank"], nm, e(c["cite"]), e(court_year(c)), fmt(c["n_slice"]), fmt(c["total"]), pct(c["fit"]["share"]),
+                "%s %s (%s)" % (b["unit"]["code"], e(b["unit"]["name"]), pct(b["share"])) if b else "here", gl_word(c)))
+        L.append("")
 
     ld = d["lineage"]
     if ld:
@@ -488,12 +633,16 @@ def render_md(d):
                 L.append("")
 
     L += ["## Case details", ""]
+    prev = None
     for c in d["cases"]:
+        if c["fit"]["best"] != prev and any(not x["fit"]["best"] for x in d["cases"]):
+            prev = c["fit"]["best"]
+            L += ["**%s**" % ("Best fit here" if prev else "Fit better in another sub-cluster"), ""]
         L += ["### %d. %s" % (c["rank"], e(c["name"])), ""]
         head = ", ".join(x for x in (e(c["cite"]), e(court_year(c))) if x)
         link = "[[%s]]" % c["note"] if c["note"] else "[CourtListener](%s/opinion/%d/x/)" % (case2md.CL, c["ref"])
         L.append("%s · %s%s" % (head, link, " · %s" % e(c["precedential"]) if c["precedential"] and c["precedential"] != "Published" else ""))
-        L += ["", "- %s" % cited_line(c, d), "- **Good law:** %s%s" % (gl_word(c), gl_detail(c))]
+        L += ["", "- %s" % cited_line(c, d), "- %s" % e(fit_line(c, d)), "- **Good law:** %s%s" % (gl_word(c), gl_detail(c))]
         for ev in (c["goodlaw"] or {}).get("evidence") or []:
             L.append("  - %s (%s): %s “%s”%s — %s · %s" % (ev.get("year"), e(ev.get("court", "")), ev.get("kind"), e(ev.get("word", "")),
                                                         " · could overrule" if ev.get("above") else "", e(ev.get("name", "")[:60]),
@@ -519,8 +668,12 @@ def render_md(d):
 
 def gl_detail(c, tex=False):
     g = c["goodlaw"]
+    e = (lambda x: case2md.esc(x, "tex")) if tex else (lambda x: x)
+    if g and g.get("mode") == "quick":
+        return e(" (read the newest %s of %s citing opinions, %s: status now, not the year it changed)" % (
+            fmt(g["read"]), fmt(g["of"]), case2md.quick_window(g)))
     if g and g.get("read") is not None:
-        return " (read %s of %s citing opinions)" % (fmt(g["read"]), fmt(g["of"]))
+        return e(" (read %s of %s citing opinions)" % (fmt(g["read"]), fmt(g["of"])))
     if not g:
         return " (Build, or subdoc %s, runs the check)" % ("\\texttt{-{}-goodlaw}" if tex else "`--goodlaw`")
     return ""
@@ -542,9 +695,8 @@ def render_tex(d, font):
     pre = pre.replace("\\begin{document}", case2md.TOC_DEFS + "\\begin{document}", 1)
     B = []
 
-    def sq(c):
-        col = gl_colour(c)
-        return "{\\color{%s}\\rule{0.7em}{0.7em}}\\ " % TEX_COL[col] if col else ""
+    def sq(c):                       # no colour squares: the words carry it
+        return ""
 
     # about
     lab = d["label"]
@@ -566,29 +718,34 @@ def render_tex(d, font):
     if d["area"]:
         about.append("\\textbf{Area:} %s.\\par" % t(d["area"]["name"]))
     about.append("\\textbf{Anchor case:} %s.\\par" % t(d["anchor_name"]))
-    about.append("{\\scriptsize Good law: {\\color{%s}\\rule{0.6em}{0.6em}} red, {\\color{%s}\\rule{0.6em}{0.6em}} yellow, "
-                 "{\\color{%s}\\rule{0.6em}{0.6em}} green from the cached check; {\\color{%s}\\rule{0.6em}{0.6em}} grey = dormant "
-                 "(no citing decision %d or later); no square = not calculated (Build, or subdoc \\texttt{--goodlaw}).\\par}" % (
-                     TEX_COL["red"], TEX_COL["yellow"], TEX_COL["green"], TEX_COL["grey"], d["recent_window"][0]))
+    about.append("{\\scriptsize Good law: red, yellow or green from the cached check; ? = quick check (the newest 100 citing "
+                 "opinions: status now, no year); dormant = no citing decision %d or later; not calc. = never checked "
+                 "(Build, or subdoc \\texttt{-{}-goodlaw}).\\par}" % d["recent_window"][0])
     B.append("\\pdfbookmark[1]{About}{about}\\recordpath{About}\n"
              "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=violet!40!black, boxrule=0.4pt, arc=1.5pt,\n"
              "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n" % (
                  ABOUT_COLOR, "\n".join(about)))
 
     # summary table = the contents
-    rows = []
-    for c in d["cases"]:
-        rows.append("%d & \\hyperlink{c%d}{%s} & %s & %s & %s & %s%s \\\\" % (
-            c["rank"], c["ref"], t(C.trim(c["name"], 70)), t(court_year(c)), fmt(c["n_slice"]), fmt(c["total"]),
-            sq(c), t(gl_short(c))))
     B.append("\\hypertarget{contents}{}\\pdfbookmark[1]{Cases}{contents}\\recordpath{Cases}\n"
-             "{\\large\\bfseries Cases}\\par{\\scriptsize Most central first. In slice: decisions in %s citing it%s. "
-             "In all: every citing case in the bulk data (cached profile) or CourtListener's count. Tap a name for its "
-             "details; the \\ensuremath{\\uparrow} in the margin there comes back here.\\par}\\vspace{2pt}\n"
-             "{\\footnotesize\\setlength{\\tabcolsep}{3pt}\n"
-             "\\begin{longtable}{@{}r p{205pt} p{70pt} r r p{70pt}@{}}\n"
-             "\\# & Case & Court, year & In slice & In all & Good law \\\\ \\hline\\endhead\n%s\n"
-             "\\end{longtable}}\n" % (d["slice_label"], " (appellate courts)" if "appellate" in d["view"] else "", "\n".join(rows)))
+             "{\\large\\bfseries Cases}\\par{\\scriptsize %s Tap a name for its details; the \\ensuremath{\\uparrow} "
+             "in the margin there comes back here.\\par}\\vspace{2pt}\n" % t(cases_note(d)))
+    for gi, (head, group) in enumerate(case_groups(d)):
+        if not group:
+            continue
+        rows = []
+        for c in group:
+            b = best_elsewhere(c)
+            name = "\\hyperlink{c%d}{%s}" % (c["ref"], t(C.trim(c["name"], 70)))
+            if b:
+                name += "\\newline{\\scriptsize\\itshape best: %s %s (%s)}" % (b["unit"]["code"], t(C.trim(b["unit"]["name"], 60)), t(pct(b["share"])))
+            rows.append("%d & %s & %s & %s & %s & %s & %s \\\\" % (
+                c["rank"], name, t(court_year(c)), fmt(c["n_slice"]), fmt(c["total"]), t(pct(c["fit"]["share"])), t(gl_short(c))))
+        B.append("\\pdfbookmark[2]{%s}{grp%d}\\vspace{3pt}{\\bfseries %s (%d)}\\par\n"
+                 "{\\footnotesize\\setlength{\\tabcolsep}{3pt}\n"
+                 "\\begin{longtable}{@{}r p{200pt} p{66pt} r r r p{58pt}@{}}\n"
+                 "\\# & Case & Court, year & In slice & In all & Fit & Good law \\\\ \\hline\\endhead\n%s\n"
+                 "\\end{longtable}}\n" % (t(head), gi, t(head), len(group), "\n".join(rows)))
 
     # lineage
     ld = d["lineage"]
@@ -618,18 +775,24 @@ def render_tex(d, font):
 
     # case details
     B.append("\\clearpage\\pdfbookmark[1]{Case details}{details}\\recordpath{Case details}{\\large\\bfseries Case details}\\par\\vspace{3pt}\n")
+    prev = None
     for c in d["cases"]:
+        if c["fit"]["best"] != prev and any(not x["fit"]["best"] for x in d["cases"]):
+            prev = c["fit"]["best"]
+            head = "Best fit here" if prev else "Fit better in another sub-cluster"
+            B.append("\\pdfbookmark[1]{%s}{det%d}\\vspace{6pt}{\\bfseries %s}\\par\n" % (head, int(prev), head))
         x = ["\\hypertarget{c%d}{}\\pdfbookmark[2]{%d. %s}{d%d}\\recordpath{%d. %s}\\tocback%s\\textbf{%d. %s}\\par" % (
             c["ref"], c["rank"], t(C.trim(c["short"], 60)), c["ref"], c["rank"], t(C.trim(c["short"], 60)), sq(c), c["rank"], t(c["name"])),
             "{\\footnotesize %s%s%s\\par}" % (t(", ".join(y for y in (c["cite"], court_year(c)) if y)),
                                              " \\textbullet\\ note built" if c["built"] else "",
                                              " \\textbullet\\ %s" % t(c["precedential"]) if c["precedential"] and c["precedential"] != "Published" else ""),
             "{\\footnotesize %s\\par}" % t(cited_line(c, d)),
+            "{\\footnotesize %s\\par}" % t(fit_line(c, d)),
             "{\\footnotesize\\textbf{Good law:} %s%s\\par}" % (t(gl_word(c)), gl_detail(c, tex=True))]
         for ev in (c["goodlaw"] or {}).get("evidence") or []:
             x.append("{\\scriptsize\\hangindent=1em %s (%s): %s ``%s''%s --- \\emph{%s}: %s\\par}" % (
                 t(ev.get("year", "")), t(ev.get("court", "")), t(ev.get("kind", "")), t(ev.get("word", "")),
-                ", could overrule" if ev.get("above") else "", t(ev.get("name", "")[:60]), t(C.trim(ev.get("snippet", ""), 300))))
+                ", could overrule" if ev.get("above") else "", t(ev.get("name", "")[:60]), t(C.trim(ev.get("snippet", ""), 300).replace("⟦", "[").replace("⟧", "]"))))
         if successor_text(c):
             x.append("{\\footnotesize %s. {\\scriptsize(co-citation, not the text)}\\par}" % t(successor_text(c)))
         if c["also"]:

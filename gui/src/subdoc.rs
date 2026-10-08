@@ -84,9 +84,8 @@ pub fn bar(app: &mut App, ui: &mut Ui, slice: i64, sub: i64) {
         let b = ui
             .add_enabled(!queued, egui::Button::new("Explain + good law"))
             .on_hover_text(
-                "The same, after running the good-law check on every member that has none cached \
-                 (reads each one's citing opinions: minutes per case, hours for a large sub-cluster the first time; \
-                 cached after).",
+                "The same, after the quick good-law check (the newest 100 citing opinions each) on every member with no \
+                 result cached; cached after. For the full check with years: cocite.py subdoc ... --goodlaw full.",
             )
             .on_disabled_hover_text("in the build queue");
         if b.clicked() {

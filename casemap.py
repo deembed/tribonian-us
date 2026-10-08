@@ -263,6 +263,9 @@ def cmd_stubs(args):
 # once (the same-name rule came from it), so it is a soft check, not a clean holdout. Rerun it after
 # changing anything here.
 GOODLAW_RECENT, GOODLAW_MAX = 500, 1500
+GOODLAW_QUICK = 100           # quick check: only the newest N citing opinions, any court. On goodlaw_eval.py's
+                              # 60 cases (2026-10-07): 34 of 40 overruled red, 4 yellow, 2 green (the full check:
+                              # 37/2/1), 19 of 20 never overruled green (full: 14). Gives status now, not the year.
 GOODLAW_VERSION = 5            # bump when the rules change: cached results are redone
 RANK = {"supreme": 3, "circuit": 2, "district": 1, "other": 0}
 V_PASSIVE = r"overruled|abrogated|superseded|rev'd|reversed|vacated|disapproved"
@@ -476,9 +479,10 @@ def goodlaw_subject(con, cid):
     return me, my_level, cites, names, name_rx, overrules
 
 
-def goodlaw_case(con, cid, strat=0, show=None):
+def goodlaw_case(con, cid, strat=0, show=None, quick=None):
     """Read this case's citing opinions -> the case dict evaluate() takes. strat > 0 adds that many
-    older opinions per decade (goodlaw_eval.py uses it to try reading more)."""
+    older opinions per decade (goodlaw_eval.py uses it to try reading more). quick=N reads only the
+    N newest, from any court."""
     me, my_level, cites, names, name_rx, overrules = goodlaw_subject(con, cid)
     rows = citing_rows(con, cid)
 
@@ -486,9 +490,9 @@ def goodlaw_case(con, cid, strat=0, show=None):
         return overrules(r[3], r[4])
     newest = sorted(rows, key=lambda r: r[2] or "", reverse=True)
     pick = {}
-    for r in [x for x in newest if can_overrule(x)][:GOODLAW_MAX]:
+    for r in ([] if quick else [x for x in newest if can_overrule(x)][:GOODLAW_MAX]):
         pick.setdefault(r[0], [r, set()])[1].add("above")
-    for r in newest[:GOODLAW_RECENT]:
+    for r in newest[:quick or GOODLAW_RECENT]:
         pick.setdefault(r[0], [r, set()])[1].add("newest")
     if strat:
         by_decade = {}
@@ -516,9 +520,11 @@ def goodlaw_case(con, cid, strat=0, show=None):
     return {"cluster": cid, "name": me[3] if me else "", "names": names, "level": my_level, "of": len(rows), "ops": ops}
 
 
-def goodlaw(con, cid, show=None):
-    """-> {"status": green|yellow|red, "yellow_year", "red_year", "read", "of", "evidence": [...]}"""
-    case = goodlaw_case(con, cid, show=show)
+def goodlaw(con, cid, show=None, quick=None):
+    """-> {"status": green|yellow|red, "yellow_year", "red_year", "read", "of", "evidence": [...]}.
+    quick=N: the newest N citing opinions only -> also "mode": "quick", "quick": N, "window": [first, last
+    year read], and no yellow/red year (an older change falls outside what was read)."""
+    case = goodlaw_case(con, cid, show=show, quick=quick)
     rec = recent_data(con, cid)
     if rec:                                   # citing cases newer than the bulk data (casemap.py recent)
         have = {o["cluster"] for o in case["ops"]}
@@ -527,6 +533,9 @@ def goodlaw(con, cid, show=None):
     status, yellow, red, ev = evaluate(case, RULES)
     out = {"status": status, "yellow_year": yellow, "red_year": red, "level": case["level"], "version": GOODLAW_VERSION,
            "read": len(case["ops"]), "of": case["of"], "evidence": ev[:25], "n_evidence": len(ev)}
+    if quick:
+        yrs = sorted(int(o["year"]) for o in case["ops"] if str(o.get("year") or "").isdigit())
+        out.update(mode="quick", quick=quick, yellow_year=None, red_year=None, window=[yrs[0], yrs[-1]] if yrs else None)
     if rec:
         out["recent"] = {"after": rec["after"], "found": rec["found"], "listed": rec["listed"], "read": len(rec["ops"]),
                          "searched": rec["searched"]}
@@ -537,9 +546,13 @@ def cmd_goodlaw(args):
     """Run the good-law check for one case and print the result (and, with --show, what it read)."""
     con, done = open_db()
     cid = root_cluster(args, con)
-    r = goodlaw(con, cid, args.show)
-    print("\n%s: status %s, yellow from %s, red from %s; read %d of %d citing opinions (case level: %s)" % (
-        cid, r["status"].upper(), r["yellow_year"], r["red_year"], r["read"], r["of"], r["level"]))
+    r = goodlaw(con, cid, args.show, quick=args.quick)
+    if args.quick:
+        print("\n%s: status %s (quick: the newest %d of %d citing opinions, %s); case level: %s" % (
+            cid, r["status"].upper(), r["read"], r["of"], "%d-%d" % tuple(r["window"]) if r.get("window") else "none", r["level"]))
+    else:
+        print("\n%s: status %s, yellow from %s, red from %s; read %d of %d citing opinions (case level: %s)" % (
+            cid, r["status"].upper(), r["yellow_year"], r["red_year"], r["read"], r["of"], r["level"]))
     for e in r["evidence"]:
         print("  %s %-12s %-13s %-18s %s| %s" % (e["year"], e["court"][:12], e["kind"], e["word"], "above " if e["above"] else "", e["snippet"][:160]))
 
@@ -1421,6 +1434,9 @@ def main():
             p.add_argument("--json", dest="as_json", action="store_true", help="print the result as JSON")
         elif name == "goodlaw":
             p.add_argument("--show", metavar="WORD", help="print every citation window in the opinions read that contain WORD")
+            p.add_argument("--quick", type=int, nargs="?", const=GOODLAW_QUICK, metavar="N",
+                           help="read only the newest N citing opinions (default %d): status now, not the year it "
+                           "changed; prints only, caches nothing" % GOODLAW_QUICK)
         elif name == "citedby":
             p.add_argument("--sample-over", type=int, default=2000, help="read every citing opinion up to this many; sample above it")
             p.add_argument("--margin", type=float, default=0.05, help="target 95%% margin of error when sampling (default 0.05)")

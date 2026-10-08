@@ -241,6 +241,29 @@ pub struct GoodLaw {
     /// the first 25 (casemap.py keeps no more), strongest first
     pub evidence: Vec<Evidence>,
     pub n_evidence: i64,
+    /// Some(N): the quick check, which read only the newest N citing opinions (no yellow/red year)
+    pub quick: Option<i64>,
+    /// quick check: filing years of the oldest and newest opinion read
+    pub window: Option<(i64, i64)>,
+}
+
+impl GoodLaw {
+    /// "red 2024", "red (quick)", "green"
+    pub fn short(&self) -> String {
+        let year = match self.status.as_str() {
+            "red" => self.red_year,
+            "yellow" => self.yellow_year,
+            _ => None,
+        };
+        let mut t = self.status.clone();
+        if let Some(y) = year {
+            t.push_str(&format!(" {y}"));
+        }
+        if self.quick.is_some() {
+            t.push_str(" (quick)");
+        }
+        t
+    }
 }
 
 /// casemap.py GOODLAW_MAX and GOODLAW_RECENT: what the good-law check reads.

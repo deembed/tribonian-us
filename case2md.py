@@ -565,10 +565,11 @@ RECENT = 5                     # "recent" = the last 5 full years before the bul
 _PROFILE_DB = []
 
 
-def profile_data(cid, scan=False):
+def profile_data(cid, scan=False, quick=None):
     """-> {"stamp", "years": {year: citing cases}, "goodlaw": {...} when scan} or None (no database,
     nothing cached). scan=True also runs the good-law check (casemap.goodlaw): full cases only,
-    since it reads citing opinions' text."""
+    since it reads citing opinions' text. quick=N (scan False) runs the quick check instead, reading
+    the newest N citing opinions; a current full result satisfies it and is kept."""
     if cid is None:
         return None
     path = CASES / "citedby" / str(cid) / "profile.json"
@@ -582,11 +583,14 @@ def profile_data(cid, scan=False):
         row = con.execute("SELECT file FROM loaded WHERE name='citation-map'").fetchone()
         stamp = re.search(r"\d{4}-\d\d-\d\d", row[0]).group(0) if row else ""
         import casemap
-        fresh = (old.get("goodlaw") or {}).get("version") == casemap.GOODLAW_VERSION if old else False
+        ogl = (old or {}).get("goodlaw") or {}
+        fresh = ogl.get("version") == casemap.GOODLAW_VERSION
+        if scan and ogl.get("mode") == "quick":   # a full build redoes a quick result
+            fresh = False
         rp = casemap.recent_path(cid)             # recent citers searched since the last check: read them
         if fresh and rp.exists() and rp.stat().st_mtime > path.stat().st_mtime:
             fresh = False
-        if old and old.get("stamp") == stamp and (fresh or not scan) and "parens" in old:
+        if old and old.get("stamp") == stamp and (fresh or not (scan or quick)) and "parens" in old:
             if "successor" not in old:               # cached before the successor line existed: add it only
                 old["successor"] = successor_data(cid)
                 write_profile(path, old)
@@ -600,10 +604,10 @@ def profile_data(cid, scan=False):
         print("  note: no cited-by counts (%s)" % e)
         return old
     new = {"stamp": stamp, "years": years, "parens": parens_data(con, cid), "successor": successor_data(cid)}
-    if scan:
+    if scan or quick:
         import casemap
         try:
-            new["goodlaw"] = casemap.goodlaw(con, cid)
+            new["goodlaw"] = casemap.goodlaw(con, cid, quick=None if scan else quick)
         except (sqlite3.Error, SystemExit) as e:   # casemap exits when the text database is missing
             print("  note: good-law check failed (%s)" % e)
     elif old and old.get("goodlaw"):        # a quick build keeps the last check rather than dropping it
@@ -727,13 +731,23 @@ def bar_status(st, label):
     return "green"
 
 
+def quick_window(gl):
+    w = gl.get("window")
+    return "filed %d–%d" % tuple(w) if w and w[0] != w[1] else "filed %d" % w[0] if w else "none found"
+
+
 def goodlaw_md(st):
     gl = st.get("goodlaw")
     if not gl:
         return []
-    L = ["**Good-law check: %s** — %s. Read %s of %s citing opinions (every one from a court that could overrule it, "
-         "plus the %d newest)." % (gl["status"].upper(), GL_WORDS[gl["status"]], format(gl["read"], ","), format(gl["of"], ","),
-                                   __import__("casemap").GOODLAW_RECENT), ""]
+    if gl.get("mode") == "quick":
+        L = ["**Good-law check (quick): %s** — %s. Read only the newest %s of %s citing opinions (%s), so this is the "
+             "status now, not the year it changed; a full Build reads every one from a court that could overrule it." % (
+                 gl["status"].upper(), GL_WORDS[gl["status"]], format(gl["read"], ","), format(gl["of"], ","), quick_window(gl)), ""]
+    else:
+        L = ["**Good-law check: %s** — %s. Read %s of %s citing opinions (every one from a court that could overrule it, "
+             "plus the %d newest)." % (gl["status"].upper(), GL_WORDS[gl["status"]], format(gl["read"], ","), format(gl["of"], ","),
+                                       __import__("casemap").GOODLAW_RECENT), ""]
     rc = gl.get("recent")
     if rc:
         L += ["Includes %d citing cases filed after %s that the local database lacks (CourtListener search, %s; "
@@ -848,10 +862,12 @@ def goodlaw_tex(st):
     gl = st.get("goodlaw")
     if not gl:
         return ""
-    head = ("\\vspace{2pt}{\\color{%s}\\rule{0.8em}{0.8em}}\\ \\textbf{Good-law check: %s} --- %s "
-            "{\\scriptsize(read %s of %s citing opinions)}\\par") % (
-        GL_COLORS[gl["status"]][1], gl["status"].upper(), esc(GL_WORDS[gl["status"]], "tex"),
-        format(gl["read"], ","), format(gl["of"], ","))
+    quick = gl.get("mode") == "quick"
+    head = ("\\vspace{2pt}{\\color{%s}\\rule{0.8em}{0.8em}}\\ \\textbf{Good-law check%s: %s} --- %s "
+            "{\\scriptsize(%s %s of %s citing opinions%s)}\\par") % (
+        GL_COLORS[gl["status"]][1], " (quick)" if quick else "", gl["status"].upper(), esc(GL_WORDS[gl["status"]], "tex"),
+        "read the newest" if quick else "read", format(gl["read"], ","), format(gl["of"], ","),
+        esc("; %s; status now, not the year it changed" % quick_window(gl), "tex") if quick else "")
     items = "".join("{\\scriptsize %s (%s): %s ``%s''%s --- \\emph{%s}\\par}" % (
         e["year"], esc(e["court"], "tex"), e["kind"], esc(e["word"], "tex"), ", could overrule" if e["above"] else "",
         esc(e["name"][:60], "tex")) for e in gl["evidence"][:6])
@@ -1812,7 +1828,8 @@ def build(args):
     except Unsupported as e:
         sys.exit("Cannot build: %s" % e)
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
-    meta["profile"] = profile_data(meta["cluster"], scan=not getattr(args, "no_goodlaw", False))
+    quick = getattr(args, "quick_goodlaw", None)
+    meta["profile"] = profile_data(meta["cluster"], scan=not (getattr(args, "no_goodlaw", False) or quick), quick=quick)
     # bibliographic coupling: what it draws on (always, cheap); coupled cases only if cached or --coupling
     meta["draws"] = draws_data(meta["cluster"], data)
     meta["coupling"] = coupling_data(meta["cluster"], compute=getattr(args, "coupling", False))
@@ -3222,6 +3239,9 @@ def main():
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     b.add_argument("--no-goodlaw", action="store_true",
                    help="skip the good-law check (slow: reads up to ~2,000 citing opinions); keeps an earlier result")
+    b.add_argument("--quick-goodlaw", dest="quick_goodlaw", type=int, nargs="?", const=100, metavar="N",
+                   help="quick good-law check instead: only the newest N citing opinions (default 100, casemap.GOODLAW_QUICK); "
+                   "status now, not the year it changed; a current full result is kept")
     b.add_argument("--coupling", action="store_true",
                    help="compute the coupled cases first (casemap.py coupling); without it they show only when already cached")
     b.set_defaults(func=build)

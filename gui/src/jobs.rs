@@ -3,8 +3,9 @@
 //!
 //! Build = `casemap.py get --cluster N` (case JSON and note, from the local database; skipped when
 //! the case file already exists), then `case2md.py build cases/<file>` (note, PDF, and the case
-//! profile with good-law status). Quick build passes --no-goodlaw: the same minus the slow
-//! good-law check, which reads up to ~2,000 citing opinions.
+//! profile with good-law status). Quick build passes --quick-goodlaw: the quick good-law check, which
+//! reads only the newest 100 citing opinions (status now, no year) instead of up to ~2,000; a current
+//! full result is kept.
 //!
 //! The same queue also runs single script commands for a case (`run_script`): "Find coupled cases"
 //! queues `casemap.py coupling --cluster N`, which writes cases/citedby/<N>/coupling.json.
@@ -113,10 +114,10 @@ pub fn build_case(python: String, repo: PathBuf, r: i64, title: String, quick: b
                 let _ = tx.send(Msg::Line("casemap.py get did not record a case file in cases/_index.json".into()));
                 return false;
             };
-            // Quick build: everything but the good-law check (case2md.py --no-goodlaw keeps an earlier result)
+            // Quick build: the quick good-law check (newest 100 citing opinions; a current full result is kept)
             let mut args: Vec<String> = vec!["case2md.py".into(), "build".into()];
             if quick {
-                args.push("--no-goodlaw".into());
+                args.push("--quick-goodlaw".into());
             }
             args.push(format!("cases/{full}"));
             run_step(&python, &repo, &args, Some("wrote "), &tx, &wake)
