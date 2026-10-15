@@ -583,6 +583,11 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \usepackage[T1]{fontenc}
 \usepackage{microtype}
 \usepackage[normalem]{ulem}    % \sout for repealed text; normalem keeps \emph italic
+% case2md.py: US Code cites that changed since the opinion (usc_status.py). Yellow, breakable (ulem leaders):
+% \uscmark = highlight; \usclight = pale (amended elsewhere in the section); \uscstrike = highlight + strike (number moved or gone).
+\newcommand\uscmark{\bgroup\markoverwith{\textcolor{yellow}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
+\newcommand\usclight{\bgroup\markoverwith{\textcolor{yellow!35}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
+\newcommand\uscstrike{\bgroup\markoverwith{\rlap{\textcolor{yellow}{\rule[-.55ex]{2pt}{2.45ex}}}\rule[.55ex]{2pt}{.5pt}}\ULon}
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}   % skins -> "enhanced"; breakable -> page splits
 \usepackage{longtable}          % tables that run across pages (scotus.py: authorities by side)

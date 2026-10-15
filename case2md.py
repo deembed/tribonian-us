@@ -479,6 +479,7 @@ class Ctx:
         self.page, self.part, self.record = "", "", True
         self.links = {}                          # cluster id -> note filename, for [[wikilinks]]
         self.statutes = set()                    # US Code note names that exist (md/**/5-usc-552a.md)
+        self.year = 0                            # decision year: what a US Code cite is judged against (usc_out)
 
     def path(self):
         bits = ["%s %s" % (self.reporter, self.page), self.who] + ([self.part] if self.part else [])
@@ -490,6 +491,7 @@ class Ctx:
 
 
 def inline(node, mode, ctx, marks):
+    mark_usc(node)
     out = []
     for k in node.kids:
         if isinstance(k, str):
@@ -521,6 +523,8 @@ def inline(node, mode, ctx, marks):
                 out.append(wrap(inline(k, mode, ctx, marks), "[", "](%s%s)" % (CL, k.attrs["href"])))
         elif k.tag == "span" and mode == "md" and "citation" in cls and statute_note(k.text()) in ctx.statutes:
             out.append(wrap(inline(k, mode, ctx, marks), "[[%s|" % statute_note(k.text()), "]]"))
+        elif k.tag == "usc":
+            out.append(usc_out(k, mode, ctx))
         elif k.tag == "leader":                          # toc entry: dots out to the page(s)
             pages = esc(k.attrs.get("pages", ""), mode)
             out.append(" … %s" % pages if mode == "md" else
@@ -539,6 +543,74 @@ def plain(el, words=7):
                        "" if k.tag in ("page-number", "footnotemark") else walk(k) for k in n.kids)
     w = clean(walk(el)).split()
     return " ".join(w[:words]) + ("…" if len(w) > words else "")
+
+
+# ---------------------------------------------------------------- US Code cites that changed (usc_status.py)
+# A cite to a section that has since moved, gone, or been amended is highlighted yellow, struck through when the
+# number moved or is gone, and followed by a short tag (mv rep om pre amd nf) and the current number. USC_MARKS=0
+# turns it off (cites still link to their notes in Markdown).
+USC_MARKS = os.environ.get("USC_MARKS", "1") != "0"
+
+
+def mark_usc(node):
+    """Code cites in node's own text -> <usc> elements. CourtListener's citation spans around them are unwrapped
+    first, so a cite and its edition parenthetical ("(1976 ed., Supp. V)") are one string. Once per element."""
+    if getattr(node, "usc_done", False):
+        return
+    node.usc_done = True
+    import usc_status as us
+    kids = []
+    for k in node.kids:
+        if (isinstance(k, El) and k.tag == "span" and "citation" in k.attrs.get("class", "")
+                and all(isinstance(x, str) for x in k.kids) and us.CITE_RE.search(k.text())):
+            k = k.text()
+        if isinstance(k, str) and kids and isinstance(kids[-1], str):
+            kids[-1] += k
+        else:
+            kids.append(k)
+    out = []
+    for k in kids:
+        if not isinstance(k, str):
+            out.append(k)
+            continue
+        at = 0
+        for m in us.CITE_RE.finditer(k):
+            e = El("usc")
+            e.kids.append(m.group(0))
+            e.m = m
+            out += [k[at:m.start()], e]
+            at = m.end()
+        out.append(k[at:])
+    node.kids = [k for k in out if k != ""]
+
+
+def usc_out(k, mode, ctx):
+    import usc_status as us
+    m, txt = k.m, k.text()
+    tag, moves, yr = us.mark(m, ctx.year) if USC_MARKS else ("ok", [], None)
+    first = us.sections(m.group("secs"), m.group("sign"))
+    note = us.note_name(us.ukey(m.group("title"), first[0])) if first else None
+    if mode == "md":
+        old = esc(txt, "md")
+        if tag in ("ok", "amd", "§amd", "rd") and note in ctx.statutes:
+            old = "[[%s|%s]]" % (note, old)
+        if tag == "ok":
+            return old
+        new = ", ".join(("§ %s → " % o.split(":")[1] if len(moves) > 1 else "") +
+                        ", ".join("[[%s|%s]]" % (us.note_name(n), us.label(n)) if us.note_name(n) in ctx.statutes
+                                  else us.label(n) for n in ns) for o, ns in moves)
+        flag = "**%s**%s%s" % (tag, " %d" % yr if yr else "", " " + new if new else "")
+        if tag == "§amd":                    # Obsidian has one highlight colour: plain text, tag in italics
+            return "%s *%s*" % (old, flag.replace("**", ""))
+        return ("==%s==" if tag in ("amd", "rd") else "==~~%s~~==") % old + " ==%s==" % flag
+    old = esc(txt, "tex")
+    if tag == "ok":
+        return old
+    new = ", ".join(("§ %s → " % o.split(":")[1] if len(moves) > 1 else "") + ", ".join(us.label(n) for n in ns)
+                    for o, ns in moves)
+    flag = "\\textbf{%s}%s" % (esc(tag, "tex"), esc((" %d" % yr if yr else "") + (" " + new if new else ""), "tex"))
+    hl = {"amd": "\\uscmark", "rd": "\\uscmark", "§amd": "\\usclight"}.get(tag, "\\uscstrike")
+    return "%s{%s}{}\\,%s{%s}" % (hl, old, "\\usclight" if tag == "§amd" else "\\uscmark", flag)
 
 
 def statute_note(text):
@@ -1804,6 +1876,7 @@ def prepare(data, index=None):
         o["tree"] = tree_of(o, assign_levels(labels))
         o["ctx"] = Ctx(meta["reporter"], short_author(o["author"], o["api"].get("author_str")), o["oi"])
         o["ctx"].links, o["ctx"].statutes = links, statutes
+        o["ctx"].year = int((meta.get("decided") or "0")[:4] or 0)
         o["kindname"] = TYPE_NAMES.get(o["kind"], o["kind"].replace("-", " ") or "opinion")
         o["ctx"].record = False
         o["byline_md"] = clean(" ".join([esc(o["author"], "md")] + [inline(b, "md", o["ctx"], []) for b in o["byline"]]))
@@ -2822,6 +2895,7 @@ def prepare_slip(meta, api_ops, links, statutes):
     for o in ops:
         o["ctx"] = Ctx("slip op.", o["who"], o["oi"])
         o["ctx"].links, o["ctx"].statutes = links, statutes
+        o["ctx"].year = int((meta.get("decided") or "0")[:4] or 0)
         o["kindname"] = o["kind"] or ("opinion of the Court" if o["oi"] == 0 or o["who"] == "Court" else "opinion")
         o["ctx"].record = False
         o["byline_md"] = clean(" ".join(inline(b, "md", o["ctx"], []) for b in o["byline"]))
@@ -2932,6 +3006,7 @@ def recap_build(args):
         o = read_recap(r, d, i, lambda w, k=doc_key(r): warnings.append("ECF No. %s: %s" % (k, w)))
         o["ctx"] = Ctx("ECF No. %s, p." % doc_key(r), o["who"], i)
         o["ctx"].links, o["ctx"].statutes = links, statutes
+        o["ctx"].year = int((r.get("entry_date_filed") or "0")[:4] or 0)
         o["kindname"] = "ECF No. %s · %s · %s" % (doc_key(r), o["title"], r.get("entry_date_filed") or "")
         o["byline_md"] = clean(inline(o["byline"][0], "md", o["ctx"], []))
         o["byline_tex"] = clean(inline(o["byline"][0], "tex", o["ctx"], []))
