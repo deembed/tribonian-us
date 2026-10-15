@@ -2887,6 +2887,8 @@ def main():
     import cocite_positions
     cocite_positions.add_parser(sub)
     cocite_positions.add_evidence_parser(sub, view)
+    import cocite_usc
+    cocite_usc.add_parser(sub)
     p = sub.add_parser("together", parents=[view], help="do these cases share a cluster, slice by slice?")
     p.add_argument("--cite", action="append", default=[])
     p.add_argument("--cluster", type=int, action="append")
