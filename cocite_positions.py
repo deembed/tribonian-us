@@ -151,8 +151,10 @@ def gap_kind(gap):
     return SEP["prose"]
 
 
-def extract(op, htm, own=None):
-    """-> rows [(op, cited, seq, para, sent, char, fn, sep, signal)], stats, marks [(fn, char, sent)]"""
+def extract(op, htm, own=None, paras=None):
+    """-> rows [(op, cited, seq, para, sent, char, fn, sep, signal)], stats, marks [(fn, char, sent)]
+    paras: a list to receive (fn, para, first sentence, char offset, text, sentence starts, [(a, b, cited)])
+    per paragraph, for a second extractor working in the same coordinates (cocite_usc.py). Rows are unchanged."""
     cites = []
     # the source text can itself hold \x00-\x08; they would read as our tokens (IndexError, v1)
     htm = CTRL_RE.sub(" ", htm)
@@ -187,6 +189,9 @@ def extract(op, htm, own=None):
             out.append(p[pos:])
             txt = "".join(out)
             starts = sentence_starts(txt, spans)
+            if paras is not None:
+                paras.append((fn, para_no, sent_no, text_len, txt, starts,
+                              [(a, b, v) for is_c, v, a, b in items if is_c]))
             prev_end = 0
             for is_cite, val, a, b in items:
                 s_idx = sent_no + int(np.searchsorted(starts, a, side="right")) - 1

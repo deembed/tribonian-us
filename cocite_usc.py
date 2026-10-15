@@ -3,6 +3,11 @@
 
     ./cocite.py usc-sample --n 2000             # step 1: how Code cites appear in the opinion text; writes nothing
     ./cocite.py usc-sample --n 2000 --examples 10
+    ./cocite.py usc-extract --show 690840       # step 2: one opinion's Code references, with context
+    ./cocite.py usc-extract --sample 2000       # rates by how/part, commonest sections and popular names
+    ./cocite.py usc-map                         # step 3: old numbers -> current, from xml/ notes -> cocite-cache/usc/usc_map.json
+    ./cocite.py usc-check --holdout 34,52,54    # step 4: map vs data (after the full run)
+    ./cocite.py usc-extract                     # full run -> cocite-cache/usc/, sharded, resumable, all cores
 
 Step 1 measures, per random opinion with html_with_citations (the only field positions reads):
     span        citation spans CourtListener marked, by kind: linked case, ambiguous, Id., no link
@@ -16,10 +21,16 @@ Step 1 measures, per random opinion with html_with_citations (the only field pos
     popular     popular-name cites: "Title VII", "section 10(b) of the ... Act"
 by decade of the citing decision. The no-link span shapes (digits as N) show what else sits under -2.
 """
-import argparse, html, random, re, sqlite3, sys, zlib
+import argparse, html, math, os, random, re, sqlite3, sys, time, zlib
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+
+import numpy as np
 
 import casedb
+import cocite_positions as cp
+from cocite_positions import NO_LINK
 
 CITE_RE = re.compile(r'<span class="citation([^"]*)"[^>]*>(.*?)</span>', re.S)
 HREF_RE = re.compile(r'href="/opinion/(\d+)/')
@@ -163,12 +174,791 @@ def cmd_sample(args):
                 print("  ..." + s.strip() + "...")
 
 
+# ================================================================ step 2: the extractor (positions' sidecar)
+# Every Code reference in an opinion, in positions' coordinates (paragraph, sentence, character), one row each.
+# The positions rows themselves are untouched: this runs extract() with its paragraph hook and scans the same
+# text, so a v2 positions build stays reproducible. Resolution happens later (record once, compute later).
+#
+# Rows (cocite-cache/usc/<lo>-<hi>.npz, its own folder: positions' load() globs pos/):
+#   op     citing opinion id
+#   after  positions rows of this opinion before this reference (its place in the case-citation sequence)
+#   para, sent, char, fn    as positions
+#   how    HOW codes below
+#   part   0 single section, 1 item of a list, 2 range start, 3 range end
+#   ref    b"42:1983" (title:section, section lower-case, subsections dropped); b":1983" = short form, title unknown
+# Popular names: p_row (index into the rows) and p_name (b"title vii|civil rights act"); their ref is b"".
+USC_VERSION = 2                                 # 2: I.R.C. cites, default titles (Tax Court, "references are to"), "Sec." short forms
+HOW = ["", "span", "regex", "short-resolved", "short-unresolved", "popular-paired", "popular-alone", "short-default"]
+HOW_CODE = {h: i for i, h in enumerate(HOW)}
+PART = ["single", "list", "range-start", "range-end"]
+
+SECT = r"\d+[A-Za-z]*(?:-\d+[A-Za-z]*)?"
+SUBS = r"(?:\s?\([A-Za-z0-9]{1,4}\))*"
+# title, U.S.C. (any spacing; .A/.S. annotated; an edition year; the old "Int.Rev.Code" form), marker, first section
+FULL_RE = re.compile(r"\b(\d{1,2}[A-Z]?)\s*U\.?\s?S\.?\s?C\.?(?:\s?[AS]\.?)?"
+                     r"(?:\s*\((?:19|20)\d\d[^)]{0,20}\))?"
+                     r"(?:,?\s*Int\.?\s?Rev\.?\s?Code(?:\s+of\s+\d{4})?,?)?"
+                     r"\s*(§§|§|[Ss]ections|[Ss]ecs?\.|[Ss]ection|)\s*(" + SECT + ")" + SUBS)
+# the Internal Revenue Code cited by its own name: "I.R.C. § 162", "IRC sec. 6653(a)" -> Title 26 (group 1 empty)
+IRC_RE = re.compile(r"\b()(?:I\.\s?R\.\s?C\.?|IRC)\s*(§§|§|[Ss]ections|[Ss]ecs?\.|[Ss]ection|)\s*(" + SECT + ")" + SUBS)
+# an opinion's own statement of what bare section numbers mean -> its default title
+DEFAULT_RE = re.compile(r"(?:section|statutory|§)\s+references\s+(?:herein\s+|in\s+this\s+opinion\s+)?are\s+to\s+(?:the\s+)?"
+                        r"(Internal\s+Revenue\s+Code|Bankruptcy\s+Code|title\s+(\d+)|(\d+)\s+U\.?\s?S\.?\s?C)", re.I)
+TAX_COURTS = ("tax", "bta")                      # United States Tax Court, Board of Tax Appeals: bare sections are I.R.C.
+# list / range continuation after a first section: ", 1983", ", and 1985", "-76", "– 1376", " through 1376"
+MORE_RE = re.compile(r"\s*(,\s*(?:and\s+|or\s+)?|\s+and\s+|\s+or\s+|\s*[–—]\s*|-|\s+(?:through|to)\s+)(" + SECT + r")(?!\w|-\d|\.\d|\s*U\.?\s?S\.?\s?C)" + SUBS)
+BARE_SECT_RE = re.compile(r"(?<![\w.§])(§§?)\s*(" + SECT + r")(?!\w|-\d|\.\d)" + SUBS + r"|\b(?:[Ss]ection|[Ss]ec\.)\s+(" + SECT + r")(?!\w|-\d|\.\d)" + SUBS + r"(?!\s+of\s+(?:the|this|title))")
+NOT_SHORT = re.compile(r"(Stat\.|C\.\s?F\.\s?R\.?|Code|Ann\.|Rev\.|Laws|Gen\.|Comp\.|Pub\.\s?L\.|Rule|R\.|Const\.|art\.|"
+                       r"Reg\.|Regs\.|ed\.\)?|OCGA|U\.\s?L\.\s?A\.|Restatement|Law|Article\s+[IVX\d]+,?|Amendment,?|Amend\.,?)[\s,()\d\w.–-]{0,14}$", re.I)
+POP_RE = re.compile(r"\bTitle\s+(X{0,3}(?:IX|IV|V?I{0,3}))\b(?:\s+of\s+the\s+((?:[A-Z][\w'’.-]*\s+){0,8}?(?:Act|Code)|ADA|ADEA|ERISA|FHA))?"
+                    r"|\b[Ss]ection\s+(\d+[A-Za-z]?(?:\([A-Za-z0-9]+\))*)\s+of\s+the\s+((?:[A-Z][\w'’.-]*\s+){1,8}?Act)\b")
+
+
+def sect_norm(s):
+    return s.lower()
+
+
+def is_range_sep(sep, plural):
+    s = sep.strip()
+    return s in ("–", "—", "through", "to") or (s == "-" and plural)
+
+
+def expand_end(start, end):
+    """'1371', '76' -> '1376' (an abbreviated range end)"""
+    if end.isdigit() and start.isdigit() and len(end) < len(start):
+        return start[:len(start) - len(end)] + end
+    return end
+
+
+def split_hyphen(tok, plural, abbrev=True):
+    """'2000e-2' is a section; '1371-76' after §§ (or, in a full cite, with a shortened end) is a range
+    -> [(sect, part)]"""
+    if "-" in tok:
+        a, b = tok.split("-", 1)
+        if a.isdigit() and b.isdigit() and (plural or (abbrev and len(b) < len(a))):
+            return [(a, 2), (expand_end(a, b), 3)]
+    return [(tok, 0)]
+
+
+def full_refs(t, m):
+    """A FULL_RE match in text t -> [(char, title, section, part)], end of the whole cite."""
+    title, marker = (m.group(1) or "26").upper(), m.group(2)
+    plural = marker in ("§§", "sections", "Sections") or marker.lower().startswith("secs")
+    out = [(m.start(), title, s, p) for s, p in split_hyphen(m.group(3), plural)]
+    end = m.end()
+    prev = m.group(3)
+    while plural:
+        n = MORE_RE.match(t, end)
+        if not n:
+            break
+        tok, sep = n.group(2), n.group(1)
+        if is_range_sep(sep, plural) and "-" not in tok:
+            out.append((n.start(2), title, expand_end(prev, tok), 3))
+            if out[-2][3] == 0:
+                out[-2] = out[-2][:3] + (2,)
+        else:
+            if len(out) == 1 and out[0][3] == 0:
+                out[0] = out[0][:3] + (1,)
+            out += [(n.start(2), title, s, 1 if p == 0 else p) for s, p in split_hyphen(tok, plural)]
+        prev, end = tok, n.end()
+    return out, end
+
+
+def default_title(paras, tax_court=False):
+    """the title an opinion's bare section numbers default to: its own "references are to" note, else 26 in a tax court"""
+    for p in paras:
+        m = DEFAULT_RE.search(p[4])
+        if m:
+            name = m.group(1).lower()
+            return "26" if "revenue" in name else "11" if "bankruptcy" in name else (m.group(2) or m.group(3))
+    return "26" if tax_court else None
+
+
+def scan(op, paras, row_chars, default=None):
+    """paras from cocite_positions.extract(paras=...) -> rows [(op, after, para, sent, char, fn, how, part, ref)], pop names"""
+    found = []                                  # (char_abs, fn, para, sent, how, part, title, section, popname)
+
+    def place(base, starts, s0, a):
+        return base + a, s0 + int(np.searchsorted(starts, a, side="right")) - 1
+
+    for fn, para, s0, base, txt, starts, cites in paras:
+        taken = []                              # intervals already explained (case spans, full cites)
+        for a, b, cid in cites:
+            if cid == NO_LINK:
+                m = FULL_RE.search(txt, a, b)
+                if m and m.start() < b:
+                    refs, end = full_refs(txt, m)
+                    for c, ti, se, pa in refs:
+                        ch, sn = place(base, starts, s0, c)
+                        found.append((ch, fn, para, sn, HOW_CODE["span"], pa, ti, sect_norm(se), None))
+                    taken.append((a, max(b, end)))
+                    continue
+            taken.append((a, b))
+
+        def free(a, b):
+            return not any(x < b and a < y for x, y in taken)
+        for m in [*FULL_RE.finditer(txt), *IRC_RE.finditer(txt)]:
+            if not free(m.start(), m.end()):
+                continue
+            refs, end = full_refs(txt, m)
+            for c, ti, se, pa in refs:
+                ch, sn = place(base, starts, s0, c)
+                found.append((ch, fn, para, sn, HOW_CODE["regex"], pa, ti, sect_norm(se), None))
+            taken.append((m.start(), end))
+        for m in POP_RE.finditer(txt):
+            if not free(m.start(), m.end()):
+                continue
+            if m.group(1) is not None:
+                if not m.group(1):
+                    continue
+                name = "title " + m.group(1).lower() + ("|" + re.sub(r"\s+", " ", m.group(2)).lower() if m.group(2) else "")
+            else:
+                name = "section " + m.group(3).lower() + "|" + re.sub(r"\s+", " ", m.group(4)).lower()
+            nxt = [x for x in starts if x > m.start()]           # paired: a Code cite later in the same sentence
+            paired = bool(FULL_RE.search(txt, m.end(), nxt[0] if nxt else len(txt)))
+            ch, sn = place(base, starts, s0, m.start())
+            found.append((ch, fn, para, sn, HOW_CODE["popular-paired" if paired else "popular-alone"], 0, "", "", name))
+            taken.append((m.start(), m.end()))
+        for m in BARE_SECT_RE.finditer(txt):
+            if not free(m.start(), m.end()) or NOT_SHORT.search(txt[max(0, m.start() - 40):m.start()]):
+                continue
+            tok = m.group(2) or m.group(3)
+            plural = m.group(1) == "§§"
+            for s, pa in split_hyphen(tok, plural, abbrev=False):
+                ch, sn = place(base, starts, s0, m.start())
+                found.append((ch, fn, para, sn, 0, pa, "", sect_norm(s), None))   # how decided below
+
+    # short forms: the title of a full cite of the same section in this opinion, the latest before, else the first after
+    full = defaultdict(list)
+    for f in found:
+        if f[4] in (HOW_CODE["span"], HOW_CODE["regex"]):
+            full[f[7]].append((f[0], f[6]))
+    rows, pop = [], []
+    found.sort(key=lambda f: f[0])
+    range_title = None
+    for ch, fn, para, sn, how, pa, ti, se, name in found:
+        if how == 0 and pa == 3 and range_title is not None:     # a short range's end takes its start's title
+            ti, how = range_title, HOW_CODE["short-resolved"]
+        if how == 0:
+            cands = full.get(se)
+            if cands:
+                before = [t for c, t in cands if c < ch]
+                ti, how = (before[-1] if before else cands[0][1]), HOW_CODE["short-resolved"]
+            elif default:
+                ti, how = default, HOW_CODE["short-default"]
+            else:
+                how = HOW_CODE["short-unresolved"]
+        range_title = ti if (pa == 2 and how in (HOW_CODE["short-resolved"], HOW_CODE["short-default"])) else None
+        after = int(np.searchsorted(row_chars, ch, side="left"))
+        if name is not None:
+            pop.append((len(rows), name))
+        rows.append((op, after, para, sn, ch, fn, how, pa, ("%s:%s" % (ti, se)) if name is None else ""))
+    return rows, pop
+
+
+U_COLS = ("op", "after", "para", "sent", "char", "fn", "how", "part")
+U_DTYPES = (np.int32, np.int32, np.int32, np.int32, np.int32, np.int16, np.int8, np.int8)
+
+
+_TAX = None
+
+
+def tax_clusters():
+    """cluster ids of Tax Court / Board of Tax Appeals decisions. Built once by two sequential scans (a join seeks
+    on the hard disk per row) and cached as cocite-cache/usc/tax_clusters.npy; workers only load the file."""
+    global _TAX
+    if _TAX is not None:
+        return _TAX
+    f = usc_dir() / "tax_clusters.npy"
+    if not f.exists():
+        if not casedb.DB.exists():
+            sys.exit("No database at %s (needed once, for the Tax Court case list)" % casedb.DB)
+        t0 = time.time()
+        con = sqlite3.connect("file:%s?mode=ro" % casedb.DB, uri=True)
+        dk = np.array([r[0] for r in con.execute("SELECT id FROM dockets WHERE court_id IN (%s)"
+                                                  % ",".join("'%s'" % c for c in TAX_COURTS))], dtype=np.int64)
+        out, cur = [], con.execute("SELECT id, coalesce(docket_id, -1) FROM clusters WHERE id IS NOT NULL")
+        while True:
+            rows = cur.fetchmany(2_000_000)
+            if not rows:
+                break
+            a = np.array(rows, dtype=np.int64)
+            out.append(a[np.isin(a[:, 1], dk), 0])
+        ids = np.concatenate(out) if out else np.zeros(0, np.int64)
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_name("tax_clusters.tmp.npy")
+        np.save(tmp, ids)
+        tmp.replace(f)
+        print("tax courts: %s dockets, %s decisions  (%.1f min)" % (format(len(dk), ","), format(len(ids), ","),
+                                                                    (time.time() - t0) / 60), flush=True)
+    _TAX = set(np.load(f).tolist())
+    return _TAX
+
+
+def extract_usc(oid, htm, own):
+    paras = []
+    prow, st, _ = cp.extract(oid, htm, own, paras=paras)
+    dflt = default_title(paras, own in tax_clusters())
+    rows, pop = scan(oid, paras, np.array([r[5] for r in prow], dtype=np.int64), dflt)
+    return rows, pop, st, prow
+
+
+def usc_dir(out=None):
+    import cocite
+    return Path(out) if out else cocite.CACHE / "usc"
+
+
+def usc_shard_done(path):
+    if not path.exists():
+        return False
+    try:
+        with np.load(path) as z:
+            return int(z["version"]) == USC_VERSION
+    except Exception:
+        return False
+
+
+def run_usc_shard(lo, hi, path):
+    con = cp.ops_db()
+    rows, pops, n = [], [], 0
+    for oid, own, field, blob in con.execute(
+            "SELECT id, cluster_id, field, text FROM opinions WHERE rowid BETWEEN ? AND ?", (lo, hi)):
+        n += 1
+        if field != "html_with_citations" or not blob:
+            continue
+        try:
+            r, p, _, _ = extract_usc(oid, zlib.decompress(blob).decode("utf-8", "replace"), own)
+        except Exception as e:
+            print("  opinion %d skipped: %s: %s" % (oid, type(e).__name__, e), file=sys.stderr, flush=True)
+            continue
+        pops += [(len(rows) + i, name) for i, name in p]
+        rows += r
+    tmp = path.with_name(path.name + ".tmp.npz")
+    cols = {c: np.array([r[i] for r in rows], dtype=d) for i, (c, d) in enumerate(zip(U_COLS, U_DTYPES))}
+    np.savez(tmp, version=np.int32(USC_VERSION), ref=np.array([r[8].encode()[:24] for r in rows], dtype="S24"),
+             p_row=np.array([i for i, _ in pops], dtype=np.int32),
+             p_name=np.array([nm.encode()[:80] for _, nm in pops], dtype="S80"), **cols)
+    tmp.replace(path)
+    return n, len(rows)
+
+
+def cmd_usc_show(oid):
+    con = cp.ops_db()
+    r = con.execute("SELECT id, cluster_id, field, text FROM opinions WHERE id = ?", (oid,)).fetchone()
+    if not r or not r[3]:
+        sys.exit("no text for opinion %d" % oid)
+    rows, pop, st, prow = extract_usc(r[0], zlib.decompress(r[3]).decode("utf-8", "replace"), r[1])
+    text, names = st["text"], dict(pop)
+    print("opinion %d (case %d): %d positions rows, %d Code references" % (r[0], r[1], len(prow), len(rows)))
+    print("%-5s %4s %4s %6s %3s %-16s %-11s %-14s  context" % ("after", "para", "sent", "char", "fn", "how", "part", "ref"))
+    for i, x in enumerate(rows):
+        ctx = text[max(0, x[4] - 40):x[4]].replace("\n", "¶") + "⟦" + text[x[4]:x[4] + 40].replace("\n", "¶")
+        print("%-5d %4d %4d %6d %3d %-16s %-11s %-14s  %s" % (x[1], x[2], x[3], x[4], x[5], HOW[x[6]], PART[x[7]],
+              x[8] or names.get(i, "")[:14], ctx))
+
+
+def cmd_usc_sample(n, seed=1):
+    con = cp.ops_db()
+    top = con.execute("SELECT max(rowid) FROM opinions").fetchone()[0]
+    rnd = random.Random(seed)
+    how, part, refs, names, ops, t = Counter(), Counter(), Counter(), Counter(), 0, 0.0
+    for rid in rnd.sample(range(1, top + 1), n):
+        r = con.execute("SELECT id, cluster_id, field, text FROM opinions WHERE rowid = ?", (rid,)).fetchone()
+        if not r or r[2] != "html_with_citations" or not r[3]:
+            continue
+        ops += 1
+        t0 = time.perf_counter()
+        rows, pop, _, _ = extract_usc(r[0], zlib.decompress(r[3]).decode("utf-8", "replace"), r[1])
+        t += time.perf_counter() - t0
+        for x in rows:
+            how[HOW[x[6]]] += 1
+            part[PART[x[7]]] += 1
+            if x[8] and not x[8].startswith(":"):
+                refs[x[8]] += 1
+        names.update(nm for _, nm in pop)
+    print("%d opinions, %.2f ms each (positions + this)" % (ops, 1000 * t / max(1, ops)))
+    print("how:", dict(how))
+    print("part:", dict(part))
+    print("commonest sections:", ", ".join("%s %d" % kv for kv in refs.most_common(15)))
+    print("commonest popular names:", ", ".join("%s %d" % kv for kv in names.most_common(15)))
+
+
+def cmd_usc_extract(args):
+    if args.show:
+        return cmd_usc_show(args.show)
+    if args.sample:
+        return cmd_usc_sample(args.sample)
+    d = usc_dir(args.out)
+    d.mkdir(parents=True, exist_ok=True)
+    jobs = cp.plan(d, args.shard_size)
+    todo = [j for j in jobs if not usc_shard_done(j[2])]
+    print("%d shards in %s: %d done, %d to do (usc extractor version %d)"
+          % (len(jobs), d, len(jobs) - len(todo), len(todo), USC_VERSION), flush=True)
+    if args.status or not todo:
+        return
+    if args.limit:
+        todo = todo[:args.limit]
+    tax_clusters()                                  # build the cached list once, before the workers start
+    t0, n_ops, n_rows = time.time(), 0, 0
+    with ProcessPoolExecutor(args.workers or os.cpu_count() or 1) as pool:
+        futs = {pool.submit(run_usc_shard, lo, hi, path): path for lo, hi, path in todo}
+        for i, f in enumerate(as_completed(futs), 1):
+            o, r = f.result()
+            n_ops += o
+            n_rows += r
+            el = time.time() - t0
+            print("  %d/%d %s: %s opinions, %s references  (%.0f opinions/s)"
+                  % (i, len(todo), futs[f].name, format(o, ","), format(r, ","), n_ops / el), flush=True)
+    print("done: %s opinions, %s references" % (format(n_ops, ","), format(n_rows, ",")))
+
+
+
+# ================================================================ step 3: the identity map (usc-map)
+# Old Code number -> current number, from the notes in xml/*.xml (the current release point):
+#   stub    a status="transferred" section: "Section N was editorially reclassified as / transferred to <ref .../tT/sM>"
+#   based   Historical and Revision Notes: "Based on title 18, U.S.C., 1940 ed., § 80" (the 1948 titles and others)
+#   table   positive-law revision tables: "Revised Section | Source (U.S. Code)", cells like "49:1651(a)."
+# An edge (old, new, year, source) maps a citation of old forward. When old is ALSO a live section today (the number
+# was reused, e.g. old 49 § 1651 -> 49 § 101 in 1994), the edge applies only to decisions filed before its year.
+# Edge years: a stub's latest date in its note, else the reclassification year of its target title; based/table:
+# the year of the section's first source credit (the revising act).
+MAP_VERSION = 1
+RECLASS_YEAR = {"34": 2017, "52": 2014, "54": 2014}        # editorial reclassifications with no date in the stub note
+MOVE_RE = re.compile(r"(?:reclassified|transferred|renumbered|redesignated)\s+(?:as|to)\s*(?:<[^>]+>\s*)*?"
+                     r"(?:<ref\s+href=\"/us/usc/t(\w+)/s([^\"/]+)\")", re.S)
+BASED_RE = re.compile(r"title\s+(\d+[A-Za-z]?),\s+U\.\s?S\.\s?C\.,\s+(\d{4})\s+ed\.,\s+(§§?)\s*([^;]*?)(?=\s\(|\.\s|\.$|;|$)")
+BASED2_RE = re.compile(r"[Ss]ections?\s+([\d\w,\s]+?)\s+of\s+title\s+(\d+[A-Za-z]?),\s+U\.\s?S\.\s?C\.,\s+(\d{4})\s+ed\.")
+CELL_RE = re.compile(r"(?:(\d+[A-Za-z]?)(\s*App\.)?:)?\s*(\d+[A-Za-z]*(?:[-–]\d+[A-Za-z]*)?)((?:\([^)]*\))*)(\s*\(note[^)]*\))?")
+NUM_RE = re.compile(r"\d+[A-Za-z]*(?:[-–]\d+[A-Za-z]*)?")
+
+
+def ukey(title, sec):
+    return "%s:%s" % (title.upper().lstrip("0") or "0", sec.replace("–", "-").replace("‑", "-").lower())
+
+
+def id_keys(ident):
+    """'/us/usc/t42/s1973 /us/usc/t42/s1973a' -> ['42:1973', '42:1973a']"""
+    out = []
+    for part in ident.split():
+        m = re.fullmatch(r"/us/usc/t(\w+?)/s([^/]+)", part)
+        if m:
+            out.append(ukey(m.group(1), m.group(2)))
+    return out
+
+
+def flat(xml):
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", xml))).replace(" ", " ").strip()
+
+
+def first_year(xml):
+    m = re.search(r"<sourceCredit\b.*?</sourceCredit>", xml, re.S)
+    y = re.search(r'/us/act/(\d{4})|date="(\d{4})', m.group(0)) if m else None
+    return int(y.group(1) or y.group(2)) if y else 0
+
+
+def sections_of(path):
+    """top-level <section> elements of a title file, skipping quoted ones (amendment text inside notes)"""
+    s = open(path, encoding="utf-8").read()
+    s = re.sub(r"<quotedContent\b.*?</quotedContent>", "", s, flags=re.S)
+    for m in re.finditer(r"<section\b([^>]*)>(.*?)</section>", s, re.S):
+        attrs = m.group(1)
+        ident = re.search(r'identifier="([^"]+)"', attrs)
+        if not ident or not ident.group(1).startswith("/us/usc/"):
+            continue
+        st = re.search(r'status="(\w+)"', attrs)
+        yield id_keys(ident.group(1)), (st.group(1) if st else ""), m.group(2)
+
+
+def build_map(xml_dir):
+    live, edges, stats = set(), [], Counter()
+    for f in sorted(Path(xml_dir).glob("usc*.xml")):
+        for keys, status, body in sections_of(f):
+            if not keys:
+                continue
+            title = keys[0].split(":")[0]
+            if status == "":
+                live.update(keys)
+            if status == "transferred":
+                stats["stubs"] += 1
+                targets = [ukey(t, s) for t, s in MOVE_RE.findall(body)]
+                if not targets:
+                    stats["stubs without a target"] += 1
+                    continue
+                dates = [int(y) for y in re.findall(r'date="(\d{4})', body)]
+                for old in keys:
+                    for new in dict.fromkeys(targets):
+                        if new != old:
+                            yr = max(dates) if dates else RECLASS_YEAR.get(new.split(":")[0], 0)
+                            edges.append((old, new, yr, "stub"))
+                            stats["stub edges"] += 1
+                continue
+            if status:
+                continue
+            yr = first_year(body)
+            for note in re.findall(r'<note\b[^>]*topic="historicalAndRevision"[^>]*>(.*?)</note>', body, re.S):
+                txt = flat(note)
+                olds = []
+                for m in BASED_RE.finditer(txt):
+                    olds += [(m.group(1), n, int(m.group(2))) for n in NUM_RE.findall(re.sub(r"\([^)]*\)", "", m.group(4)))]
+                for m in BASED2_RE.finditer(txt):
+                    olds += [(m.group(2), n, int(m.group(3))) for n in NUM_RE.findall(m.group(1))]
+                for t, n, ed in olds:
+                    o = ukey(t, n)
+                    for new in keys:
+                        if o != new:
+                            edges.append((o, new, yr, "based"))
+                            stats["based edges"] += 1
+                if "Source (U.S. Code)" not in note:
+                    continue
+                for row in re.findall(r"<tr\b[^>]*>(.*?)</tr>", note, re.S):
+                    cells = re.findall(r"<td\b[^>]*>(.*?)</td>", row, re.S)
+                    if len(cells) < 2:
+                        continue
+                    cur, app = None, False
+                    for m in CELL_RE.finditer(flat(cells[1])):
+                        if m.group(1):
+                            cur, app = m.group(1), bool(m.group(2))
+                        if cur is None or m.group(5) or "note" in (m.group(4) or ""):
+                            continue                # "49:101 (note)": the source is a note, not the section
+                        o = ukey(cur + ("app" if app else ""), m.group(3))
+                        for new in keys:
+                            if o != new:
+                                edges.append((o, new, yr, "table"))
+                                stats["table edges"] += 1
+    edges = sorted(set(edges))
+    stats["edges (distinct)"] = len(edges)
+    stats["live sections"] = len(live)
+    stats["old numbers also live today (reused)"] = len({e[0] for e in edges} & live)
+    return {"version": MAP_VERSION, "live": sorted(live), "edges": edges, "stats": dict(stats)}
+
+
+class UscMap:
+    def __init__(self, m):
+        self.live = set(m["live"])
+        self.out = defaultdict(list)
+        for old, new, yr, src in m["edges"]:
+            self.out[old].append((new, yr, src))
+
+    def step(self, key, year, after=0):
+        """edges that apply to a citation of key in a decision filed in year (0 = unknown); after: the year of the move
+        that led here, so only later moves apply (else a chain runs on through a reused number's own history)"""
+        reused = key in self.live
+        return [(n, y, s) for n, y, s in self.out.get(key, ())
+                if (not after or (y and y > after)) and (not reused or (year and y and year < y))]
+
+    def resolve(self, key, year=0, depth=6, after=0):
+        """-> current keys (several when a section was split), following chains of moves"""
+        nxt = self.step(key, year, after)
+        if not nxt or depth == 0:
+            return [key]
+        out = []
+        for n, y, s in nxt:
+            for k in self.resolve(n, max(year, y), depth - 1, y or after):
+                if k not in out:
+                    out.append(k)
+        return out
+
+
+def map_path():
+    return usc_dir() / "usc_map.json"
+
+
+def load_map():
+    import json
+    return UscMap(json.loads(map_path().read_text()))
+
+
+CHECKS = [("42:1973", 2010, "52:10301"), ("18:80", 1940, "18:1001"), ("49:1651", 1980, "49:101"),
+          ("16:1", 2000, None)]
+
+
+def cmd_usc_map(args):
+    import json
+    xml_dir = Path(args.xml or Path(__file__).resolve().parent / "xml")
+    m = build_map(xml_dir)
+    if not args.dry:
+        p = map_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_text(json.dumps(m))
+        tmp.replace(p)
+        print("wrote %s" % p)
+    for k, v in m["stats"].items():
+        print("  %-40s %s" % (k, format(v, ",")))
+    um = UscMap(m)
+    print("spot checks (key, citing year -> resolved; expected):")
+    for key, yr, want in CHECKS:
+        got = um.resolve(key, yr)
+        print("  %-10s %d -> %-30s %s %s" % (key, yr, ", ".join(got), want or "", "" if not want else ("ok" if want in got else "MISSING")))
+    for key in args.key or []:
+        k, _, y = key.partition("@")
+        print("  %s -> %s   edges: %s" % (key, um.resolve(k, int(y or 0)), um.out.get(k, [])[:8]))
+
+
+
+# ================================================================ step 4: the map against the data (usc-check)
+# Partners of a statute in a set of decisions = the cases (cocite-cache citing/cited) and other Code sections those
+# decisions cite, weighted tf-idf (count x log(N / document frequency)) so hubs (Celotex, 28 U.S.C. § 1291) count
+# little. Two statutes that are one provision under two numbers should have the same partners on either side of the
+# move: cosine(partners of A before the move, partners of B after it).
+TITLED = (HOW_CODE["span"], HOW_CODE["regex"], HOW_CODE["short-resolved"], HOW_CODE["short-default"])
+
+
+def op2ref():
+    """opinion id -> cluster id, cached as cocite-cache/usc/op2ref.npy (prep's pairing of the two indexes)"""
+    import cocite
+    f = usc_dir() / "op2ref.npy"
+    if f.exists():
+        return np.load(f, mmap_mode="r")
+    t0 = time.time()
+    ops = cp.ops_db()
+    a = cocite.fetch_array(ops.execute("SELECT rowid, id FROM opinions INDEXED BY opinions_by_id"), 2)
+    b = cocite.fetch_array(ops.execute("SELECT rowid, coalesce(cluster_id, -1) FROM opinions INDEXED BY opinions_by_cluster"), 2)
+    a, b = a[np.argsort(a[:, 0], kind="stable")], b[np.argsort(b[:, 0], kind="stable")]
+    if len(a) != len(b) or not np.array_equal(a[:, 0], b[:, 0]):
+        sys.exit("the two opinion indexes disagree; is opinions.sqlite complete?")
+    m = np.full(int(a[:, 1].max()) + 1, -1, np.int32)
+    m[a[:, 1]] = b[:, 1]
+    tmp = f.with_name("op2ref.tmp.npy")
+    np.save(tmp, m)
+    tmp.replace(f)
+    print("opinions -> cases: %s  (%.1f min)" % (format(len(a), ","), (time.time() - t0) / 60), flush=True)
+    return m
+
+
+def load_refs(courts=None):
+    """all usc shards -> decision, key id, year arrays (one row per decision x section), key names"""
+    import cocite
+    o2r = op2ref()
+    ry = np.load(cocite.CACHE / "ref_year.npy", mmap_mode="r")
+    lvl = np.load(cocite.CACHE / "level.npy", mmap_mode="r")
+    keys, kid, D, K, n_sh = [], {}, [], [], 0
+    for f in sorted(usc_dir().glob("*-*.npz")):
+        with np.load(f) as z:
+            if int(z["version"]) != USC_VERSION:
+                continue
+            n_sh += 1
+            ok = np.isin(z["how"], TITLED)
+            op, ref = z["op"][ok], z["ref"][ok]
+        u, inv = np.unique(ref, return_inverse=True)
+        gid = np.array([kid.setdefault(k.decode(), len(kid)) for k in u.tolist()], dtype=np.int32)
+        dec = np.where(op < len(o2r), o2r[np.minimum(op, len(o2r) - 1)], -1)
+        good = dec >= 0
+        D.append(dec[good].astype(np.int32))
+        K.append(gid[inv][good])
+    keys = [None] * len(kid)
+    for k, i in kid.items():
+        keys[i] = k
+    dec, key = np.concatenate(D), np.concatenate(K)
+    pair = np.unique((dec.astype(np.int64) << 32) | key.astype(np.int64))
+    dec, key = (pair >> 32).astype(np.int32), (pair & 0xFFFFFFFF).astype(np.int32)
+    ok = dec < len(ry)
+    dec, key = dec[ok], key[ok]
+    yr = np.asarray(ry)[dec].astype(np.int32)
+    keep = yr > 0
+    if courts:
+        keep &= np.isin(np.asarray(lvl)[dec], courts)
+    print("%d shards: %s decision x section rows, %s sections" % (n_sh, format(int(keep.sum()), ","), format(len(keys), ",")),
+          flush=True)
+    return dec[keep], key[keep], yr[keep], keys
+
+
+def _ranges(a, b):
+    """concatenated aranges a[i]..b[i]"""
+    n = b - a
+    if n.sum() == 0:
+        return np.zeros(0, np.int64)
+    rep = np.repeat(np.arange(len(a)), n)
+    off = np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n)
+    return a[rep] + off, rep
+
+
+class Partners:
+    """Profiles as sparse rows: (statute, decision set) x partners (cases, then Code sections), tf-idf weighted."""
+
+    def __init__(self, dec, key, yr, nkeys):
+        import cocite
+        self.ci = np.asarray(np.load(cocite.CACHE / "citing.npy", mmap_mode="r"))
+        self.cd = np.asarray(np.load(cocite.CACHE / "cited.npy", mmap_mode="r"))
+        self.dec, self.key, self.yr, self.nkeys = dec, key, yr, nkeys
+        o = np.argsort(key, kind="stable")
+        self.by_key = o
+        self.kstart = np.searchsorted(key[o], np.arange(nkeys + 1))
+        o2 = np.argsort(dec, kind="stable")
+        self.d_sorted, self.k_by_dec = dec[o2], key[o2]
+        self.ncase = int(self.cd.max()) + 1
+        n_all = len(np.unique(self.ci))
+        n_dec = max(len(np.unique(dec)), 1)
+        self.idf = np.concatenate([np.log(n_all / np.maximum(np.bincount(self.cd, minlength=self.ncase), 1)),
+                                   np.log(n_dec / np.maximum(np.bincount(key, minlength=nkeys), 1))])
+
+    def decisions(self, k, lo, hi):
+        rows = self.by_key[self.kstart[k]:self.kstart[k + 1]]
+        y = self.yr[rows]
+        return np.unique(self.dec[rows][(y >= lo) & (y < hi)])
+
+    def matrix(self, groups):
+        """groups: [(key, lo, hi)] -> L2-normalised sparse rows of partners; the row's own key column zeroed"""
+        from scipy import sparse
+        R, C = [], []
+        for i, (k, lo, hi) in enumerate(groups):
+            d = self.decisions(k, lo, hi)
+            R.append(np.full(len(d), i))
+            C.append(d)
+        if not groups:
+            return sparse.csr_matrix((0, self.ncase + self.nkeys))
+        R, C = np.concatenate(R), np.concatenate(C)
+        ud, cinv = np.unique(C, return_inverse=True)
+        G = sparse.csr_matrix((np.ones(len(R)), (R, cinv)), shape=(len(groups), len(ud)))
+        idx, rep = _ranges(np.searchsorted(self.ci, ud, "left"), np.searchsorted(self.ci, ud, "right"))
+        idx2, rep2 = _ranges(np.searchsorted(self.d_sorted, ud, "left"), np.searchsorted(self.d_sorted, ud, "right"))
+        rows = np.concatenate([rep, rep2])
+        cols = np.concatenate([self.cd[idx].astype(np.int64), self.ncase + self.k_by_dec[idx2].astype(np.int64)])
+        M = sparse.csr_matrix((np.ones(len(rows)), (rows, cols)), shape=(len(ud), self.ncase + self.nkeys))
+        F = (G @ M).tocsr()
+        own = np.array([self.ncase + k for k, lo, hi in groups])
+        vals = np.asarray(F[np.arange(len(groups)), own]).ravel()
+        F = (F - sparse.csr_matrix((vals, (np.arange(len(groups)), own)), shape=F.shape)).tocsr()
+        F.eliminate_zeros()
+        F = F.multiply(self.idf[np.newaxis, :]).tocsr()
+        norm = np.sqrt(np.asarray(F.multiply(F).sum(axis=1)).ravel())
+        norm[norm == 0] = 1
+        return sparse.diags(1 / norm) @ F
+
+
+def rowcos(A, B):
+    """cosine of row i of A with row i of B (rows already normalised)"""
+    return np.asarray(A.multiply(B).sum(axis=1)).ravel()
+
+
+def cmd_usc_check(args):
+    import cocite, json
+    courts, tag = cocite.parse_courts(args.courts)
+    um = load_map()
+    dec, key, yr, keys = load_refs(courts)
+    kid = {k: i for i, k in enumerate(keys)}
+    P = Partners(dec, key, yr, len(keys))
+    rnd = random.Random(args.seed)
+    W, MIN = args.window, args.min
+    out_dir = usc_dir()
+
+    # ---- 1. known edges: partners of A in the window before the move vs B in the window after
+    hold = set(args.holdout.split(",")) if args.holdout else set()
+    edges = [(o, n, y, s) for o, lst in um.out.items() for n, y, s in lst]
+    testable = [(o, n, y, s) for o, n, y, s in edges if y and o in kid and n in kid]
+    rnd.shuffle(testable)
+    sel = [e for e in testable if len(P.decisions(kid[e[0]], e[2] - W, e[2])) >= MIN
+           and len(P.decisions(kid[e[1]], e[2], e[2] + W)) >= MIN][:args.max_edges]
+    A = P.matrix([(kid[o], y - W, y) for o, n, y, s in sel])
+    B = P.matrix([(kid[n], y, y + W) for o, n, y, s in sel])
+    real = rowcos(A, B)
+    perm = np.array([rnd.randrange(len(sel)) for _ in sel]) if sel else np.zeros(0, int)
+    null = rowcos(A, B[perm]) if sel else np.zeros(0)
+    null = null[perm != np.arange(len(sel))]
+    rows = sorted(zip(real.tolist(), [e[0] for e in sel], [e[1] for e in sel], [e[2] for e in sel], [e[3] for e in sel]))
+    q = lambda v, f: float(np.quantile(v, f)) if len(v) else float("nan")
+    print("\n1. known moves with >= %d citing decisions on both sides (window %d years): %d of %d dated edges"
+          % (MIN, W, len(sel), len(testable)))
+    print("   cosine   real: median %.2f  (10%% %.2f, 90%% %.2f)   null (random target): median %.2f  (90%% %.2f)"
+          % (q(real, .5), q(real, .1), q(real, .9), q(null, .5), q(null, .9)))
+    cut = q(null, .9)
+    for src in ("stub", "based", "table"):
+        v = [r[0] for r in rows if r[4] == src]
+        if v:
+            print("   %-6s %4d edges, median %.2f, below the null's 90%%: %d" % (src, len(v), q(v, .5), sum(x < cut for x in v)))
+    print("   lowest (wrong edge, reused number, or a provision that changed with the move):")
+    for c, o, n, y, s in rows[:args.show]:
+        print("     %.2f  %-12s -> %-12s %d %s" % (c, o, n, y, s))
+
+    # ---- 2. moves the data suggests: A falls while B rises across a slice transition, same partners
+    known = {(o, n) for o, n, y, s in edges if n.split(":")[0] not in hold}
+    held = {(o, n) for o, n, y, s in edges if n.split(":")[0] in hold}
+    sl = (yr // 5) * 5
+    cnt = {}
+    for s in range(args.first, args.last + 6, 5):
+        u, c = np.unique(key[sl == s], return_counts=True)
+        cnt[s] = dict(zip(u.tolist(), c.tolist()))
+    cands, detectable = [], set()
+    for s in range(args.first, args.last + 1, 5):
+        t = s + 5
+        risers = [k for k, c in cnt[t].items() if c >= MIN and cnt[s].get(k, 0) <= args.rise * c]
+        fallers = [k for k, c in cnt[s].items() if c >= MIN and cnt[t].get(k, 0) < c]
+        rs, fs = set(risers), set(fallers)
+        for o, n in held:
+            if o in kid and n in kid and kid[n] in rs and kid[o] in fs:
+                detectable.add((o, n))
+        if not risers or not fallers:
+            continue
+        F = P.matrix([(k, s, s + 5) for k in fallers])
+        Rm = P.matrix([(k, t, t + 5) for k in risers])
+        S = (Rm @ F.T).toarray()                                  # risers x fallers
+        for i, b in enumerate(risers):
+            for j in np.argsort(-S[i])[:3]:
+                if S[i, j] >= args.min_cos:
+                    a = fallers[j]
+                    cands.append((float(S[i, j]), keys[a], keys[b], t, cnt[s][a], cnt[t][b]))
+        print("   %d-%02d -> %d-%02d: %d falling, %d rising" % (s, (s + 4) % 100, t, (t + 4) % 100, len(fallers), len(risers)),
+              flush=True)
+    cands.sort(reverse=True)
+    found = {(o, n) for c, o, n, *_ in cands}
+    print("\n2. candidate moves (a section falling while another rises, cosine >= %.2f): %d" % (args.min_cos, len(cands)))
+    print("   already in the map: %d; not in the map: %d" % (sum(f in known for f in found),
+                                                           sum(f not in known and f not in held for f in found)))
+    if hold:
+        hit = detectable & found
+        print("   held-out titles %s: %d held-out moves detectable (both sides cited, A falling, B rising), "
+              "%d found = recall %.0f%%" % (",".join(sorted(hold)), len(detectable), len(hit),
+                                            100 * len(hit) / max(1, len(detectable))))
+    print("   strongest not in the map (check by hand; never applied automatically):")
+    shown = 0
+    for c, o, n, t, na, nb in cands:
+        if (o, n) in known or (o, n) in held:
+            continue
+        print("     %.2f  %-12s -> %-12s %d-%02d  (%d decisions before, %d after)" % (c, o, n, t, (t + 4) % 100, na, nb))
+        shown += 1
+        if shown >= args.show:
+            break
+    rows = [list(r) for r in rows]
+    null = null.tolist()
+    p = out_dir / ("usc-check-%s.json" % tag)
+    p.write_text(json.dumps({"edges": rows, "null": null, "candidates": cands}))
+    print("\nwrote %s" % p)
+
+
+
 def add_parser(sub):
     p = sub.add_parser("usc-sample", help="how US Code cites appear in opinion text (cocite_usc.py); writes nothing")
     p.add_argument("--n", type=int, default=2000, help="random opinions to read")
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--examples", type=int, default=0, metavar="K", help="print K random examples of each kind")
     p.set_defaults(func=cmd_sample)
+    p = sub.add_parser("usc-extract", help="every US Code reference, in positions' coordinates (cocite_usc.py)")
+    p.add_argument("--show", type=int, metavar="OPINION_ID", help="one opinion's references with context")
+    p.add_argument("--sample", type=int, metavar="N", help="N random opinions: rates; writes nothing")
+    p.add_argument("--status", action="store_true")
+    p.add_argument("--workers", type=int)
+    p.add_argument("--shard-size", dest="shard_size", type=int, default=cp.SHARD)
+    p.add_argument("--limit", type=int, help="at most this many shards (a trial run)")
+    p.add_argument("--out", help="shard folder (default: cocite-cache/usc)")
+    p.set_defaults(func=cmd_usc_extract)
+    p = sub.add_parser("usc-map", help="old Code numbers -> current, from the notes in xml/ (cocite_usc.py)")
+    p.add_argument("--xml", help="folder of usc*.xml (default: xml/ beside the scripts)")
+    p.add_argument("--key", action="append", metavar="T:S[@YEAR]", help="show how one number resolves")
+    p.add_argument("--dry", action="store_true", help="build and report, write nothing")
+    p.set_defaults(func=cmd_usc_map)
+    p = sub.add_parser("usc-check", help="the identity map against the citation data (cocite_usc.py)")
+    p.add_argument("--courts", default="appellate", help="citing courts (default: appellate)")
+    p.add_argument("--window", type=int, default=10, help="years before / after a move")
+    p.add_argument("--min", type=int, default=20, help="citing decisions needed on each side")
+    p.add_argument("--max-edges", dest="max_edges", type=int, default=3000, help="known edges tested (a random subset)")
+    p.add_argument("--first", type=int, default=1940, help="first slice for candidate moves")
+    p.add_argument("--last", type=int, default=2020)
+    p.add_argument("--rise", type=float, default=0.25, help="a riser's earlier slice holds at most this share of its later one")
+    p.add_argument("--min-cos", dest="min_cos", type=float, default=0.5)
+    p.add_argument("--holdout", help="target titles whose map edges are hidden, to measure recall, e.g. 34,52,54")
+    p.add_argument("--show", type=int, default=15)
+    p.add_argument("--seed", type=int, default=0)
+    p.set_defaults(func=cmd_usc_check)
     return p
 
 
