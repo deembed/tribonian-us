@@ -7,6 +7,8 @@
     ./cocite.py usc-extract --sample 2000       # rates by how/part, commonest sections and popular names
     ./cocite.py usc-map                         # step 3: old numbers -> current, from xml/ notes -> cocite-cache/usc/usc_map.json
     ./cocite.py usc-check --holdout 34,52,54    # step 4: map vs data (after the full run)
+    ./cocite.py usc-profile                     # step 5: provisions per sub-cluster -> cocite-cache/usc/profile-<view>.sqlite
+    ./cocite.py usc-profile --node 42:1983      #   which sub-clusters cite a provision; --sub 2010:17 the reverse
     ./cocite.py usc-extract                     # full run -> cocite-cache/usc/, sharded, resumable, all cores
 
 Step 1 measures, per random opinion with html_with_citations (the only field positions reads):
@@ -522,7 +524,7 @@ def cmd_usc_extract(args):
 # was reused, e.g. old 49 § 1651 -> 49 § 101 in 1994), the edge applies only to decisions filed before its year.
 # Edge years: a stub's latest date in its note, else the reclassification year of its target title; based/table:
 # the year of the section's first source credit (the revising act).
-MAP_VERSION = 1
+MAP_VERSION = 2                                 # 2: range stubs (s11601...11610) read paragraph by paragraph
 RECLASS_YEAR = {"34": 2017, "52": 2014, "54": 2014}        # editorial reclassifications with no date in the stub note
 MOVE_RE = re.compile(r"(?:reclassified|transferred|renumbered|redesignated)\s+(?:as|to)\s*(?:<[^>]+>\s*)*?"
                      r"(?:<ref\s+href=\"/us/usc/t(\w+)/s([^\"/]+)\")", re.S)
@@ -579,18 +581,32 @@ def build_map(xml_dir):
             if status == "":
                 live.update(keys)
             if status == "transferred":
+                # one move per paragraph: "Section 11601, ..., was editorially reclassified as section 9001 of Title 22."
+                # A range stub (identifier s11601...11610) names each section in its own paragraph; a single stub's
+                # paragraph may say just "Section, Pub. L. ..." (this section).
                 stats["stubs"] += 1
-                targets = [ukey(t, s) for t, s in MOVE_RE.findall(body)]
-                if not targets:
+                found = 0
+                for para in re.findall(r"<p\b[^>]*>(.*?)</p>", body, re.S) or [body]:
+                    targets = [ukey(t, s) for t, s in MOVE_RE.findall(para)]
+                    if not targets:
+                        continue
+                    if len(keys) == 1 and "..." not in keys[0]:
+                        olds = keys                         # a single stub: its identifier is authoritative
+                    else:                                   # a range stub: the paragraph names the section
+                        # letters may be set in their own tag ("1973<i>l</i>"), which flattening spaces apart
+                        num = re.match(r"\s*Sections?\s+(\d+)\s?([A-Za-z]{0,4})((?:\s?[-–]\s?\d+[A-Za-z]*)?)\b", flat(para))
+                        olds = [ukey(title, num.group(1) + num.group(2) + num.group(3).replace(" ", ""))] if num else []
+                    mv = MOVE_RE.search(para)              # the moving act's date comes after the verb
+                    dates = [int(y) for y in re.findall(r'date="(\d{4})', para[mv.start():])]
+                    for old in olds:
+                        for new in dict.fromkeys(targets):
+                            if new != old:
+                                yr = min(dates) if dates else RECLASS_YEAR.get(new.split(":")[0], 0)
+                                edges.append((old, new, yr, "stub"))
+                                stats["stub edges"] += 1
+                                found += 1
+                if not found:
                     stats["stubs without a target"] += 1
-                    continue
-                dates = [int(y) for y in re.findall(r'date="(\d{4})', body)]
-                for old in keys:
-                    for new in dict.fromkeys(targets):
-                        if new != old:
-                            yr = max(dates) if dates else RECLASS_YEAR.get(new.split(":")[0], 0)
-                            edges.append((old, new, yr, "stub"))
-                            stats["stub edges"] += 1
                 continue
             if status:
                 continue
@@ -633,29 +649,78 @@ def build_map(xml_dir):
 
 
 class UscMap:
+    """Separate nodes, linked over time (decided 2026-10-15). A citation keeps the number it was cited by; nothing is
+    rewritten. Node id = that number, plus an era when the number was reused for a different provision: old
+    49 § 1651 cited before its 1983 move is node "49:1651@-1983", today's 49 § 1651 is "49:1651". The map's edges become
+    lineage links between nodes (links()), the way cluster lineages link clusters across slices; a split (28 § 41,
+    1940 ed., into 30 sections) is one node with 30 links, and nothing is spread across the successors."""
+
     def __init__(self, m):
         self.live = set(m["live"])
         self.out = defaultdict(list)
         for old, new, yr, src in m["edges"]:
             self.out[old].append((new, yr, src))
+        # a live number with dated moves out of it was reused: its eras end at those years
+        self.ends = {k: sorted({y for n, y, s in v if y}) for k, v in self.out.items() if k in self.live}
 
-    def step(self, key, year, after=0):
-        """edges that apply to a citation of key in a decision filed in year (0 = unknown); after: the year of the move
-        that led here, so only later moves apply (else a chain runs on through a reused number's own history)"""
-        reused = key in self.live
-        return [(n, y, s) for n, y, s in self.out.get(key, ())
-                if (not after or (y and y > after)) and (not reused or (year and y and year < y))]
+    def node(self, key, year=0):
+        """the node a citation of key in a decision filed in year belongs to (year 0 = unknown: the current era)"""
+        for y in self.ends.get(key, ()):
+            if year and year < y:
+                return "%s@-%d" % (key, y)
+        return key
 
-    def resolve(self, key, year=0, depth=6, after=0):
-        """-> current keys (several when a section was split), following chains of moves"""
-        nxt = self.step(key, year, after)
-        if not nxt or depth == 0:
-            return [key]
+    def links(self):
+        """[(from node, to node, year, source)]: a move out of key in year y leaves key's era ending at y
+        (or key itself when the number was not reused) for the node its target had in y"""
         out = []
-        for n, y, s in nxt:
-            for k in self.resolve(n, max(year, y), depth - 1, y or after):
+        for old, lst in self.out.items():
+            for new, y, s in lst:
+                src = "%s@-%d" % (old, y) if (old in self.live and y) else old
+                out.append((src, self.node(new, y) if y else new, y, s))
+        return out
+
+    def _by(self):
+        if not hasattr(self, "_adj"):
+            self._adj = defaultdict(list)
+            for a, b, y, s in self.links():
+                self._adj[a].append((b, y, s))
+        return self._adj
+
+    def resolve(self, key, year=0):
+        """where a citation of key in a decision of year points today: its node, followed through the lineage links
+        to the end -> current numbers (several after a split; [key] when it never moved). For marking cites
+        (usc_status.py); co-citation itself keeps the cited node and never rewrites it."""
+        by, start = self._by(), self.node(key, year)
+        if not by.get(start):
+            return [key]
+        out, todo, seen = [], [start], {start}
+        while todo:
+            n = todo.pop(0)
+            nxt = by.get(n, ())
+            if not nxt and n != start:
+                k = n.partition("@-")[0]
                 if k not in out:
                     out.append(k)
+            for b, y, s in nxt:
+                if b not in seen:
+                    seen.add(b)
+                    todo.append(b)
+        return out or [key]
+
+    def successors(self, node, depth=6):
+        """chains of links from a node -> [(node, year, source, depth)], for timelines"""
+        by = self._by()
+        out, todo, seen = [], [(node, 0)], {node}
+        while todo:
+            n, d = todo.pop(0)
+            if d >= depth:
+                continue
+            for b, y, s in by.get(n, ()):
+                if b not in seen:
+                    seen.add(b)
+                    out.append((b, y, s, d + 1))
+                    todo.append((b, d + 1))
         return out
 
 
@@ -668,8 +733,8 @@ def load_map():
     return UscMap(json.loads(map_path().read_text()))
 
 
-CHECKS = [("42:1973", 2010, "52:10301"), ("18:80", 1940, "18:1001"), ("49:1651", 1980, "49:101"),
-          ("16:1", 2000, None)]
+CHECKS = [("42:1973", 2010, "52:10301"), ("42:11603", 2010, "22:9003"), ("18:80", 1940, "18:1001"),
+          ("49:1651", 1980, "49:101"), ("28:41", 1945, "28:1331"), ("16:1", 2000, None)]
 
 
 def cmd_usc_map(args):
@@ -686,13 +751,19 @@ def cmd_usc_map(args):
     for k, v in m["stats"].items():
         print("  %-40s %s" % (k, format(v, ",")))
     um = UscMap(m)
-    print("spot checks (key, citing year -> resolved; expected):")
+    links = um.links()
+    print("  %-40s %s" % ("lineage links", format(len(links), ",")))
+    print("  %-40s %s" % ("numbers with reuse eras", format(len(um.ends), ",")))
+    print("spot checks (cited number, year -> node; successors):")
     for key, yr, want in CHECKS:
-        got = um.resolve(key, yr)
-        print("  %-10s %d -> %-30s %s %s" % (key, yr, ", ".join(got), want or "", "" if not want else ("ok" if want in got else "MISSING")))
+        n = um.node(key, yr)
+        nxt = [b for b, y, s, d in um.successors(n)]
+        print("  %-10s %d -> %-16s -> %-40s %s" % (key, yr, n, ", ".join(nxt[:4]) + (" +%d" % (len(nxt) - 4) if len(nxt) > 4 else ""),
+              "" if not want else ("ok" if want in nxt else "MISSING")))
     for key in args.key or []:
         k, _, y = key.partition("@")
-        print("  %s -> %s   edges: %s" % (key, um.resolve(k, int(y or 0)), um.out.get(k, [])[:8]))
+        n = um.node(k, int(y or 0))
+        print("  %s -> node %s; successors: %s" % (key, n, um.successors(n)[:12]))
 
 
 
@@ -926,6 +997,243 @@ def cmd_usc_check(args):
 
 
 
+# ================================================================ step 5: statute profile on the shared clusters
+# Per slice of a results view: every citing decision is assigned to its home sub-cluster (the one most of its cited
+# cases fall in, as the case notes' "who cites it" does), then the Code nodes those decisions cite are counted.
+# Row (slice, sub, node): n decisions, share = n / the sub's decisions, lift = share / the node's share of all
+# assigned decisions in the slice. Nodes are UscMap.node(): the number as cited, with a reuse era when needed.
+PROFILE_VERSION = 1
+
+
+def profile_path(view):
+    return usc_dir() / ("profile-%s.sqlite" % view)
+
+
+def home_subs(ci, cd, edge_year, lvl, sub_of, s, codes):
+    """decisions of slice s (citing courts in codes) -> (decision ids sorted, home sub of each)"""
+    m = (edge_year >= s) & (edge_year < s + 5)
+    D, R = ci[m], cd[m]
+    if codes:
+        k = np.isin(lvl[D], codes)
+        D, R = D[k], R[k]
+    S = sub_of[np.minimum(R, len(sub_of) - 1)]
+    S[R >= len(sub_of)] = -1
+    k = S >= 0
+    D, S = D[k].astype(np.int64), S[k].astype(np.int64)
+    if not len(D):
+        return np.zeros(0, np.int64), np.zeros(0, np.int64)
+    u, c = np.unique((D << 24) | S, return_counts=True)
+    d, sb = u >> 24, u & 0xFFFFFF
+    o = np.lexsort((-c, d))                          # per decision, the sub with most cites first (ties: lowest id)
+    d, sb = d[o], sb[o]
+    first = np.ones(len(d), bool)
+    first[1:] = d[1:] != d[:-1]
+    return d[first], sb[first]
+
+
+def cmd_usc_profile(args):
+    import cocite
+    view = args.view
+    if args.node or args.sub:
+        return profile_query(args)
+    db = cocite.open_view(view)
+    if db is None:
+        sys.exit("no results view %s: ./cocite.py build first" % view)
+    codes, _ = cocite.parse_courts(view)
+    um = load_map()
+    dec, key, yr, keys = load_refs(codes)
+    t0 = time.time()
+    ci = np.asarray(np.load(cocite.CACHE / "citing.npy", mmap_mode="r"))
+    cd = np.asarray(np.load(cocite.CACHE / "cited.npy", mmap_mode="r"))
+    ey = np.asarray(np.load(cocite.CACHE / "year.npy", mmap_mode="r"))
+    lvl = np.asarray(np.load(cocite.CACHE / "level.npy", mmap_mode="r"))
+    import shutil, tempfile
+    p = profile_path(view)
+    tmpdir = Path(tempfile.mkdtemp(prefix="usc-profile-"))    # built locally, moved into place when complete
+    tmp = tmpdir / p.name
+    out = sqlite3.connect(tmp)
+    out.executescript("""
+        CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE subn(slice INTEGER, sub INTEGER, decisions INTEGER, PRIMARY KEY(slice, sub));
+        CREATE TABLE noden(slice INTEGER, node TEXT, decisions INTEGER, PRIMARY KEY(slice, node));
+        CREATE TABLE prof(slice INTEGER, sub INTEGER, node TEXT, n INTEGER, share REAL, lift REAL);
+    """)
+    node_cache = {}
+
+    def node(k, y):
+        t = (k, y)
+        if t not in node_cache:
+            node_cache[t] = um.node(keys[k], int(y))
+        return node_cache[t]
+
+    for (s,) in db.execute("SELECT slice FROM slices ORDER BY slice").fetchall():
+        nodes = np.array(db.execute("SELECT ref, sub FROM nodes WHERE slice=? AND sub > 0", (s,)).fetchall(), dtype=np.int64)
+        if not len(nodes):
+            continue
+        sub_of = np.full(int(nodes[:, 0].max()) + 1, -1, np.int64)
+        sub_of[nodes[:, 0]] = nodes[:, 1]
+        dd, ds = home_subs(ci, cd, ey, lvl, sub_of, s, codes)
+        if not len(dd):
+            continue
+        n_all = len(dd)
+        subn = Counter(ds.tolist())
+        m = (yr >= s) & (yr < s + 5)
+        D, K, Y = dec[m].astype(np.int64), key[m], yr[m]
+        i = np.searchsorted(dd, D)
+        ok = (i < len(dd)) & (dd[np.minimum(i, len(dd) - 1)] == D)
+        D, K, Y, H = D[ok], K[ok], Y[ok], ds[i[ok]]
+        pairs = {(int(d), node(int(k), int(y)), int(h)) for d, k, y, h in zip(D.tolist(), K.tolist(), Y.tolist(), H.tolist())}
+        by_node, by_sub_node = Counter(), Counter()
+        for d, nd, h in pairs:
+            by_node[nd] += 1
+            by_sub_node[(h, nd)] += 1
+        out.executemany("INSERT INTO subn VALUES (?,?,?)", [(s, b, n) for b, n in subn.items()])
+        out.executemany("INSERT INTO noden VALUES (?,?,?)", [(s, nd, n) for nd, n in by_node.items()])
+        rows = []
+        for (h, nd), n in by_sub_node.items():
+            if n >= args.min_n:
+                share = n / subn[h]
+                rows.append((s, h, nd, n, share, share / (by_node[nd] / n_all)))
+        out.executemany("INSERT INTO prof VALUES (?,?,?,?,?,?)", rows)
+        print("  %d-%02d: %s decisions in %d sub-clusters, %s cite the Code; %s rows"
+              % (s, (s + 4) % 100, format(n_all, ","), len(subn), format(len({d for d, _, _ in pairs}), ","),
+                 format(len(rows), ",")), flush=True)
+    out.executescript("""
+        CREATE INDEX prof_by_sub ON prof(slice, sub);
+        CREATE INDEX prof_by_node ON prof(node, slice);
+    """)
+    out.executemany("INSERT INTO meta VALUES (?,?)", [
+        ("version", str(PROFILE_VERSION)), ("view", view), ("usc_version", str(USC_VERSION)),
+        ("map_version", str(MAP_VERSION)), ("results_built", str(db.execute("SELECT max(built) FROM slices").fetchone()[0])),
+        ("built", time.strftime("%Y-%m-%d %H:%M"))])
+    out.commit()
+    out.close()
+    part = p.with_name(p.name + ".part")
+    shutil.copyfile(tmp, part)
+    part.replace(p)
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    print("wrote %s  (%.1f min)" % (p, (time.time() - t0) / 60))
+
+
+def profile_db(view):
+    p = profile_path(view)
+    if not p.exists():
+        sys.exit("no profile yet: ./cocite.py usc-profile --view %s" % view)
+    return sqlite3.connect("file:%s?mode=ro&immutable=1" % p, uri=True)
+
+
+def profile_query(args):
+    import cocite
+    db, pr = cocite.open_view(args.view), profile_db(args.view)
+    if args.node:
+        nodes = [r[0] for r in pr.execute("SELECT DISTINCT node FROM noden WHERE node = ? OR node LIKE ?",
+                                          (args.node, args.node + "@%"))]
+        for nd in nodes:
+            print("%s: which sub-clusters' decisions cite it (top %d per slice, n >= %d)" % (nd, args.top, args.min_n))
+            for (s,) in pr.execute("SELECT DISTINCT slice FROM prof WHERE node=? ORDER BY slice", (nd,)).fetchall():
+                tot = pr.execute("SELECT decisions FROM noden WHERE slice=? AND node=?", (s, nd)).fetchone()[0]
+                print("  %d-%02d  (%s decisions)" % (s, (s + 4) % 100, format(tot, ",")))
+                for sub, n, share, lift in pr.execute("SELECT sub, n, share, lift FROM prof WHERE slice=? AND node=? "
+                                                      "ORDER BY n DESC LIMIT ?", (s, nd, args.top)):
+                    name = cocite.unit_name(db, s, sub, "sub")[0]
+                    print("     %5d  %4.1f%% of its decisions  lift %5.1f  %s" % (n, 100 * share, lift, name))
+    if args.sub:
+        s, sub = (int(x) for x in args.sub.split(":"))
+        name = cocite.unit_name(db, s, sub, "sub")[0]
+        tot = pr.execute("SELECT decisions FROM subn WHERE slice=? AND sub=?", (s, sub)).fetchone()
+        print("%d-%02d sub-cluster %d, %s: %s decisions" % (s, (s + 4) % 100, sub, name, format(tot[0] if tot else 0, ",")))
+        print("  provisions its decisions cite, by lift (n >= %d):" % args.min_n)
+        for nd, n, share, lift in pr.execute("SELECT node, n, share, lift FROM prof WHERE slice=? AND sub=? AND n >= ? "
+                                             "ORDER BY lift DESC LIMIT ?", (s, sub, args.min_n, args.top)):
+            print("     %-16s %5d  %4.1f%%  lift %6.1f" % (nd, n, 100 * share, lift))
+
+
+
+# ================================================================ "Cited with" in the US Code section notes (usc2md.py)
+_SEC = {}
+
+
+def _sec_state(view):
+    """(results view, profile db, map, links into each node) once per process; None when not built"""
+    if view not in _SEC:
+        import cocite
+        try:
+            db, p = cocite.open_view(view), profile_path(view)
+            if db is None or not p.exists() or not map_path().exists():
+                raise FileNotFoundError
+            pr = sqlite3.connect("file:%s?mode=ro&immutable=1" % p, uri=True)
+            um = load_map()
+            into = defaultdict(list)
+            for a, b, y, s in um.links():
+                into[b].append((a, y))
+            _SEC[view] = (db, pr, um, into)
+        except (FileNotFoundError, SystemExit, sqlite3.Error):
+            _SEC[view] = None
+    return _SEC[view]
+
+
+def note_link(node):
+    """'42:1973' -> '[[42-usc-1973|42 U.S.C. § 1973]]'; an era node names its end year"""
+    key, _, era = node.partition("@-")
+    t, s = key.split(":", 1)
+    txt = "%s U.S.C. § %s" % (t, s)
+    return "[[%s-usc-%s|%s]]%s" % (t.lower(), s, txt, " (as cited before %s)" % era if era else "")
+
+
+def section_md(identifier, view=None, top=3, min_n=5):
+    """Markdown lines for '## Cited with' in a section note: per slice, newest first, the sub-clusters whose decisions
+    cite this section most, linked to their lineage notes in the co-citation vault. [] when nothing to show."""
+    import cocite
+    st = _sec_state(view or cocite.NOTE_VIEW)
+    if st is None:
+        return []
+    db, pr, um, into = st
+    keys = id_keys(identifier)
+    if len(keys) != 1:
+        return []
+    key = keys[0]
+    vl_lin, _ = cocite.vault_links(db)
+    nodes = [key] + sorted({r[0] for r in pr.execute("SELECT DISTINCT node FROM noden WHERE node LIKE ?", (key + "@-%",))})
+    out = []
+    for nd in nodes:
+        slices = pr.execute("SELECT slice, decisions FROM noden WHERE node=? ORDER BY slice DESC", (nd,)).fetchall()
+        prev = sorted(into.get(nd, []), key=lambda x: -x[1])
+        nxt = [(b, y) for b, y, s, d in um.successors(nd, depth=1)]
+        if not slices and not prev and not nxt:
+            continue
+        if nd != key:
+            out += ["### Former § %s (as cited before %s)" % (key.split(":", 1)[1], nd.partition("@-")[2]), ""]
+        if prev:
+            out.append("Formerly: " + "; ".join("%s%s" % (note_link(a), " (moved %d)" % y if y else "") for a, y in prev[:8])
+                       + (" and %d more" % (len(prev) - 8) if len(prev) > 8 else ""))
+            out.append("")
+        if nxt:
+            out.append("Now: " + "; ".join("%s%s" % (note_link(b), " (moved %d)" % y if y else "") for b, y in nxt[:8])
+                       + (" and %d more" % (len(nxt) - 8) if len(nxt) > 8 else ""))
+            out.append("")
+        if not slices:
+            continue
+        out += ["| Years | Decisions | Sub-clusters citing it most (share of the sub-cluster's decisions, lift) |",
+                "|---|---|---|"]
+        for s, n in slices:
+            cells = []
+            for sub, k, share, lift in pr.execute("SELECT sub, n, share, lift FROM prof WHERE slice=? AND node=? AND n >= ? "
+                                                  "ORDER BY n DESC LIMIT ?", (s, nd, min_n, top)):
+                name, lin, _ = cocite.unit_name(db, s, sub, "sub")
+                name = (name or "sub-cluster %d" % sub).replace("|", "/")
+                link = "[[%s\\|%s]]" % (vl_lin[lin], name) if lin in vl_lin else name
+                cells.append("%s %d (%.0f%%, ×%.0f)" % (link, k, 100 * share, lift))
+            out.append("| %d–%02d | %s | %s |" % (s, (s + 4) % 100, format(n, ","), "; ".join(cells) or "—"))
+        out.append("")
+    if not out:
+        return []
+    return (["## Cited with", "",
+             "*Appellate decisions citing this section, grouped by the co-citation sub-cluster most of their other "
+             "citations fall in. Derived from CourtListener citations by `cocite_usc.py`; not part of the law.*", ""]
+            + out)
+
+
+
 def add_parser(sub):
     p = sub.add_parser("usc-sample", help="how US Code cites appear in opinion text (cocite_usc.py); writes nothing")
     p.add_argument("--n", type=int, default=2000, help="random opinions to read")
@@ -954,11 +1262,20 @@ def add_parser(sub):
     p.add_argument("--first", type=int, default=1940, help="first slice for candidate moves")
     p.add_argument("--last", type=int, default=2020)
     p.add_argument("--rise", type=float, default=0.25, help="a riser's earlier slice holds at most this share of its later one")
-    p.add_argument("--min-cos", dest="min_cos", type=float, default=0.5)
+    p.add_argument("--min-cos", dest="min_cos", type=float, default=0.2,
+                   help="candidate threshold (known moves: median 0.21, 10%% 0.06; random targets: 90%% 0.03)")
     p.add_argument("--holdout", help="target titles whose map edges are hidden, to measure recall, e.g. 34,52,54")
     p.add_argument("--show", type=int, default=15)
     p.add_argument("--seed", type=int, default=0)
     p.set_defaults(func=cmd_usc_check)
+    import cocite
+    p = sub.add_parser("usc-profile", help="which Code provisions each sub-cluster's decisions cite (cocite_usc.py)")
+    p.add_argument("--view", default=cocite.NOTE_VIEW, help="results view (default: the case notes' view)")
+    p.add_argument("--node", help="show one provision, e.g. 42:1983 (all its reuse eras)")
+    p.add_argument("--sub", metavar="SLICE:SUB", help="show one sub-cluster, e.g. 2010:17")
+    p.add_argument("--top", type=int, default=5)
+    p.add_argument("--min-n", dest="min_n", type=int, default=5, help="decisions needed for a row")
+    p.set_defaults(func=cmd_usc_profile)
     return p
 
 

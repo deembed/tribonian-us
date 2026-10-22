@@ -41,6 +41,17 @@ with a provision keeping one identity when the Code renumbers it.
   per opinion, by decade.
 This decides whether spans alone are enough for v1.
 
+**Result (2026-10-14, 1,998 opinions, seed 1):** full Code cites 1,776 (1,489 in spans, 287 outside);
+spans catch 83.8% overall, 78.3% in the 2020s -> v3 needs spans **plus** a regex pass outside them.
+Bare "§ N" 3,188, of which 585 resolve from a full cite of the same section in the same opinion
+(the rest mostly state codes and treatises). Popular-name cites with no Code cite within 150 characters: 331
+(occurrences, inflated by repeats; about half non-federal or pre-Code in the examples).
+Decision: **record every reference with a `how` code; resolve afterwards** (record once, compute later):
+`how` = span | regex | short-resolved | short-unresolved | popular. Resolvable short forms add no binary pairs
+(the decision already cites the section) but matter for the sentence-weighted view. Popular names are kept as
+raw-name keys; a small hand table (Title VII, ADA Titles I-III, Title IX, Title VI, ...) maps them later, ranked by
+the full run's counts. Regex miss to fix: `26 U.S.C.A. Int.Rev.Code, § 23` (section after "Int.Rev.Code").
+
 ### 2. Extract: positions v3, statute sidecar
 - Bump `VERSION` to 3. For each `-2` row that parses as a Code cite, write a sidecar row
   `(op, seq, key)` to `pos/<lo>-<hi>.npz` (`stat` arrays), linked to the existing row by `(op, seq)`.
@@ -49,8 +60,11 @@ This decides whether spans alone are enough for v1.
   subsections dropped in v1. "U.S.C.A." and "U.S.C.S." fold to the same key.
 - `§§ 1981, 1983` -> one row per section. Ranges `§§ 1981-1983` -> endpoints only (letters in between make the
   interior unknowable without the map).
-- Short forms: v1 counts them, does not resolve. (v2: resolve "§ N" to the title of the opinion's last full cite
-  when the map says that section exists.)
+- Sidecar row: `(op, seq, how, key)`; regex-found and short-form rows get their own `seq` and positions, so
+  they are also new rows in the positions arrays (sep/signal computed as for span rows).
+- Short forms: resolved when the same section number is cited in full in the same opinion (title known);
+  otherwise kept with title 0. Popular names: key = normalised raw name ("title vii", "section 10(b) of the
+  securities exchange act").
 - Cost: one more full positions run (same as the v2 run; resumable, all cores).
 
 ### 3. Identity map: `./cocite.py usc-map`
@@ -122,3 +136,36 @@ unchanged. A separate results database, like the weighting views. Keep it only i
 - Step 1: ~150 lines. Step 2: ~100 lines plus the positions rerun. Step 3: ~250 lines (four XML note parsers, one
   HTML table reader). Step 4: ~150. Step 5: ~200 plus the note sections in `usc2md.py`, `cocite_subdoc.py`, the
   vault and the GUI. Step 6: ~100 plus a build per view.
+
+---
+
+## Results so far (2026-10-15)
+
+- **Step 2 (`usc-extract`, version 2):** full run done, 216 shards. Appellate: 2,610,091 decision x section rows,
+  69,010 sections. Version 2 added I.R.C. citations, default titles ("references are to ..." notes; Tax Court and
+  Board of Tax Appeals -> Title 26) and "Sec." short forms. In the Tax Court shard, unresolved short forms fell
+  from 324k to 59k.
+- **Step 3 (`usc-map`, version 2):** 13.8k distinct edges (stubs, "Based on ... 1940 ed.", revision tables); 718 old
+  numbers are live again today. Version 2 reads range stubs (`s11601...11610`, 144 of them, e.g. ICARA 42 § 11601 ->
+  22 § 9001) paragraph by paragraph, and dates a stub only from the moving act's date or the target title's
+  reclassification year, not from the act's history.
+- **Step 4 (`usc-check --holdout 34,52,54`, appellate):**
+  - Known moves: 103 of 3,367 dated edges have 20+ citing decisions on both sides (most moved sections are rarely
+    cited, so validation covers the ones that matter). Partner cosine: median 0.21 (10% 0.06, 90% 0.38) vs random
+    target 0.00 (90% 0.03-0.06). The lowest scores are **splits**: 28 § 41 (1940 ed.) -> 30 sections, 18 § 408 ->
+    §§ 10, 2311, 2313. Each target inherits only a fragment of the old section's partners. These are not wrong edges.
+  - Candidate moves: at cosine >= 0.5, recall on the held-out titles was 0 of 5. The threshold sat above 90% of real
+    moves, so the default is now 0.2. At 0.2: recall 5 of 5, but 622 candidates, of which only 17 are in the map.
+    The rest are mostly **related provisions**, not renumberings: the capital habeas chapter (28 § 2263 vs
+    §§ 2254/2255), the IDEA sections, Black Lung. A few are substantive relocations by amendment, e.g.
+    8 § 1253(h) -> § 1231(b)(3) (IIRIRA, 1996), at subsection level. This is the same lesson as `cocite shift`:
+    co-citation sees displacement, not its reason.
+  - **Decision:** the map is trusted as built from the notes. The detector is a review list, never a source of edges.
+- **Node rule (decided 2026-10-15): separate nodes, linked over time.** A citation keeps the number it was cited
+  by; nothing is rewritten to a current number. Node id = the number, plus an era when the number was later reused
+  for another provision (`49:1651@-1983` vs `49:1651`). Map edges become lineage links between nodes
+  (`UscMap.links()`, `successors()`), as cluster lineages link clusters across slices. A split (28 § 41, 1940 ed.,
+  into 30 sections) is one node with 30 links; no fan-out threshold is needed (an earlier "collapse to current
+  number, keep the old one past 3 targets" rule was dropped). A slice containing a move has two nodes for one
+  provision; they share partners and should co-cluster (a visible handoff). Moves by amendment stay out unless
+  added by hand.

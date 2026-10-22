@@ -17,6 +17,8 @@ pub enum Page {
     Scotus,
     /// one docket, by number ("25-579")
     Docket(String),
+    /// Cited together ("where used"): decisions citing every one of these cases (sorted, no repeats)
+    CoCited(Vec<i64>),
 }
 
 impl Page {
@@ -25,7 +27,7 @@ impl Page {
         match self {
             Page::Home => Section::Home,
             Page::Cases => Section::Cases,
-            Page::Search { .. } => Section::Search,
+            Page::Search { .. } | Page::CoCited(_) => Section::Search,
             Page::Scotus | Page::Docket(_) => Section::Scotus,
             _ => Section::Clusters,
         }
@@ -504,6 +506,43 @@ pub enum PageData {
         cases: Vec<CaseRow>,
     },
     Case(CaseData),
+    CoCited(CoCited),
+}
+
+/// One case of a cited-together filter.
+#[derive(Clone, Debug)]
+pub struct CoCase {
+    pub r#ref: i64,
+    pub name: String,
+    pub short: String,
+    pub cite: String,
+    /// CourtListener's citing count (clusters.citation_count)
+    pub cl_cited: Option<i64>,
+    /// Decisions citing it in the edge cache (0 when the search stopped before reading it)
+    pub cache_citing: usize,
+}
+
+/// A decision that cites every case of the filter.
+#[derive(Clone, Debug)]
+pub struct CoCitedRow {
+    pub r#ref: i64,
+    pub name: String,
+    pub cite: String,
+    /// date_filed, YYYY-MM-DD
+    pub date: String,
+    pub court: String,
+    pub cl_cited: Option<i64>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CoCited {
+    pub cases: Vec<CoCase>,
+    /// newest first; at most db::COCITE_NAMED
+    pub rows: Vec<CoCitedRow>,
+    /// every decision found (rows holds the newest)
+    pub total: usize,
+    /// the edge cache's stamp.txt (bulk load it was made from)
+    pub stamp: String,
 }
 
 impl PageData {
@@ -516,6 +555,7 @@ impl PageData {
             PageData::Slice { slice, .. } => slice_label(*slice),
             PageData::Unit { head, .. } => format!("{} {}", head.unit.code(&slice_label(head.unit.slice)), head.unit.name),
             PageData::Case(c) => c.name.clone(),
+            PageData::CoCited(c) => format!("Cited together: {}", c.cases.iter().map(|x| x.short.as_str()).collect::<Vec<_>>().join(" + ")),
         }
     }
 }

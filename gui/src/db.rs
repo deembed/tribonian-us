@@ -58,13 +58,24 @@ pub struct Described {
     pub cited: Option<i64>,
 }
 
+/// A case's display name: the first non-blank of case_name, case_name_short, case_name_full and the
+/// docket's case_name (recent CourtListener clusters often fill only case_name_full), else "cluster N".
+fn pick_name(r: i64, names: [Option<String>; 4]) -> String {
+    names
+        .into_iter()
+        .flatten()
+        .map(|n| n.split_whitespace().collect::<Vec<_>>().join(" "))
+        .find(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("cluster {r}"))
+}
+
 pub fn describe(main: &Connection, r: i64) -> Option<Described> {
-    let (name, short, date, court, cited): (Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>) = main
+    let (name, short, full, dname, date, court, cited): (Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>) = main
         .query_row(
-            "SELECT c.case_name, c.case_name_short, c.date_filed, d.court_id, c.citation_count FROM clusters c
+            "SELECT c.case_name, c.case_name_short, c.case_name_full, d.case_name, c.date_filed, d.court_id, c.citation_count FROM clusters c
              LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id = ?",
             [r],
-            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?)),
+            |x| Ok((x.get(0)?, x.get(1)?, x.get(2)?, x.get(3)?, x.get(4)?, x.get(5)?, x.get(6)?)),
         )
         .ok()?;
     let cite: Option<(String, String, String)> = main
@@ -73,7 +84,7 @@ pub fn describe(main: &Connection, r: i64) -> Option<Described> {
         })
         .ok();
     Some(Described {
-        name: name.filter(|n| !n.is_empty()).or(short).unwrap_or_else(|| format!("cluster {r}")),
+        name: pick_name(r, [name, short, full, dname]),
         cite: cite.map(|(v, rep, p)| format!("{v} {rep} {p}")).unwrap_or_default(),
         year: date.and_then(|d| d.get(..4).and_then(|y| y.parse().ok())),
         court: court.unwrap_or_default(),
@@ -298,6 +309,8 @@ pub struct Db {
     cases_dir: PathBuf,
     main: Option<Connection>,
     ops: Option<Connection>,
+    /// cocite.py's edge cache beside the view (Cited together)
+    edges: Result<crate::cocache::EdgeCache, String>,
 }
 
 pub fn current_year() -> i64 {
@@ -371,6 +384,8 @@ impl Db {
             // optional: without it, cases outside the view show as "cluster N"
             main: open_ro(main_db).ok().filter(|c| c.query_row("SELECT 1 FROM clusters LIMIT 1", [], |_| Ok(())).is_ok()),
             ops: open_ro(ops_db).ok().filter(|c| c.query_row("SELECT 1 FROM opinions LIMIT 1", [], |_| Ok(())).is_ok()),
+            // cocite.py: CACHE = BASE_DB.with_name("cocite-cache"), beside the views
+            edges: crate::cocache::EdgeCache::open(&path.with_file_name("cocite-cache")),
         })
     }
 
@@ -517,6 +532,9 @@ impl Db {
     // -------------------------------------------------------------- pages
 
     pub fn load(&self, page: &Page) -> Result<PageData, String> {
+        if let Page::CoCited(refs) = page {
+            return self.cocited(refs).map(PageData::CoCited);
+        }
         self.load_inner(page).map_err(|e| e.to_string())
     }
 
@@ -689,7 +707,9 @@ impl Db {
                 PageData::Unit { head, children: Vec::new(), cases }
             }
             Page::Case(r) => PageData::Case(self.case(*r)?),
-            Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) => unreachable!("not a database page"),
+            Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::CoCited(_) => {
+                unreachable!("not a load_inner page")
+            }
         })
     }
 
@@ -840,6 +860,18 @@ impl Db {
         }
         areas.sort_by(|a, b| b.2.cmp(&a.2));
         Some(DrawsOn { slice: s, refs: refs.len() as i64, unclustered: refs.len() as i64 - clustered, subs, areas })
+    }
+
+    /// Cited together ("where used"): the decisions (clusters, not opinions, as in cocite.py) whose
+    /// opinions cite every case in `refs`, from cocite.py's edge cache (`cocite-cache/`, the same
+    /// decision-level edges the co-citation map is built from).
+    fn cocited(&self, refs: &[i64]) -> Result<CoCited, String> {
+        let main = self.main.as_ref().ok_or("needs the main database (courtlistener.sqlite)")?;
+        let cache = self.edges.as_ref().map_err(|e| format!("cocite.py's edge cache: {e}"))?;
+        cocited_in(main, cache, refs, |r| {
+            let (short, cite, _) = self.case_name(r);
+            (short, cite)
+        })
     }
 
     /// The bulk data's year: casedb's citation-map file name in the main database, else this year.
@@ -1092,6 +1124,103 @@ pub enum Resp {
     Loaded(Page, Result<PageData, String>, std::time::Duration),
 }
 
+/// Names, citations, dates and courts are read for the newest this many decisions (each one is a
+/// seek on the hard disk: 141 took 3 s); the rest are counted.
+pub const COCITE_NAMED: usize = 500;
+
+/// Cited together, from the main database (names) and cocite.py's edge cache (who cites whom);
+/// `view_name` gives the open view's short name and citation for a case.
+pub fn cocited_in(main: &Connection, cache: &crate::cocache::EdgeCache, refs: &[i64], view_name: impl Fn(i64) -> (String, String)) -> Result<CoCited, String> {
+    let e = |x: rusqlite::Error| x.to_string();
+    if refs.is_empty() {
+        return Err("no cases in the filter".into());
+    }
+    let mut cases = Vec::new();
+    for &r in refs {
+        let d = describe(main, r);
+        let (short, vcite) = view_name(r);
+        let name = d.as_ref().map(|d| d.name.clone()).unwrap_or_else(|| short.clone());
+        cases.push(CoCase {
+            r#ref: r,
+            short: if short.is_empty() || short.starts_with("cluster ") { name.clone() } else { short },
+            cite: d.as_ref().map(|d| d.cite.clone()).filter(|c| !c.is_empty()).unwrap_or(vcite),
+            cl_cited: d.as_ref().and_then(|d| d.cited),
+            cache_citing: 0,
+            name,
+        });
+    }
+    // every decision citing each case (least cited first, so an empty result stops early), intersected
+    let mut order: Vec<usize> = (0..cases.len()).collect();
+    order.sort_by_key(|&i| cases[i].cl_cited.unwrap_or(i64::MAX));
+    let mut found: Vec<i32> = Vec::new();
+    for (k, &i) in order.iter().enumerate() {
+        let set = cache.citing(cases[i].r#ref)?;
+        cases[i].cache_citing = set.len();
+        if k == 0 {
+            found = set;
+        } else {
+            found.retain(|d| set.binary_search(d).is_ok());
+        }
+        if found.is_empty() {
+            break;
+        }
+    }
+    found.retain(|d| !refs.contains(&(*d as i64)));
+    let total = found.len();
+    // newest first, by filing year from the cache, then by cluster id (later ids are later filings)
+    let mut dated: Vec<(i64, i64)> = found.iter().map(|&d| (cache.year(d as i64), d as i64)).collect();
+    dated.sort_by(|a, b| b.cmp(a));
+    dated.truncate(COCITE_NAMED);
+    let ids: Vec<i64> = dated.iter().map(|x| x.1).collect();
+    let mut rows = Vec::with_capacity(ids.len());
+    for ch in ids.chunks(500) {
+        let mut cites: HashMap<i64, String> = HashMap::new();
+        let mut st = main
+            .prepare(&format!("SELECT cluster_id, volume, reporter, page FROM cites WHERE cluster_id IN ({}) ORDER BY type DESC", id_list(ch)))
+            .map_err(e)?;
+        for (cl, v, rep, p) in st
+            .query_map([], |x| Ok((x.get::<_, i64>(0)?, x.get::<_, String>(1)?, x.get::<_, String>(2)?, x.get::<_, String>(3)?)))
+            .map_err(e)?
+            .flatten()
+        {
+            cites.insert(cl, format!("{v} {rep} {p}")); // the last written is the lowest type, as describe's ORDER BY type LIMIT 1
+        }
+        let mut st = main
+            .prepare(&format!(
+                "SELECT c.id, c.case_name, c.case_name_short, c.case_name_full, d.case_name, c.date_filed, d.court_id, c.citation_count
+                 FROM clusters c LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id IN ({})",
+                id_list(ch)
+            ))
+            .map_err(e)?;
+        let got = st
+            .query_map([], |x| {
+                Ok((
+                    x.get::<_, i64>(0)?,
+                    x.get::<_, Option<String>>(1)?,
+                    x.get::<_, Option<String>>(2)?,
+                    x.get::<_, Option<String>>(3)?,
+                    x.get::<_, Option<String>>(4)?,
+                    x.get::<_, Option<String>>(5)?,
+                    x.get::<_, Option<String>>(6)?,
+                    x.get::<_, Option<i64>>(7)?,
+                ))
+            })
+            .map_err(e)?;
+        for (id, name, short, full, dname, date, court, cited) in got.flatten() {
+            rows.push(CoCitedRow {
+                r#ref: id,
+                name: pick_name(id, [name, short, full, dname]),
+                cite: cites.remove(&id).unwrap_or_default(),
+                date: date.unwrap_or_default(),
+                court: court.unwrap_or_default(),
+                cl_cited: cited,
+            });
+        }
+    }
+    rows.sort_by(|a, b| b.date.cmp(&a.date).then(b.r#ref.cmp(&a.r#ref)));
+    Ok(CoCited { cases, rows, total, stamp: cache.stamp.trim().to_string() })
+}
+
 /// Spawn the worker. It owns the connection; `wake` repaints the UI when a result is ready.
 pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, main_db: PathBuf, ops_db: PathBuf, wake: impl Fn() + Send + 'static) -> (Sender<Req>, Receiver<Resp>) {
     let (tx_req, rx_req) = channel::<Req>();
@@ -1132,4 +1261,74 @@ pub fn spawn(labels_file: PathBuf, cases_dir: PathBuf, main_db: PathBuf, ops_db:
         }
     });
     (tx_req, rx_resp)
+}
+
+#[cfg(test)]
+mod cocited_tests {
+    use super::*;
+    use crate::cocache::{write_npy, EdgeCache};
+
+    fn i32s(v: &[i32]) -> Vec<u8> {
+        v.iter().flat_map(|x| x.to_le_bytes()).collect()
+    }
+
+    /// Cases 1 ("Meyer", little cited) and 2 ("Twombly", much cited); decisions 10 (cites both),
+    /// 11 (Twombly only), 12 (both), 13 (Meyer only); and Twombly itself cites Meyer.
+    fn setup() -> (Connection, EdgeCache) {
+        let dir = std::env::temp_dir().join(format!("lawgui-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // edges sorted by citing decision, then cited case, as prep writes them
+        let edges: Vec<(i32, i32)> = vec![(2, 1), (10, 1), (10, 2), (11, 2), (12, 1), (12, 2), (13, 1)];
+        let ci: Vec<i32> = edges.iter().map(|e| e.0).collect();
+        let cd: Vec<i32> = edges.iter().map(|e| e.1).collect();
+        let mut order: Vec<i32> = (0..edges.len() as i32).collect();
+        order.sort_by_key(|&i| cd[i as usize]);
+        let cds: Vec<i32> = order.iter().map(|&i| cd[i as usize]).collect();
+        write_npy(&dir.join("citing.npy"), "<i4", &i32s(&ci));
+        write_npy(&dir.join("by_cited.npy"), "<i4", &i32s(&order));
+        write_npy(&dir.join("cited_sorted.npy"), "<i4", &i32s(&cds));
+        let mut years = vec![0i16; 14];
+        for (r, y) in [(1, 2003), (2, 2007), (10, 2015), (11, 2016), (12, 2019), (13, 2020)] {
+            years[r] = y;
+        }
+        write_npy(&dir.join("ref_year.npy"), "<i2", &years.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>());
+        std::fs::write(dir.join("stamp.txt"), "test").unwrap();
+        let main = Connection::open_in_memory().unwrap();
+        main.execute_batch(
+            "CREATE TABLE clusters(id INTEGER, case_name TEXT, case_name_short TEXT, case_name_full TEXT, date_filed TEXT, citation_count INTEGER, docket_id INTEGER);
+             CREATE TABLE dockets(id INTEGER, court_id TEXT, case_name TEXT);
+             CREATE TABLE cites(cluster_id INTEGER, volume TEXT, reporter TEXT, page TEXT, type INTEGER);
+             INSERT INTO clusters (id, case_name, case_name_short, date_filed, citation_count, docket_id) VALUES
+               (1,'Meyer v. Holley','Meyer','2003-01-22',900,1),(2,'Bell Atlantic Corp. v. Twombly','Twombly','2007-05-21',100000,1),
+               (10,'Ten v. A','','2015-01-01',3,2),(12,'Twelve v. C','','2019-01-01',1,2),(13,'Thirteen v. D','','2020-01-01',0,2);
+             -- recent clusters: only case_name_full filled
+             INSERT INTO clusters (id, case_name, case_name_short, case_name_full, date_filed, citation_count, docket_id) VALUES
+               (11,'','','Eleven  Full v. B','2016-01-01',0,2);
+             INSERT INTO dockets VALUES (1,'scotus',''),(2,'ca4','');
+             INSERT INTO cites VALUES (2,'550','U.S.','544',1),(10,'1','F.4th','1',1);",
+        )
+        .unwrap();
+        (main, EdgeCache::open(&dir).unwrap())
+    }
+
+    #[test]
+    fn both_and_one() {
+        let (main, cache) = setup();
+        let names = |r: i64| (format!("case{r}"), String::new());
+        let c = cocited_in(&main, &cache, &[1, 2], names).unwrap();
+        let got: Vec<i64> = c.rows.iter().map(|r| r.r#ref).collect();
+        // newest first; Twombly itself (which cites Meyer) is not a result
+        assert_eq!(got, vec![12, 10]);
+        assert_eq!(c.total, 2);
+        assert_eq!(c.cases[0].cache_citing, 4); // Meyer: 2, 10, 12, 13
+        assert_eq!(c.rows[1].court, "ca4");
+        assert_eq!(c.rows[1].cite, "1 F.4th 1");
+        // one case: plain where-used
+        let c = cocited_in(&main, &cache, &[2], names).unwrap();
+        assert_eq!(c.rows.iter().map(|r| r.r#ref).collect::<Vec<_>>(), vec![12, 11, 10]);
+        assert_eq!(c.rows[1].name, "Eleven Full v. B");
+        // a case nobody cites
+        assert_eq!(cocited_in(&main, &cache, &[99], names).unwrap().total, 0);
+        assert_eq!(cache.citing(13).unwrap(), Vec::<i32>::new());
+    }
 }

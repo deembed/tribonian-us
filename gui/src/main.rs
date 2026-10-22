@@ -4,6 +4,7 @@
 
 mod apisearch;
 mod cases;
+mod cocache;
 mod config;
 mod db;
 mod graph;
@@ -117,6 +118,24 @@ pub struct App {
     pub recent: Result<Option<scotus::Recent>, String>,
     pub scotus_ui: scotus_page::ScotusUi,
     egui_ctx: Option<egui::Context>,
+    /// Database pages requested and not answered yet (the main window's and every pop-out's).
+    inflight: std::collections::HashSet<Page>,
+    /// Cited-together filter: (cluster, name), in the order added. "Find" opens Page::CoCited.
+    pub cocite: Vec<(i64, String)>,
+    /// Sort of the cited-together table: column (0 filed, 1 name, 2 court, 3 cited) and descending.
+    pub cocite_sort: (usize, bool),
+    /// Pages open in their own windows ("Pop out", or Ctrl+click on a link).
+    popouts: Vec<PopOut>,
+    next_popout: u64,
+}
+
+/// A window showing one page's content, with its own back/forward.
+struct PopOut {
+    id: u64,
+    nav: Vec<Page>,
+    pos: usize,
+    filter: String,
+    open: bool,
 }
 
 impl App {
@@ -171,6 +190,11 @@ impl App {
             recent: Ok(None),
             scotus_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
+            inflight: Default::default(),
+            cocite: Vec::new(),
+            cocite_sort: (0, true),
+            popouts: Vec::new(),
+            next_popout: 0,
         };
         match Config::load() {
             Ok((cfg, path)) => {
@@ -245,6 +269,7 @@ impl App {
         self.cache.clear();
         self.errors.clear();
         self.search_cache.clear();
+        self.inflight.clear();
         let _ = tx.send(db::Req::Open(self.views[i].path.clone()));
     }
 
@@ -436,11 +461,12 @@ impl App {
         if !page.needs_db() || self.cache.contains_key(page) || self.meta.is_none() {
             return;
         }
-        if self.pending.as_ref() == Some(page) {
+        if self.pending.as_ref() == Some(page) || self.inflight.contains(page) {
             return;
         }
         if let Some(tx) = &self.tx {
             self.errors.remove(page);
+            self.inflight.insert(page.clone());
             self.pending = Some(page.clone());
             let _ = tx.send(db::Req::Load(page.clone()));
         }
@@ -555,6 +581,7 @@ impl App {
                     self.view_err = Some(e);
                 }
                 db::Resp::Loaded(page, res, t) => {
+                    self.inflight.remove(&page);
                     if self.pending.as_ref() == Some(&page) {
                         self.pending = None;
                     }
@@ -588,6 +615,13 @@ impl App {
             Page::Search { query, mode: search::Mode::Name } => format!("Search: {query}"),
             Page::Search { query, mode: search::Mode::Parenthetical } => format!("Parentheticals: {query}"),
             Page::Scotus => "SCOTUS".into(),
+            Page::CoCited(refs) if !self.cache.contains_key(p) && !self.titles.contains_key(p) => {
+                let names: Vec<String> = refs
+                    .iter()
+                    .map(|r| self.cocite.iter().find(|c| c.0 == *r).map(|c| c.1.clone()).unwrap_or_else(|| format!("cluster {r}")))
+                    .collect();
+                format!("Cited together: {}", names.join(" + "))
+            }
             Page::Docket(n) => match self.docket(n) {
                 Some(d) => format!("No. {n} {}", d.title()),
                 None => format!("No. {n}"),
@@ -635,6 +669,7 @@ impl App {
             }
             Page::Cases => {}
             Page::Search { .. } => {}
+            Page::CoCited(_) => {}
             Page::Scotus => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Case(_) => match self.section_at(self.pos) {
@@ -685,6 +720,7 @@ impl App {
                     Page::Search { .. } => "search",
                     Page::Scotus => "scotus",
                     Page::Docket(_) => "docket",
+                    Page::CoCited(_) => "cited together",
                 };
                 let t = self.title_of(p);
                 let t = if t.chars().count() > 46 { format!("{}…", t.chars().take(45).collect::<String>()) } else { t };
@@ -744,6 +780,14 @@ impl App {
                 self.goto = go;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .button("⧉ Pop out")
+                    .on_hover_text("open this page in a window of its own (Ctrl+click a link does the same for the link)")
+                    .clicked()
+                {
+                    let p = self.current().clone();
+                    self.pop_out(p);
+                }
                 if ui
                     .selectable_label(self.show_history, format!("History ({})", self.nav.len()))
                     .on_hover_text("every page visited, in order; click one to go back to it")
@@ -809,7 +853,104 @@ impl eframe::App for App {
             pages::central(self, ui);
         });
         if let Some(p) = self.goto.take() {
-            self.go(p);
+            // Ctrl+click: the link opens in a window of its own
+            if ctx.input(|i| i.modifiers.command) {
+                self.pop_out(p);
+            } else {
+                self.go(p);
+            }
+        }
+        self.show_popouts(&ctx);
+    }
+}
+
+impl App {
+    /// Open a page in a new window.
+    pub fn pop_out(&mut self, page: Page) {
+        self.next_popout += 1;
+        self.request(&page);
+        self.popouts.push(PopOut { id: self.next_popout, nav: vec![page], pos: 0, filter: String::new(), open: true });
+    }
+
+    /// Every pop-out window, drawn by the same page renderers: the window's own history is swapped
+    /// into `nav`/`pos` (and its own filter into `filter`) while it draws, so app.current() is its page.
+    fn show_popouts(&mut self, ctx: &egui::Context) {
+        let mut pops = std::mem::take(&mut self.popouts);
+        let mut more = Vec::new();
+        for p in pops.iter_mut() {
+            let page = p.nav[p.pos].clone();
+            if !self.errors.contains_key(&page) {
+                self.request(&page);
+            }
+            let title = self.title_of(&page);
+            let vid = egui::ViewportId::from_hash_of(("popout", p.id));
+            let builder = egui::ViewportBuilder::default().with_title(&title).with_inner_size([1000.0, 850.0]);
+            ctx.show_viewport_immediate(vid, builder, |ui, _class| {
+                if ui.ctx().input(|i| i.viewport().close_requested()) {
+                    p.open = false;
+                }
+                let mut nav_to: Option<usize> = None;
+                let mut to_main = false;
+                egui::Panel::top(egui::Id::new(("popout-top", p.id))).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(p.pos > 0, egui::Button::new("◀")).on_hover_text("Back (Alt+Left)").clicked() {
+                            nav_to = Some(p.pos - 1);
+                        }
+                        if ui.add_enabled(p.pos + 1 < p.nav.len(), egui::Button::new("▶")).on_hover_text("Forward (Alt+Right)").clicked() {
+                            nav_to = Some(p.pos + 1);
+                        }
+                        ui.strong(&title);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.button("Open in main window").clicked() {
+                                to_main = true;
+                            }
+                        });
+                    });
+                });
+                let (alt_l, alt_r, ctrl) = ui.ctx().input(|i| {
+                    (i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft), i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight), i.modifiers.command)
+                });
+                if alt_l && p.pos > 0 {
+                    nav_to = Some(p.pos - 1);
+                }
+                if alt_r && p.pos + 1 < p.nav.len() {
+                    nav_to = Some(p.pos + 1);
+                }
+                // draw the page as if it were the main window's current page
+                let saved_goto = self.goto.take();
+                std::mem::swap(&mut self.nav, &mut p.nav);
+                std::mem::swap(&mut self.pos, &mut p.pos);
+                std::mem::swap(&mut self.filter, &mut p.filter);
+                egui::CentralPanel::default().show(ui, |ui| {
+                    ui.push_id(("popout", p.id), |ui| pages::central(self, ui));
+                });
+                std::mem::swap(&mut self.nav, &mut p.nav);
+                std::mem::swap(&mut self.pos, &mut p.pos);
+                std::mem::swap(&mut self.filter, &mut p.filter);
+                let clicked = std::mem::replace(&mut self.goto, saved_goto);
+                if let Some(i) = nav_to {
+                    p.pos = i;
+                } else if let Some(target) = clicked {
+                    if ctrl {
+                        more.push(target);
+                    } else if p.nav[p.pos] != target {
+                        p.nav.truncate(p.pos + 1);
+                        p.nav.push(target);
+                        p.pos = p.nav.len() - 1;
+                        p.filter.clear();
+                    }
+                }
+                if to_main {
+                    self.goto = Some(p.nav[p.pos].clone());
+                }
+            });
+        }
+        pops.retain(|p| p.open);
+        // a pop-out opened while these were drawing (pop_out pushes onto self.popouts)
+        pops.append(&mut self.popouts);
+        self.popouts = pops;
+        for t in more {
+            self.pop_out(t);
         }
     }
 }

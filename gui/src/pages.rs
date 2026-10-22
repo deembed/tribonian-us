@@ -236,6 +236,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
             PageData::Slice { slice, clusters } => slice_page(app, ui, *slice, clusters),
             PageData::Unit { head, children, cases } => unit_page(app, ui, head, children, cases),
             PageData::Case(c) => case_page(app, ui, c),
+            PageData::CoCited(c) => cocited_page(app, ui, c),
         }
     });
     app.cache.insert(page, data);
@@ -814,7 +815,18 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
     if !court.is_empty() {
         ui.weak(format!("court: {court}"));
     }
-    ui.weak(format!("CourtListener cluster {}", c.r#ref));
+    ui.horizontal(|ui| {
+        ui.weak(format!("CourtListener cluster {}", c.r#ref));
+        let name = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
+        together_button(app, ui, c.r#ref, &name);
+        if ui
+            .small_button("Cited by…")
+            .on_hover_text("every decision citing this case (where used), newest first; add more cases with ＋ to narrow it")
+            .clicked()
+        {
+            app.goto = Some(Page::CoCited(vec![c.r#ref]));
+        }
+    });
     ui.add_space(6.0);
 
     // files
@@ -1363,6 +1375,7 @@ fn search_side(app: &mut App, ui: &mut Ui) {
     {
         app.goto = Some(Page::Search { query: app.search_input.trim().to_string(), mode });
     }
+    cocite_box(app, ui);
     ui.add_space(8.0);
     ui.weak(match mode {
         Mode::Name => "Every word must match; the last one matches as a prefix (\"chev\" finds Chevron). \
@@ -1496,7 +1509,8 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     let mut go = None;
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-        egui::Grid::new("hits").striped(true).num_columns(8).show(ui, |ui| {
+        egui::Grid::new("hits").striped(true).num_columns(9).show(ui, |ui| {
+            ui.label("");
             ui.strong("Case");
             ui.label("");
             ui.strong("Cite");
@@ -1507,6 +1521,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
             ui.strong(if *mode == Mode::Parenthetical { "Parentheticals" } else { "" });
             ui.end_row();
             for h in res.hits.iter().filter(|h| matches(&f, &h.name) || matches(&f, &h.cite)) {
+                together_button(app, ui, h.r#ref, &h.name);
                 ui.vertical(|ui| {
                     if ui.link(&h.name).clicked() {
                         go = Some(Page::Case(h.r#ref));
@@ -1760,5 +1775,169 @@ fn year_bars(ui: &mut Ui, years: &[(i64, i64)]) {
         if let Some((_, c)) = years.iter().find(|(yy, _)| *yy == y) {
             resp.on_hover_text(format!("{y}: {c} citing cases"));
         }
+    }
+}
+
+// ================================================================== cited together ("where used")
+
+/// "＋" adds a case to the cited-together filter; "✓" (already in it) takes it out.
+fn together_button(app: &mut App, ui: &mut Ui, r: i64, name: &str) {
+    let inside = app.cocite.iter().any(|c| c.0 == r);
+    let (text, tip) = if inside {
+        ("✓", "in the cited-together filter; click to take it out")
+    } else {
+        ("＋", "add to the cited-together filter: find decisions that cite this case and every other case in the filter")
+    };
+    if ui.small_button(text).on_hover_text(tip).clicked() {
+        if inside {
+            app.cocite.retain(|c| c.0 != r);
+        } else {
+            app.cocite.push((r, name.to_string()));
+        }
+    }
+}
+
+fn cocite_page_of(app: &App) -> Option<Page> {
+    if app.cocite.is_empty() {
+        return None;
+    }
+    let mut refs: Vec<i64> = app.cocite.iter().map(|c| c.0).collect();
+    refs.sort();
+    refs.dedup();
+    Some(Page::CoCited(refs))
+}
+
+/// The filter in the search side panel.
+fn cocite_box(app: &mut App, ui: &mut Ui) {
+    ui.separator();
+    ui.strong("Cited together");
+    if app.cocite.is_empty() {
+        ui.weak("Click ＋ beside a case (search results, case page) to add it. Find then lists the decisions that cite every case added: one case is plain where-used.");
+        return;
+    }
+    let mut drop = None;
+    for (r, name) in &app.cocite {
+        ui.horizontal(|ui| {
+            if ui.small_button("×").on_hover_text("take it out").clicked() {
+                drop = Some(*r);
+            }
+            let t = if name.chars().count() > 40 { format!("{}…", name.chars().take(39).collect::<String>()) } else { name.clone() };
+            if ui.link(t).on_hover_text(name).clicked() {
+                app.goto = Some(Page::Case(*r));
+            }
+        });
+    }
+    if let Some(r) = drop {
+        app.cocite.retain(|c| c.0 != r);
+    }
+    ui.horizontal(|ui| {
+        let n = app.cocite.len();
+        let label = if n == 1 { "Find decisions citing it".to_string() } else { format!("Find decisions citing all {n}") };
+        if ui.button(label).clicked() {
+            app.goto = cocite_page_of(app);
+        }
+        if ui.link("Clear").clicked() {
+            app.cocite.clear();
+        }
+    });
+}
+
+fn cocited_page(app: &mut App, ui: &mut Ui, c: &CoCited) {
+    ui.heading("Cited together");
+    let mut go = None;
+    let mut without: Option<i64> = None;
+    for k in &c.cases {
+        ui.horizontal(|ui| {
+            if c.cases.len() > 1 && ui.small_button("×").on_hover_text("search again without this case").clicked() {
+                without = Some(k.r#ref);
+            }
+            if ui.link(RichText::new(&k.name).strong()).clicked() {
+                go = Some(Page::Case(k.r#ref));
+            }
+            ui.weak(&k.cite);
+            if k.cache_citing > 0 {
+                ui.weak(format!("· cited by {} decisions", k.cache_citing));
+            }
+        });
+    }
+    ui.weak(format!(
+        "{} decisions cite {}{}. From cocite.py's edge cache (the edges the co-citation map is built from: a decision \
+         counts once, whichever of its opinions cites), made from the bulk load of {}.",
+        c.total,
+        if c.cases.len() == 1 { "it".to_string() } else { format!("all {}", c.cases.len()) },
+        if c.total > c.rows.len() { format!("; the newest {} are listed", c.rows.len()) } else { String::new() },
+        c.stamp.split('|').filter_map(|p| p.split('\'').nth(3)).next().unwrap_or("?")
+    ));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label("Filter");
+        ui.text_edit_singleline(&mut app.filter).on_hover_text("name, citation or court (ca4, scotus, mdd…)");
+        // the side-panel filter differs from this page: offer to load it
+        if let Some(p) = cocite_page_of(app) {
+            // the page's cases are in its (sorted) Page order
+            if Page::CoCited(c.cases.iter().map(|k| k.r#ref).collect()) != p
+                && ui.button("Search with the side-panel filter").clicked()
+            {
+                go = Some(p);
+            }
+        }
+    });
+    ui.add_space(6.0);
+    let f = app.filter.clone();
+    let mut rows: Vec<&CoCitedRow> = c.rows.iter().filter(|r| matches(&f, &r.name) || matches(&f, &r.cite) || matches(&f, &r.court)).collect();
+    let (col, desc) = app.cocite_sort;
+    rows.sort_by(|a, b| {
+        let o = match col {
+            0 => a.date.cmp(&b.date),
+            1 => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            2 => a.court.cmp(&b.court),
+            _ => a.cl_cited.cmp(&b.cl_cited),
+        };
+        if desc { o.reverse() } else { o }
+    });
+    let shown = rows.len().min(MAX_ROWS);
+    if rows.len() > MAX_ROWS {
+        ui.weak(format!("Showing {MAX_ROWS} of {}; filter or sort to see others.", rows.len()));
+    } else if !f.is_empty() {
+        ui.weak(format!("{} match the filter.", rows.len()));
+    }
+    let mut sort = None;
+    let mut header = |ui: &mut Ui, t: &str, k: usize, tip: &str| {
+        let mark = if col == k { if desc { " ▼" } else { " ▲" } } else { "" };
+        if ui.link(RichText::new(format!("{t}{mark}")).strong()).on_hover_text(tip).clicked() {
+            sort = Some(k);
+        }
+    };
+    egui::Grid::new("cocited").striped(true).num_columns(6).show(ui, |ui| {
+        header(ui, "Decision", 1, "sort by name");
+        ui.label("");
+        ui.strong("Cite");
+        header(ui, "Filed", 0, "sort by date filed");
+        header(ui, "Court", 2, "sort by court");
+        header(ui, "Cited by", 3, "CourtListener's citing count for the decision");
+        ui.end_row();
+        for r in rows.iter().take(shown) {
+            let t = if r.name.chars().count() > 110 { format!("{}…", r.name.chars().take(109).collect::<String>()) } else { r.name.clone() };
+            if ui.link(t).on_hover_text(&r.name).clicked() {
+                go = Some(Page::Case(r.r#ref));
+            }
+            built_tag(app, ui, r.r#ref);
+            ui.label(&r.cite);
+            ui.label(&r.date);
+            ui.label(&r.court);
+            ui.label(r.cl_cited.map(|n| n.to_string()).unwrap_or_default());
+            ui.end_row();
+        }
+    });
+    if let Some(k) = sort {
+        app.cocite_sort = if col == k { (k, !desc) } else { (k, k != 1 && k != 2) };
+    }
+    if let Some(r) = without {
+        let mut refs: Vec<i64> = c.cases.iter().map(|k| k.r#ref).filter(|x| *x != r).collect();
+        refs.sort();
+        go = Some(Page::CoCited(refs));
+    }
+    if go.is_some() {
+        app.goto = go;
     }
 }

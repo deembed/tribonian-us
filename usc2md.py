@@ -26,7 +26,7 @@ LEVELS = [
     "subsection", "paragraph", "subparagraph", "clause",
     "subclause", "item", "subitem", "subsubitem",
 ]
-LEVEL_SET = set(LEVELS)
+LEVEL_SET = set(LEVELS) | {"level"}   # generic <level>: OLRC uses it where the numbering breaks the usual (1)(A)(i) pattern, e.g. 18 USC 2511
 
 # What gets one markdown note each, and what groups them into one PDF.
 UNIT_TAGS = ("section", "courtRule")
@@ -494,7 +494,7 @@ def md_notes(notes, fns):
     return lines
 
 
-def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
+def render_md(section, nodes, meta, refs, fns, notes=None, credits=False, extra=None):
     lines = []
     aliases = meta["aliases"]
     lines.append("---")
@@ -552,6 +552,9 @@ def render_md(section, nodes, meta, refs, fns, notes=None, credits=False):
         emit(n)
     if notes:
         lines += md_notes(notes, fns)
+    if extra:                                   # derived sections ("Cited with"), after the law and its notes
+        lines.append("")
+        lines += extra
     if refs:
         lines.append("")
         lines.append("## References")
@@ -1018,6 +1021,18 @@ def slug(meta):
     return meta["slug"]
 
 
+def cited_with(meta, args):
+    """'## Cited with' lines from the co-citation profile (cocite_usc.py), or [] when it isn't built or is off"""
+    if args.no_cocite:
+        return []
+    try:
+        import cocite_usc
+        return cocite_usc.section_md(meta["identifier"])
+    except Exception as e:                          # the law note must never fail over a derived section
+        print("  cited-with skipped for %s: %s: %s" % (meta["identifier"], type(e).__name__, e), file=sys.stderr)
+        return []
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("xml")
@@ -1035,6 +1050,8 @@ def main():
     ap.add_argument("--notes", action="store_true",
                     help="append each section's editorial and statutory notes")
     ap.add_argument("--out", default=".")
+    ap.add_argument("--no-cocite", dest="no_cocite", action="store_true",
+                    help="leave out the 'Cited with' section (co-citation profile, when built)")
     ap.add_argument("--style", choices=list(RULES), default="boxes",
                     help="boxes: rule on all four sides; rails: left rule only")
     ap.add_argument("--font", default="XCharter",
@@ -1153,7 +1170,7 @@ def main():
         os.makedirs(md_dir, exist_ok=True)
         md_path = os.path.join(md_dir, slug(meta) + ".md")
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(render_md(None, nodes, meta, refs, fns, nmd, args.credits))
+            f.write(render_md(None, nodes, meta, refs, fns, nmd, args.credits, cited_with(meta, args)))
         print("wrote %s" % md_path)
 
     tex_path = os.path.join(args.out, base + ".tex")

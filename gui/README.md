@@ -79,3 +79,15 @@ cargo run --release
 - Search for Cases (names mode) puts matching scotus.py dockets above the results: a docket number (`25-579`, `No. 25-579`)
   or words in the case title. A docket number not fetched yet gets a Fetch & build button. In View Cases, the
   `Pending SCOTUS/` docket and filing notes are links to their docket page.
+- **Cited together** ("where used"; `Page::CoCited`, `db::cocited_in`, `src/cocache.rs`): ＋ beside a search hit or on a
+  case page adds the case to the filter in the Search side panel (✓ takes it out); **Find decisions citing all n** lists every
+  decision citing every case in the filter, newest first. One case is plain where-used; **Cited by…** on a case page opens that
+  directly. Read from cocite.py's edge cache (`cocite-cache/` beside the views: `citing.npy`, `by_cited.npy`,
+  `cited_sorted.npy`, `ref_year.npy`), the decision-level edges the co-citation map is built from, so a decision counts once
+  whichever of its opinions cites, and the citing side is all courts. Meyer + Twombly: 141 decisions in under a second. Names,
+  citations and courts come from the main database for the newest 500 only (each is a disk seek); the total is always shown.
+  The cache is only as new as the last `./cocite.py prep` (its bulk-load date is on the page). Sort by any column heading;
+  the page's Filter box matches name, citation or court (`ca4`, `scotus`) among the listed rows.
+- **Pop out** (top bar): the current page in a window of its own, content only, with its own back/forward (Alt+Left /
+  Alt+Right) and "Open in main window". **Ctrl+click** any link (in the main window or a pop-out) opens it in a new window
+  instead. Pop-outs share the page cache and the build queue with the main window; closing one forgets its history.
