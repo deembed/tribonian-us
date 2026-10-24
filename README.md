@@ -2,6 +2,36 @@
 
 Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Obsidian notes.
 
+> Not legal advice and not a citator. The good-law check and the co-citation map are reading aids built from
+> CourtListener data; read the opinions they point to.
+
+## Getting started
+
+Linux (tested on Debian/Ubuntu with Python 3.10). Start with the US Code, which needs no account and no database:
+
+```
+git clone https://github.com/deembed/LawFormatting.git && cd LawFormatting
+sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic poppler-utils rsync
+pip install -r requirements.txt
+mkdir -p xml    # then download a title's USLM XML from https://uscode.house.gov/download/download.shtml into xml/
+./build_all.sh usc            # -> pdf/<n>-usc-ch<NN>.pdf, md/ notes
+```
+
+Then add the parts you want. Each one needs the ones above it:
+
+| You want | Also needs |
+|---|---|
+| US Code PDFs and notes | Python + `lxml`, pdflatex (XCharter, tcolorbox, ulem) |
+| Court opinions by citation (`case2md.py fetch` / `build`) | a free [CourtListener](https://www.courtlistener.com/) account and API token (`COURTLISTENER_TOKEN`) |
+| Pending Supreme Court cases (`scotus.py`) | `curl`, `pdftotext`; no account |
+| Good-law check, citation maps, `find`, case profiles (`casemap.py`, `casedb.py`) | the CourtListener bulk files loaded into local SQLite: a lot of disk (the opinion text alone is about 110 GB) |
+| Co-citation clusters (`cocite.py`) | the local database, plus numpy, scipy, igraph |
+| Desktop browser (`gui/`) | Rust 1.85+ (`cargo`), the local database; see `gui/README.md` |
+| Obsidian mirror (`sync_vault.sh`) | an Obsidian vault (`VAULT=/path/to/vault`) |
+| Tablet upload (`sync_remarkable.py`) | a reMarkable and [`rmapi`](https://github.com/ddvk/rmapi), paired with the reMarkable cloud or a self-hosted [rmfakecloud](https://github.com/ddvk/rmfakecloud) (`RMAPI_HOST`) |
+
+Without the local database, `case2md.py build` still writes the note and PDF; add `--no-goodlaw` to skip the good-law check.
+
 ## Everyday use
 
 ```
@@ -271,8 +301,8 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 
 ## Syncing
 
-- **`./sync_vault.sh`:** mirrors `md/` into `~/Obsidian/usc-vault/08-Reference/USC`, `md-cases/` into `08-Reference/Cases` and `md-cocite/` into `08-Reference/Co-citation`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. It refuses to run when a source holds fewer than 90% of the notes already in the vault (a partial build); `FORCE=1` overrides. Options: `VAULT=/path`, `DRY=1`, `FORCE=1`. `build_all.sh` exits non-zero when any job failed, so `./build_all.sh && ./sync_vault.sh` is safe.
-- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmfakecloud and rmapi, under `/LawFormatter/Laws/USC/Title-NN/`, `/LawFormatter/Laws/Cases/...` and `/LawFormatter/Laws/Co-citation/<slice>/` (sub-cluster explainers). It never deletes on the tablet. `state/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
+- **`./sync_vault.sh`:** mirrors `md/` into `$VAULT/08-Reference/USC` (default vault `~/Obsidian/usc-vault`), `md-cases/` into `08-Reference/Cases` and `md-cocite/` into `08-Reference/Co-citation`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. It refuses to run when a source holds fewer than 90% of the notes already in the vault (a partial build); `FORCE=1` overrides. Options: `VAULT=/path`, `DRY=1`, `FORCE=1`. `build_all.sh` exits non-zero when any job failed, so `./build_all.sh && ./sync_vault.sh` is safe.
+- **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmapi (reMarkable cloud, or rmfakecloud when `RMAPI_HOST` is set), under `/LawFormatter/Laws/USC/Title-NN/`, `/LawFormatter/Laws/Cases/...` and `/LawFormatter/Laws/Co-citation/<slice>/` (sub-cluster explainers). It never deletes on the tablet. `state/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
 
 ## Other
 
@@ -284,6 +314,27 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 - **Two `build_all.sh` runs at once:** works. The only side effect is that one PDF may be rebuilt on the next run, because both runs update `state/built.tsv`.
 - **Case builds in parallel:** safe; they lock `cases/_index.json` while updating it.
 
+## Configuration (environment variables)
+
+| Variable | Default | Used by | What |
+|---|---|---|---|
+| `COURTLISTENER_TOKEN` | keyring (`secret-tool`) | case2md, casemap, scotus | CourtListener API token |
+| `CL_LIMITS` | `5,50,125` | case2md | API limits per minute, hour, day (raise for a paid tier) |
+| `CL_BULK` | `bulk/` | casedb and everything using it | folder with the bulk `*.csv.bz2` files and the databases |
+| `CL_DB` | `$CL_BULK/courtlistener.sqlite` | casedb | main database |
+| `CL_OPS_DB` | `db/opinions.sqlite` | casedb | opinion text |
+| `CL_SEARCH_DB` | beside `CL_DB` | case2md find | full-text index |
+| `CL_COCITE_DB` | beside `CL_DB` | cocite | co-citation results |
+| `JOBS` | number of cores | build_all.sh | parallel builds |
+| `STYLE`, `FONT`, `EXTRA`, `MD_ONLY`, `FORCE`, `SCRATCH`, `STUB_ARGS` | see `build_all.sh` | build_all.sh | build options |
+| `PDFLATEX_TIMEOUT` | `1800` | case2md, build_all.sh | seconds per pdflatex pass |
+| `USC_MARKS` | `1` | case2md | `0` turns off the old-US-Code-cite check |
+| `VAULT` | `~/Obsidian/usc-vault` | sync_vault.sh | Obsidian vault to mirror into |
+| `DRY`, `FORCE` | off | sync_vault.sh | dry run; skip the partial-build guard |
+| `RMAPI` | `rmapi` on `PATH`, else `~/.local/bin/rmapi` | sync_remarkable.py | rmapi binary |
+| `RMAPI_HOST` | unset (official cloud) | sync_remarkable.py (via rmapi) | rmfakecloud address, e.g. `http://<host>:3000` |
+| `RMAPI_CONFIG` | `~/.config/rmapi/rmapi.conf` | sync_remarkable.py | rmapi token file from pairing |
+
 ## Requirements
 
 - Python 3.10 with the packages in `requirements.txt` (`lxml`; numpy, scipy, python-igraph for `cocite.py`): `pip install -r requirements.txt`, or `sudo apt install python3-lxml python3-numpy python3-scipy python3-igraph`
@@ -294,6 +345,8 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 - `secret-tool`, for a token stored in the keyring
 - `rsync`, for `sync_vault.sh`
 - `rmapi`, for `sync_remarkable.py`
+- Rust 1.85 or newer, for `gui/`
+- Linux: the scripts use `nproc`, GNU `sed -i` and, optionally, the GNOME keyring
 
 Tests: `python3 -m unittest discover tests` from the repo root. No database or network; the fixture builds are skipped when `xml/usc01.xml`, a `cases/*.json` or pdflatex is missing.
 
@@ -344,3 +397,5 @@ Columns `casedb.py` doesn't load are still in the files already downloaded to `b
 MIT — see `LICENSE`.
 
 Most of the code and documentation in this repository was written by Claude (Anthropic's AI model), working from my specifications, design decisions and review. The design, the selection and arrangement of the parts, and the edits are mine. Parts that are purely AI-generated may not be protected by copyright; the MIT license covers whatever is, and the no-warranty terms apply to all of it.
+
+Data: opinions, dockets and bulk files come from [CourtListener](https://www.courtlistener.com/) (Free Law Project), under its terms and API rate limits; the US Code XML from the [Office of the Law Revision Counsel](https://uscode.house.gov/); Supreme Court filings from [supremecourt.gov](https://www.supremecourt.gov/). `data/cocite_labels.json` (cluster and area names) was written by a language model.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mirror pdf/ onto the reMarkable (via rmfakecloud + rmapi), split like the vault:
+"""Mirror pdf/ onto the reMarkable (via rmapi; reMarkable cloud or rmfakecloud), split like the vault:
 
     US Code  pdf/5-usc-ch05.pdf        -> /LawFormatter/Laws/USC/Title-05/5-usc-ch05
     Cases    pdf/FOIA/710-f3d-422-*.pdf -> /LawFormatter/Laws/Cases/FOIA/710-f3d-422-*
@@ -34,9 +34,11 @@ if not MANIFEST.exists() and (ROOT / "build" / "rm_manifest.json").exists():   #
     MANIFEST.parent.mkdir(exist_ok=True)
     (ROOT / "build" / "rm_manifest.json").rename(MANIFEST)
 REMOTE   = "/LawFormatter/Laws"
-RMAPI    = os.path.expanduser("~/.local/bin/rmapi")
-RM_HOST  = "http://<rmfakecloud-host>:3000"     # rmfakecloud on the hub Pi
-RM_CONF  = os.path.expanduser("~/.config/rmapi/rmapi.conf")  # token from pairing
+# rmapi binary: $RMAPI, else rmapi on PATH, else ~/.local/bin/rmapi
+RMAPI    = os.environ.get("RMAPI") or shutil.which("rmapi") or os.path.expanduser("~/.local/bin/rmapi")
+# RMAPI_HOST (read by rmapi itself) points at a self-hosted rmfakecloud, e.g.
+# RMAPI_HOST=http://<host>:3000; leave it unset to use the official reMarkable cloud.
+RM_CONF  = os.environ.get("RMAPI_CONFIG") or os.path.expanduser("~/.config/rmapi/rmapi.conf")  # token from pairing
 MAX_UPDATES = 10   # more replacements than this in one run need --yes (each one drops annotations)
 
 USC_RE = re.compile(r"^(\d+)([a-z]?)-", re.I)
@@ -75,7 +77,7 @@ def rm_put(pdf: Path, folder: str, overwrite: bool, made: set) -> str:
     """Your working single-file upload, with mkdir done once per folder per run.
     Returns "ok", "exists" (already on tablet, not overwritten) or "fail"."""
     exe = shutil.which(RMAPI)
-    env = dict(os.environ, RMAPI_HOST=RM_HOST, RMAPI_CONFIG=RM_CONF)
+    env = dict(os.environ, RMAPI_CONFIG=RM_CONF)
 
     # mkdir -p on the tablet; "already exists" errors are ignored
     parts = [p for p in folder.split("/") if p]

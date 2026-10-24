@@ -2,7 +2,7 @@
 
 Read-only desktop browser over what the LawFormatting scripts produce: co-citation areas, lineages,
 slices, clusters and sub-clusters (`cocite*.sqlite`), and the built case notes (`cases/_index.json`,
-`md-cases/`, `pdf/`). It never writes to any of them (its own writes: SVG exports and the recent-searches list, below). Scope: `claude/scope-gui.md` in the Project.
+`md-cases/`, `pdf/`). It never writes to any of them (its own writes: SVG exports and the recent-searches list, below).
 
 ```
 cd gui
