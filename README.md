@@ -1,4 +1,6 @@
-# Legal Formatter for Tablets
+# tribonian-us
+
+*Named after Tribonian, the jurist who compiled Justinian's Code (statutes) and Digest (jurists' opinions) into one body of law to read.*
 
 Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Obsidian notes.
 
@@ -10,7 +12,7 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 Linux (tested on Debian/Ubuntu with Python 3.10). Start with the US Code, which needs no account and no database:
 
 ```
-git clone https://github.com/deembed/LawFormatting.git && cd LawFormatting
+git clone https://github.com/deembed/tribonian-us.git && cd tribonian-us
 sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic poppler-utils rsync
 pip install -r requirements.txt
 mkdir -p xml    # then download a title's USLM XML from https://uscode.house.gov/download/download.shtml into xml/

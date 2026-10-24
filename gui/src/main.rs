@@ -1,4 +1,4 @@
-//! lawgui: a read-only browser over what the LawFormatting scripts produced.
+//! lawgui: a read-only browser over what the tribonian-us scripts produced.
 //! Start screen -> View Clusters (areas, lineages, slices, clusters, sub-clusters) and View Cases,
 //! all leading to one shared case page. See claude/scope-gui.md in the Project.
 

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     /// Folder holding cocite*.sqlite (the bulk/ symlink target).
     pub bulk_dir: PathBuf,
-    /// The LawFormatting repo: cases/, md-cases/, pdf/, data/cocite_labels.json.
+    /// The tribonian-us repo: cases/, md-cases/, pdf/, data/cocite_labels.json.
     pub repo_dir: PathBuf,
     /// File stem of the view opened at start, e.g. "cocite-appellate-sentence-m0.2".
     #[serde(default = "default_view")]

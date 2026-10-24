@@ -1,4 +1,4 @@
-# LawFormatting — architecture and design intent
+# tribonian-us — architecture and design intent
 
 For a developer opening the scripts for the first time. It covers what each system does, how data flows between them, and why things are built the way they are. For command usage, see `README.md` in the repo. Written 2026-09-30 against the working tree, which includes uncommitted changes.
 
@@ -6,7 +6,7 @@ For a developer opening the scripts for the first time. It covers what each syst
 
 ## 1. What the project is for
 
-The project turns federal law into **dense PDFs you can read and annotate on a reMarkable Paper Pro**, plus an **Obsidian mirror** of the same material, linked as notes. There are two corpora:
+tribonian-us turns federal law into **dense PDFs you can read and annotate on a reMarkable Paper Pro**, plus an **Obsidian mirror** of the same material, linked as notes. There are two corpora:
 
 - **US Code**: USLM XML from uscode.house.gov, handled by `usc2md.py`.
 - **Case law and district-court filings**: CourtListener API data plus its quarterly bulk dumps, handled by `case2md.py`, `casemap.py` and `casedb.py`.

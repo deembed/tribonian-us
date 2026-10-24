@@ -4,8 +4,8 @@
 # Folder holding cocite*.sqlite (where bulk/ points)
 bulk_dir = "/path/to/courtlistener"
 
-# The LawFormatting repo: cases/, md-cases/, pdf/, data/cocite_labels.json
-repo_dir = "/path/to/LawFormatting"
+# The tribonian-us repo: cases/, md-cases/, pdf/, data/cocite_labels.json
+repo_dir = "/path/to/tribonian-us"
 
 # View opened at start (a cocite*.sqlite file stem)
 default_view = "cocite-appellate-sentence-m0.2"
@@ -25,4 +25,4 @@ obsidian_cases_dir = "08-Reference/Cases"
 # python = "python3"
 
 # Opinion-text database (for the live "How later courts describe it"); default repo_dir/db/opinions.sqlite
-# opinions_db = "/path/to/LawFormatting/db/opinions.sqlite"
+# opinions_db = "/path/to/tribonian-us/db/opinions.sqlite"
