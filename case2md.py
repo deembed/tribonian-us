@@ -2318,6 +2318,22 @@ _CAPNAME = r"[A-Z0-9][A-Z0-9 .,'’&:()\-]*\bV\.\s+[A-Z0-9 .,'’&:()\-]+?"
 SLIP_RUNHEAD_RE = re.compile(r"^\s*(?:(\d{1,3})\s{2,}%s|%s\s{2,}(\d{1,3}))\s*$" % (_CAPNAME, _CAPNAME))
 
 
+def foot_key(l):
+    return re.sub(r"\d+", "#", re.sub(r"\s+", " ", l.strip()))
+
+
+def running_feet(text):
+    """Lines that recur (digits aside) among the last few lines of most pages: a running footer
+    such as "U.S. v. SOA, et al.   7" / "Case No: 3:26-cv-". Page-foot lines only, so body text never matches."""
+    pages = [p for p in text.replace("\r", "").split("\f") if p.strip()]
+    seen = Counter()
+    for pg in pages:
+        tail = [l for l in pg.split("\n") if l.strip()][-5:]
+        seen.update({foot_key(l) for l in tail if not HEADER_RE.match(l)})
+    need = max(3, (len(pages) + 1) // 2)
+    return {k for k, n in seen.items() if n >= need and len(k) < 80}
+
+
 def layout_pages(text, heads=None):
     """-> (lines, footnotes [[label, page index, paragraphs]], page labels by page index).
     heads: a list to fill with each page's opinion label (Supreme Court slip opinions), else ''."""
@@ -2325,6 +2341,7 @@ def layout_pages(text, heads=None):
     text = text.translate(FOLD)
     lines, footnotes, labels, nxt = [], [], [], 1
     set_vocab(text)
+    feet = running_feet(text)
     for pi, pg in enumerate(text.replace("\r", "").split("\f")):
         raw = [l.expandtabs(8).rstrip() for l in pg.split("\n")]
         label, head = str(pi + 1), ""
@@ -2356,11 +2373,16 @@ def layout_pages(text, heads=None):
                 break
         if heads is not None:
             heads.append({"head": head, "new": bool(head) and (label == "1" or pi == 0)})
-        for j in range(len(raw) - 1, -1, -1):   # page number at the foot
-            if raw[j].strip():
-                if PAGENUM_RE.match(raw[j]):
-                    raw[j] = ""
+        for _ in range(6):                      # the foot: page number, ECF stamp, running footer
+            j = next((j for j in range(len(raw) - 1, -1, -1) if raw[j].strip()), None)
+            if j is None:
                 break
+            m = HEADER_RE.match(raw[j])
+            if m:
+                label = m.group(1)
+            elif not (PAGENUM_RE.match(raw[j]) or foot_key(raw[j]) in feet):
+                break
+            raw[j] = ""
         labels.append(label)
         if not any(l.strip() for l in raw):
             continue
