@@ -7,6 +7,22 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 > Not legal advice and not a citator. The good-law check and the co-citation map are reading aids built from
 > CourtListener data; read the opinions they point to.
 
+## What it makes
+
+| US Code | A case: profile and good-law check | A co-citation sub-cluster |
+|---|---|---|
+| ![1 U.S.C. chapter 1](docs/img/usc-page.png) | ![State Farm case profile](docs/img/case-profile.png) | ![Sub-cluster 2020-24:2.3](docs/img/subcluster-page.png) |
+
+Full sample PDFs and a sample note are in [`examples/`](examples/).
+
+And a desktop browser over all of it (`gui/`, Rust):
+
+| Start | An area's history graph |
+|---|---|
+| ![Start screen](docs/img/gui-title-page.png) | ![Area: standing and judicial review of agency action](docs/img/gui-area.png) |
+| **A case page** | **Search what later courts said** |
+| ![State Farm case page](docs/img/gui-case.png) | ![Parenthetical search: arbitrary and capricious](docs/img/gui-search.png) |
+
 ## Getting started
 
 Linux (tested on Debian/Ubuntu with Python 3.10). Start with the US Code, which needs no account and no database:
@@ -393,6 +409,13 @@ Files in the same bulk-data folder (`https://com-courtlistener-storage.s3-us-wes
 Columns `casedb.py` doesn't load are still in the files already downloaded to `bulk/`. `./casedb.py columns` lists, for each file, the columns loaded and the ones left out, and shows every column of the files that aren't loaded at all. Keeping one means adding it to `TABLES` in `casedb.py` and reloading that table with `./casedb.py load --force <name>`.
 
 **API only, no bulk file:** RECAP docket entries and filed documents (what `case2md.py recap fetch` uses), and anything newer than the last quarterly export.
+
+## History
+
+Development started on 2026-09-18 in a private repository, and the full commit history is kept here. Before
+publishing, that history was rewritten to take out personal details (a name and a home-network address), so commit
+hashes differ from the private copy; the code, messages and dates are otherwise as they were. In the screenshots in
+`docs/img/`, the recent-search and page-history lists are blurred out.
 
 ## License and how this was written
 
