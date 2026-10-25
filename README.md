@@ -57,30 +57,187 @@ And a desktop browser over all of it (`gui/`, Rust):
 
 ## Getting started
 
-Linux (tested on Debian/Ubuntu with Python 3.10). Start with the US Code, which needs no account and no database:
+A walk from an empty machine to everything working: US Code PDFs, case notes, the local CourtListener database,
+the co-citation map and the GUI. Each stage works on its own, so you can stop after any of them.
+
+| You want | Stages |
+|---|---|
+| US Code PDFs and notes | 1, 2 |
+| Court opinions by citation, no local database (`case2md.py build --no-goodlaw`) | 1, 3, 6 |
+| Pending Supreme Court cases (`scotus.py`) | 1 (no account) |
+| Good-law check, case profiles, `find`, citation walks | 1, 3, 4 |
+| Co-citation clusters, areas, sub-cluster explainers | 1, 3, 4, 5 |
+| Desktop browser (`gui/`) | 1, 4, 5, 8 |
+| Obsidian and reMarkable | 7 |
+
+### 1. Install
+
+Linux (tested on Debian/Ubuntu, Python 3.10).
 
 ```
 git clone https://github.com/deembed/tribonian-us.git && cd tribonian-us
-sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic poppler-utils rsync
-pip install -r requirements.txt
-mkdir -p xml    # then download a title's USLM XML from https://uscode.house.gov/download/download.shtml into xml/
-./build_all.sh usc            # -> pdf/<n>-usc-ch<NN>.pdf, md/ notes
+sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic \
+                 poppler-utils curl rsync lbzip2 libsecret-tools
+pip install -r requirements.txt     # or: sudo apt install python3-lxml python3-numpy python3-scipy python3-igraph
+mkdir -p xml bulk db                # db/ must exist before stage 4, or the opinion text lands beside the main database
+python3 -m unittest discover tests  # smoke tests; no network, no database
 ```
 
-Then add the parts you want. Each one needs the ones above it:
+`bulk/` and `db/` can be symlinks to another disk (or set `CL_BULK`, `CL_OPS_DB`). Put `db/` on the fastest disk:
+the opinion text is read hard by the good-law check and `cocite.py positions`.
 
-| You want | Also needs |
+### 2. US Code (no account)
+
+1. Download the XML from the Office of the Law Revision Counsel: <https://uscode.house.gov/download/download.shtml>,
+   "XML" for all titles (one zip) or for single titles.
+2. Unzip into `xml/`, so you have `xml/usc01.xml`, `xml/usc02.xml`, ...
+3. Build:
+
+```
+./build_all.sh usc          # -> pdf/<n>-usc-ch<NN>.pdf (one per chapter) and md/t<NN>/ch<NN>/ notes
+./build_all.sh --todo usc   # what would be built, without building
+```
+
+When a new release point comes out, replace the files in `xml/` and rerun; only changed titles are rebuilt.
+
+### 3. CourtListener account and API token
+
+1. Make a free account at <https://www.courtlistener.com/> and copy your API token from your profile's API page.
+2. Store it, either way:
+
+```
+secret-tool store --label='CourtListener API' service courtlistener   # GNOME keyring (paste the token)
+export COURTLISTENER_TOKEN=...                                         # or an environment variable
+```
+
+3. Check it: `./case2md.py fetch --cite "463 U.S. 29"` then `./case2md.py usage`.
+
+The free tier allows 5 requests a minute, 50 an hour, 125 a day; commands pace themselves and resume from the
+cache. With a paid tier set `CL_LIMITS=10,75,300` (your limits).
+
+### 4. Local database (CourtListener bulk data)
+
+The good-law check, case profiles, `find`, `casemap.py` and everything in stage 5 read this, not the API.
+
+1. Open the bulk-data listing:
+   <https://com-courtlistener-storage.s3-us-west-2.amazonaws.com/list.html?prefix=bulk-data/>
+2. Download these seven files from **one** quarterly set (same date on all), into `bulk/`, keeping their names
+   (`<name>-YYYY-MM-DD.csv.bz2`):
+
+| File | Loaded as |
 |---|---|
-| US Code PDFs and notes | Python + `lxml`, pdflatex (XCharter, tcolorbox, ulem) |
-| Court opinions by citation (`case2md.py fetch` / `build`) | a free [CourtListener](https://www.courtlistener.com/) account and API token (`COURTLISTENER_TOKEN`) |
-| Pending Supreme Court cases (`scotus.py`) | `curl`, `pdftotext`; no account |
-| Good-law check, citation maps, `find`, case profiles (`casemap.py`, `casedb.py`) | the CourtListener bulk files loaded into local SQLite: a lot of disk (the opinion text alone is about 110 GB) |
-| Co-citation clusters (`cocite.py`) | the local database, plus numpy, scipy, igraph |
-| Desktop browser (`gui/`) | Rust 1.85+ (`cargo`), the local database; see `gui/README.md` |
-| Obsidian mirror (`sync_vault.sh`) | an Obsidian vault (`VAULT=/path/to/vault`) |
-| Tablet upload (`sync_remarkable.py`) | a reMarkable and [`rmapi`](https://github.com/ddvk/rmapi), paired with the reMarkable cloud or a self-hosted [rmfakecloud](https://github.com/ddvk/rmfakecloud) (`RMAPI_HOST`) |
+| `courts-…` | `courts` |
+| `citations-…` | `cites` |
+| `parentheticals-…` | `parens` |
+| `citation-map-…` | `edges` |
+| `opinion-clusters-…` | `clusters` |
+| `dockets-…` | `dockets` |
+| `opinions-…` (by far the largest) | `db/opinions.sqlite` |
 
-Without the local database, `case2md.py build` still writes the note and PDF; add `--no-goodlaw` to skip the good-law check.
+```
+cd bulk
+D=2026-06-30      # the date of the set you picked
+for f in courts citations parentheticals citation-map opinion-clusters dockets opinions; do
+  curl -fLO -C - "https://com-courtlistener-storage.s3-us-west-2.amazonaws.com/bulk-data/$f-$D.csv.bz2"
+done
+cd ..
+```
+
+(`-C -` resumes an interrupted download.) Then load:
+
+```
+./casedb.py load      # every file in bulk/, smallest first; a finished table is skipped, so rerun after an interruption
+./casedb.py status    # each table: file, rows, when loaded
+./casedb.py index     # full-text index for case2md.py find (load rebuilds it when clusters or parentheticals change)
+```
+
+Disk: the opinion text alone is about 110 GB in `db/opinions.sqlite`; the main database (`bulk/courtlistener.sqlite`)
+is about 25 GB; plus the downloads themselves, which you can delete once `status` shows every table loaded.
+A load stops on a truncated file ("incomplete download?") instead of loading part of it.
+
+Check it: `./casemap.py goodlaw --cite "467 U.S. 837" --quick` should come back red.
+
+**Updating:** CourtListener publishes a new set each quarter (last day of March, June, September, December).
+Download the new set, `./casedb.py load --force <name>` for each table, then redo stage 5 from `prep`.
+
+### 5. Citation maps (co-citation clusters)
+
+Case notes read two co-citation views built from appellate citing decisions:
+
+- `appellate-sentence-m0.2` (`NOTE_VIEW` in `cocite.py`): clusters, sub-clusters, areas, "What it draws on";
+  pairs weighted by same-sentence co-citation.
+- `appellate` (binary): the "likely successor" line in the case profile (`cocite_shift.py` was evaluated there).
+
+Run in this order; each step reads what the one before wrote.
+
+```
+./cocite.py prep                                                    # 1. one pass over the database -> bulk/cocite-cache/
+./cocite.py build --courts appellate                                # 2. binary view -> bulk/cocite-appellate.sqlite
+./cocite.py positions                                               # 3. where every citation sits in the text (all cores, resumable)
+./cocite.py positions --status                                      #    shards done / to do; rerun step 3 until none are left
+./cocite.py positions --index                                       # 4. sort those rows by decision -> cocite-cache/posidx/
+./cocite.py build --courts appellate --weight sentence --mix 0.2    # 5. the note view -> bulk/cocite-appellate-sentence-m0.2.sqlite
+```
+
+`build` re-attaches the tracked lineage labels (`data/cocite_labels.json`) by itself. Then the areas and the vault
+notes, once per view you want them in (the same flags pick the view):
+
+```
+V="--courts appellate --weight sentence --mix 0.2"
+./cocite.py areas $V --method cpm --resolution 0.5 --shrink 10 --consensus 20   # 6. group lineages into areas
+./cocite.py labels check $V                                         #    stable / drifted / displaced / orphaned labels
+./cocite.py status $V                                               #    per slice: nodes, cut, modularity vs chance
+./cocite.py vault $V                                                # 7. md-cocite/: Co-citation map.md, Areas/, Lineages/
+```
+
+Optional:
+
+```
+./cocite.py areas --courts appellate --method cpm --resolution 0.5 --shrink 10 --consensus 20   # areas for the binary view too (GUI)
+./cocite.py usc-map                     # old US Code numbers -> current (from xml/), sharpens case notes' old-cite marks
+./cocite.py subdoc 2020-24:2.3          # explain one sub-cluster -> md-cocite/Sub-clusters/, pdf/Co-citation/
+```
+
+Check it: `./cocite.py note --cite "463 U.S. 29"` previews the co-citation section State Farm's note will get.
+
+A rebuild of the bulk data or a schema change in `cocite.py` means rerunning from `prep` (read commands say
+"rebuild with ./cocite.py build" when a view is out of date). `positions` only redoes shards whose extractor
+`VERSION` changed.
+
+### 6. First cases
+
+```
+./casemap.py get --cite "463 U.S. 29"            # from the local database, no API -> cases/*.json + note
+./case2md.py fetch --cite "463 U.S. 29"          # or from the API, when you have no local database
+./case2md.py build cases/463-u-s-29_*.json       # -> md-cases/, pdf/   (--quick-goodlaw: fast check; --no-goodlaw without the database)
+./casemap.py map --cite "463 U.S. 29"            # notes for the case's whole sub-cluster (needs stage 5)
+./build_all.sh cases                             # build every case PDF that is missing or out of date
+./scotus.py fetch 25-579 && ./scotus.py build 25-579   # a pending Supreme Court case (no account)
+```
+
+### 7. Obsidian and reMarkable
+
+```
+VAULT=~/Obsidian/usc-vault DRY=1 ./sync_vault.sh  # see what it would do; it mirrors (and deletes) inside 08-Reference/ only
+VAULT=~/Obsidian/usc-vault ./sync_vault.sh
+./sync_remarkable.py --dry-run                    # needs rmapi paired first (RMAPI_HOST for rmfakecloud)
+./sync_remarkable.py
+```
+
+Install [`rmapi`](https://github.com/ddvk/rmapi) and run it once to pair with the reMarkable cloud, or with a
+self-hosted [rmfakecloud](https://github.com/ddvk/rmfakecloud) (`RMAPI_HOST=http://<host>:3000`).
+
+### 8. Desktop browser
+
+Needs Rust 1.85+ (<https://rustup.rs/>) and stages 4–5.
+
+```
+cd gui
+cp gui.toml.example gui.toml     # set repo_dir, bulk_dir and the other paths
+cargo run --release
+```
+
+Details in [`gui/README.md`](gui/README.md).
 
 ## Everyday use
 
