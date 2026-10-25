@@ -46,16 +46,20 @@ class Windows(unittest.TestCase):
     def args(self, **kw):
         return types.SimpleNamespace(**dict(dict(window=None, since=None, courts=None), **kw))
 
-    def test_default_is_newest_slice_only(self):
+    def test_default_since_and_widening(self):
         saved = ss.slice_windows
-        ss.slice_windows = lambda view=None: [("1990-01-01", "1994-12-31", "1990-94"), ("1995-01-01", "1999-12-31", "1995-99"),
-                                              ("2000-01-01", "2004-12-31", "2000-04")]
+        ss.slice_windows = lambda view=None: [("%d-01-01" % s, "%d-12-31" % (s + 4), "%d" % s) for s in (1970, 1975, 1980, 1985)]
         try:
-            self.assertEqual([w[2] for w in ss.windows_for(self.args())], ["2000-04"])
-            self.assertEqual([w[2] for w in ss.windows_for(self.args(since=1995))], ["1995-99", "2000-04"])
-            self.assertEqual(len(ss.windows_for(self.args(since=1700))), 3)
+            self.assertEqual([w[2] for w in ss.windows_for(self.args())], ["1980", "1985"])      # since 1980
+            self.assertEqual([w[2] for w in ss.windows_for(self.args(since=1985))], ["1985"])
+            self.assertEqual(len(ss.windows_for(self.args(since=1700))), 4)
         finally:
             ss.slice_windows = saved
+
+    def test_cited_gt_in_cache_key_only_when_set(self):
+        w = ("1983-01-01", "1983-12-31", "")
+        self.assertEqual(ss.cache_path("q", "scotus", w, 1), ss.cache_path("q", "scotus", w, 1, 0))
+        self.assertNotEqual(ss.cache_path("q", "scotus", w, 1), ss.cache_path("q", "scotus", w, 1, 5))
 
 
 class Acceptance(unittest.TestCase):
@@ -76,7 +80,8 @@ class Acceptance(unittest.TestCase):
     def test_state_farm_first(self):
         args = types.SimpleNamespace(query=FIX["query"], file=None, court=FIX["court"], pages=2,
                                      window=["%s:%s" % tuple(FIX["window"])], since=None, courts=None,
-                                     top=5, min_chars=ss.MIN_CHARS, out=None)
+                                     top=5, min_chars=ss.MIN_CHARS, out=None,
+                                     cited_gt=0)   # the fixture was fetched without the filter
         # --window labels a window "START..END"; the cache key ignores the label
         out = ss.run(args)
         rec = json.loads(out.read_text())

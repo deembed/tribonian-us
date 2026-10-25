@@ -12,7 +12,7 @@ cargo run --release
 
 - Start screen: View Clusters, View Cases, Search for Cases, SCOTUS, Sub-Cluster Search (draft).
 - Sub-Cluster Search (draft): paste a draft or a question; each blank-line-separated paragraph is one CourtListener
-  semantic search in the newest five-year slice, or every slice since the Since year (`casemap.py semsearch`, queued like a build; the app passes the text as the
+  semantic search per five-year slice since the Since year (default 1980), cases cited more than N times (default 5) (`casemap.py semsearch`, queued like a build; the app passes the text as the
   query and writes nothing). Hits re-ranked by semantic score, grouped by sub-cluster, linked to the case and
   sub-cluster pages. The side panel lists earlier runs (cases/semsearch/*/results.json, CLI runs included).
 - Back/forward: the arrow buttons or Alt+Left / Alt+Right. The breadcrumb shows the last few pages.

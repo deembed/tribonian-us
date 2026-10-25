@@ -17,6 +17,8 @@ use std::time::SystemTime;
 
 /// Linux refuses a single argument over 128 KiB; stay well under it.
 const MAX_TEXT: usize = 100_000;
+/// semsearch.py's default --since (SINCE there)
+const DEFAULT_SINCE: i64 = 1980;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Hit {
@@ -73,6 +75,8 @@ pub struct Requests {
 pub struct Results {
     pub searched: String,
     pub court: Option<String>,
+    #[serde(default)]
+    pub cited_gt: Option<i64>,
     pub pages: i64,
     pub windows: Vec<serde_json::Value>,
     pub requests: Requests,
@@ -93,8 +97,8 @@ pub struct SemUi {
     pub since: String,
     pub pages: u32,
     pub top: usize,
-    /// Since has been pre-filled with the newest slice (once; the user's edits are kept after that)
-    pub since_set: bool,
+    /// --cited-gt: only cases cited more than this many times
+    pub cited_gt: u32,
     /// Folder of the run shown (or being waited for), and the results.json mtime last read.
     pub dir: Option<PathBuf>,
     pub seen: Option<SystemTime>,
@@ -104,7 +108,7 @@ pub struct SemUi {
 
 impl Default for SemUi {
     fn default() -> Self {
-        SemUi { text: String::new(), court: String::new(), since: String::new(), pages: 2, top: 25, since_set: false,
+        SemUi { text: String::new(), court: String::new(), since: DEFAULT_SINCE.to_string(), pages: 1, top: 25, cited_gt: 5,
                 dir: None, seen: None, results: None, past: None }
     }
 }
@@ -192,20 +196,11 @@ pub fn sem_page(app: &mut App, ui: &mut Ui) {
         ui.add(egui::TextEdit::multiline(&mut app.sem_ui.text).desired_rows(6).desired_width(f32::INFINITY)
             .hint_text("e.g. an agency that reverses a rule must explain why, and cannot ignore an obvious alternative"));
     });
-    // Since starts at the newest slice (one window, the script's default); an earlier year widens the search
-    if !app.sem_ui.since_set {
-        if let Some(last) = app.meta.as_ref().and_then(|m| m.slices.last()) {
-            app.sem_ui.since = last.slice.to_string();
-            app.sem_ui.since_set = true;
-        }
-    }
     let paras = paragraphs_in(&app.sem_ui.text);
     let since: Option<i64> = app.sem_ui.since.trim().parse().ok();
-    // windows the script will use: the slices ending in or after Since; empty = the newest slice only
-    let windows = app.meta.as_ref().map(|m| match since {
-        Some(y) => m.slices.iter().filter(|s| s.slice + 4 >= y).count(),
-        None => m.slices.len().min(1),
-    }).unwrap_or(0);
+    // windows the script will use: the slices ending in or after Since (empty = the script's default year)
+    let y = since.unwrap_or(DEFAULT_SINCE);
+    let windows = app.meta.as_ref().map(|m| m.slices.iter().filter(|s| s.slice + 4 >= y).count()).unwrap_or(0);
     let most = paras * windows * app.sem_ui.pages as usize;
     let mut run = false;
     ui.horizontal(|ui| {
@@ -213,12 +208,16 @@ pub fn sem_page(app: &mut App, ui: &mut Ui) {
         ui.add(egui::TextEdit::singleline(&mut app.sem_ui.court).hint_text("all; or scotus, ca4 …").desired_width(110.0))
             .on_hover_text("CourtListener court ids, space-separated (scotus, ca1 … ca11, cadc, cafc)");
         ui.label("Since");
-        ui.add(egui::TextEdit::singleline(&mut app.sem_ui.since).hint_text("newest").desired_width(50.0))
-            .on_hover_text("search every five-year slice ending in or after this year. Starts at the newest slice \
-                            (one window); an earlier year widens the search and costs more API requests. Empty = newest slice");
+        ui.add(egui::TextEdit::singleline(&mut app.sem_ui.since).hint_text("1980").desired_width(50.0))
+            .on_hover_text("search every five-year slice ending in or after this year (one search per slice): \
+                            earlier = wider and more API requests; 1700 = all slices. Empty = 1980");
         ui.label("Pages");
         ui.add(egui::DragValue::new(&mut app.sem_ui.pages).range(1..=5))
-            .on_hover_text("pages of 20 results per slice (default 2)");
+            .on_hover_text("pages of 20 results per slice (default 1)");
+        ui.label("Cited >");
+        ui.add(egui::DragValue::new(&mut app.sem_ui.cited_gt).range(0..=10_000))
+            .on_hover_text("only cases cited more than this many times (default 5; 0 = no filter). \
+                            An uncited case can't be in a co-citation slice, so it could never get a sub-cluster");
         let empty = app.sem_ui.text.trim().is_empty();
         let too_big = app.sem_ui.text.len() > MAX_TEXT;
         run = ui.add_enabled(!empty && !too_big && app.cfg.is_some(), egui::Button::new("Search")).clicked();
@@ -227,8 +226,7 @@ pub fn sem_page(app: &mut App, ui: &mut Ui) {
         }
     });
     if windows == 0 {
-        ui.weak(format!("no co-citation view open: up to {} API requests per paragraph for the newest slice; \
-                         more with an earlier Since", app.sem_ui.pages));
+        ui.weak("no co-citation view open, so the slice count is unknown: a later Since means fewer API requests");
     } else {
         ui.weak(format!(
             "{paras} paragraph(s) × {windows} slice(s) × {} page(s): up to {most} API requests, fewer when cached \
@@ -253,6 +251,7 @@ fn start(app: &mut App) {
     if !app.sem_ui.court.trim().is_empty() {
         args.extend(["--court".into(), app.sem_ui.court.trim().to_string()]);
     }
+    args.extend(["--cited-gt".into(), app.sem_ui.cited_gt.to_string()]);
     if let Ok(y) = app.sem_ui.since.trim().parse::<i64>() {
         args.extend(["--since".into(), y.to_string()]);
     }
@@ -308,9 +307,10 @@ fn show_results(app: &mut App, ui: &mut Ui) {
     };
     ui.horizontal(|ui| {
         ui.weak(format!(
-            "searched {} · court {} · {} window(s) × {} page(s) · {} request(s), {} from cache",
+            "searched {} · court {} · cited > {} · {} window(s) × {} page(s) · {} request(s), {} from cache",
             r.searched,
             r.court.as_deref().unwrap_or("all"),
+            r.cited_gt.unwrap_or(0),
             r.windows.len(),
             r.pages,
             r.requests.fetched,

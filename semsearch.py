@@ -6,11 +6,14 @@
     ./casemap.py semsearch "..." --window 1983-01-01:1983-12-31 --court scotus
 
 What it does, per paragraph:
-  1. one search per date window. Windows are the five-year co-citation slices (the view's slices
-     table, so they line up with the clusters); by default only the newest slice, which costs
-     --pages requests. --since YEAR widens it to every slice ending in or after YEAR (--since 1700:
-     all of them); --window START:END sets windows by hand
-  2. --pages pages per window (default 2, 20 results each), following CourtListener's `next` cursor
+  1. one search per date window (the date the hit was decided). Windows are the five-year co-citation
+     slices (the view's slices table, so they line up with the clusters): every slice ending in or
+     after --since (default 1980; 1700 = all); --window START:END sets windows by hand.
+     Why windows at all: the server ranks by keyword score with a strong recency boost, so one
+     undated search returns only recent cases; a window per era lets older cases into the pool
+  2. --pages pages per window (default 1, 20 results each), following CourtListener's `next` cursor;
+     only cases cited more than --cited-gt times (default 5; 0 = no filter). A case needs citations
+     to be in a co-citation slice at all, so uncited hits could never get a sub-cluster
   3. everything re-ranked by meta.score.semantic. The server's own order follows the keyword (bm25)
      score with a recency boost, so it is ignored
   4. duplicate records of one decision collapsed (same name without "Revisions: ...", same date)
@@ -32,6 +35,9 @@ import case2md as c
 OUT = c.CASES / "semsearch"
 CACHE = OUT / "_cache"
 MIN_CHARS = 60          # shorter paragraphs (headings, "ARGUMENT") are skipped, not searched
+SINCE = 1980            # default: the slices ending in or after this year (about 10 windows)
+PAGES = 1               # default pages of 20 per window
+CITED_GT = 5            # default: only cases cited more than this many times
 
 
 # ================================================================ windows
@@ -63,12 +69,11 @@ def windows_for(args):
     wins = slice_windows(args.courts)
     if wins is None:                   # no view built: the same five-year grid, up to this year
         import cocite
-        w, now = cocite.WIDTH, date.today().year
-        s0 = (args.since or now) - (args.since or now) % w
+        w, now, since = cocite.WIDTH, date.today().year, args.since if args.since is not None else SINCE
+        s0 = since - since % w
         wins = [("%d-01-01" % s, "%d-12-31" % (s + w - 1), cocite.label(s)) for s in range(s0, now + 1, w)]
-    if args.since:
-        return [x for x in wins if int(x[1][:4]) >= args.since]
-    return wins[-1:]                   # default: the newest slice only
+    since = args.since if args.since is not None else SINCE
+    return [x for x in wins if int(x[1][:4]) >= since]
 
 
 def us_date(iso):
@@ -79,17 +84,18 @@ def us_date(iso):
 
 # ================================================================ fetching (cached)
 
-def cache_path(q, court, win, page):
-    key = json.dumps([q, court or "", win[0], win[1], page])
+def cache_path(q, court, win, page, cited_gt=0):
+    # cited_gt joins the key only when set, so responses cached before the filter existed still match
+    key = json.dumps([q, court or "", win[0], win[1], page] + ([cited_gt] if cited_gt else []))
     return CACHE / (hashlib.sha256(key.encode()).hexdigest()[:24] + ".json")
 
 
-def fetch_window(q, court, win, pages, tok, stats):
+def fetch_window(q, court, win, pages, tok, stats, cited_gt=0):
     """Raw results for one window, pages 1..pages. Page n's URL is the `next` cursor stored in page
     n-1's cached response, so the cache alone can replay a whole window."""
     hits, url = [], None
     for page in range(1, pages + 1):
-        p = cache_path(q, court, win, page)
+        p = cache_path(q, court, win, page, cited_gt)
         if p.exists():
             res = json.loads(p.read_text())
             stats["cached"] += 1
@@ -99,6 +105,8 @@ def fetch_window(q, court, win, pages, tok, stats):
                           "filed_after": us_date(win[0]), "filed_before": us_date(win[1])}
                 if court:
                     params["court"] = court
+                if cited_gt:
+                    params["cited_gt"] = cited_gt
                 url = "%s/search/?%s" % (c.API, urllib.parse.urlencode(params))
             res = c.call(url, tok)
             CACHE.mkdir(parents=True, exist_ok=True)
@@ -251,7 +259,7 @@ def run(args):
     if not wins:
         sys.exit("no windows left to search")
     planned = sum(1 for q in paras for w in wins for p in range(1, args.pages + 1)
-                  if not cache_path(q, args.court, w, p).exists())
+                  if not cache_path(q, args.court, w, p, args.cited_gt).exists())
     print("%d paragraph(s) x %d window(s) x up to %d page(s): at most %d API request(s) not cached (%d left today)" % (
         len(paras), len(wins), args.pages, planned, c.budget_left()))
     if planned > c.budget_left():
@@ -262,7 +270,7 @@ def run(args):
     for i, q in enumerate(paras, 1):
         raw = []
         for w in wins:
-            raw += fetch_window(q, args.court, w, args.pages, tok, stats)
+            raw += fetch_window(q, args.court, w, args.pages, tok, stats, args.cited_gt)
         hits = rerank(raw)
         join, note = cluster_join([[h["cluster_id"]] + h["also"] for h in hits], args.courts)
         for h in hits:
@@ -275,10 +283,11 @@ def run(args):
         for h in hits[:args.top]:
             print("  %2d  %.3f  %s  %-60s %s" % (h["rank"], h["semantic"], h["date"][:4], h["case_name"][:60],
                                                h["sub_name"] or ""))
-    slug = c.slugify(stem, 40) + "-" + hashlib.sha256(json.dumps([paras, args.court, wins, args.pages]).encode()).hexdigest()[:8]
+    slug = c.slugify(stem, 40) + "-" + hashlib.sha256(json.dumps([paras, args.court, wins, args.pages, args.cited_gt]).encode()).hexdigest()[:8]
     out = (Path(args.out) if args.out else OUT / slug) / "results.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     rec = {"searched": time.strftime("%Y-%m-%d %H:%M"), "source": args.file or None, "court": args.court,
+           "cited_gt": args.cited_gt,
            "pages": args.pages, "windows": [{"after": a, "before": b, "label": l} for a, b, l in wins],
            "requests": stats, "paragraphs": results}
     tmp = out.with_suffix(".tmp")
@@ -292,11 +301,13 @@ def add_args(p):
     p.add_argument("query", nargs="?", help="natural-language text to search for (blank lines separate paragraphs)")
     p.add_argument("--file", help="or a text/markdown file: one search per blank-line-separated paragraph")
     p.add_argument("--court", help="CourtListener court id(s), e.g. scotus, or 'scotus ca1' (default: all courts)")
-    p.add_argument("--pages", type=int, default=2, help="pages of 20 per window (default 2)")
+    p.add_argument("--pages", type=int, default=PAGES, help="pages of 20 per window (default %d)" % PAGES)
+    p.add_argument("--cited-gt", dest="cited_gt", type=int, default=CITED_GT,
+                   help="only cases cited more than N times (default %d; 0 = no filter)" % CITED_GT)
     p.add_argument("--window", action="append", metavar="START:END",
                    help="search this window (YYYY-MM-DD:YYYY-MM-DD) instead of the slices; repeatable")
     p.add_argument("--since", type=int, metavar="YEAR",
-                   help="search every slice ending in or after YEAR (default: the newest slice only; 1700 = all)")
+                   help="search every slice ending in or after YEAR (default %d; 1700 = all)" % SINCE)
     p.add_argument("--courts", help="co-citation view for the windows and the join (default: the case notes' view)")
     p.add_argument("--out", metavar="DIR", help="write DIR/results.json (default cases/semsearch/<slug>/)")
     p.add_argument("--top", type=int, default=10, help="hits printed per paragraph (results.json has all)")
