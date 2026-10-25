@@ -100,6 +100,9 @@ the opinion text is read hard by the good-law check and `cocite.py positions`.
 
 When a new release point comes out, replace the files in `xml/` and rerun; only changed titles are rebuilt.
 
+The notes built now have no `## Cited with` section (which sub-clusters cite each section); that needs stage 5,
+whose last step rewrites the notes. The PDFs don't change.
+
 ### 3. CourtListener account and API token
 
 1. Make a free account at <https://www.courtlistener.com/> and copy your API token from your profile's API page.
@@ -190,11 +193,19 @@ V="--courts appellate --weight sentence --mix 0.2"
 ./cocite.py vault $V                                                # 7. md-cocite/: Co-citation map.md, Areas/, Lineages/
 ```
 
+Then the US Code in the map, and the US Code notes again so they get their `## Cited with` section:
+
+```
+./cocite.py usc-extract                 # 8. every US Code cite in the opinion text -> cocite-cache/usc/ (all cores, resumable)
+./cocite.py usc-map                     # 9. old Code numbers -> current, from xml/ (also sharpens case notes' old-cite marks)
+./cocite.py usc-profile                 # 10. sections per sub-cluster, note view -> cocite-cache/usc/profile-<view>.sqlite
+MD_ONLY=1 ./build_all.sh usc            # 11. rewrite the US Code notes (notes only, every title; PDFs untouched)
+```
+
 Optional:
 
 ```
 ./cocite.py areas --courts appellate --method cpm --resolution 0.5 --shrink 10 --consensus 20   # areas for the binary view too (GUI)
-./cocite.py usc-map                     # old US Code numbers -> current (from xml/), sharpens case notes' old-cite marks
 ./cocite.py subdoc 2020-24:2.3          # explain one sub-cluster -> md-cocite/Sub-clusters/, pdf/Co-citation/
 ```
 
