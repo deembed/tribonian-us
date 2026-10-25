@@ -667,11 +667,12 @@ def profile_data(cid, scan=False, quick=None):
                 old["successor"] = successor_data(cid)
                 write_profile(path, old)
             return old
+        op = casemap.casedb.op_table(con)
         years = {y: n for y, n in con.execute(
             "SELECT substr(cl.date_filed, 1, 4) AS y, count(DISTINCT cl.id) FROM edges e "
-            "JOIN ops.opinions o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
-            "WHERE e.cited IN (SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ? "
-            "GROUP BY y", (cid, cid)) if y and y.isdigit()}
+            "JOIN %s o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
+            "WHERE e.cited IN (SELECT id FROM %s WHERE cluster_id = ?) AND cl.id != ? "
+            "GROUP BY y" % (op, op), (cid, cid)) if y and y.isdigit()}
     except sqlite3.Error as e:               # tables not loaded yet, or an older database
         print("  note: no cited-by counts (%s)" % e)
         return old

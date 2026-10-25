@@ -453,12 +453,13 @@ def evaluate(case, rs, c=None):
 
 
 def citing_rows(con, cid):
+    op = casedb.op_table(con)                     # opmap when built: no reads of the opinion-text file
     return con.execute(
         "SELECT DISTINCT o.id, cl.id, cl.date_filed, d.court_id, ct.jurisdiction, ct.citation_string, "
         "coalesce(nullif(cl.case_name_short,''), nullif(cl.case_name,''), 'cluster ' || cl.id), cl.slug "
-        "FROM edges e JOIN ops.opinions o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
+        "FROM edges e JOIN %s o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
         "LEFT JOIN dockets d ON d.id = cl.docket_id LEFT JOIN courts ct ON ct.id = d.court_id "
-        "WHERE e.cited IN (SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ?", (cid, cid)).fetchall()
+        "WHERE e.cited IN (SELECT id FROM %s WHERE cluster_id = ?) AND cl.id != ?" % (op, op), (cid, cid)).fetchall()
 
 
 def goodlaw_subject(con, cid):

@@ -76,11 +76,12 @@ def collect_one(con, cite):
     my_level = cm.level_of(me[1], me[2])
     cites = con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id = ?", (cid,)).fetchall()
     names = names_for(con, cid)
+    op = cm.casedb.op_table(con)
     rows = con.execute(
         "SELECT DISTINCT o.id, cl.id, cl.date_filed, d.court_id, ct.jurisdiction, ct.citation_string "
-        "FROM edges e JOIN ops.opinions o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
+        "FROM edges e JOIN %s o ON o.id = e.citing JOIN clusters cl ON cl.id = o.cluster_id "
         "LEFT JOIN dockets d ON d.id = cl.docket_id LEFT JOIN courts ct ON ct.id = d.court_id "
-        "WHERE e.cited IN (SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ?", (cid, cid)).fetchall()
+        "WHERE e.cited IN (SELECT id FROM %s WHERE cluster_id = ?) AND cl.id != ?" % (op, op), (cid, cid)).fetchall()
     rank = lambda r: cm.RANK[cm.level_of(r[3], r[4])]
     above = lambda r: rank(r) >= cm.RANK[my_level] if my_level != "other" else cm.level_of(r[3], r[4]) == "supreme"
     newest = sorted(rows, key=lambda r: r[2] or "", reverse=True)

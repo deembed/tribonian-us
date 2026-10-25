@@ -8,6 +8,7 @@
     ./casedb.py status
     ./casedb.py columns [opinion-clusters ...]   # per bulk file: columns kept, columns left out
     ./casedb.py index                 # full-text index of case names and parentheticals, for case2md.py find
+    ./casedb.py opmap [--force]       # opinion id -> case table in the main database (load builds it after opinions)
     ./casedb.py case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
 
 Where things live (both default to ./bulk next to this script):
@@ -273,6 +274,62 @@ def have(con, table):
     return con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() is not None
 
 
+# ---------------------------------------------------------------- opmap: opinion id -> case, off the text file
+# Finding a case's citers needs each citing opinion's case (cluster) id. Read from opinions.sqlite that
+# is one random read of the text file per citer (about 12 ms each on the hard disk: 26 s for 2,189
+# citers, 2026-10-24). opmap holds just (id, cluster_id) in the main database. It is built from the
+# text file's two indexes, so the 90 GB of text is never read, and rebuilt whenever the opinions are.
+def build_opmap(con, force=False):
+    """(Re)build opmap from opinions.sqlite's indexes. Marked current in `loaded` under the opinions file's name."""
+    of = con.execute("SELECT file FROM loaded WHERE name='opinions'").fetchone()
+    if not of or not OPS_DB.exists():
+        print("opmap             skipped: opinions not loaded")
+        return
+    cur = con.execute("SELECT file FROM loaded WHERE name='opmap'").fetchone()
+    if cur and cur[0] == of[0] and not force:
+        print("opmap             already built (from %s)" % of[0])
+        return
+    print("opmap             building from the indexes of %s" % OPS_DB)
+    t0 = time.time()
+    con.execute("DELETE FROM loaded WHERE name='opmap'")      # readers fall back to ops.opinions meanwhile
+    con.commit()
+    if not any(r[1] == "ops" for r in con.execute("PRAGMA database_list")):
+        attach_ops(con)
+    # rowid -> id and rowid -> cluster_id, each a scan of one index (both carry the rowid), joined on rowid
+    con.executescript("""
+        DROP TABLE IF EXISTS temp.op_r_id; DROP TABLE IF EXISTS temp.op_r_cl;
+        CREATE TEMP TABLE op_r_id(r INTEGER PRIMARY KEY, id INTEGER);
+        CREATE TEMP TABLE op_r_cl(r INTEGER PRIMARY KEY, cluster_id INTEGER);
+        INSERT INTO op_r_id SELECT rowid, id FROM ops.opinions INDEXED BY opinions_by_id ORDER BY rowid;
+        INSERT INTO op_r_cl SELECT rowid, cluster_id FROM ops.opinions INDEXED BY opinions_by_cluster ORDER BY rowid;""")
+    n_id, n_cl = (con.execute("SELECT count(*) FROM temp.%s" % t).fetchone()[0] for t in ("op_r_id", "op_r_cl"))
+    if n_id != n_cl:
+        sys.exit("opmap: the two opinion indexes disagree (%d vs %d rows); is opinions.sqlite complete?" % (n_id, n_cl))
+    print("  indexes read: %s opinions, %.1f min" % (format(n_id, ","), (time.time() - t0) / 60))
+    con.executescript("""
+        DROP TABLE IF EXISTS main.opmap;
+        CREATE TABLE main.opmap(id INTEGER PRIMARY KEY, cluster_id INTEGER);
+        INSERT INTO main.opmap SELECT a.id, b.cluster_id FROM temp.op_r_id a JOIN temp.op_r_cl b ON b.r = a.r
+            WHERE a.id IS NOT NULL ORDER BY a.id;
+        CREATE INDEX main.opmap_by_cluster ON opmap(cluster_id);
+        DROP TABLE temp.op_r_id; DROP TABLE temp.op_r_cl;""")
+    n = con.execute("SELECT count(*) FROM main.opmap").fetchone()[0]
+    con.execute("INSERT OR REPLACE INTO loaded VALUES ('opmap', ?, ?, ?, datetime('now'))", (of[0], n, time.time() - t0))
+    con.commit()
+    print("  done: %s rows in %.1f min" % (format(n, ","), (time.time() - t0) / 60))
+
+
+def op_table(con):
+    """The table to read opinion id -> cluster_id from: 'opmap' when it was built from the opinions now
+    loaded, else 'ops.opinions' (the text file). Both have columns id and cluster_id."""
+    try:
+        ok = con.execute("SELECT (SELECT file FROM loaded WHERE name='opmap') = "
+                         "(SELECT file FROM loaded WHERE name='opinions')").fetchone()[0]
+    except sqlite3.Error:
+        return "ops.opinions"
+    return "opmap" if ok else "ops.opinions"
+
+
 def cmd_status(args):
     print("bulk files: %s\ndatabase:   %s%s" % (BULK, DB, "  (%.1f GB)" % (DB.stat().st_size / 1e9) if DB.exists() else "  (not created yet)"))
     if OPS_DB.exists():
@@ -284,6 +341,8 @@ def cmd_status(args):
         d = done.get(name)
         print("  %-17s %-42s %s" % (name, p.name if p else "(not downloaded)",
                                   "%s rows, loaded in %.1f min" % (format(d[2], ","), d[3] / 60) if d else "not loaded"))
+    print("  %-17s %s" % ("opmap", "current (%s rows)" % format(done["opmap"][2], ",") if op_table(con) == "opmap"
+                          else "not built or stale: ./casedb.py opmap"))
 
 
 def cmd_case(args):
@@ -376,6 +435,8 @@ def main():
                                               "file; the production tables are not touched")
     sub.add_parser("status")
     sub.add_parser("index", help="(re)build the full-text index case2md.py find uses")
+    p = sub.add_parser("opmap", help="(re)build opinion id -> case in the main database (load does it after opinions)")
+    p.add_argument("--force", action="store_true", help="rebuild even if current")
     p = sub.add_parser("case")
     p.add_argument("json")
     p = sub.add_parser("columns", help="per bulk file: columns loaded and columns left out")
@@ -388,6 +449,8 @@ def main():
         try:
             for name in (args.names or ORDER):
                 load(name, con, args.force, args.limit)
+            if not args.limit:
+                build_opmap(con)                   # no-op unless the opinions changed
         except KeyboardInterrupt:
             print("\ninterrupted: the table being loaded is incomplete and not marked done; rerun the same command to redo it.")
         finally:
@@ -398,6 +461,14 @@ def main():
         if Path(str(DB) + ".loading").exists():
             sys.exit("casedb.py load is running; a long read now can make it fail with 'database is locked'. Index after it finishes.")
         build_search(sqlite3.connect("file:%s?mode=ro" % DB, uri=True))
+    elif args.cmd == "opmap":
+        con = connect()
+        lock = Path(str(DB) + ".loading")          # readers wait while the main database is written
+        lock.write_text("casedb.py opmap, pid %d\n" % os.getpid())
+        try:
+            build_opmap(con, args.force)
+        finally:
+            lock.unlink(missing_ok=True)
     elif args.cmd == "columns":
         cmd_columns(args)
     else:

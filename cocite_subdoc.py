@@ -137,9 +137,10 @@ def data_end(con, db):
 
 
 def live_last_year(con, ref):
-    r = con.execute("SELECT max(cl.date_filed) FROM edges e JOIN ops.opinions o ON o.id = e.citing "
+    op = C.casedb.op_table(con)
+    r = con.execute("SELECT max(cl.date_filed) FROM edges e JOIN %s o ON o.id = e.citing "
                     "JOIN clusters cl ON cl.id = o.cluster_id WHERE e.cited IN "
-                    "(SELECT id FROM ops.opinions WHERE cluster_id = ?) AND cl.id != ?", (ref, ref)).fetchone()
+                    "(SELECT id FROM %s WHERE cluster_id = ?) AND cl.id != ?" % (op, op), (ref, ref)).fetchone()
     return int(r[0][:4]) if r and r[0] and r[0][:4].isdigit() else None
 
 
