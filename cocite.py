@@ -101,7 +101,7 @@ import casedb
 if __name__ == "__main__":
     sys.modules.setdefault("cocite", sys.modules[__name__])
 
-BASE_DB = Path(os.environ.get("CL_COCITE_DB") or casedb.DB.with_name("cocite.sqlite"))
+BASE_DB = casedb.tconfig.get("cocite_db", casedb.DB.with_name("cocite.sqlite"))   # CL_COCITE_DB or config cocite_db
 COCITE_DB = BASE_DB                      # cocite-<view>.sqlite under --courts (set in main)
 CACHE = BASE_DB.with_name("cocite-cache")
 

@@ -29,6 +29,8 @@ from html.parser import HTMLParser
 import urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
+import tconfig                  # settings: CL_* variable, else ~/.config/tribonian-us/config.toml, else default
+
 API = "https://www.courtlistener.com/api/rest/v4"
 # Everything is read and written under ROOT (the folder this script sits in).
 # CASE2MD_ROOT overrides it, which is how the tests run without touching real output.
@@ -37,7 +39,7 @@ CASES = ROOT / "cases"
 NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (sync_vault.sh mirrors both)
 # CourtListener API limits since May 2026, free tier: 5 a minute, 50 an hour,
 # 125 a day. A member sets CL_LIMITS, e.g. CL_LIMITS=10,75,300 for the $10 tier.
-LIMITS = [int(x) for x in (os.environ.get("CL_LIMITS") or "5,50,125").split(",")]
+LIMITS = [int(x) for x in str(tconfig.get("api_limits", "5,50,125")).split(",")]
 WINDOWS = (60, 3600, 86400)
 PAUSE = 0               # extra seconds between requests, on top of the limits
 PDFLATEX_TIMEOUT = int(os.environ.get("PDFLATEX_TIMEOUT") or 1800)   # seconds per pass; a TeX loop must not hang a build worker
@@ -103,17 +105,17 @@ class Unsupported(Exception):
 
 
 def token():
-    t = os.environ.get("COURTLISTENER_TOKEN")
+    t = tconfig.get("courtlistener_token")       # COURTLISTENER_TOKEN, or the config file
     if t:
-        return t.strip()
+        return str(t).strip()
     try:
         t = subprocess.run(["secret-tool", "lookup", "service", "courtlistener"],
                            capture_output=True, text=True, timeout=10).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         t = ""
     if not t:
-        sys.exit("No token: set COURTLISTENER_TOKEN or store one with\n"
-                 "  secret-tool store --label='CourtListener API' service courtlistener")
+        sys.exit("No token: set COURTLISTENER_TOKEN, put courtlistener_token in %s, or store one with\n"
+                 "  secret-tool store --label='CourtListener API' service courtlistener" % tconfig.config_path())
     return t
 
 

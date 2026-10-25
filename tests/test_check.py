@@ -54,7 +54,8 @@ class Probes(unittest.TestCase):
         self.d = Path(tempfile.mkdtemp())
         self.env = {"CL_DB": str(self.d / "courtlistener.sqlite"), "CL_OPS_DB": str(self.d / "opinions.sqlite"),
                     "CL_SEARCH_DB": str(self.d / "search.sqlite"), "CL_COCITE_DB": str(self.d / "cocite.sqlite"),
-                    "COURTLISTENER_TOKEN": "test"}
+                    "COURTLISTENER_TOKEN": "test",
+                    "TRIBONIAN_CONFIG": str(self.d / "no-config.toml")}     # not the user's own config file
 
     def tearDown(self):
         shutil.rmtree(self.d, ignore_errors=True)
@@ -95,7 +96,7 @@ class Probes(unittest.TestCase):
 
     def test_settings_name_their_source(self):
         code, rep, by = run(self.env)
-        self.assertIn("from CL_DB", by["cfg:CL_DB"]["detail"])
+        self.assertIn("from CL_DB", by["cfg:main_db"]["detail"])
         self.assertEqual(rep["paths"]["main_db"], self.env["CL_DB"])
 
     def test_missing_table_fails_with_fix(self):

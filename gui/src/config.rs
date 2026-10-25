@@ -1,14 +1,13 @@
 //! Where the app finds things.
 //!
-//! The scripts are the one source of truth for data paths. At start the app runs `check.py --paths`
-//! in the repo and uses what it prints: the CL_* variables, or their defaults. So the app and the
-//! scripts always read the same files, and a first install needs no gui.toml.
+//! The scripts are the one source of truth. At start the app runs `check.py --paths` in the repo and
+//! uses what it prints: each data path (CL_* variable, else ~/.config/tribonian-us/config.toml, else
+//! the default; see tconfig.py), the config file's name, and its [gui] table. So the app and the
+//! scripts read the same files, and the app needs no config of its own.
 //!
-//! gui.toml is optional. It holds the GUI-only settings (default view, Obsidian vault, interpreter),
-//! and any path set in it overrides the scripts' path (Check setup then says so).
-//!
-//! Note: CL_* variables reach check.py only if they are in the app's own environment. Set them in your
-//! shell profile and start the app from a shell, or put the paths in gui.toml.
+//! The GUI's settings (default view, Obsidian vault, interpreter) go in the config file's [gui] table.
+//! gui/gui.toml is the old place: still read, it overrides [gui], and a path in it overrides the
+//! scripts' path for the app only. Check setup flags both.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -35,6 +34,13 @@ struct ScriptPaths {
     opinions_db: String,
     search_db: String,
     cocite_dir: String,
+    #[serde(default)]
+    config_file: Option<String>,
+    #[serde(default)]
+    config_error: Option<String>,
+    /// The config file's [gui] table.
+    #[serde(default)]
+    gui: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +67,10 @@ pub struct Config {
     pub paths_error: Option<String>,
     /// Path keys set in gui.toml, which override the scripts' paths.
     pub overrides: Vec<&'static str>,
+    /// The scripts' config file (~/.config/tribonian-us/config.toml), if there is one, and why it was
+    /// ignored if it was.
+    pub config_file: Option<PathBuf>,
+    pub config_error: Option<String>,
 }
 
 /// The scripts run in the repo, so a relative path in a CL_* variable is relative to it.
@@ -80,7 +90,7 @@ fn script_paths(python: &str, repo: &Path) -> Result<ScriptPaths, String> {
 }
 
 impl Config {
-    /// Returns the config, and the gui.toml it read (if any). gui.toml: the first CLI argument, else
+    /// Returns the config, and the (old) gui.toml it read, if any: the first CLI argument, else
     /// ./gui.toml, else gui.toml beside Cargo.toml.
     pub fn load() -> Result<(Config, Option<PathBuf>), String> {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -119,18 +129,30 @@ impl Config {
                 overrides.push(k);
             }
         }
+        // GUI settings: gui.toml, else the config file's [gui], else the default
+        let g = |k: &str| -> Option<String> {
+            sp.as_ref().and_then(|s| s.gui.get(k)).and_then(|v| v.as_str()).map(String::from)
+        };
+        let default_view = fc.default_view.clone().or_else(|| g("default_view"));
+        let obsidian_vault = fc.obsidian_vault.clone().or_else(|| g("obsidian_vault"));
+        let obsidian_cases_dir = fc.obsidian_cases_dir.clone().or_else(|| g("obsidian_cases_dir"));
+        let python = fc.python.clone().or_else(|| g("python")).unwrap_or(python);
+        let config_file = sp.as_ref().and_then(|s| s.config_file.as_ref()).map(PathBuf::from);
+        let config_error = sp.as_ref().and_then(|s| s.config_error.clone());
         let cfg = Config {
             bulk_dir: from(&fc.bulk_dir, |s| &s.cocite_dir).unwrap_or_else(|| repo_dir.join("bulk")),
             main_db: from(&fc.main_db, |s| &s.main_db),
             opinions_db: from(&fc.opinions_db, |s| &s.opinions_db),
             search_db: from(&fc.search_db, |s| &s.search_db),
-            default_view: fc.default_view.unwrap_or_else(|| "cocite-appellate-sentence-m0.2".into()),
-            obsidian_vault: fc.obsidian_vault,
-            obsidian_cases_dir: fc.obsidian_cases_dir.unwrap_or_else(|| "08-Reference/Cases".into()),
+            default_view: default_view.unwrap_or_else(|| "cocite-appellate-sentence-m0.2".into()),
+            obsidian_vault,
+            obsidian_cases_dir: obsidian_cases_dir.unwrap_or_else(|| "08-Reference/Cases".into()),
             python,
             repo_dir,
             paths_error,
             overrides,
+            config_file,
+            config_error,
         };
         Ok((cfg, file))
     }

@@ -11,9 +11,10 @@
     ./casedb.py opmap [--force]       # opinion id -> case table in the main database (load builds it after opinions)
     ./casedb.py case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
 
-Where things live (both default to ./bulk next to this script):
-    CL_BULK = folder holding the *.csv.bz2 downloads
-    CL_DB   = the database file (default $CL_BULK/courtlistener.sqlite)
+Where things live (both default to ./bulk next to this script); each is a variable or a key in
+~/.config/tribonian-us/config.toml (tconfig.py):
+    CL_BULK / bulk_dir = folder holding the *.csv.bz2 downloads
+    CL_DB   / main_db  = the database file (default <bulk_dir>/courtlistener.sqlite)
 
 Loading is append-only: rows go in in file order and every index is built after the
 last row. (The first version made id the table's key. The dumps are not sorted by id,
@@ -30,14 +31,16 @@ values. Checked against the 2026-06-30 files; Python's default CSV dialect
 import argparse, csv, io, json, os, re, shutil, sqlite3, subprocess, sys, time, zlib
 from pathlib import Path
 
+import tconfig                     # each location: CL_* variable, else the config file, else the default here
+
 HERE = Path(__file__).resolve().parent
-BULK = Path(os.environ.get("CL_BULK") or HERE / "bulk")
-DB = Path(os.environ.get("CL_DB") or BULK / "courtlistener.sqlite")
+BULK = tconfig.get("bulk_dir", HERE / "bulk")
+DB = tconfig.get("main_db", BULK / "courtlistener.sqlite")
 # The big one: compressed opinion text, about 110 GB. It is written once, in order, as fast as the
 # disk allows, so it goes on the fast disk: ./db/ next to this script if that folder exists
 # (CL_OPS_DB overrides), else beside the main database.
-OPS_DB = Path(os.environ.get("CL_OPS_DB") or (HERE / "db" / "opinions.sqlite" if (HERE / "db").is_dir()
-                                              else DB.with_name("opinions.sqlite")))
+OPS_DB = tconfig.get("opinions_db", HERE / "db" / "opinions.sqlite" if (HERE / "db").is_dir()
+                     else DB.with_name("opinions.sqlite"))
 csv.field_size_limit(1 << 31 - 1)
 
 TEXT_FIELDS = ("html_with_citations", "xml_harvard", "html_columbia", "html_lawbox",
@@ -228,7 +231,7 @@ def load(name, con, force=False, limit=None):
 # Case names and the parentheticals other courts wrote about each case, in SQLite full-text (FTS5)
 # tables in their own file. A nickname like "Glomar" is in no case name, but courts write it in
 # their parentheticals about Phillippi v. CIA, so both are searched.
-SEARCH_DB = Path(os.environ.get("CL_SEARCH_DB") or DB.with_name("search.sqlite"))
+SEARCH_DB = tconfig.get("search_db", DB.with_name("search.sqlite"))
 
 
 def search_stamp(con):

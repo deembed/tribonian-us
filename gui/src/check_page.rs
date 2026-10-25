@@ -3,9 +3,9 @@
 //! 1. The repo's `check.py --json` on a thread: is each tool and database there, does each one answer
 //!    a probe query (one known case, State Farm, through an index), and which data mode (api, lite,
 //!    full) the data supports. The checks live in the Python so the command line and the app agree.
-//! 2. The app's own checks, done here: gui.toml, the co-citation views it found, and whether gui.toml
-//!    points at the same databases the scripts use. The two are configured separately (gui.toml vs
-//!    the CL_* environment variables), so a mismatch is an easy first-install mistake.
+//! 2. The app's own checks, done here: which config files it read, the co-citation views it found,
+//!    and whether the app reads the same databases as the scripts (they differ only when the old
+//!    gui/gui.toml overrides a path).
 //!
 //! Reads only. The live API request is opt-in (it uses one of the day's requests).
 
@@ -118,19 +118,27 @@ fn local_checks(app: &App) -> Vec<Local> {
         (None, e) => {
             out.push(local(
                 "fail",
-                "Config file in use (gui.toml)",
+                "Start-up",
                 e.clone().unwrap_or_else(|| "not loaded".into()),
-                "fix gui.toml, or set repo_dir in it (cp gui/gui.toml.example gui/gui.toml)",
+                "run the app from the repo's gui/ folder (it finds the scripts above it), or fix gui/gui.toml",
             ));
             return out;
         }
     };
-    let file = match &app.cfg_path {
-        Some(p) if cfg.overrides.is_empty() => p.display().to_string(),
-        Some(p) => format!("{}; overrides the scripts' {}", p.display(), cfg.overrides.join(", ")),
-        None => "none (optional): defaults, and the scripts' paths".to_string(),
-    };
-    out.push(local("ok", "Config file in use (gui.toml)", file, ""));
+    match (&cfg.config_file, &cfg.config_error) {
+        (_, Some(e)) => out.push(local("fail", "Config file", format!("ignored: {e}"), "fix it (see config.example.toml)")),
+        (Some(p), None) => out.push(local("ok", "Config file", format!("{} (paths, and the [gui] settings)", p.display()), "")),
+        (None, None) => out.push(local("ok", "Config file", "none (optional): defaults".into(), "")),
+    }
+    if let Some(p) = &app.cfg_path {
+        let over = if cfg.overrides.is_empty() { String::new() } else { format!("; overrides the scripts' {} for the app", cfg.overrides.join(", ")) };
+        out.push(Local {
+            status: "warn",
+            label: "Old GUI config (gui.toml)".into(),
+            detail: format!("{} is still read and overrides the config file's [gui]{over}", p.display()),
+            fix: "move its settings into the config file's [gui] table (paths at the top level), then delete it".into(),
+        });
+    }
     match &cfg.paths_error {
         None => out.push(local("ok", "Data paths", "from the scripts (check.py --paths)".into(), "")),
         Some(e) => out.push(Local {
@@ -146,7 +154,7 @@ fn local_checks(app: &App) -> Vec<Local> {
         out.push(local("fail", "repo_dir", format!("{}: no check.py there", cfg.repo_dir.display()), "set repo_dir in gui.toml to the tribonian-us folder"));
     }
     if !cfg.bulk_dir.is_dir() {
-        out.push(local("fail", "bulk_dir", format!("{}: not a folder (disk not mounted?)", cfg.bulk_dir.display()), "set bulk_dir in gui.toml"));
+        out.push(local("fail", "bulk_dir", format!("{}: not a folder (disk not mounted?)", cfg.bulk_dir.display()), "set bulk_dir (or cocite_db) in the config file, or mount the disk"));
     }
     let good = app.views.iter().filter(|v| v.ok).count();
     let old: Vec<String> = app.views.iter().filter(|v| !v.ok).map(|v| format!("{} (schema {})", v.stem, v.schema)).collect();

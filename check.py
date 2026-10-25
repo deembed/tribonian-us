@@ -20,11 +20,12 @@ Reads only: every database is opened read-only; nothing is written.
 import argparse, glob, importlib, json, os, shutil, sqlite3, subprocess, sys, time, zlib
 from pathlib import Path
 
-import casedb                      # paths only (CL_BULK, CL_DB, CL_OPS_DB, CL_SEARCH_DB); stdlib
+import casedb                      # paths only (tconfig: CL_* variable, config file, default); stdlib
+import tconfig
 
 HERE = Path(__file__).resolve().parent
-# cocite.py's locations, repeated here so the check runs before numpy/igraph are installed
-COCITE_BASE = Path(os.environ.get("CL_COCITE_DB") or casedb.DB.with_name("cocite.sqlite"))
+# cocite.py's location, repeated here so the check runs before numpy/igraph are installed
+COCITE_BASE = tconfig.get("cocite_db", casedb.DB.with_name("cocite.sqlite"))
 COCITE_CACHE = COCITE_BASE.with_name("cocite-cache")
 
 PROBE = {"cluster": 110991, "cite": ("463", "U.S.", "29"), "name": "State Farm"}
@@ -91,63 +92,85 @@ def n(x):
 
 # ------------------------------------------------------------------ configuration
 
-# The scripts have no config file: each setting is an environment variable with a default.
-# (setting, variable, value in effect)
+# Each setting: its CL_* variable, else the config file (tconfig.py), else the default.
+# (label, config key, value in effect)
 SETTINGS = [
-    ("Bulk folder", "CL_BULK", casedb.BULK),
-    ("Main database", "CL_DB", casedb.DB),
-    ("Opinion text", "CL_OPS_DB", casedb.OPS_DB),
-    ("Search index", "CL_SEARCH_DB", casedb.SEARCH_DB),
-    ("Co-citation base", "CL_COCITE_DB", COCITE_BASE),
-    ("API rate limits", "CL_LIMITS", os.environ.get("CL_LIMITS") or "5,50,125"),
+    ("Bulk folder", "bulk_dir", casedb.BULK),
+    ("Main database", "main_db", casedb.DB),
+    ("Opinion text", "opinions_db", casedb.OPS_DB),
+    ("Search index", "search_db", casedb.SEARCH_DB),
+    ("Co-citation base", "cocite_db", COCITE_BASE),
+    ("API rate limits", "api_limits", tconfig.get("api_limits", "5,50,125")),
 ]
-GUI_TOML = HERE / "gui" / "gui.toml"          # where the GUI looks when started without an argument from gui/
+GUI_TOML = HERE / "gui" / "gui.toml"          # the GUI's old config file, still read (overrides [gui])
+KNOWN = set(tconfig.ENV) | {"gui"}
+GUI_KEYS = {"default_view", "obsidian_vault", "obsidian_cases_dir", "python"}
 
 
-def read_toml(path):
-    """gui.toml as a dict. tomllib (Python 3.11+), else the flat key = "value" lines this file uses."""
-    text = path.read_text(encoding="utf-8")
+def where(key):
+    src = tconfig.source(key)[1]
+    return {"config": "from %s" % tconfig.FILE_PATH, "default": "default"}.get(src, "from " + src[4:])
+
+
+def on_wsl():
     try:
-        import tomllib
-        return tomllib.loads(text)
-    except ImportError:
-        out = {}
-        for line in text.splitlines():
-            k, eq, v = line.partition("=")
-            if eq and not line.lstrip().startswith("#"):
-                out[k.strip()] = v.split("#")[0].strip().strip('"')
-        return out
+        return "microsoft" in os.uname().release.lower()
+    except AttributeError:                      # native Windows has no os.uname
+        return False
 
 
 def run_config():
-    for label, var, value in SETTINGS:
-        @check("cfg:" + var, "Configuration", label)
-        def _(c, var=var, value=value):
-            c.ok("%s  (%s)" % (value, "from %s" % var if os.environ.get(var) else "default; %s not set" % var))
+    @check("cfg:file", "Configuration", "Config file")
+    def _(c):
+        p = tconfig.config_path()
+        if tconfig.FILE_ERROR:
+            return c.fail(tconfig.FILE_ERROR, "fix the file (see config.example.toml); until then it is ignored")
+        if not tconfig.FILE_PATH:
+            return c.ok("none (optional); would be %s   (template: config.example.toml)" % p)
+        unknown = sorted(set(tconfig.FILE) - KNOWN) + ["gui." + k for k in sorted(set(tconfig.gui()) - GUI_KEYS)]
+        msg = "%s: %d settings%s" % (p, len(tconfig.FILE), ", [gui] %d" % len(tconfig.gui()) if tconfig.gui() else "")
+        if "courtlistener_token" in tconfig.FILE and os.name == "posix" and p.stat().st_mode & 0o077:
+            return c.warn(msg + "; holds the API token but other users can read it", "chmod 600 %s" % p)
+        if unknown:
+            return c.warn(msg + "; unknown keys (typos?): " + ", ".join(unknown), "see config.example.toml")
+        c.ok(msg)
 
-    @check("cfg:gui", "Configuration", "GUI config (gui.toml)")
+    for label, key, value in SETTINGS:
+        @check("cfg:" + key, "Configuration", label)
+        def _(c, key=key, value=value):
+            c.ok("%s  (%s)" % (value, where(key)))
+
+    @check("cfg:gui", "Configuration", "Old GUI config (gui/gui.toml)")
     def _(c):
         if not GUI_TOML.exists():
-            return c.ok("none (optional): the GUI uses these paths and finds the repo above gui/")
-        cfg = read_toml(GUI_TOML)
+            return c.ok("none (good: the GUI's settings go in the config file's [gui] table)")
+        try:
+            cfg = tconfig.load(GUI_TOML)[0]
+        except ValueError as e:
+            return c.fail(str(e), "fix or delete gui/gui.toml")
         over = [k for k in ("bulk_dir", "main_db", "opinions_db", "search_db") if cfg.get(k)]
-        missing = [k for k in ("repo_dir", "bulk_dir") if cfg.get(k) and not Path(cfg[k]).is_dir()]
-        if cfg.get("repo_dir") and Path(cfg["repo_dir"]).is_dir() and Path(cfg["repo_dir"]).resolve() != HERE:
-            missing.append("repo_dir is another folder than this one")
-        msg = "%s, %d settings" % (GUI_TOML.relative_to(HERE), len(cfg))
+        msg = "%s: %d settings, read after the config file's [gui] and overriding it" % (GUI_TOML.relative_to(HERE), len(cfg))
         if over:
-            msg += "; overrides the paths above: " + ", ".join(over)
-        if missing:
-            c.warn(msg + "; not found: " + ", ".join(missing), "edit gui/gui.toml, or delete those lines to use the paths above")
-        else:
-            c.ok(msg)
+            msg += "; overrides these paths for the GUI only: " + ", ".join(over)
+        c.warn(msg, "move its settings into %s ([gui] table; paths at the top level), then delete gui/gui.toml"
+               % tconfig.config_path())
+
+    if on_wsl():
+        @check("cfg:wsl", "Configuration", "WSL")
+        def _(c):
+            slow = [label for label, key, value in SETTINGS if key in tconfig.PATH_KEYS and str(value).startswith("/mnt/")
+                    and len(str(value).split("/")) > 2 and len(str(value).split("/")[2]) == 1]
+            if slow:
+                return c.warn("on a Windows drive: %s. Access through /mnt/<letter> is slow, and SQLite locking there "
+                              "is unreliable" % ", ".join(slow), "keep the databases under your WSL home (~/...)")
+            c.ok("databases are on the Linux file system")
 
     @check("cfg:rmapi", "Configuration", "rmapi config")
     def _(c):
         p = Path(os.environ.get("RMAPI_CONFIG") or os.path.expanduser("~/.config/rmapi/rmapi.conf"))
         host = os.environ.get("RMAPI_HOST")
-        where = "rmfakecloud at %s" % host if host else "reMarkable cloud (RMAPI_HOST not set)"
-        c.ok("%s; %s" % (p, where)) if p.exists() else c.skip("not paired (%s); only sync_remarkable.py needs it" % p)
+        where_ = "rmfakecloud at %s" % host if host else "reMarkable cloud (RMAPI_HOST not set)"
+        c.ok("%s; %s" % (p, where_)) if p.exists() else c.skip("not paired (%s); only sync_remarkable.py needs it" % p)
 
 
 # ------------------------------------------------------------------ tools
@@ -205,14 +228,15 @@ def run_api(live):
 
     @check("api:token", "CourtListener API", "API token")
     def _(c):
-        t = os.environ.get("COURTLISTENER_TOKEN", "").strip()
-        src = "COURTLISTENER_TOKEN"
+        t = str(tconfig.get("courtlistener_token") or "").strip()
+        src = where("courtlistener_token")[5:] if t else ""
         if not t and shutil.which("secret-tool"):
             t = subprocess.run(["secret-tool", "lookup", "service", "courtlistener"],
                                capture_output=True, text=True, timeout=10).stdout.strip()
             src = "secret-tool (service courtlistener)"
         if not t:
-            return c.fail("no token", "export COURTLISTENER_TOKEN=...   or   secret-tool store --label='CourtListener API' service courtlistener")
+            return c.fail("no token", "courtlistener_token in %s (chmod 600), or COURTLISTENER_TOKEN, or "
+                          "secret-tool store --label='CourtListener API' service courtlistener" % tconfig.config_path())
         tok["t"] = t
         c.ok("from %s (%d characters)" % (src, len(t)))
 
@@ -441,7 +465,9 @@ MARK = {"ok": "OK  ", "warn": "WARN", "fail": "FAIL", "skip": "--  "}
 def paths():
     """The files the scripts use (CL_* variables or defaults). The GUI takes its paths from here."""
     return {"repo_dir": str(HERE), "main_db": str(casedb.DB), "opinions_db": str(casedb.OPS_DB),
-            "search_db": str(casedb.SEARCH_DB), "cocite_dir": str(COCITE_BASE.parent)}
+            "search_db": str(casedb.SEARCH_DB), "cocite_dir": str(COCITE_BASE.parent),
+            "config_file": str(tconfig.FILE_PATH) if tconfig.FILE_PATH else None, "config_error": tconfig.FILE_ERROR,
+            "gui": tconfig.gui()}
 
 
 def main():

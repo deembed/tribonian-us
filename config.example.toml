@@ -1,0 +1,36 @@
+# tribonian-us settings. Copy to ~/.config/tribonian-us/config.toml
+# (native Windows: %APPDATA%\tribonian-us\config.toml; TRIBONIAN_CONFIG=/path overrides).
+# Every key is optional. Order of precedence: the CL_* environment variable, then this file, then the
+# default. ./check.py shows the value in effect for each and where it came from.
+# Paths may start with ~. A relative path is relative to the repo.
+
+# Folder holding the CourtListener *.csv.bz2 downloads                        (CL_BULK)
+# bulk_dir = "/path/to/courtlistener"
+
+# casedb.py's main database; default <bulk_dir>/courtlistener.sqlite          (CL_DB)
+# main_db = "~/tribonian-us/db/courtlistener.sqlite"
+
+# Opinion text, about 110 GB; default <repo>/db/opinions.sqlite               (CL_OPS_DB)
+# opinions_db = "/path/to/opinions.sqlite"
+
+# Full-text index (casedb.py index); default beside main_db                   (CL_SEARCH_DB)
+# search_db = "/path/to/ssd/search.sqlite"
+
+# Co-citation results; views are cocite-<view>.sqlite beside it               (CL_COCITE_DB)
+# cocite_db = "/path/to/courtlistener/cocite.sqlite"
+
+# CourtListener API limits per minute, hour, day; members raise them          (CL_LIMITS)
+# api_limits = "5,50,125"
+
+# API token, if secret-tool isn't available (WSL, Windows). Keep the file      (COURTLISTENER_TOKEN)
+# private: chmod 600 ~/.config/tribonian-us/config.toml
+# courtlistener_token = "..."
+
+[gui]
+# View opened at start (a cocite*.sqlite file stem)
+# default_view = "cocite-appellate-sentence-m0.2"
+# Obsidian vault for "Open note"; leave out to open the .md file instead
+# obsidian_vault = "usc-vault"
+# obsidian_cases_dir = "08-Reference/Cases"
+# Interpreter for the repo's scripts (Windows: "py")
+# python = "python3"

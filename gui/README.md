@@ -9,13 +9,13 @@ cd gui
 cargo run --release
 ```
 
-No gui.toml is needed: the app runs `../check.py --paths` at start and reads the same files as the scripts (the
-`CL_*` variables or their defaults). `gui.toml.example` lists the optional settings (default view, Obsidian vault,
-interpreter) and path overrides.
+No setup is needed: the app runs `../check.py --paths` at start and reads the same files and the same config file
+(`~/.config/tribonian-us/config.toml`) as the scripts. Its own settings go in that file's `[gui]` table; see
+`../config.example.toml`. The old `gui.toml` is still read and overrides `[gui]`.
 
 - Start screen: View Clusters, View Cases, Search for Cases, SCOTUS, Sub-Cluster Search (draft), Check setup.
 - Check setup: runs `../check.py --json` (tools, databases, a probe query each, the data mode) and adds the app's own
-  checks: gui.toml, the co-citation views, and whether a gui.toml path override makes the app read other files than the scripts.
+  checks: gui.toml, the co-citation views, and whether an old gui.toml path override makes the app read other files than the scripts.
 - Sub-Cluster Search (draft): paste a draft or a question; each blank-line-separated paragraph is one CourtListener
   semantic search per five-year slice since the Since year (default 1980), cases cited more than N times (default 5) (`casemap.py semsearch`, queued like a build; the app passes the text as the
   query and writes nothing). Hits re-ranked by semantic score, grouped by sub-cluster, linked to the case and

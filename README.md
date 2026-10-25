@@ -86,7 +86,8 @@ python3 -m unittest discover tests  # smoke tests; no network, no database
 ./check.py                          # what is installed and loaded so far, with a fix for each gap
 ```
 
-`bulk/` and `db/` can be symlinks to another disk (or set `CL_BULK`, `CL_OPS_DB`). Put `db/` on the fastest disk:
+`bulk/` and `db/` can be symlinks to another disk, or set `bulk_dir` and `opinions_db` in the config file
+(see [Configuration](#configuration)). Put `db/` on the fastest disk:
 the opinion text is read hard by the good-law check and `cocite.py positions`.
 
 ### 2. US Code (no account)
@@ -259,13 +260,12 @@ Needs Rust 1.85+ (<https://rustup.rs/>) and stages 4–5.
 
 ```
 cd gui
-cargo run --release              # no gui.toml needed: the data paths come from the scripts
+cargo run --release              # no setup: the app reads the scripts' settings
 ```
 
-The app runs `../check.py --paths` at start and uses the same files as the scripts (the `CL_*` variables or
-their defaults). The variables reach it only if they're in its environment, so set them in your shell profile
-and start the app from a shell. `gui.toml` is optional: copy `gui.toml.example` to change the default view, the
-Obsidian vault or the interpreter, or to override a path.
+The app runs `../check.py --paths` at start, so it uses the same files and the same config file as the scripts.
+Its own settings (default view, Obsidian vault, interpreter) go in the config file's `[gui]` table (see
+[Configuration](#configuration)).
 
 ```
 ```
@@ -558,11 +558,10 @@ a first install, after loading new bulk data, or when a script or the GUI stops 
 ./check.py --json    # the same as JSON (the GUI reads this)
 ```
 
-The scripts have no config file: each setting is an environment variable with a default, so the first group
-lists the value in effect for each one and whether it came from the variable or the default. The GUI reads
-its data paths from the scripts (`./check.py --paths`), so both read the same files. Its optional `gui/gui.toml`
-(or the file given as its first argument) holds GUI-only settings and any path overrides. The CLI checks
-`gui/gui.toml`; the GUI page shows the file it actually loaded.
+The first group, Configuration, shows the config file (found, readable, unknown keys, the token's file
+permissions), then the value in effect for each setting and where it came from: the variable, the file or the
+default (see [Configuration](#configuration)). It flags an old `gui/gui.toml`, and on WSL it flags databases on a
+Windows drive.
 
 Each line is `OK`, `WARN` (works, but something is missing or old), `FAIL` (not there or not answering) or `--`
 (skipped). Every `WARN` and `FAIL` line comes with the command that fixes it. The check opens every database
@@ -575,7 +574,7 @@ Each database probe looks up one known case, Motor Vehicle Mfrs. Ass'n v. State 
 
 | Group | Check | Query result it expects |
 |---|---|---|
-| Configuration | each `CL_*` setting, `gui/gui.toml`, the rmapi config | the value in effect and where it came from (variable or default); which paths gui.toml overrides, and whether its folders exist |
+| Configuration | the config file, each setting, an old `gui/gui.toml`, WSL drives, the rmapi config | the file parses; the value in effect and where it came from (variable, file or default) |
 | Tools | Python packages, pdflatex (XCharter, tcolorbox, ulem), pdftotext, rmapi | importable / found by `kpsewhich` |
 | CourtListener API | token (`COURTLISTENER_TOKEN` or `secret-tool`); live request with `--api` | cluster 110991 comes back |
 | Main database | `courtlistener.sqlite`, then each loaded table | `courts`: scotus · `citations`: 463 U.S. 29 → 110991 · `opinion-clusters`: its name · `opmap`: its opinion ids · `citation-map`: who cites it · `parentheticals`: how many · `dockets`: its docket number |
@@ -606,23 +605,27 @@ the mode; the scripts don't yet switch their behaviour by mode.
 | `probe case 110991 not found (a --limit sample?)` | the table loaded, but without State Farm | reload it in full: `./casedb.py load --force <table>` |
 | `opmap ... STALE` | opmap was built from an older opinions file | `./casedb.py opmap` |
 | `older schema, skipped` (GUI) | a co-citation view built before the current schema; the app doesn't open it | rebuild it with `./cocite.py build ...`, or move it out of `bulk_dir` |
-| `app reads X, scripts use Y` (GUI) | a path in `gui.toml` overrides the scripts' path | delete it from `gui.toml`, or set the `CL_*` variable to match |
-| `Data paths ... the app's own defaults` (GUI) | `check.py --paths` didn't run (interpreter or repo not found) | check `python` and `repo_dir` in `gui.toml` |
+| `Config file ... ignored` | the config file doesn't parse | fix the line it names |
+| `holds the API token but other users can read it` | the config file is group- or world-readable | `chmod 600 ~/.config/tribonian-us/config.toml` |
+| `Old GUI config (gui/gui.toml)` | the old GUI file still exists and overrides `[gui]` | move its settings into the config file, then delete it |
+| `app reads X, scripts use Y` (GUI) | a path in the old `gui.toml` overrides the scripts' path | delete it from `gui.toml` |
+| `Data paths ... the app's own defaults` (GUI) | `check.py --paths` didn't run (interpreter or repo not found) | start the app from the repo's `gui/` folder; check `[gui] python` |
 
 ### In the GUI
 
 **Check setup** on the start screen runs `check.py --json`. A checkbox adds the live API request. The app then
 adds its own checks:
 
-- Which `gui.toml` it loaded (if any) and which paths it overrides; whether the data paths came from the scripts.
+- The config file it read (through the scripts), whether an old `gui.toml` is still in use, and whether the data
+  paths came from the scripts.
 - `repo_dir` holds the scripts and `bulk_dir` exists.
 - The co-citation views: how many it can read, which it skips (older schema), and whether `default_view` is
   among the readable ones.
 - The app and the scripts use the same main database, opinion text, search index and co-citation folder
-  (symlinks are followed). They differ only when `gui.toml` overrides a path.
+  (symlinks are followed). They differ only when an old `gui.toml` overrides a path.
 
-The button turns red when the app couldn't start up (no repo found, a broken `gui.toml`) or the default view
-is missing. Each fix has a **Copy** button.
+The button turns red when the app couldn't start up (no scripts found, a broken `gui.toml`) or the default
+view is missing. Each fix has a **Copy** button.
 
 ## Other
 
@@ -634,17 +637,39 @@ is missing. Each fix has a **Copy** button.
 - **Two `build_all.sh` runs at once:** works. The only side effect is that one PDF may be rebuilt on the next run, because both runs update `state/built.tsv`.
 - **Case builds in parallel:** safe; they lock `cases/_index.json` while updating it.
 
-## Configuration (environment variables)
+## Configuration
+
+Settings live in one optional file, `~/.config/tribonian-us/config.toml`. Copy `config.example.toml` to start one.
+On native Windows the file is `%APPDATA%\tribonian-us\config.toml`, and `TRIBONIAN_CONFIG=/path` points
+elsewhere. Each setting is read in this order:
+
+1. its environment variable, for a one-off override such as `CL_DB=... ./casedb.py status`
+2. the config file
+3. the default
+
+`./check.py` lists the value in effect for each setting and where it came from. The GUI reads the same file:
+its data paths come from the scripts (`check.py --paths`), and its own settings come from the `[gui]` table.
+The old `gui/gui.toml` is still read and overrides `[gui]`; Check setup flags it.
+
+| Config key | Variable | Default | What |
+|---|---|---|---|
+| `courtlistener_token` | `COURTLISTENER_TOKEN` | keyring (`secret-tool`) | CourtListener API token; in the file, `chmod 600` it |
+| `api_limits` | `CL_LIMITS` | `5,50,125` | API limits per minute, hour, day (raise for a paid tier) |
+| `bulk_dir` | `CL_BULK` | `bulk/` | folder with the bulk `*.csv.bz2` files |
+| `main_db` | `CL_DB` | `<bulk_dir>/courtlistener.sqlite` | main database |
+| `opinions_db` | `CL_OPS_DB` | `db/opinions.sqlite` | opinion text |
+| `search_db` | `CL_SEARCH_DB` | beside `main_db` | full-text index |
+| `cocite_db` | `CL_COCITE_DB` | beside `main_db` | co-citation results (`cocite-<view>.sqlite` beside it) |
+| `[gui] default_view` | — | `cocite-appellate-sentence-m0.2` | view the GUI opens |
+| `[gui] obsidian_vault`, `obsidian_cases_dir` | — | none, `08-Reference/Cases` | Obsidian links on case pages |
+| `[gui] python` | — | `python3` | interpreter the GUI runs the scripts with |
+
+Paths may start with `~`. A relative path, in the file or in a variable, is relative to the repo.
+
+Build and sync options are environment variables only:
 
 | Variable | Default | Used by | What |
 |---|---|---|---|
-| `COURTLISTENER_TOKEN` | keyring (`secret-tool`) | case2md, casemap, scotus | CourtListener API token |
-| `CL_LIMITS` | `5,50,125` | case2md | API limits per minute, hour, day (raise for a paid tier) |
-| `CL_BULK` | `bulk/` | casedb and everything using it | folder with the bulk `*.csv.bz2` files and the databases |
-| `CL_DB` | `$CL_BULK/courtlistener.sqlite` | casedb | main database |
-| `CL_OPS_DB` | `db/opinions.sqlite` | casedb | opinion text |
-| `CL_SEARCH_DB` | beside `CL_DB` | case2md find | full-text index |
-| `CL_COCITE_DB` | beside `CL_DB` | cocite | co-citation results |
 | `JOBS` | number of cores | build_all.sh | parallel builds |
 | `STYLE`, `FONT`, `EXTRA`, `MD_ONLY`, `FORCE`, `SCRATCH`, `STUB_ARGS` | see `build_all.sh` | build_all.sh | build options |
 | `PDFLATEX_TIMEOUT` | `1800` | case2md, build_all.sh | seconds per pdflatex pass |
@@ -654,6 +679,15 @@ is missing. Each fix has a **Copy** button.
 | `RMAPI` | `rmapi` on `PATH`, else `~/.local/bin/rmapi` | sync_remarkable.py | rmapi binary |
 | `RMAPI_HOST` | unset (official cloud) | sync_remarkable.py (via rmapi) | rmfakecloud address, e.g. `http://<host>:3000` |
 | `RMAPI_CONFIG` | `~/.config/rmapi/rmapi.conf` | sync_remarkable.py | rmapi token file from pairing |
+
+### Windows
+
+Run everything inside WSL (the Windows Subsystem for Linux). There, the config file is in the WSL home
+(`~/.config/...`), and the GUI shows on the Windows desktop through WSLg (Windows 11). Keep the databases on the
+Linux file system (`~/...`), not on a Windows drive (`/mnt/c`, `/mnt/d`): access through `/mnt/<letter>` is slow,
+and SQLite locking there is unreliable. `check.py` warns when a database is on one. WSL has no keyring service
+by default, so put the token in the config file. A native Windows build isn't supported yet: `case2md.py` locks
+files with `fcntl` (Unix only), and the build and sync tools are shell scripts.
 
 ## Requirements
 
