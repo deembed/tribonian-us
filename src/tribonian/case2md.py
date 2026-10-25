@@ -821,7 +821,7 @@ def goodlaw_md(st):
     else:
         L = ["**Good-law check: %s** — %s. Read %s of %s citing opinions (every one from a court that could overrule it, "
              "plus the %d newest)." % (gl["status"].upper(), GL_WORDS[gl["status"]], format(gl["read"], ","), format(gl["of"], ","),
-                                       __import__("casemap").GOODLAW_RECENT), ""]
+                                       __import__("tribonian.casemap", fromlist=["casemap"]).GOODLAW_RECENT), ""]
     rc = gl.get("recent")
     if rc:
         L += ["Includes %d citing cases filed after %s that the local database lacks (CourtListener search, %s; "

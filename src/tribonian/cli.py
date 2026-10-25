@@ -63,7 +63,10 @@ def main(argv=None):
                     break
                 print(line[2:])
             return 0
-        return subprocess.call(["bash", str(tconfig.PKG / module)] + rest)
+        try:
+            return subprocess.call(["bash", str(tconfig.PKG / module)] + rest)
+        except KeyboardInterrupt:                 # the script's own jobs see the Ctrl-C too
+            return 130
     sys.argv = ["tribonian " + name] + rest       # argparse shows "usage: tribonian case ..."
     if module in SCRIPTS:
         runpy.run_module("tribonian." + module, run_name="__main__", alter_sys=True)
