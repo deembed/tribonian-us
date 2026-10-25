@@ -41,6 +41,7 @@ NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (s
 LIMITS = [int(x) for x in str(tconfig.get("api_limits", "5,50,125")).split(",")]
 WINDOWS = (60, 3600, 86400)
 PAUSE = 0               # extra seconds between requests, on top of the limits
+SIG_LINES = 8          # a signature block longer than this, or crossing a page, has ended
 PDFLATEX_TIMEOUT = int(os.environ.get("PDFLATEX_TIMEOUT") or 1800)   # seconds per pass; a TeX loop must not hang a build worker
 
 
@@ -2493,13 +2494,18 @@ def recap_blocks(lines, labels):
             cur = carry
         carry = None
         if sig is not None:
-            for l in run:
-                add(sig, l)
-            continue
+            # a signature is a few lines on one page; anything past that is a new document
+            # (an appendix holds several opinions and orders back to back), not more signature
+            if (sig["last"] is None or run[0].pi == sig["last"].pi) and sig["n"] + len(run) <= SIG_LINES:
+                for l in run:
+                    add(sig, l)
+                sig["n"] += len(run)
+                continue
+            sig = None
         # the signature: a rule or /s/, or a judge's name and title in capitals
         if re.fullmatch(r"_{5,}", run[0].text) or run[0].text.startswith("/s/") or \
                 (len(run) <= 3 and all(is_caps(l.text) for l in run) and re.search(r"JUDGE$", run[-1].text)):
-            cur, sig = None, new("sig")
+            cur, sig = None, new("sig", n=len(run))
             for l in run:
                 if not re.fullmatch(r"_{5,}", l.text):
                     add(sig, l)

@@ -271,6 +271,13 @@ def read_toc(pages):
                 break
             if not t or re.fullmatch(r"(?i)page\(?s?\)?", t):
                 continue
+            # a contents page that runs over: "TABLE OF CONTENTS—Continued" heads the next page
+            cont = re.match(r"(?i)^table of contents\s*[-–—(]*\s*continued\)?\s*", t)
+            if cont:
+                t = t[cont.end():]
+                if not t or re.fullmatch(r"(?i)page\(?s?\)?", t):
+                    continue
+                l = " " * (len(l) - len(l.lstrip())) + t
             rows.append(l.rstrip())
         if rows and not on:
             break
@@ -452,7 +459,7 @@ def read_brief(text, f, oi, warn, appendix=False):
         short = e["label"] or " ".join(c.titlecase(e["text"]).split()[:3]).rstrip(",;:")   # "Summary of Argument"
         path += [""] * (e["level"] - 1 - len(path)) + [short]
         blocks.append({"kind": "h", "label": lab, "pieces": [], "level": e["level"], "path": "-".join(p for p in path if p)})
-        tail = re.search(r"\s(\d{1,2})\s*$", lines[j - 1].text)          # "INTEREST OF AMICI CURIAE 1"
+        tail = re.search(r"(?:\s|(?<=[A-Za-z’'”]))(\d{1,2})\s*$", lines[j - 1].text)   # "INTEREST OF AMICI CURIAE 1", or "CURIAE1"
         if tail and any(f[0] == tail.group(1) for f in footnotes) and not norm(e["text"]).endswith(tail.group(1)):
             heading_marks.append((len(blocks), tail.group(1)))
         if lines[i].pi != prev_pi:              # the page turns before the heading: mark it at the end of what precedes
