@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """semsearch: re-ranking, duplicate collapse, and the acceptance query, offline.
 
-    python3 -m unittest tests.test_semsearch -v
+    python -m pytest tests/test_semsearch.py
 
 The acceptance test replays two real result pages (tests/fixtures/semsearch-1983-scotus.json) through
 the response cache, so it runs the real fetch/rerank/write path with no network and no token.
@@ -10,9 +10,9 @@ import json, shutil, sys, tempfile, types, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-import semsearch as ss                         # noqa: E402
+from tribonian import semsearch as ss                         # noqa: E402
 
 FIX = json.loads((ROOT / "tests" / "fixtures" / "semsearch-1983-scotus.json").read_text())
 

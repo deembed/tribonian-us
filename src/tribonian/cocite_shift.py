@@ -1,18 +1,17 @@
-#!/usr/bin/env python3
 """cocite_shift.py -- good-law signals from co-citation cluster change (scope: docs/scope-cocite-next.md, section A).
 
-    ./cocite_shift.py --cite "375 U.S. 384" --courts appellate     # one case, every slice transition
-    ./cocite_shift.py --eval --courts appellate                     # goodlaw_eval.py's cases, scored
+    tribonian cocite shift --cite "375 U.S. 384" --courts appellate     # one case, every slice transition
+    tribonian cocite shift --eval --courts appellate                     # goodlaw_eval.py's cases, scored
 
 Kept out of cocite.py so it can be developed beside other work on that file; it only reads
-cocite.py's results databases and cocite-cache/ (built by ./cocite.py prep and build).
+cocite.py's results databases and cocite-cache/ (built by tribonian cocite prep and build).
 """
 import argparse, json, math, sys, time
 
 import numpy as np
 
-import cocite as cc
-from cocite import CACHE, WIDTH, EVIDENCE_DIR, parse_courts, label, short, name, need_db, resolve
+from tribonian import cocite as cc
+from tribonian.cocite import CACHE, WIDTH, EVIDENCE_DIR, parse_courts, label, short, name, need_db, resolve
 
 _MAIN = []
 
@@ -45,7 +44,7 @@ class CiteIndex:
 
     def __init__(self, view, db=None):
         if not (CACHE / "by_cited.npy").exists():
-            sys.exit("The cache has no cited-case index yet: run ./cocite.py prep")
+            sys.exit("The cache has no cited-case index yet: run tribonian cocite prep")
         if db is not None:                # the view's results must come from this cache (cocite.check_cache)
             cc.check_cache(db)
         mm = lambda f: np.load(CACHE / f, mmap_mode="r")
@@ -91,7 +90,7 @@ class CiteIndex:
         that cites nothing had decade 0 and silently fell out of every cohort.)"""
         if self._ref_year is None:
             if not (CACHE / "ref_year.npy").exists():
-                sys.exit("The cache has no filing years yet: run ./cocite.py prep (it adds only those)")
+                sys.exit("The cache has no filing years yet: run tribonian cocite prep (it adds only those)")
             self._ref_year = np.load(CACHE / "ref_year.npy", mmap_mode="r")
         return self._ref_year
 
@@ -389,7 +388,7 @@ SHIFT_COMBOS = [
 
 
 def shift_eval(db, idx, p, slices, args):
-    import goodlaw_eval as ge
+    from tribonian import goodlaw_eval as ge
     con = main_db()
 
     def look(cite):
@@ -488,32 +487,3 @@ def shift_eval(db, idx, p, slices, args):
         if not hits:
             print("    never named")
     print("\nall transitions: %s" % tsv)
-
-
-def main():
-    import signal
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--courts", help="court view, e.g. appellate (default: all)")
-    ap.add_argument("--cite")
-    ap.add_argument("--cluster", type=int)
-    ap.add_argument("--eval", action="store_true", help="score the signals on goodlaw_eval.py's cases")
-    ap.add_argument("--all", action="store_true", help="also list transitions where A is cited under min_n times")
-    ap.add_argument("--share", type=float, default=SHIFT["share"],
-                    help="successor: share of A's citers that also cite B (default %(default)s)")
-    ap.add_argument("--growth", type=float, default=SHIFT["growth"],
-                    help="successor: B's citing growth over A's (default %(default)s)")
-    ap.add_argument("--cohort-pct", dest="cohort_pct", type=float, default=SHIFT["cohort_pct"],
-                    help="collapse: fires when at most this share of the cohort fell further (default %(default)s)")
-    args = ap.parse_args()
-    if not (args.cite or args.cluster or args.eval):
-        ap.error("give --cite, --cluster or --eval")
-    if args.courts:
-        _codes, tag = parse_courts(args.courts)
-        if tag != "all":
-            cc.COCITE_DB = cc.BASE_DB.with_name("cocite-%s.sqlite" % tag)
-    cmd_shift(args)
-
-
-if __name__ == "__main__":
-    main()

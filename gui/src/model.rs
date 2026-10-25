@@ -145,7 +145,7 @@ pub struct CaseRow {
     pub weight: f64,
     /// Citing decisions in this slice (nodes.n), where the page has a slice.
     pub citing: Option<i64>,
-    /// From cases/citedby/<ref>/profile.json, when casemap.py goodlaw has run for the case.
+    /// From cases/citedby/<ref>/profile.json, when tribonian map goodlaw has run for the case.
     pub goodlaw: Option<GoodLaw>,
     /// From the same profile's citations per year, when it is cached.
     pub dormant: Option<Dormancy>,

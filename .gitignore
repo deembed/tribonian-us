@@ -37,3 +37,4 @@ gui/gui.toml
 gitmessage
 # semantic-search API response cache (also covered by cases/ above; listed so it is explicit)
 cases/semsearch/_cache/
+*.egg-info/

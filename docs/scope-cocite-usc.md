@@ -34,7 +34,7 @@ with a provision keeping one identity when the Code renumbers it.
 ## Steps
 
 ### 1. Measure first (no writes)
-`./cocite.py usc-sample --n 2000`: random opinions, report
+`tribonian cocite usc-sample --n 2000`: random opinions, report
 - share of `-2` spans that match `STATUTE_RE` (statutes vs other unlinked cites),
 - statute mentions found by regex in the text but **outside** any span (CourtListener missed them),
 - short forms ("§ 1983" alone, "id. § 552(b)") and popular-name cites ("Title VII", "§ 10(b) of the Exchange Act")
@@ -67,7 +67,7 @@ the full run's counts. Regex miss to fix: `26 U.S.C.A. Int.Rev.Code, § 23` (sec
   securities exchange act").
 - Cost: one more full positions run (same as the v2 run; resumable, all cores).
 
-### 3. Identity map: `./cocite.py usc-map`
+### 3. Identity map: `tribonian cocite usc-map`
 - Reads `xml/*.xml` (the four note sources above) plus OLRC's editorial reclassification tables
   (t7, t25, t34, t52, t54, ...; downloaded once into `data/usc-reclass/`, small, tracked).
 - Edges: `(old_key, new_key, year, source)`. `year` = when the move took effect.
@@ -79,7 +79,7 @@ the full run's counts. Regex miss to fix: `26 U.S.C.A. Int.Rev.Code, § 23` (sec
 - Output: `cocite-cache/usc_map.json` (edges, canonical ids, stamp of the XML release point).
 - Unmapped cites keep their as-cited key: correct within an era, discontinuous across a move.
 
-### 4. Check the map against the data: `./cocite.py usc-map --check`
+### 4. Check the map against the data: `tribonian cocite usc-map --check`
 - **Mapped pairs:** for A -> B, citing counts per slice and partner-case Jaccard across the move. Low Jaccard =
   wrong edge or reuse.
 - **Missing moves:** an unmapped A whose citations end in the slice B's start, with partner Jaccard >= 0.2 (the
@@ -98,7 +98,7 @@ Where it shows:
 - GUI case page: provisions the case's sub-cluster draws on.
 
 ### 6. Tier 2: statutes as nodes (only if tier 1 isn't enough)
-`./cocite.py build --statutes`: canonical provisions become extra columns of M; Leiden, lineages, areas
+`tribonian cocite build --statutes`: canonical provisions become extra columns of M; Leiden, lineages, areas
 unchanged. A separate results database, like the weighting views. Keep it only if `gold-common` F1 does not drop.
 
 ---
@@ -123,13 +123,13 @@ unchanged. A separate results database, like the weighting views. Keep it only i
 
 ## Commands
 ```
-./cocite.py usc-sample --n 2000                         # step 1: rates, nothing written
-./cocite.py positions                                   # step 2: v3 run, statute sidecar
-./cocite.py usc-map                                     # step 3: xml/ + data/usc-reclass/ -> usc_map.json
-./cocite.py usc-map --check --courts appellate          # step 4
-./cocite.py usc-profile --courts appellate --weight sentence --mix 0.2   # step 5, feeds subdoc/vault/md
-./usc2md.py --all                                       # rebuild section notes with "Cited with"
-./cocite.py build --courts appellate --statutes         # step 6, only if needed
+tribonian cocite usc-sample --n 2000                         # step 1: rates, nothing written
+tribonian cocite positions                                   # step 2: v3 run, statute sidecar
+tribonian cocite usc-map                                     # step 3: xml/ + data/usc-reclass/ -> usc_map.json
+tribonian cocite usc-map --check --courts appellate          # step 4
+tribonian cocite usc-profile --courts appellate --weight sentence --mix 0.2   # step 5, feeds subdoc/vault/md
+tribonian usc --all                                       # rebuild section notes with "Cited with"
+tribonian cocite build --courts appellate --statutes         # step 6, only if needed
 ```
 
 ## Size

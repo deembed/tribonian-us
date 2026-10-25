@@ -1,15 +1,14 @@
-#!/usr/bin/env python3
 """casedb.py -- load CourtListener's quarterly bulk files into one local SQLite database.
 
-    ./casedb.py load                  # every bulk file found, smallest first; finished tables are skipped
-    ./casedb.py load citation-map     # just one (names: courts citations citation-map parentheticals
+    tribonian db load                  # every bulk file found, smallest first; finished tables are skipped
+    tribonian db load citation-map     # just one (names: courts citations citation-map parentheticals
                                       #            opinion-clusters dockets opinions)
-    ./casedb.py load --force courts   # reload a table that is already done
-    ./casedb.py status
-    ./casedb.py columns [opinion-clusters ...]   # per bulk file: columns kept, columns left out
-    ./casedb.py index                 # full-text index of case names and parentheticals, for case2md.py find
-    ./casedb.py opmap [--force]       # opinion id -> case table in the main database (load builds it after opinions)
-    ./casedb.py case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
+    tribonian db load --force courts   # reload a table that is already done
+    tribonian db status
+    tribonian db columns [opinion-clusters ...]   # per bulk file: columns kept, columns left out
+    tribonian db index                 # full-text index of case names and parentheticals, for case2md.py find
+    tribonian db opmap [--force]       # opinion id -> case table in the main database (load builds it after opinions)
+    tribonian db case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
 
 Where things live (both default to ./bulk next to this script); each is a variable or a key in
 ~/.config/tribonian-us/config.toml (tconfig.py):
@@ -31,13 +30,13 @@ values. Checked against the 2026-06-30 files; Python's default CSV dialect
 import argparse, csv, io, json, os, re, shutil, sqlite3, subprocess, sys, time, zlib
 from pathlib import Path
 
-import tconfig                     # each location: CL_* variable, else the config file, else the default here
+from tribonian import tconfig                     # each location: CL_* variable, else the config file, else the default here
 
-HERE = Path(__file__).resolve().parent
+HERE = tconfig.WORK                 # the work folder
 BULK = tconfig.get("bulk_dir", HERE / "bulk")
 DB = tconfig.get("main_db", BULK / "courtlistener.sqlite")
 # The big one: compressed opinion text, about 110 GB. It is written once, in order, as fast as the
-# disk allows, so it goes on the fast disk: ./db/ next to this script if that folder exists
+# disk allows, so it goes on the fast disk: <work>/db/ if that folder exists
 # (CL_OPS_DB overrides), else beside the main database.
 OPS_DB = tconfig.get("opinions_db", HERE / "db" / "opinions.sqlite" if (HERE / "db").is_dir()
                      else DB.with_name("opinions.sqlite"))
@@ -345,7 +344,7 @@ def cmd_status(args):
         print("  %-17s %-42s %s" % (name, p.name if p else "(not downloaded)",
                                   "%s rows, loaded in %.1f min" % (format(d[2], ","), d[3] / 60) if d else "not loaded"))
     print("  %-17s %s" % ("opmap", "current (%s rows)" % format(done["opmap"][2], ",") if op_table(con) == "opmap"
-                          else "not built or stale: ./casedb.py opmap"))
+                          else "not built or stale: tribonian db opmap"))
 
 
 def cmd_case(args):

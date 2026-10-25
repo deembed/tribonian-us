@@ -1,14 +1,13 @@
-#!/usr/bin/env python3
 """scotus.py -- a pending Supreme Court case: its docket, filings and the decision below, as one
 PDF for the tablet plus Obsidian notes, and the authorities the parties fight over.
 
-    ./scotus.py fetch 25-579
+    tribonian scotus fetch 25-579
         The Court's docket (supremecourt.gov/RSS/Cases/JSON/25-579.json, Proceedings and
         Orders) -> cases/scotus/25-579.json, and every filed PDF it links (proofs of service
         and word-count certificates skipped) -> cases/scotus/25-579/, with pdftotext -layout
         beside each. Not CourtListener: no API limit. Rerun any time; only new filings download.
 
-    ./scotus.py build 25-579 [--amici] [--appendix] [--depth N]
+    tribonian scotus build 25-579 [--amici] [--appendix] [--depth N]
         One PDF, pdf/Pending SCOTUS/<slug>.pdf, in parts: the Clerk's question presented, the
         decision below (from the local database), the cert-stage filings, the merits filings.
         Notes: md-cases/Pending SCOTUS/<slug>.md (the docket) and one per filing.
@@ -19,9 +18,9 @@ PDF for the tablet plus Obsidian notes, and the authorities the parties fight ov
         --depth N  also write case notes for the decision below and every authority the
                    filings cite (depth 1), and what those cite (depth 2, ...), the same way
                    casemap.py map does: full text for the first --text steps (default 1),
-                   stubs beyond. Then ./build_all.sh builds their PDFs.
+                   stubs beyond. Then tribonian build builds their PDFs.
 
-    ./scotus.py recent [--json] [--days 365]
+    tribonian scotus recent [--json] [--days 365]
         What the Court did in the last year, from its public pages -> cases/scotus/_recent.json:
         opinions (opinions/slipopinion/<term>), cases granted review (orders/<term>grantednotedlist.pdf)
         and the orders lists (orders/ordersofthecourt/<term>: grants, summary dispositions, denials,
@@ -36,7 +35,7 @@ from collections import Counter, OrderedDict
 from datetime import date, datetime
 from pathlib import Path
 
-import case2md as c
+from tribonian import case2md as c
 
 SCOTUS = c.CASES / "scotus"
 FEED = "https://www.supremecourt.gov/RSS/Cases/JSON/%s.json"
@@ -209,7 +208,7 @@ def fetch(args):
             print("  %s %s  %-13s %-10s %s" % ("".join(marks) or " ", e["date"], e["kind"], e["side"] or "", e["text"][:80]))
     print("  (+ downloaded, = already here, ! failed)")
     print("saved %s" % case_file(num).relative_to(c.ROOT))
-    print("next:  ./scotus.py build %s" % num)
+    print("next:  tribonian scotus build %s" % num)
 
 
 
@@ -633,7 +632,8 @@ def case_names(con, cids):
 def area_for(db, ref):
     """cocite.py's area for a case (newest complete slice, its sub-cluster's lineage), or None."""
     try:
-        import cocite, time
+        import time
+        from tribonian import cocite
         rows = [r for r in (cocite.summary(ref, db, 8) or []) if r["home"]]
         if not rows:
             return None
@@ -728,7 +728,7 @@ def below_case(cid, con, index):
     ent = index.get(str(cid)) or {}
     if ent.get("full") and (c.CASES / ent["full"]).exists():
         return json.loads((c.CASES / ent["full"]).read_text(encoding="utf-8"))
-    import casemap
+    from tribonian import casemap
     return casemap.db_case(con, cid, True) if con is not None else None
 
 
@@ -786,7 +786,7 @@ def nm(names, cid, n=48):
 
 
 def cite_of(names, cid):
-    """The citation to fetch it by ("./case2md.py fetch --cite ..."), U.S. Reports first."""
+    """The citation to fetch it by ("tribonian case fetch --cite ..."), U.S. Reports first."""
     return (names.get(cid) or {}).get("cite") or ""
 
 
@@ -819,7 +819,7 @@ def couple_md(cp, names, index, fs, areas):
     L += ["### Every authority, by side", "",
           "Cited by both sides first (ranked by how much the less-reliant side leans on them), then the petitioners' "
           "side only, then the respondent's side only. Mentions and filings per side; Cite is what "
-          "`./case2md.py fetch --cite` takes.", "",
+          "`tribonian case fetch --cite` takes.", "",
           "| # | Case | Cite | Pet. | Resp. | Pet. filings | Resp. filings | Below | Area |",
           "|--:|---|---|--:|--:|--:|--:|:-:|---|"]
     for i, (k, g) in enumerate(all_rows(cp), 1):
@@ -915,7 +915,7 @@ def authorities_tex(cp, names):
             "\\noindent\\tocback\\tocadd{tocsec}{Every authority, by side}{\\large\\bfseries Every authority, by side\\par}\\vspace{2pt}\n"
             "{\\scriptsize\\itshape Not part of the record. Mentions by each side (its party's filings and amici); "
             "Filings = petitioners'/respondent's filings citing it; Below = cited in the court of appeals' opinion. "
-            "Cite is what \\texttt{./case2md.py fetch --cite} takes.\\par}\\vspace{3pt}\n"
+            "Cite is what \\texttt{tribonian case fetch --cite} takes.\\par}\\vspace{3pt}\n"
             "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
             "\\begin{longtable}{@{}r p{8.1cm} p{3.3cm} r r r c@{}}\n"
             "%s\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
@@ -982,7 +982,7 @@ def goodlaw_all(cids, workers=None):
     for k in cids:
         p = c.CASES / "citedby" / str(k) / "profile.json"
         try:
-            import casemap
+            from tribonian import casemap
             g = json.loads(p.read_text(encoding="utf-8")).get("goodlaw") if p.exists() else None
             if g and g.get("version") == casemap.GOODLAW_VERSION:
                 out[k] = g
@@ -1136,7 +1136,7 @@ def pending_dir(slug):
 def build(args):
     num = norm_number(args.number)
     if not case_file(num).exists():
-        sys.exit("No %s. Run ./scotus.py fetch %s first." % (case_file(num).relative_to(c.ROOT), num))
+        sys.exit("No %s. Run tribonian scotus fetch %s first." % (case_file(num).relative_to(c.ROOT), num))
     data = json.loads(case_file(num).read_text(encoding="utf-8"))
     con = c.local_db()
     if con is None:
@@ -1189,7 +1189,7 @@ def build(args):
     names = case_names(con, allc)
     areas = []
     try:
-        import cocite
+        from tribonian import cocite
         db = cocite.open_view(cocite.NOTE_VIEW)
     except (ImportError, sqlite3.Error, SystemExit, OSError):   # view not built
         db = None
@@ -1281,7 +1281,7 @@ def build(args):
         L += ["## Questions presented", ""] + [c.esc(p, "md") + "\n" for p in qp]
     if cid:
         L += ["## Decision below", "", "- %s" % link_md(names, index, cid, 90) if str(cid) in index else
-              "- %s — no note yet (`./scotus.py build %s --depth 1`, or `./casemap.py get --cluster %s`)" % (
+              "- %s — no note yet (`tribonian scotus build %s --depth 1`, or `tribonian map get --cluster %s`)" % (
                   c.esc(below_meta["title"] if below_meta else "cluster %s" % cid, "md"), num, cid), ""]
     L += ["## Filings", ""]
     for stage, label in STAGES[1:]:
@@ -1320,8 +1320,8 @@ def build(args):
 def crawl(args, data, fs, cid):
     """--depth: case notes for the decision below and every case the filings cite (step 1), then what
     those cite (step 2, ...). Full text for steps up to --text, stubs beyond; the same files and notes
-    casemap.py map writes, so ./build_all.sh builds their PDFs."""
-    import casemap
+    casemap.py map writes, so tribonian build builds their PDFs."""
+    from tribonian import casemap
     con, done = casemap.open_db()
     index = c.load_index()
     level = {}
@@ -1359,7 +1359,7 @@ def crawl(args, data, fs, cid):
     c.save_index(index)
     kinds = Counter(c.write_note(k, index) for k, d in level.items() if d is not None and str(k) in index)
     print("wrote %d case notes in md-cases/: %s" % (sum(kinds.values()), ", ".join("%d %s" % (n, k) for k, n in kinds.items())))
-    print("their PDFs: ./build_all.sh   (then rerun ./scotus.py build %s so its notes link to them)" % data["number"])
+    print("their PDFs: tribonian build   (then rerun tribonian scotus build %s so its notes link to them)" % data["number"])
 
 
 def build_cmd(args):

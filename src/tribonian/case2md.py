@@ -1,19 +1,18 @@
-#!/usr/bin/env python3
 """case2md.py -- court opinions (CourtListener) -> Obsidian markdown + LaTeX.
 
-    ./case2md.py fetch --cite "463 U.S. 29"      # -> cases/<cite>_<name>.json
-    ./case2md.py fetch --cluster 110991
-    ./case2md.py build cases/463-u-s-29_*.json   # -> md-cases/, build/, pdf/
-    ./case2md.py find glomar                     # search case names + courts' parentheticals
-    ./case2md.py find "arbitrary and capricious" rulemaking   # quoted = a phrase; all terms must match
-    ./case2md.py find glomar --get 3             # fetch result 3 from the local database and build its PDF
-    ./case2md.py recap fetch --docket 4949363    # district-court filings (RECAP) -> cases/recap/*.json
-    ./case2md.py recap build cases/recap/laed-09-cv-06732_*.json   # one PDF, a note per order
-    ./case2md.py usage                           # API requests used (minute/hour/day) and history
+    tribonian case fetch --cite "463 U.S. 29"      # -> cases/<cite>_<name>.json
+    tribonian case fetch --cluster 110991
+    tribonian case build cases/463-u-s-29_*.json   # -> md-cases/, build/, pdf/
+    tribonian case find glomar                     # search case names + courts' parentheticals
+    tribonian case find "arbitrary and capricious" rulemaking   # quoted = a phrase; all terms must match
+    tribonian case find glomar --get 3             # fetch result 3 from the local database and build its PDF
+    tribonian case recap fetch --docket 4949363    # district-court filings (RECAP) -> cases/recap/*.json
+    tribonian case recap build cases/recap/laed-09-cv-06732_*.json   # one PDF, a note per order
+    tribonian case usage                           # API requests used (minute/hour/day) and history
 The citation graph (stub notes, wikilinks, cited-by statistics) is casemap.py.
 
 build reuses the LaTeX preamble (page size, boxes, running header/footer) and
-the escaping table from usc2md.py; everything opinion-specific lives here.
+the escaping table from render.py; everything opinion-specific lives here.
 Text source: the Harvard Caselaw Access Project version of each opinion
 (custom tags <author>, <page-number>, <footnotemark>, <footnote>), as served
 by CourtListener in html_with_citations.
@@ -29,12 +28,12 @@ from html.parser import HTMLParser
 import urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
-import tconfig                  # settings: CL_* variable, else ~/.config/tribonian-us/config.toml, else default
+from tribonian import tconfig                  # settings: CL_* variable, else ~/.config/tribonian-us/config.toml, else default
 
 API = "https://www.courtlistener.com/api/rest/v4"
-# Everything is read and written under ROOT (the folder this script sits in).
-# CASE2MD_ROOT overrides it, which is how the tests run without touching real output.
-ROOT = Path(os.environ.get("CASE2MD_ROOT") or Path(__file__).resolve().parent)
+# Everything is read and written under ROOT, the work folder (tconfig.WORK). TRIBONIAN_WORK overrides
+# it, which is how the tests run without touching real output.
+ROOT = tconfig.WORK
 CASES = ROOT / "cases"
 NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (sync_vault.sh mirrors both)
 # CourtListener API limits since May 2026, free tier: 5 a minute, 50 an hour,
@@ -408,7 +407,7 @@ class Tree(HTMLParser):
 
 
 def parse_html(s):
-    from usc2md import FOLD                  # ligatures and odd spaces -> plain text, once, at parse time
+    from tribonian.render import FOLD                  # ligatures and odd spaces -> plain text, once, at parse time
     t = Tree()
     t.feed(s.translate(FOLD))
     t.close()
@@ -424,7 +423,7 @@ MD_ESC = {"*": r"\*", "_": r"\_", "$": r"\$", "<": r"\<", "`": r"\`", "|": r"\|"
 
 def esc(s, mode):
     if mode == "tex":
-        from usc2md import tex_chars
+        from tribonian.render import tex_chars
         return tex_chars(s).replace("•", r"\textbullet{}")
     return "".join(MD_ESC.get(c, c) for c in s)
 
@@ -560,7 +559,7 @@ def mark_usc(node):
     if getattr(node, "usc_done", False):
         return
     node.usc_done = True
-    import usc_status as us
+    from tribonian import usc_status as us
     kids = []
     for k in node.kids:
         if (isinstance(k, El) and k.tag == "span" and "citation" in k.attrs.get("class", "")
@@ -587,7 +586,7 @@ def mark_usc(node):
 
 
 def usc_out(k, mode, ctx):
-    import usc_status as us
+    from tribonian import usc_status as us
     m, txt = k.m, k.text()
     tag, moves, yr = us.mark(m, ctx.year) if USC_MARKS else ("ok", [], None)
     first = us.sections(m.group("secs"), m.group("sign"))
@@ -656,7 +655,7 @@ def profile_data(cid, scan=False, quick=None):
     try:
         row = con.execute("SELECT file FROM loaded WHERE name='citation-map'").fetchone()
         stamp = re.search(r"\d{4}-\d\d-\d\d", row[0]).group(0) if row else ""
-        import casemap
+        from tribonian import casemap
         ogl = (old or {}).get("goodlaw") or {}
         fresh = ogl.get("version") == casemap.GOODLAW_VERSION
         if scan and ogl.get("mode") == "quick":   # a full build redoes a quick result
@@ -680,7 +679,7 @@ def profile_data(cid, scan=False, quick=None):
         return old
     new = {"stamp": stamp, "years": years, "parens": parens_data(con, cid), "successor": successor_data(cid)}
     if scan or quick:
-        import casemap
+        from tribonian import casemap
         try:
             new["goodlaw"] = casemap.goodlaw(con, cid, quick=None if scan else quick)
         except (sqlite3.Error, SystemExit) as e:   # casemap exits when the text database is missing
@@ -701,7 +700,7 @@ def write_profile(path, data):
 def successor_data(cid):
     """Co-citation's likely successor (cocite_shift.successor): None when the views aren't built."""
     try:
-        import cocite_shift
+        from tribonian import cocite_shift
     except ImportError:                      # numpy missing
         return None
     return cocite_shift.successor(int(cid))
@@ -1281,7 +1280,7 @@ def cocite_md(meta):
     if not meta or not meta.get("cluster"):
         return []
     try:
-        import cocite
+        from tribonian import cocite
         return cocite.case_md(int(meta["cluster"]), load_index())
     except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view not built / numpy missing; a bug still raises
         print("  (co-citation section skipped: %s)" % e, file=sys.stderr)
@@ -1293,7 +1292,7 @@ def cocite_tex(meta):
     if not meta or not meta.get("cluster"):
         return ""
     try:
-        import cocite
+        from tribonian import cocite
         return cocite.case_tex(int(meta["cluster"]), lambda t: esc(t, "tex"))
     except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view not built / numpy missing; a bug still raises
         print("  (co-citation box skipped: %s)" % e, file=sys.stderr)
@@ -1350,7 +1349,7 @@ def draws_data(cid, data=None):
     if con is None:
         return None
     try:
-        import cocite
+        from tribonian import cocite
         return cocite.draws_on(int(cid), con, opinions=json_cited(cid, data))
     except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view/opinions not there, numpy missing
         print("  (draws-on section skipped: %s)" % e, file=sys.stderr)
@@ -1364,10 +1363,10 @@ def coupling_path(cid):
 def coupling_cache(cid, con=None, max_df=None, top=None):
     """Compute the coupled cases (cocite.coupling) and cache them in cases/citedby/<cluster>/coupling.json,
     stamped with the bulk data's date like profile.json. casemap.py coupling and build --coupling call this."""
-    import cocite
+    from tribonian import cocite
     con = con or shared_db()
     if con is None:
-        sys.exit("coupling needs the local database (./casedb.py status)")
+        sys.exit("coupling needs the local database (tribonian db status)")
     res = cocite.coupling(int(cid), con, max_df or cocite.COUPLING_MAX_DF, top or cocite.COUPLING_TOP,
                          opinions=json_cited(cid))
     res["stamp"] = bulk_stamp(con)
@@ -1476,7 +1475,7 @@ def coupling_note(c, tex=False):
             "cited case, cited by df decisions, adds log(N/df), N = %s decisions citing anything. Cited cases cited "
             "by more than %s decisions are left out (%d of this case's %d). Computed %s from the bulk data of %s by "
             "%s." % (fmt(c["N"]), fmt(c["max_df"]), c["skipped"], c["refs"], c.get("computed", "?"), c.get("stamp") or "?",
-                     "\\texttt{casemap.py coupling}" if tex else "`./casemap.py coupling`"))
+                     "\\texttt{casemap.py coupling}" if tex else "`tribonian map coupling`"))
 
 
 def coupling_md(meta):
@@ -1518,7 +1517,7 @@ def coupling_tex(meta):
 
 def render_stub(meta, tail, why="Text not fetched.", cluster=None):
     L = front_matter(meta, True) + profile_md(meta) + cocite_md(meta) + parens_md(meta) + headmatter_md(meta) + editorial(cluster or {})
-    L += ["*Stub: %s To get the text: `./case2md.py fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
+    L += ["*Stub: %s To get the text: `tribonian case fetch --cluster %s`, then `build`.*" % (why, meta["cluster"]), ""]
     return "\n".join(L) + "\n" + tail
 
 
@@ -1701,7 +1700,7 @@ def toc_head(part, el):
 
 
 def render_tex(meta, ops, fontpkg, style):
-    from usc2md import PREAMBLE, RULES
+    from tribonian.render import PREAMBLE, RULES
     toc = meta.get("toc", True)              # contents page: cases, dockets, scotus.py (US Code has its own render_tex)
     _anchors.clear()                         # bookmark names are unique per PDF
 
@@ -1844,7 +1843,6 @@ def case_meta(data):
 
 def prepare(data, index=None):
     """Fetched JSON -> (meta, opinions ready to render, warnings)."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     warnings = []
     meta = case_meta(data)
     if index and str(meta["cluster"]) in index:
@@ -1970,14 +1968,14 @@ def pdf_dir(ndir):
 
 
 def unmapped_note():
-    """Say which characters the PDF could not print (usc2md.tex_safe dropped or marked them)."""
-    import usc2md
-    for ch, n in sorted(usc2md.UNMAPPED.items()):
+    """Say which characters the PDF could not print (render.tex_safe dropped or marked them)."""
+    from tribonian import render
+    for ch, n in sorted(render.UNMAPPED.items()):
         o = ord(ch)
         print("  note: %s(U+%04X) x%d %s in the PDF" % (ch + " " if ch.isprintable() else "", o, n,
               "dropped (control character)" if o < 0x20 or 0x7F <= o < 0xA0 else
               "dropped (scan speck)" if 0x2580 <= o <= 0x25FF else "shown as a boxed ?"))
-    usc2md.UNMAPPED.clear()
+    render.UNMAPPED.clear()
 
 
 def run_pdflatex(tex_path, out_dir):
@@ -2146,7 +2144,7 @@ def recap_fetch(args):
                                            r.get("page_count") or "?", clean(r.get("description") or "")[:90]))
     print("  (* text saved, - not in RECAP, ! no text; others not selected: --docs N,N or --all)")
     print("saved %s" % out.relative_to(ROOT))
-    print("next:  ./case2md.py recap build %s" % out.relative_to(ROOT))
+    print("next:  tribonian case recap build %s" % out.relative_to(ROOT))
 
 
 # ---------------------------------------------------------------- layout text -> blocks
@@ -2340,7 +2338,7 @@ def running_feet(text):
 def layout_pages(text, heads=None):
     """-> (lines, footnotes [[label, page index, paragraphs]], page labels by page index).
     heads: a list to fill with each page's opinion label (Supreme Court slip opinions), else ''."""
-    from usc2md import FOLD
+    from tribonian.render import FOLD
     text = text.translate(FOLD)
     lines, footnotes, labels, nxt = [], [], [], 1
     set_vocab(text)
@@ -2740,7 +2738,7 @@ SLIP_AUTHOR_RE = re.compile(r"^(?:(PER CURIAM)|((?:[A-Z][a-z]+ )?[%s][%s'’\-]+
 
 def slip_links(html):
     """{citation text, whitespace normalized: href} from CourtListener's links in the <pre> text."""
-    from usc2md import FOLD                  # folded like the text they are matched against
+    from tribonian.render import FOLD                  # folded like the text they are matched against
     out = {}
     for href, t in re.findall(r'<a href="(/opinion/[^"]+)"[^>]*>(.*?)</a>', (html or "").translate(FOLD), re.S):
         t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", t)).strip()
@@ -2938,7 +2936,8 @@ _COURTS = {}
 def local_db():
     """Read-only connection to casedb's database with the opinion text attached, or None."""
     try:
-        import casedb, sqlite3
+        import sqlite3
+        from tribonian import casedb
     except ImportError:
         return None
     if not casedb.DB.exists() or Path(str(casedb.DB) + ".loading").exists():
@@ -3009,14 +3008,13 @@ def long_date(iso):
 # ---------------------------------------------------------------- recap build
 
 def recap_build(args):
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
     path = Path(args.json)
     data = json.loads(path.read_text(encoding="utf-8"))
     d = data["docket"]
     want = doc_numbers(args.docs)
     docs = [r for r in data["documents"] if (r.get("plain_text") or "").strip() and (not want or doc_key(r) in want)]
     if not docs:
-        sys.exit("No document text in %s%s. Run ./case2md.py recap fetch --docket %s first." % (
+        sys.exit("No document text in %s%s. Run tribonian case recap fetch --docket %s first." % (
             path, " for --docs " + args.docs if want else "", d.get("id")))
     con = local_db()
     court = court_cite(d.get("court_id"), con)
@@ -3133,7 +3131,8 @@ def recap_build(args):
 
 def find(args):
     """Search what you already have, then case names and parentheticals in the local database."""
-    import casedb, sqlite3
+    import sqlite3
+    from tribonian import casedb
     # each argument is a term; one quoted with spaces ("state farm") is a phrase: those words, in order
     terms = [t for t in ([w for w in re.findall(r"[\w'’.-]+", a) if w.strip(".-")] for a in args.words) if t]
     if not terms:
@@ -3208,14 +3207,13 @@ def find(args):
         if not 1 <= args.get <= len(results):
             sys.exit("--get takes a result number, 1 to %d" % len(results))
         cid = results[args.get - 1]
-        here = Path(__file__).resolve().parent
-        subprocess.run([sys.executable, str(here / "casemap.py"), "get", "--cluster", str(cid)], check=True)
+        subprocess.run([sys.executable, "-m", "tribonian", "map", "get", "--cluster", str(cid)], check=True)
         ent = load_index().get(str(cid), {})
         if not ent.get("full"):
             sys.exit("casemap.py get did not save the text for cluster %d" % cid)
-        subprocess.run([sys.executable, str(here / "case2md.py"), "build", str(CASES / ent["full"])], check=True)
+        subprocess.run([sys.executable, "-m", "tribonian", "case", "build", str(CASES / ent["full"])], check=True)
     elif results:
-        print("next: ./case2md.py find %s --get N" % shlex.join(args.words))
+        print("next: tribonian case find %s --get N" % shlex.join(args.words))
 
 
 # ---------------------------------------------------------------- API search (the local database's gap)
@@ -3286,7 +3284,7 @@ def api_search_cmd(args):
         tag = "have" if h["have"] else "local" if h["local"] else "NEW"
         print("  %2d. %-5s %s%s (%s %s)  cluster %s" % (i, tag, h["name"][:70], ", " + h["cite"] if h["cite"] else "",
                                                      h["court"], h["date"][:4], h["cluster"]))
-    print("  NEW = not in the local database; get one with: ./casemap.py get --cluster ID")
+    print("  NEW = not in the local database; get one with: tribonian map get --cluster ID")
 
 
 def iter_tag(el, tag):

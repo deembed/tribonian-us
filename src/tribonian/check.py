@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
 """check.py -- setup and database health check: is each piece there, and does it answer a query?
 
-    ./check.py              # every check, grouped, then which data mode this install supports
-    ./check.py --api        # also make one live CourtListener request (counts against the daily limit)
-    ./check.py --json       # the same as JSON (the GUI's Check setup page reads this)
-    ./check.py --paths      # only the files the scripts use, as JSON; the GUI reads this at start
+    tribonian check              # every check, grouped, then which data mode this install supports
+    tribonian check --api        # also make one live CourtListener request (counts against the daily limit)
+    tribonian check --json       # the same as JSON (the GUI's Check setup page reads this)
+    tribonian check --paths      # only the files the scripts use, as JSON; the GUI reads this at start
 
 Data modes (what the local data supports; the best one that passes is reported):
     api    nothing local: every case, citer and text comes from the CourtListener API
@@ -20,10 +19,10 @@ Reads only: every database is opened read-only; nothing is written.
 import argparse, glob, importlib, json, os, re, shutil, sqlite3, subprocess, sys, time, zlib
 from pathlib import Path
 
-import casedb                      # paths only (tconfig: CL_* variable, config file, default); stdlib
-import tconfig
+from tribonian import casedb                      # paths only (tconfig: CL_* variable, config file, default); stdlib
+from tribonian import tconfig
 
-HERE = Path(__file__).resolve().parent
+HERE = tconfig.WORK                          # the work folder
 # cocite.py's location, repeated here so the check runs before numpy/igraph are installed
 COCITE_BASE = tconfig.get("cocite_db", casedb.DB.with_name("cocite.sqlite"))
 COCITE_CACHE = COCITE_BASE.with_name("cocite-cache")
@@ -96,6 +95,7 @@ def n(x):
 # Each setting: its CL_* variable, else the config file (tconfig.py), else the default.
 # (label, config key, value in effect)
 SETTINGS = [
+    ("Work folder", "work_dir", tconfig.WORK),
     ("Bulk folder", "bulk_dir", casedb.BULK),
     ("Main database", "main_db", casedb.DB),
     ("Opinion text", "opinions_db", casedb.OPS_DB),
@@ -103,7 +103,7 @@ SETTINGS = [
     ("Co-citation base", "cocite_db", COCITE_BASE),
     ("API rate limits", "api_limits", tconfig.get("api_limits", "5,50,125")),
 ]
-GUI_TOML = HERE / "gui" / "gui.toml"          # the GUI's old config file, still read (overrides [gui])
+GUI_TOML = (tconfig.REPO or HERE) / "gui" / "gui.toml"          # the GUI's old config file, still read (overrides [gui])
 KNOWN = set(tconfig.ENV) | {"gui"}
 GUI_KEYS = {"default_view", "obsidian_vault", "obsidian_cases_dir", "python"}
 
@@ -150,7 +150,7 @@ def run_config():
         except ValueError as e:
             return c.fail(str(e), "fix or delete gui/gui.toml")
         over = [k for k in ("bulk_dir", "main_db", "opinions_db", "search_db") if cfg.get(k)]
-        msg = "%s: %d settings, read after the config file's [gui] and overriding it" % (GUI_TOML.relative_to(HERE), len(cfg))
+        msg = "%s: %d settings, read after the config file's [gui] and overriding it" % (GUI_TOML, len(cfg))
         if over:
             msg += "; overrides these paths for the GUI only: " + ", ".join(over)
         c.warn(msg, "move its settings into %s ([gui] table; paths at the top level), then delete gui/gui.toml"
@@ -244,10 +244,10 @@ def run_api(live):
     @check("api:live", "CourtListener API", "Live request")
     def _(c):
         if not live:
-            return c.skip("not run; ./check.py --api makes one request")
+            return c.skip("not run; tribonian check --api makes one request")
         if "t" not in tok:
             return c.skip("no token")
-        import case2md
+        from tribonian import case2md
         r = case2md.call("%s/clusters/%d/?fields=id,case_name" % (case2md.API, PROBE["cluster"]), tok["t"])
         if r.get("id") != PROBE["cluster"]:
             return c.fail("unexpected answer: %s" % str(r)[:120])
@@ -262,7 +262,7 @@ def run_db():
     @check("db:file", "Main database", "courtlistener.sqlite")
     def _(c):
         if not casedb.DB.exists():
-            return c.fail("not found: %s" % casedb.DB, "download the bulk files into %s, then ./casedb.py load" % casedb.BULK)
+            return c.fail("not found: %s" % casedb.DB, "download the bulk files into %s, then tribonian db load" % casedb.BULK)
         con["c"] = ro(casedb.DB)
         lock = Path(str(casedb.DB) + ".loading")
         if lock.exists():
@@ -282,16 +282,16 @@ def run_db():
                 return c.skip("no database")
             row = loaded(name)
             if not row:
-                return c.fail("not loaded", LOAD_FIX.get(name, "./casedb.py load %s" % name))
+                return c.fail("not loaded", LOAD_FIX.get(name, "tribonian db load %s" % name))
             msg = probe(con["c"])
             head = "%s rows from %s" % (n(row[1]), row[0])
             if msg is None:
-                c.warn(head + "; probe case %d not found (a --limit sample?)" % PROBE["cluster"], "./casedb.py load --force %s" % name)
+                c.warn(head + "; probe case %d not found (a --limit sample?)" % PROBE["cluster"], "tribonian db load --force %s" % name)
             else:
                 c.ok(head + "; " + msg)
 
     # opmap is not a bulk file: casedb.py builds it from the opinions file's indexes
-    LOAD_FIX = {"opmap": "./casedb.py opmap   (built from opinions.sqlite, which has to be loaded once)"}
+    LOAD_FIX = {"opmap": "tribonian db opmap   (built from opinions.sqlite, which has to be loaded once)"}
 
     def p_courts(db):
         r = db.execute("SELECT full_name FROM courts WHERE id='scotus'").fetchone()
@@ -311,7 +311,7 @@ def run_db():
             return None
         ids["ops"] = r
         stale = casedb.op_table(db) != "opmap"
-        return "opinions %s%s" % (r, "  (STALE: built from older opinions; ./casedb.py opmap)" if stale else "")
+        return "opinions %s%s" % (r, "  (STALE: built from older opinions; tribonian db opmap)" if stale else "")
 
     def p_edges(db):
         if "ops" not in ids:
@@ -351,7 +351,7 @@ def run_ops():
     def _(c):
         if not casedb.OPS_DB.exists():
             return c.fail("not found: %s%s" % (casedb.OPS_DB, " (dangling link)" if casedb.OPS_DB.is_symlink() else ""),
-                          "./casedb.py load opinions   (or set CL_OPS_DB; not needed in lite or api mode)")
+                          "tribonian db load opinions   (or set CL_OPS_DB; not needed in lite or api mode)")
         db = ro(casedb.OPS_DB)
         r = db.execute("SELECT id, field, text FROM opinions INDEXED BY opinions_by_cluster WHERE cluster_id=? AND text IS NOT NULL LIMIT 1",
                        (PROBE["cluster"],)).fetchone()
@@ -370,7 +370,7 @@ def run_derived():
     @check("idx:search", "Built from the data", "Search index (search.sqlite)")
     def _(c):
         if not casedb.SEARCH_DB.exists():
-            return c.warn("not built: %s (Search for Cases needs it)" % casedb.SEARCH_DB, "./casedb.py index")
+            return c.warn("not built: %s (Search for Cases needs it)" % casedb.SEARCH_DB, "tribonian db index")
         db = ro(casedb.SEARCH_DB)
         r = [x[0] for x in db.execute("SELECT cluster_id FROM names WHERE names MATCH ? LIMIT 50", ('"%s"' % PROBE["name"],))]
         stamp = db.execute("SELECT stamp FROM meta").fetchone()
@@ -378,14 +378,14 @@ def run_derived():
         built = "built from tables loaded " + ", ".join(sorted(set(re.findall(r"\d{4}-\d\d-\d\d", stamp[0] or "")))) if stamp else "no stamp"
         msg = "%s (%s, %s); \"%s\": %d+ hits" % (casedb.SEARCH_DB, gb(casedb.SEARCH_DB), built,
                                                 PROBE["name"], len(r))
-        c.ok(msg) if r else c.warn(msg + ", none", "./casedb.py index")
+        c.ok(msg) if r else c.warn(msg + ", none", "tribonian db index")
 
     @check("cocite:views", "Built from the data", "Co-citation views (cocite*.sqlite)")
     def _(c):
         files = sorted(glob.glob(str(COCITE_BASE.with_name("cocite*.sqlite"))))
         if not files:
             return c.warn("none in %s (clusters, areas, sub-clusters need one)" % COCITE_BASE.parent,
-                          "./cocite.py prep && ./cocite.py build --courts appellate   (README stage 5)")
+                          "tribonian cocite prep && tribonian cocite build --courts appellate   (README stage 5)")
         parts, bad = [], 0
         for f in files:
             db = ro(f)
@@ -404,16 +404,16 @@ def run_derived():
 
     @check("cocite:labels", "Built from the data", "Cluster labels")
     def _(c):
-        p = HERE / "data" / "cocite_labels.json"
+        p = tconfig.data_file("cocite_labels.json")
         if not p.exists():
-            return c.warn("no %s; clusters show without names" % p.relative_to(HERE))
-        c.ok("%s: %s entries" % (p.relative_to(HERE), n(len(json.loads(p.read_text(encoding="utf-8"))))))
+            return c.warn("no %s; clusters show without names" % p)
+        c.ok("%s: %s entries" % (p, n(len(json.loads(p.read_text(encoding="utf-8"))))))
 
     @check("cocite:positions", "Built from the data", "Citing-sentence index (posidx)")
     def _(c):
         d = COCITE_CACHE / "posidx"
         if not d.is_dir() or not any(d.iterdir()):
-            return c.warn("not built (only the sentence-weighted views need it; full mode)", "./cocite.py positions --index")
+            return c.warn("not built (only the sentence-weighted views need it; full mode)", "tribonian cocite positions --index")
         c.ok("%s: %d files" % (d, sum(1 for _ in d.iterdir())))
 
 
@@ -438,7 +438,7 @@ def run_usc():
         have = {"usc_map.json": "usc-map", "citedby.sqlite": "usc-citedby"}
         if not d.is_dir():
             return c.warn("not built: %s (Cited with / Cited by in section notes; full mode)" % d,
-                          "./cocite.py usc-extract, usc-map, usc-profile, usc-citedby   (README stage 5)")
+                          "tribonian cocite usc-extract, usc-map, usc-profile, usc-citedby   (README stage 5)")
         missing = [cmd for f, cmd in have.items() if not (d / f).exists()]
         profiles = sorted(p.name for p in d.glob("profile-*.sqlite"))
         msg = "%s; profiles: %s" % (d, ", ".join(profiles) or "none")
@@ -446,7 +446,7 @@ def run_usc():
             k = ro(d / "citedby.sqlite").execute("SELECT count(*) FROM total").fetchone()[0]
             msg += "; citedby: %s sections" % n(k)
         if missing or not profiles:
-            c.warn(msg, "./cocite.py " + ", ".join(missing + ([] if profiles else ["usc-profile"])))
+            c.warn(msg, "tribonian cocite " + ", ".join(missing + ([] if profiles else ["usc-profile"])))
         else:
             c.ok(msg)
 
@@ -469,7 +469,8 @@ MARK = {"ok": "OK  ", "warn": "WARN", "fail": "FAIL", "skip": "--  "}
 
 def paths():
     """The files the scripts use (CL_* variables or defaults). The GUI takes its paths from here."""
-    return {"repo_dir": str(HERE), "main_db": str(casedb.DB), "opinions_db": str(casedb.OPS_DB),
+    return {"repo_dir": str(tconfig.REPO) if tconfig.REPO else None, "work_dir": str(HERE), "labels_file": str(tconfig.data_file("cocite_labels.json")),
+            "main_db": str(casedb.DB), "opinions_db": str(casedb.OPS_DB),
             "search_db": str(casedb.SEARCH_DB), "cocite_dir": str(COCITE_BASE.parent),
             "config_file": str(tconfig.FILE_PATH) if tconfig.FILE_PATH else None, "config_error": tconfig.FILE_ERROR,
             "gui": tconfig.gui()}

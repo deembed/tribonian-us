@@ -9,49 +9,49 @@ cd gui
 cargo run --release
 ```
 
-No setup is needed: the app runs `../check.py --paths` at start and reads the same files and the same config file
+No setup is needed: the app runs `.tribonian check --paths` at start and reads the same files and the same config file
 (`~/.config/tribonian-us/config.toml`) as the scripts. Its own settings go in that file's `[gui]` table; see
 `../config.example.toml`. The old `gui.toml` is still read and overrides `[gui]`.
 
 - Start screen: View Clusters, View Cases, Search for Cases, SCOTUS, Sub-Cluster Search (draft), Check setup.
-- Check setup: runs `../check.py --json` (tools, databases, a probe query each, the data mode) and adds the app's own
+- Check setup: runs `.tribonian check --json` (tools, databases, a probe query each, the data mode) and adds the app's own
   checks: gui.toml, the co-citation views, and whether an old gui.toml path override makes the app read other files than the scripts.
 - Sub-Cluster Search (draft): paste a draft or a question; each blank-line-separated paragraph is one CourtListener
-  semantic search per five-year slice since the Since year (default 1980), cases cited more than N times (default 5) (`casemap.py semsearch`, queued like a build; the app passes the text as the
+  semantic search per five-year slice since the Since year (default 1980), cases cited more than N times (default 5) (`tribonian map semsearch`, queued like a build; the app passes the text as the
   query and writes nothing). Hits re-ranked by semantic score, grouped by sub-cluster, linked to the case and
   sub-cluster pages. The side panel lists earlier runs (cases/semsearch/*/results.json, CLI runs included).
 - Back/forward: the arrow buttons or Alt+Left / Alt+Right. The breadcrumb shows the last few pages.
 - The app opens a view only if its `meta.schema` matches `db::SCHEMA` (cocite.py `SCHEMA_VERSION`);
   other views are listed greyed out. After a schema bump in cocite.py, update `db::SCHEMA` and the queries.
-- Lineage pages need the `subs(lineage)` / `clusters(lineage)` indexes: `./cocite.py index --courts ...`
+- Lineage pages need the `subs(lineage)` / `clusters(lineage)` indexes: `tribonian cocite index --courts ...`
   once per view built before 2026-10-04 (a new build includes them).
 - Area pages carry a history graph (`src/graph.rs`), drawn like `git log --graph`: one lane per lineage,
   time running down (or up, with "Newest at top"), or "Left to right" (slice labels along the top, names of
   labelled lineages in a band under the lanes, starting under their first dot). Click a dot to open its lineage.
 - Export SVG (beside the graph controls) writes the graph as shown, orientation and filters included, on a white
-  background, to `<repo_dir>/build/exports/area-<code>-<orientation>.svg` and opens it. This is the only file
+  background, to `<work_dir>/build/exports/area-<code>-<orientation>.svg` and opens it. This is the only file
   the app itself writes; everything else on disk comes from the Python scripts.
 - Recent searches are kept between sessions in `$XDG_DATA_HOME/lawgui/recent-searches.json`
   (default `~/.local/share/lawgui/`), newest first, at most 30. "Clear" beside the heading empties it.
 - Test aid: `LAWGUI_DELAY_MS=800 cargo run` slows every page load, to see the loading placeholders.
 - Case tables sort by any column heading (click again to flip). The Good law column reads
-  `cases/citedby/<ref>/profile.json`, so it is filled only for cases `casemap.py goodlaw` has run on.
+  `cases/citedby/<ref>/profile.json`, so it is filled only for cases `tribonian map goodlaw` has run on.
 - Hollow markers on the history graph are links to lineages outside the area; click one to go there.
 - Search for Cases (`src/search.rs`, its own worker thread): case names (most cited first), a citation
   such as `463 U.S. 29`, or Parentheticals (what later courts said a case stands for, ranked by how many
   parentheticals describe it). Uses `search.sqlite` and `courtlistener.sqlite` from `bulk_dir` unless
   `search_db` / `main_db` say otherwise. Tests: `cargo test` (query building, citation detection).
-- Build on the case page runs `casemap.py get --cluster N` then `case2md.py build cases/<file>` in `repo_dir`
-  (interpreter: `python` in gui.toml), streaming output into a log panel at the bottom. A build only counts
-  as done when case2md prints its `wrote pdf/...` line, as in build_all.sh. Afterwards the app rereads the
+- Build on the case page runs `tribonian map get --cluster N` then `tribonian case build cases/<file>` in the work folder
+  (`python -m tribonian` with `src/` on `PYTHONPATH`; interpreter: `[gui] python`), streaming output into a log panel at the bottom. A build only counts
+  as done when case2md prints its `wrote pdf/...` line, as in `tribonian build`. Afterwards the app rereads the
   case files and reloads the page. One build at a time.
 - The case page shows at once, with no build: details from the main database (docket, dates, judges,
   CourtListener's citing count, every citation, headmatter, syllabus/summary when present), the cached case
   profile (citations per year, successor) when a build wrote one, how later courts describe the case (cached,
   or read live from the parentheticals), and the note's front matter. Good law says "not calculated" until a
   build computes it (it reads up to ~2,000 citing opinions, so it is slow). The opinion-text database
-  (the scripts' `CL_OPS_DB`, default repo_dir/db/opinions.sqlite) maps a case to its opinions for the live parentheticals.
-- Two buttons on the case page: **Quick build** (`case2md.py build --quick-goodlaw`: note, PDF and profile with the quick good-law check, the newest 100 citing opinions, instead of
+  (the scripts' `CL_OPS_DB`, default <work_dir>/db/opinions.sqlite) maps a case to its opinions for the live parentheticals.
+- Two buttons on the case page: **Quick build** (`tribonian case build --quick-goodlaw`: note, PDF and profile with the quick good-law check, the newest 100 citing opinions, instead of
   the slow good-law check, keeping an earlier result) and **Build** (everything).
 - Builds queue: the status line at the bottom shows "Building k of n" and what is queued, then "Done" (with any
   failures). A build added after "Done" starts a new run with fresh counts. "Output" opens the log.
@@ -59,10 +59,10 @@ No setup is needed: the app runs `../check.py --paths` at start and reads the sa
   -> the cited cases, then each cited case's sub-cluster in the newest full slice: count, share bar, clickable
   sub-cluster and area, and how many cited cases are in no sub-cluster. Same definition as `cocite.draws_on`,
   which the notes and PDFs use. It places any case, also one the co-citation map never holds.
-- **Find coupled cases** queues `casemap.py coupling --cluster N` through the build queue ("Running k of n").
+- **Find coupled cases** queues `tribonian map coupling --cluster N` through the build queue ("Running k of n").
   It writes `cases/citedby/<N>/coupling.json`; the page then shows **Coupled cases**: score, shared cited
   cases (hover a case for the list, rarest first), and when it was computed. Never run automatically.
-- **Explain (note + PDF)** on every sub-cluster page (and unsplit clusters) queues `cocite.py subdoc <slice:sub> --view <open view>`:
+- **Explain (note + PDF)** on every sub-cluster page (and unsplit clusters) queues `tribonian cocite subdoc <slice:sub> --view <open view>`:
   every member case with its citing counts, parentheticals and good law, plus the lineage's joins and departures. **Explain +
   good law** adds `--goodlaw` (the quick check on members with none cached first; `--goodlaw full` from a terminal for the slow one). **Open PDF** / **Open note** appear
   once the files exist (`pdf/Co-citation/<slice>/`, `md-cocite/Sub-clusters/<slice>/`; another view adds a `<view>/` folder).
@@ -74,16 +74,16 @@ No setup is needed: the app runs `../check.py --paths` at start and reads the sa
   From the cached profile's citations per year; else CourtListener's citing count when it is 0; else, on the case page
   only and for cases cited at most 300 times, a live check of the newest citing decision. Red and yellow keep their
   colour and get a grey "dormant" tag; green or not calculated shows grey "dormant" with the reason.
-- **SCOTUS** (`src/scotus.rs`, `src/scotus_page.rs`): every docket `scotus.py fetch` saved in `cases/scotus/<docket>.json`
+- **SCOTUS** (`src/scotus.rs`, `src/scotus_page.rs`): every docket `tribonian scotus fetch` saved in `cases/scotus/<docket>.json`
   (status read from the docket's own entries, last entry, filings, whether the note/PDF is built). A docket page shows the
   question presented (the Clerk's PDF text, else the docket note's section), the decision below (opens its case page),
   the filings (note in Obsidian, local or web PDF; filing notes are matched by their front matter `source`), and the
-  proceedings and orders. **Fetch updates** / **Build** / **Fetch & build** queue `scotus.py fetch|build <docket>` through the
+  proceedings and orders. **Fetch updates** / **Build** / **Fetch & build** queue `tribonian scotus fetch|build <docket>` through the
   build queue; Build counts as done only on its `wrote pdf/...` line. "Add a docket" (side panel) takes `25-579` or
-  `No. 25-579` and queues fetch then build; applications (`25A374`) are refused, as `scotus.py fetch` can't read them.
-- **Recent activity** (SCOTUS page) reads `cases/scotus/_recent.json` from `scotus.py recent`: Decided (slip opinions),
+  `No. 25-579` and queues fetch then build; applications (`25A374`) are refused, as `tribonian scotus fetch` can't read them.
+- **Recent activity** (SCOTUS page) reads `cases/scotus/_recent.json` from `tribonian scotus recent`: Decided (slip opinions),
   Granted, awaiting decision (Granted & Noted lists), Orders (order lists; denials hidden unless asked). Each row opens a
-  fetched docket or offers Fetch & build. **Refresh** queues `scotus.py recent`. There is no public list of all pending
+  fetched docket or offers Fetch & build. **Refresh** queues `tribonian scotus recent`. There is no public list of all pending
   cert petitions, so the page offers the docket box instead.
 - Search for Cases (names mode) puts matching scotus.py dockets above the results: a docket number (`25-579`, `No. 25-579`)
   or words in the case title. A docket number not fetched yet gets a Fetch & build button. In View Cases, the
@@ -95,7 +95,7 @@ No setup is needed: the app runs `../check.py --paths` at start and reads the sa
   `cited_sorted.npy`, `ref_year.npy`), the decision-level edges the co-citation map is built from, so a decision counts once
   whichever of its opinions cites, and the citing side is all courts. Meyer + Twombly: 141 decisions in under a second. Names,
   citations and courts come from the main database for the newest 500 only (each is a disk seek); the total is always shown.
-  The cache is only as new as the last `./cocite.py prep` (its bulk-load date is on the page). Sort by any column heading;
+  The cache is only as new as the last `tribonian cocite prep` (its bulk-load date is on the page). Sort by any column heading;
   the page's Filter box matches name, citation or court (`ca4`, `scotus`) among the listed rows.
 - **Pop out** (top bar): the current page in a window of its own, content only, with its own back/forward (Alt+Left /
   Alt+Right) and "Open in main window". **Ctrl+click** any link (in the main window or a pop-out) opens it in a new window

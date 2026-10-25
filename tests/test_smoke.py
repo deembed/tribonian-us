@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """Smoke tests: pure functions, plus one fixture build per generator when the inputs are present.
 
-    python3 -m unittest discover tests        # from the repo root
-    python3 tests/test_smoke.py -v
+    python -m pytest                          # from the repo root
+    python tests/test_smoke.py -v
 
 No database, no network. The fixture builds need xml/usc01.xml and one cases/*.json (skipped
-otherwise) and pdflatex (the PDF step is skipped without it). CASE2MD_ROOT points case2md at a
-scratch folder so nothing under the repo is written.
+otherwise) and pdflatex (the PDF step is skipped without it). TRIBONIAN_WORK points the build at a
+scratch work folder so nothing under the repo is written (the databases stay where they are).
 """
 import json, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-import usc2md                                   # noqa: E402
-import case2md                                  # noqa: E402
-import casemap                                  # noqa: E402
+from tribonian import usc2md                                   # noqa: E402
+from tribonian import case2md                                  # noqa: E402
+from tribonian import casemap                                  # noqa: E402
 
 
 class TexEscaping(unittest.TestCase):
@@ -86,8 +86,9 @@ class IndexMerge(unittest.TestCase):
 class UscBuild(unittest.TestCase):
     def test_title1_chapter1(self):
         with tempfile.TemporaryDirectory() as d:
-            r = subprocess.run([sys.executable, str(ROOT / "usc2md.py"), str(ROOT / "xml" / "usc01.xml"),
-                                "--chapter", "/us/usc/t1/ch1", "--out", d], capture_output=True, text=True)
+            r = subprocess.run([sys.executable, "-m", "tribonian", "usc", str(ROOT / "xml" / "usc01.xml"),
+                                "--chapter", "/us/usc/t1/ch1", "--out", d], capture_output=True, text=True,
+                               env=dict(os.environ, PYTHONPATH=str(ROOT / "src")))
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             tex = Path(d) / "1-usc-ch1.tex"
             self.assertTrue(tex.exists())
@@ -113,8 +114,10 @@ class CaseBuild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "cases").mkdir()
             shutil.copy(src, Path(d) / "cases" / src.name)
-            env = dict(os.environ, CASE2MD_ROOT=d)
-            cmd = [sys.executable, str(ROOT / "case2md.py"), "build", str(Path(d) / "cases" / src.name)]
+            from tribonian import casedb          # the checkout's databases, passed on explicitly
+            env = dict(os.environ, PYTHONPATH=str(ROOT / "src"), TRIBONIAN_WORK=d, CL_BULK=str(casedb.BULK),
+                       CL_DB=str(casedb.DB), CL_OPS_DB=str(casedb.OPS_DB), CL_SEARCH_DB=str(casedb.SEARCH_DB))
+            cmd = [sys.executable, "-m", "tribonian", "case", "build", str(Path(d) / "cases" / src.name)]
             if not shutil.which("pdflatex"):
                 cmd.append("--no-pdf")
             r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=1200)

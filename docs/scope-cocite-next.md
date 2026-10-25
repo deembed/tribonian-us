@@ -2,16 +2,16 @@
 
 Written 2026-10-01. Assumes the state in ARCHITECTURE.md §7.4: two views (all courts, appellate),
 sub-clusters, lineages, labels, areas (CPM + shrinkage + consensus), case-note and PDF boxes,
-the vault (`md-cocite/`), cluster-driven crawl (`casemap.py map --by cluster`).
+the vault (`md-cocite/`), cluster-driven crawl (`tribonian map map --by cluster`).
 
 ---
 
-## A. Good-law signals from cluster change (`cocite.py shift`)
+## A. Good-law signals from cluster change (`tribonian cocite shift`)
 
 ### Question
 Does a case's position in the co-citation structure change in a recognisable way when it is
 overruled, abrogated or displaced? If so, flag it, name the likely successor, and feed that to the
-text-based good-law check (`casemap.py goodlaw`), which stays the judge.
+text-based good-law check (`tribonian map goodlaw`), which stays the judge.
 
 ### Why only a flag
 Co-citation sees *displacement*, not its reason. Bowles/Thompson (overruled), Twombly/Conley
@@ -49,8 +49,8 @@ Output per case: one row per transition with which signals fire, and the best su
 
 ### Commands
 ```
-./cocite.py shift --cite "375 U.S. 384" --courts appellate     # one case, all transitions
-./cocite.py shift --eval --courts appellate                     # the goodlaw_eval set, scored
+tribonian cocite shift --cite "375 U.S. 384" --courts appellate     # one case, all transitions
+tribonian cocite shift --eval --courts appellate                     # the goodlaw_eval set, scored
 ```
 Pure reads of the built databases plus the cache; no rebuild.
 
@@ -99,10 +99,10 @@ draw on, and how does that differ from everyone else? Later: binding vs persuasi
 
 ### Commands
 ```
-./cocite.py prep                                    # once, adds court.npy
-./cocite.py court ca4 --courts appellate            # tier 1: profile vs all appellate
-./cocite.py court mdd --vs ca4                      # a district against its circuit
-./cocite.py build --courts ca4                      # tier 2, only if tier 1 isn't enough
+tribonian cocite prep                                    # once, adds court.npy
+tribonian cocite court ca4 --courts appellate            # tier 1: profile vs all appellate
+tribonian cocite court mdd --vs ca4                      # a district against its circuit
+tribonian cocite build --courts ca4                      # tier 2, only if tier 1 isn't enough
 ```
 
 ### Size and cost
@@ -147,7 +147,7 @@ Plus one row per opinion: op, source field, paragraphs, sentences, characters, f
 citations found, extractor version.
 
 ### The run
-- `./cocite.py positions` reads `db/opinions.sqlite`, uses `casemap.marked_text`-style parsing
+- `tribonian cocite positions` reads `db/opinions.sqlite`, uses `casemap.marked_text`-style parsing
   generalised to every link (not one cited case), splits sentences with `casemap.sentences`.
 - Sharded by opinion-id range, a process pool over all cores, each shard written atomically
   to `bulk/cocite-cache/pos/<shard>.npz`; a shard is skipped when its file exists with the same
@@ -159,7 +159,7 @@ citations found, extractor version.
 - Storage: tens of bytes per occurrence; it lives in `bulk/` (not git).
 
 ### Using it
-- `./cocite.py build --weight binary|sentence|paragraph|string|kernel:<chars>`: pair weights per
+- `tribonian cocite build --weight binary|sentence|paragraph|string|kernel:<chars>`: pair weights per
   decision from positions; everything downstream (Leiden, lineages, areas) unchanged. Each
   weighting is a separate results database, like the court views.
 - Falsification: score each weighting with the existing benchmark (`areas --grid` against

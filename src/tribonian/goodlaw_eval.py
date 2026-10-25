@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
 """goodlaw_eval.py -- test the good-law check (casemap.goodlaw) against cases whose fate is known.
 
-    ./goodlaw_eval.py collect            # read each test case's citing opinions once (slow: the disk)
-    ./goodlaw_eval.py score              # score every ruleset on set A and set B (fast: the cache)
-    ./goodlaw_eval.py show "410 U.S. 113" R3   # one case under one ruleset, with its evidence
+    tribonian goodlaw-eval collect            # read each test case's citing opinions once (slow: the disk)
+    tribonian goodlaw-eval score              # score every ruleset on set A and set B (fast: the cache)
+    tribonian goodlaw-eval show "410 U.S. 113" R3   # one case under one ruleset, with its evidence
 
 Collect caches, per case, the text around every citation of it and every sentence naming it,
 for a superset of citing opinions: every one from a court that could overrule it (up to 1,500),
@@ -14,9 +13,10 @@ import json, re, sys, time, zlib
 from collections import Counter
 from pathlib import Path
 
-import casemap as cm
+from tribonian import tconfig
+from tribonian import casemap as cm
 
-OUT = Path(__file__).resolve().parent / "build" / "goodlaw-eval"
+OUT = tconfig.WORK / "build" / "goodlaw-eval"
 
 # (citation, year it was overruled or superseded) -- US Supreme Court overrulings
 SET_A = [("163 U.S. 537", 1954), ("478 U.S. 186", 2003), ("410 U.S. 113", 2022), ("505 U.S. 833", 2022),
@@ -299,7 +299,7 @@ def cmd_show(key, rsname):
                                                 re.sub(r"\s+", " ", e["snip"])[:200]))
 
 
-if __name__ == "__main__":
+def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "score"
     if cmd == "collect":
         collect()
@@ -307,3 +307,7 @@ if __name__ == "__main__":
         cmd_show(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "R0")
     else:
         cmd_score()
+
+
+if __name__ == "__main__":
+    main()

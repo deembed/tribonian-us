@@ -5,7 +5,7 @@ tags: [moc]
 
 Copy this into your own MOC folder (not 08-Reference: that one is rebuilt).
 Each `![[...]]` pulls a live section from the generated notes, so it updates after
-`./cocite.py vault` + `./sync_vault.sh`. Labelled lineages keep their note names across
+`tribonian cocite vault` + `tribonian sync-vault`. Labelled lineages keep their note names across
 rebuilds; "Lineage 12345 (around ...)" names don't, so prefer labelled ones here.
 
 ## The area

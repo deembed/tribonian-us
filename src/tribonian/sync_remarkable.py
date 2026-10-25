@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Mirror pdf/ onto the reMarkable (via rmapi; reMarkable cloud or rmfakecloud), split like the vault:
 
     US Code  pdf/5-usc-ch05.pdf        -> /LawFormatter/Laws/USC/Title-05/5-usc-ch05
@@ -19,14 +18,16 @@ More than MAX_UPDATES replacements in one run stop with a message unless --yes i
 since a FORCE=1 rebuild of every PDF would otherwise wipe every annotation in one go.
 build_all.sh sets SOURCE_DATE_EPOCH, so an unchanged source rebuilds to an identical PDF.
 
-    ./sync_remarkable.py --dry-run     show the plan, touch nothing
-    ./sync_remarkable.py               upload
-    ./sync_remarkable.py --yes         upload even when many PDFs would be replaced
+    tribonian sync-remarkable --dry-run     show the plan, touch nothing
+    tribonian sync-remarkable               upload
+    tribonian sync-remarkable --yes         upload even when many PDFs would be replaced
 """
 import argparse, hashlib, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
-ROOT     = Path(__file__).resolve().parent
+from tribonian import tconfig
+
+ROOT     = tconfig.WORK
 PDF      = ROOT / "pdf"
 NOTES    = ROOT / "md-cases"
 MANIFEST = ROOT / "state" / "rm_manifest.json"     # durable, so rm -rf build/ never forgets what is on the tablet

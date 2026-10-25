@@ -1,4 +1,4 @@
-//! cocite.py's edge cache (`cocite-cache/` beside the cocite*.sqlite views, written by `./cocite.py prep`),
+//! cocite.py's edge cache (`cocite-cache/` beside the cocite*.sqlite views, written by `tribonian cocite prep`),
 //! read for Cited together. One row per (citing decision, cited case), opinions already collapsed to
 //! their decision:
 //!   citing.npy        int32, citing decision per edge, sorted
@@ -90,7 +90,7 @@ impl EdgeCache {
     pub fn open(dir: &Path) -> Result<EdgeCache, String> {
         let need = |f: &str| {
             let p = dir.join(f);
-            if p.exists() { Ok(p) } else { Err(format!("no {} (run ./cocite.py prep)", p.display())) }
+            if p.exists() { Ok(p) } else { Err(format!("no {} (run tribonian cocite prep)", p.display())) }
         };
         Ok(EdgeCache {
             citing: Npy::open(&need("citing.npy")?, "<i4")?,

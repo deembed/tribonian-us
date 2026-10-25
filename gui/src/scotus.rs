@@ -1,10 +1,10 @@
 //! Supreme Court dockets the repo's `scotus.py` has fetched, and its `recent` summary.
 //!
-//! - `cases/scotus/<docket>.json`: `scotus.py fetch` (the Court's docket feed, Proceedings and
+//! - `cases/scotus/<docket>.json`: `tribonian scotus fetch` (the Court's docket feed, Proceedings and
 //!   Orders, with each linked PDF's local copy).
 //! - `cases/scotus/_recent.json`: `scotus.py recent` (opinions, Granted & Noted lists and order
 //!   lists of the last year, from supremecourt.gov).
-//! - `md-cases/Pending SCOTUS/`: `scotus.py build` (one docket note, one note per filing; their
+//! - `md-cases/Pending SCOTUS/`: `tribonian scotus build` (one docket note, one note per filing; their
 //!   front matter carries `docket` and the filing's `source` URL, which is how a filing's note is found).
 //!
 //! Small JSON files: read on the UI thread at start and after every queued job. Read-only.
@@ -69,7 +69,7 @@ impl Docket {
     pub fn last_date(&self) -> &str {
         self.entries.iter().rev().map(|e| e.date.as_str()).find(|d| !d.is_empty()).unwrap_or("")
     }
-    /// Briefs and petitions with a document (the filings `scotus.py build` makes notes of).
+    /// Briefs and petitions with a document (the filings `tribonian scotus build` makes notes of).
     pub fn filings(&self) -> impl Iterator<Item = &Entry> {
         self.entries.iter().filter(|e| e.kind != "other" && e.kind != "joint-appendix" && e.links.iter().any(|l| !l.url.is_empty()))
     }
@@ -133,7 +133,7 @@ pub fn status(entries: &[Entry], granted: &str, argued: &str) -> String {
 }
 
 /// "25-579", "No. 25-579", "25-00579" -> "25-579". Applications ("25A374") and original cases are
-/// refused: scotus.py fetch reads only numbered petitions (its norm_number would misread "25A374").
+/// refused: tribonian scotus fetch reads only numbered petitions (its norm_number would misread "25A374").
 pub fn norm_docket(s: &str) -> Option<String> {
     let s = s.trim();
     let s = s.strip_prefix("No.").or_else(|| s.strip_prefix("No")).or_else(|| s.strip_prefix("no.")).unwrap_or(s).trim();

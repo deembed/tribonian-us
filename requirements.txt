@@ -1,8 +1,0 @@
-# Python 3.10 (tested with Debian/Ubuntu system python3). Distro packages work too:
-#   sudo apt install python3-lxml python3-numpy python3-scipy python3-igraph
-# Non-Python requirements are listed in README.md (pdflatex with XCharter/tcolorbox/ulem,
-# pdftotext, secret-tool, rsync, rmapi, lbzip2).
-lxml
-numpy
-scipy
-igraph

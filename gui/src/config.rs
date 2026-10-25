@@ -1,8 +1,8 @@
 //! Where the app finds things.
 //!
-//! The scripts are the one source of truth. At start the app runs `check.py --paths` in the repo and
+//! The scripts are the one source of truth. At start the app runs `tribonian check --paths` and
 //! uses what it prints: each data path (CL_* variable, else ~/.config/tribonian-us/config.toml, else
-//! the default; see tconfig.py), the config file's name, and its [gui] table. So the app and the
+//! the default; see tconfig.py), the work folder, the config file's name, and its [gui] table. So the app and the
 //! scripts read the same files, and the app needs no config of its own.
 //!
 //! The GUI's settings (default view, Obsidian vault, interpreter) go in the config file's [gui] table.
@@ -27,9 +27,11 @@ struct FileConfig {
     python: Option<String>,
 }
 
-/// check.py --paths
+/// tribonian check --paths
 #[derive(Deserialize)]
 struct ScriptPaths {
+    work_dir: String,
+    labels_file: String,
     main_db: String,
     opinions_db: String,
     search_db: String,
@@ -47,8 +49,12 @@ struct ScriptPaths {
 pub struct Config {
     /// Folder holding cocite*.sqlite.
     pub bulk_dir: PathBuf,
-    /// The tribonian-us repo: cases/, md-cases/, pdf/, data/cocite_labels.json, the scripts.
+    /// The tribonian-us checkout: src/tribonian/ (the code), gui/.
     pub repo_dir: PathBuf,
+    /// The work folder the scripts read and write: cases/, md-cases/, pdf/, build/. Commands run there.
+    pub work_dir: PathBuf,
+    /// data/cocite_labels.json, wherever tconfig.data_file finds it.
+    pub labels_file: PathBuf,
     /// File stem of the view opened at start, e.g. "cocite-appellate-sentence-m0.2".
     pub default_view: String,
     /// Obsidian vault name, for obsidian:// links. None hides "Open note".
@@ -73,20 +79,34 @@ pub struct Config {
     pub config_error: Option<String>,
 }
 
-/// The scripts run in the repo, so a relative path in a CL_* variable is relative to it.
-fn resolve(repo: &Path, s: &str) -> PathBuf {
+/// `python -m tribonian`, from the checkout's src/ whether or not the package is installed. It runs in
+/// the work folder (the CLI changes to it), so relative paths in arguments are relative to that folder.
+pub fn tribonian(python: &str, repo: &Path) -> Command {
+    let mut c = Command::new(python);
+    let mut pp = vec![repo.join("src")];
+    if let Some(old) = std::env::var_os("PYTHONPATH") {
+        pp.extend(std::env::split_paths(&old));
+    }
+    if let Ok(joined) = std::env::join_paths(pp) {
+        c.env("PYTHONPATH", joined);
+    }
+    c.args(["-m", "tribonian"]);
+    c
+}
+
+/// The scripts work in the work folder, so a relative path is relative to it.
+fn resolve(work: &Path, s: &str) -> PathBuf {
     let p = PathBuf::from(s);
-    if p.is_absolute() { p } else { repo.join(p) }
+    if p.is_absolute() { p } else { work.join(p) }
 }
 
 fn script_paths(python: &str, repo: &Path) -> Result<ScriptPaths, String> {
-    let o = Command::new(python)
-        .current_dir(repo)
-        .args(["check.py", "--paths"])
+    let o = tribonian(python, repo)
+        .args(["check", "--paths"])
         .output()
-        .map_err(|e| format!("could not run {python} check.py --paths: {e}"))?;
+        .map_err(|e| format!("could not run {python} -m tribonian check --paths: {e}"))?;
     serde_json::from_slice(&o.stdout)
-        .map_err(|e| format!("check.py --paths gave no paths ({e}): {}", String::from_utf8_lossy(&o.stderr).trim()))
+        .map_err(|e| format!("tribonian check --paths gave no paths ({e}): {}", String::from_utf8_lossy(&o.stderr).trim()))
 }
 
 impl Config {
@@ -109,9 +129,9 @@ impl Config {
         }
         // The repo: gui.toml, else the folder above gui/ (where this app was built from).
         let repo_dir = fc.repo_dir.clone().or_else(|| manifest.parent().map(Path::to_path_buf)).unwrap_or_default();
-        if !repo_dir.join("check.py").is_file() {
+        if !repo_dir.join("src").join("tribonian").join("check.py").is_file() {
             return Err(format!(
-                "No tribonian-us scripts in {}. Set repo_dir in gui.toml (copy gui.toml.example).",
+                "No tribonian-us code (src/tribonian/) in {}. Set repo_dir in gui.toml (copy gui.toml.example).",
                 repo_dir.display()
             ));
         }
@@ -120,8 +140,12 @@ impl Config {
             Ok(sp) => (Some(sp), None),
             Err(e) => (None, Some(e)),
         };
+        // the work folder: the scripts' (TRIBONIAN_WORK, work_dir, the checkout), else the checkout
+        let work_dir = sp.as_ref().map(|s| PathBuf::from(&s.work_dir)).unwrap_or_else(|| repo_dir.clone());
+        let labels_file = sp.as_ref().map(|s| PathBuf::from(&s.labels_file))
+            .unwrap_or_else(|| repo_dir.join("src").join("tribonian").join("data").join("cocite_labels.json"));
         let from = |set: &Option<PathBuf>, pick: fn(&ScriptPaths) -> &String| -> Option<PathBuf> {
-            set.clone().or_else(|| sp.as_ref().map(|s| resolve(&repo_dir, pick(s))))
+            set.clone().or_else(|| sp.as_ref().map(|s| resolve(&work_dir, pick(s))))
         };
         let mut overrides = Vec::new();
         for (k, v) in [("bulk_dir", &fc.bulk_dir), ("main_db", &fc.main_db), ("opinions_db", &fc.opinions_db), ("search_db", &fc.search_db)] {
@@ -140,7 +164,7 @@ impl Config {
         let config_file = sp.as_ref().and_then(|s| s.config_file.as_ref()).map(PathBuf::from);
         let config_error = sp.as_ref().and_then(|s| s.config_error.clone());
         let cfg = Config {
-            bulk_dir: from(&fc.bulk_dir, |s| &s.cocite_dir).unwrap_or_else(|| repo_dir.join("bulk")),
+            bulk_dir: from(&fc.bulk_dir, |s| &s.cocite_dir).unwrap_or_else(|| work_dir.join("bulk")),
             main_db: from(&fc.main_db, |s| &s.main_db),
             opinions_db: from(&fc.opinions_db, |s| &s.opinions_db),
             search_db: from(&fc.search_db, |s| &s.search_db),
@@ -149,6 +173,8 @@ impl Config {
             obsidian_cases_dir: obsidian_cases_dir.unwrap_or_else(|| "08-Reference/Cases".into()),
             python,
             repo_dir,
+            work_dir,
+            labels_file,
             paths_error,
             overrides,
             config_file,
@@ -157,7 +183,12 @@ impl Config {
         Ok((cfg, file))
     }
 
-    // The fallbacks below apply only when check.py --paths could not run.
+    /// `python -m tribonian` with this config's interpreter and checkout (see [`tribonian`]).
+    pub fn py(&self) -> Py {
+        Py { python: self.python.clone(), repo: self.repo_dir.clone(), work: self.work_dir.clone() }
+    }
+
+    // The fallbacks below apply only when tribonian check --paths could not run.
     pub fn search_db(&self) -> PathBuf {
         self.search_db.clone().unwrap_or_else(|| self.bulk_dir.join("search.sqlite"))
     }
@@ -165,22 +196,38 @@ impl Config {
         self.main_db.clone().unwrap_or_else(|| self.bulk_dir.join("courtlistener.sqlite"))
     }
     pub fn opinions_db(&self) -> PathBuf {
-        self.opinions_db.clone().unwrap_or_else(|| self.repo_dir.join("db").join("opinions.sqlite"))
+        self.opinions_db.clone().unwrap_or_else(|| self.work_dir.join("db").join("opinions.sqlite"))
     }
     pub fn labels_file(&self) -> PathBuf {
-        self.repo_dir.join("data").join("cocite_labels.json")
+        self.labels_file.clone()
     }
     pub fn cases_dir(&self) -> PathBuf {
-        self.repo_dir.join("cases")
+        self.work_dir.join("cases")
     }
     pub fn notes_dir(&self) -> PathBuf {
-        self.repo_dir.join("md-cases")
+        self.work_dir.join("md-cases")
     }
-    /// Where Export SVG on the area graph writes: the only place in the repo the app itself writes to.
+    /// Where Export SVG on the area graph writes: the only place the app itself writes to.
     pub fn exports_dir(&self) -> PathBuf {
-        self.repo_dir.join("build").join("exports")
+        self.work_dir.join("build").join("exports")
     }
     pub fn pdf_dir(&self) -> PathBuf {
-        self.repo_dir.join("pdf")
+        self.work_dir.join("pdf")
+    }
+}
+
+/// What a background job needs to run `tribonian <command>` and read what it wrote.
+#[derive(Clone, Debug)]
+pub struct Py {
+    pub python: String,
+    pub repo: PathBuf,
+    /// The work folder: relative paths the commands print (pdf/..., cases/...) are relative to it.
+    pub work: PathBuf,
+}
+
+impl Py {
+    /// `tribonian` (no subcommand yet): add the command and its arguments.
+    pub fn cmd(&self) -> Command {
+        tribonian(&self.python, &self.repo)
     }
 }

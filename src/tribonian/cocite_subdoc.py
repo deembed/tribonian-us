@@ -1,4 +1,4 @@
-"""cocite_subdoc.py -- explain one sub-cluster: a PDF and an Obsidian note (./cocite.py subdoc).
+"""cocite_subdoc.py -- explain one sub-cluster: a PDF and an Obsidian note (tribonian cocite subdoc).
 
 For one sub-cluster in one slice (2020-24:2.3): its label and description, where it sits (cluster,
 lineage, area), the lineage's timeline, with the cases that joined or left it on either side of
@@ -9,13 +9,13 @@ clusters it ties to, the members it travels with most, and how later courts desc
 the cached case profiles. No language model runs here; the label and description were written
 once from script-built evidence (cocite_labels.json) and are marked as such.
 
-    ./cocite.py subdoc 2020-24:2.3                  # md-cocite/Sub-clusters/2020-24/<...>.md + pdf/Co-citation/2020-24/<...>.pdf
-    ./cocite.py subdoc 2020-24:2.3 --goodlaw        # first the quick good-law check (newest 100 citers) on members never checked
-    ./cocite.py subdoc 2020-24:2.3 --goodlaw full   # the full check instead (slow; gives the year it changed)
-    ./cocite.py subdoc 2020-24:2.3 --json           # the data on stdout; writes nothing
-    ./cocite.py subdoc 2020-24:2.3 --no-pdf         # the note and the .tex only
-    ./cocite.py subdoc 2020:7                       # an unsplit cluster is its own sub-cluster
-    ./cocite.py subdoc 2020-24:2.3 --view appellate # another view (default: the case-note view)
+    tribonian cocite subdoc 2020-24:2.3                  # md-cocite/Sub-clusters/2020-24/<...>.md + pdf/Co-citation/2020-24/<...>.pdf
+    tribonian cocite subdoc 2020-24:2.3 --goodlaw        # first the quick good-law check (newest 100 citers) on members never checked
+    tribonian cocite subdoc 2020-24:2.3 --goodlaw full   # the full check instead (slow; gives the year it changed)
+    tribonian cocite subdoc 2020-24:2.3 --json           # the data on stdout; writes nothing
+    tribonian cocite subdoc 2020-24:2.3 --no-pdf         # the note and the .tex only
+    tribonian cocite subdoc 2020:7                       # an unsplit cluster is its own sub-cluster
+    tribonian cocite subdoc 2020-24:2.3 --view appellate # another view (default: the case-note view)
 
 Good law per case: the cached result (cases/citedby/<ref>/profile.json, from a build or --goodlaw;
 "(quick)" when only the newest 100 citing opinions were read), else "not calculated". Grey "dormant": never cited, or no citing decision in the last
@@ -26,8 +26,8 @@ import json, os, re, sqlite3, sys, time
 from collections import defaultdict
 from pathlib import Path
 
-import cocite as C
-import case2md
+from tribonian import cocite as C
+from tribonian import case2md
 
 LIVE_DORMANT_MAX = 300           # the live dormancy look-up runs only for cases cited at most this often
 PARTNERS_SHOWN = 3               # members it travels with, per case
@@ -59,7 +59,7 @@ def open_db(args):
         v = args.view or C.NOTE_VIEW
         db = C.open_view(v)
         if db is None:
-            sys.exit("no view %s (bulk/cocite-%s.sqlite); ./cocite.py build makes it" % (v, v))
+            sys.exit("no view %s (bulk/cocite-%s.sqlite); tribonian cocite build makes it" % (v, v))
         return db, v
     stem = C.COCITE_DB.stem
     return C.need_db(), (stem[len("cocite-"):] if stem.startswith("cocite-") else "all")
@@ -73,17 +73,17 @@ def resolve(db, which):
         sys.exit("can't read %r: write slice:cluster.sub, e.g. 2020-24:2.3" % which)
     s -= s % C.WIDTH
     if k is None:
-        sys.exit("name a sub-cluster, e.g. %s:2.3 (./cocite.py tree %d lists them)" % (C.label(s), s))
+        sys.exit("name a sub-cluster, e.g. %s:2.3 (tribonian cocite tree %d lists them)" % (C.label(s), s))
     if j is None:
         subs = [r[0] for r in db.execute("SELECT sub FROM subs WHERE slice=? AND sub/1000=? ORDER BY sub", (s, k))]
         if not subs:
-            sys.exit("no cluster %s:%d (./cocite.py tree %d lists them)" % (C.label(s), k, s))
+            sys.exit("no cluster %s:%d (tribonian cocite tree %d lists them)" % (C.label(s), k, s))
         if subs != [k * 1000]:
             sys.exit("cluster %s:%d is split; name one of its sub-clusters: %s" % (
                 C.label(s), k, ", ".join("%s:%s" % (C.label(s), C.sub_label(x)) for x in subs)))
         j = k * 1000
     if not db.execute("SELECT 1 FROM subs WHERE slice=? AND sub=?", (s, j)).fetchone():
-        sys.exit("no sub-cluster %s:%s (./cocite.py cluster %s:%d lists them)" % (C.label(s), C.sub_label(j), C.label(s), k))
+        sys.exit("no sub-cluster %s:%s (tribonian cocite cluster %s:%d lists them)" % (C.label(s), C.sub_label(j), C.label(s), k))
     return s, j
 
 
@@ -251,7 +251,7 @@ def split_by_sub(db, s, refs, view):
     import numpy as np
     cache = C.CACHE
     if not (cache / "by_cited.npy").exists() or not (cache / "level.npy").exists():
-        return None, "no co-citation cache (./cocite.py prep)"
+        return None, "no co-citation cache (tribonian cocite prep)"
     stamp = C.view_stamp(db)
     if stamp and (cache / "stamp.txt").read_text() != stamp:
         return None, "the co-citation cache is newer than this view (rebuild the view)"
@@ -321,7 +321,7 @@ def fit_of(split, here, db, s, cache):
 def ensure_goodlaw(refs, names, mode="quick"):
     """The good-law check (casemap.goodlaw via case2md.profile_data) for members with no current result.
     quick: any current result will do; full: a quick result is redone."""
-    import casemap
+    from tribonian import casemap
 
     def current(r):
         g = (read_profile(r) or {}).get("goodlaw") or {}
@@ -686,7 +686,7 @@ TEX_COL = {"green": "green!55!black", "yellow": "yellow!85!orange", "red": "red!
 
 
 def render_tex(d, font):
-    from usc2md import PREAMBLE, RULES
+    from tribonian.render import PREAMBLE, RULES
     t = lambda s: case2md.esc(str(s), "tex")
     title = "Sub-cluster %s" % d["code"]
     src = "view %s \\textbullet\\ CourtListener bulk data of %s \\textbullet\\ built %s" % (

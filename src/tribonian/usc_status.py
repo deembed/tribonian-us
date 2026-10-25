@@ -1,8 +1,7 @@
-#!/usr/bin/env python3
 """usc_status.py -- is a US Code cite in an old opinion still good today? case2md.py marks the ones that aren't.
 
-    ./usc_status.py "42 U.S.C. § 1973(b)" --year 1986      # one cite, as case2md would mark it
-    ./usc_status.py --rebuild                                # re-read xml/ (automatic when an xml file changes)
+    tribonian usc-status "42 U.S.C. § 1973(b)" --year 1986      # one cite, as case2md would mark it
+    tribonian usc-status --rebuild                                # re-read xml/ (automatic when an xml file changes)
 
 Each cite gets one tag, judged at the year its text is as of: the edition in its parenthetical when there is one
 ("(1976 ed., Supp. V)" -> 1981, "(1982)" -> 1982, "18 U.S.C. (1940 ed.) § 80" -> 1940), else the decision year.
@@ -26,12 +25,14 @@ each act changed). A cite with no subsection is judged at section level.
 Edition years are approximate (an edition's Supplement N is taken as edition year + N). The tag means "look closer".
 
 Sources: xml/*.xml (status, source-credit dates, transferred/renumbered stubs) and, when present,
-cocite-cache/usc/usc_map.json (./cocite.py usc-map). Index cached in build/usc_status.json.
+cocite-cache/usc/usc_map.json (tribonian cocite usc-map). Index cached in build/usc_status.json.
 """
 import argparse, html, json, re, sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+from tribonian import tconfig
+
+ROOT = tconfig.WORK
 XML = ROOT / "xml"
 CACHE = ROOT / "build" / "usc_status.json"
 VERSION = 4
@@ -252,7 +253,7 @@ def usc_map():
     if not _MAP:
         um = None
         try:
-            import cocite_usc
+            from tribonian import cocite_usc
             if cocite_usc.map_path().exists():
                 um = cocite_usc.load_map()
         except Exception:

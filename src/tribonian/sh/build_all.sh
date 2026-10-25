@@ -6,17 +6,17 @@
 #   cases/*.json            ->  pdf/[<folder>/]<case>.pdf                 + md-cases/ note
 #   cases/recap/*.json      ->  pdf/[<folder>/]<docket>.pdf               + md-cases/ notes
 #
-# So: fetch cases (case2md.py fetch / recap fetch) or drop in XML, then run this.
+# So: fetch cases (tribonian case fetch / case recap fetch) or drop in XML, then run this.
 #
-#   ./build_all.sh                build everything out of date
-#   ./build_all.sh cases          only cases/ and cases/recap/   (or: usc)
-#   ./build_all.sh --todo         list what would be built; build nothing
-#   ./build_all.sh --stubs        first turn stub notes into full cases (casemap.py stubs),
+#   tribonian build                build everything out of date
+#   tribonian build cases          only cases/ and cases/recap/   (or: usc)
+#   tribonian build --todo         list what would be built; build nothing
+#   tribonian build --stubs        first turn stub notes into full cases (tribonian map stubs),
 #                                 then build; STUB_ARGS="--api --max 20" passes options
-#   FORCE=1 ./build_all.sh        rebuild regardless of dates (after changing a generator)
-#   ./build_all.sh list.txt       build exactly the jobs in a list, always
-#   ./build_all.sh build/failed_jobs.txt   retry what failed last run
-#   JOBS=8 ./build_all.sh         parallel jobs (default: number of cores)
+#   FORCE=1 tribonian build        rebuild regardless of dates (after changing a generator)
+#   tribonian build list.txt       build exactly the jobs in a list, always
+#   tribonian build build/failed_jobs.txt   retry what failed last run
+#   JOBS=8 tribonian build         parallel jobs (default: number of cores)
 #   STYLE=rails / FONT=... / EXTRA="--credits --notes" (US Code only) / MD_ONLY=1
 #
 # "Out of date": state/built.tsv records <job> -> <pdf> for every success. A job
@@ -32,8 +32,10 @@
 #   usc|case|recap <args...>                             (a job line as in build/todo.txt)
 # Lines starting with # are ignored.
 set -uo pipefail
-cd "$(dirname "$0")"
-SELF="./$(basename "$0")"
+# Runs in the current folder: `tribonian build` starts it in the work folder (tconfig.WORK).
+SELF="$(realpath "$0")"
+# The interpreter `tribonian` runs under, so jobs see the same packages (set by tribonian build).
+PY="${TRIBONIAN_PY:-python3}"
 
 export STYLE="${STYLE:-boxes}"
 export EXTRA="${EXTRA:-}"          # e.g. EXTRA="--credits --notes"
@@ -54,7 +56,7 @@ fi
 JOBS="${JOBS:-$(nproc)}"
 # Reproducible PDFs: pdflatex takes CreationDate, ModDate and the trailer ID from this
 # instead of the clock, so an unchanged source gives a byte-identical PDF and
-# sync_remarkable.py (which hashes PDFs) leaves the tablet copy -- and its pen
+# tribonian sync-remarkable (which hashes PDFs) leaves the tablet copy -- and its pen
 # annotations -- alone.
 export SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-0}"
 
@@ -69,7 +71,7 @@ build_usc() {                       # $1 = xml path, $2.. = generator selection 
     local out base rc work
     work=$(mktemp -d "$SCRATCH/job.XXXXXX")
     # shellcheck disable=SC2086
-    out=$(python3 usc2md.py "$xml" "$@" --out "$work" --style "$STYLE" --font "$FONT" $EXTRA 2>&1); rc=$?
+    out=$("$PY" -m tribonian usc "$xml" "$@" --out "$work" --style "$STYLE" --font "$FONT" $EXTRA 2>&1); rc=$?
     if [[ $rc -eq 3 ]]; then
         # a stamp file stands in for the PDF, so this isn't retried until the XML changes
         rm -rf "$work"; mkdir -p state/stamps
@@ -105,7 +107,7 @@ build_usc() {                       # $1 = xml path, $2.. = generator selection 
 
 # ---- worker: one case (case2md.py build) or RECAP docket (case2md.py recap build)
 build_case() {                      # $1 = case|recap, $2 = json
-    local kind=$1 json=$2 out rc pdf cmd=(python3 case2md.py)
+    local kind=$1 json=$2 out rc pdf cmd=("$PY" -m tribonian case)
     [[ $kind == recap ]] && cmd+=(recap)
     out=$("${cmd[@]}" build "$json" --style "$STYLE" --font "$FONT" ${MD_ONLY:+--no-pdf} 2>&1); rc=$?
     if [[ $rc -ne 0 ]]; then
@@ -140,7 +142,7 @@ list_usc() {
     local xml=$1 cache chapters
     cache=$(chapter_cache "$xml")
     if [[ ! -f $cache || $xml -nt $cache ]]; then
-        chapters=$(python3 usc2md.py "$xml" --list-chapters) || return   # no cache: built as one --all job
+        chapters=$("$PY" -m tribonian usc "$xml" --list-chapters) || return   # no cache: built as one --all job
         chapters=$(cut -f1 <<< "$chapters")
         if [[ -z $chapters ]]; then
             echo "usc $xml --all"
@@ -192,7 +194,7 @@ touch "$MANIFEST"
 # stubs first, so the cases they become are in this build. A stop (e.g. the API's
 # daily limit) still builds what was fetched; rerunning resumes.
 # shellcheck disable=SC2086
-[[ -n $STUBS && -z $TODO ]] && { python3 casemap.py stubs ${STUB_ARGS:-} || echo "(stub fetch stopped early; building what there is)"; }
+[[ -n $STUBS && -z $TODO ]] && { "$PY" -m tribonian map stubs ${STUB_ARGS:-} || echo "(stub fetch stopped early; building what there is)"; }
 joblist=$(mktemp "$SCRATCH/jobs.XXXXXX"); log=$(mktemp "$SCRATCH/log.XXXXXX"); all=$(mktemp "$SCRATCH/all.XXXXXX")
 trap 'rm -f "$joblist" "$log" "$all"' EXIT
 
@@ -210,7 +212,7 @@ else
         fi
         if [[ $SCOPE != cases ]]; then
             # listing parses every changed XML, so do that in parallel as well
-            printf '%s\n' xml/*.xml | xargs -d '\n' -P "$JOBS" -n 1 "$SELF" --list
+            printf '%s\n' xml/*.xml | xargs -d '\n' -P "$JOBS" -n 1 bash "$SELF" --list
             for x in xml/*.xml; do
                 c=$(chapter_cache "$x")
                 if [[ -f $c ]]; then cat "$c"; else echo "usc $x --all"; fi
@@ -230,7 +232,7 @@ total=$(wc -l < "$joblist")
 echo "$total jobs, $JOBS at a time"
 # the log keeps the raw lines (counted below); the screen gets a countdown.
 # ok, FAIL and skip all count as finished; indented detail lines pass through.
-xargs -d '\n' -P "$JOBS" -n 1 "$SELF" --job < "$joblist" | tee "$log" \
+xargs -d '\n' -P "$JOBS" -n 1 bash "$SELF" --job < "$joblist" | tee "$log" \
 | while IFS= read -r line; do
     if [[ $line == "ok "* || $line == "FAIL "* || $line == "skip "* ]]; then
         finished=$((${finished:-0}+1))
@@ -246,13 +248,13 @@ awk -F'\t' '{m[$1]=$2} END{for (k in m) print k "\t" m[k]}' "$MANIFEST" | sort >
 echo "built $(grep -c '^ok ' "$log"), failed $(grep -c '^FAIL' "$log")   (pdf/ md/ md-cases/; scratch in build/)"
 
 # failures: repeat them together at the end, keep them in a file, and write a
-# retry list of job lines:  ./build_all.sh build/failed_jobs.txt
-# (a plain ./build_all.sh retries them too, since failures are never recorded)
+# retry list of job lines:  tribonian build build/failed_jobs.txt
+# (a plain tribonian build retries them too, since failures are never recorded)
 grep -E '^(FAIL|     )' "$log" > build/failures.txt
 sed -n 's/^FAIL [a-z]*  *//p' "$log" | sed -E 's/   \(.*$//' > build/failed_jobs.txt
 if [[ -s build/failures.txt ]]; then
-    echo; echo "---- failures (saved in build/failures.txt; retry: $SELF build/failed_jobs.txt) ----"
+    echo; echo "---- failures (saved in build/failures.txt; retry: tribonian build build/failed_jobs.txt) ----"
     cat build/failures.txt
 fi
-# non-zero when anything failed, so "./build_all.sh && ./sync_vault.sh" never syncs a broken build
+# non-zero when anything failed, so "tribonian build && tribonian sync-vault" never syncs a broken build
 [[ $(grep -c '^FAIL' "$log") -eq 0 ]]

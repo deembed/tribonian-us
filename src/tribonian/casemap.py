@@ -1,17 +1,16 @@
-#!/usr/bin/env python3
 """casemap.py -- the citation graph around a case, as Obsidian notes. Markdown only, no PDFs.
 
-    ./casemap.py get --cite "401 U.S. 402"
+    tribonian map get --cite "401 U.S. 402"
         One case out of the local database: writes cases/<cite>_<name>.json (the file
         case2md.py build turns into a PDF) and its note. No API.
 
-    ./casemap.py map --cite "463 U.S. 29" --depth 2
+    tribonian map map --cite "463 U.S. 29" --depth 2
         Outbound, from the local citation map. Every case within --depth citation steps of
         the root gets a note in md-cases/. --text K gives full text to the first K steps
         (default depth - 1) and stubs to the rest; a stub still lists what it cites.
         Citations inside full notes become [[wikilinks]] to those notes. No API.
 
-    ./casemap.py citedby cases/463-u-s-29_*.json
+    tribonian map citedby cases/463-u-s-29_*.json
         Inbound, from the local database that casedb.py builds out of
         CourtListener's bulk files. No API requests. Writes a "## Cited by"
         section into the root's note:
@@ -24,20 +23,20 @@
             sample sized for --margin (default +/-5% at 95%); --full reads all.
         --list also writes md-cases/<slug>--cited-by.md, the complete list.
 
-    ./casemap.py coupling --cluster 9493818 [--max-df 2000] [--top 30] [--json]
+    tribonian map coupling --cluster 9493818 [--max-df 2000] [--top 30] [--json]
         Coupled cases: the cases citing the most of the same cases as this one, rare
         shared citations weighted up (log N/df). Works for any case, cited or not. Reads
         the co-citation citation cache (cocite.py prep); never run by a build. Writes
         cases/citedby/<cluster>/coupling.json, which case2md.py build then shows.
 
-    ./casemap.py stubs [--list] [--max N] [--api] [slug or cluster id ...]
+    tribonian map stubs [--list] [--max N] [--api] [slug or cluster id ...]
         Turn stub notes into full cases: for each stub (most-cited first) take the text
         from the local database and write cases/<cite>_<name>.json plus the full note,
-        so ./build_all.sh builds its PDF. --api: when the database has no text build can
+        so tribonian build builds its PDF. --api: when the database has no text build can
         read, fetch it from CourtListener instead (rate-limited; stops cleanly at the
         daily limit, and rerunning resumes). --list: show the stubs, fetch nothing.
 
-    ./casemap.py semsearch "plain-language text" [--file draft.md] [--court scotus] [--since 1980]
+    tribonian map semsearch "plain-language text" [--file draft.md] [--court scotus] [--since 1980]
         CourtListener semantic search (API), one search per five-year slice, re-ranked by the semantic
         score and joined to each hit's sub-cluster and area. Writes cases/semsearch/<slug>/results.json.
         See semsearch.py.
@@ -50,8 +49,8 @@ from collections import Counter
 from datetime import date
 from pathlib import Path
 
-import case2md as c
-import casedb
+from tribonian import case2md as c
+from tribonian import casedb
 
 
 # ================================================================ cases out of the local database
@@ -155,7 +154,7 @@ def cmd_get(args):
     e = index[str(cid)]
     print("%s, %s (%s): %d opinions, cites %d cases -> cases/%s, md-cases/%s.md (%s)" % (
         e["short"] or e["name"], e["cite"], e["year"], len(data["opinions"]), len(data["cites"]), e["full"], e["slug"], kind))
-    print("PDF: ./case2md.py build cases/%s" % e["full"])
+    print("PDF: tribonian case build cases/%s" % e["full"])
 
 
 def get_api(cid, index):
@@ -174,7 +173,7 @@ def get_api(cid, index):
     c.save_index(index)
     print("%s, %s (%s): %d opinions, cites %d opinions -> cases/%s (from the API)" % (
         e["short"] or e["name"], e["cite"], e["year"], len(data["opinions"]), len(c.json_cited(cid, data)), e["full"]))
-    print("PDF: ./case2md.py build cases/%s" % e["full"])
+    print("PDF: tribonian case build cases/%s" % e["full"])
 
 
 # ================================================================ stubs -> full cases
@@ -255,7 +254,7 @@ def cmd_stubs(args):
     print("fetched %d (%s), still stubs %d%s" % (sum(got_n.values()), ", ".join("%d %s" % (n, h) for h, n in got_n.items()) or "none",
                                                  len(left), "" if args.api or not left else "   (--api tries CourtListener for these)"))
     if got_n:
-        print("PDFs: ./build_all.sh cases")
+        print("PDFs: tribonian build cases")
 
 
 # ---------------------------------------------------------------- good-law check (no language model)
@@ -627,7 +626,7 @@ def cmd_recent(args):
     after = args.after or (str(datetime.date.fromisoformat(stamp) - datetime.timedelta(days=API_LAG_DAYS)) if stamp else "")
     oids, clusters = own_records(con, cid)
     if not oids:
-        sys.exit("cluster %s: no opinion ids, here or in a case file (./casemap.py get --cluster %s first)" % (cid, cid))
+        sys.exit("cluster %s: no opinion ids, here or in a case file (tribonian map get --cluster %s first)" % (cid, cid))
     me, my_level, cites, names, name_rx, overrules = goodlaw_subject(con, cid)
     tok = c.token()
     params = {"type": "o", "q": "cites:(%s)" % " OR ".join(map(str, oids)), "order_by": "dateFiled desc"}
@@ -684,14 +683,14 @@ def cmd_recent(args):
         print("  %s %-10s %s%s" % (x["date"], x["court"][:10], x["name"][:70], "  · could overrule" if x["above"] else ""))
     ent = c.load_index().get(str(cid), {})
     print("next: the good-law check reads them on the next full build" +
-          (": ./case2md.py build cases/%s" % ent["full"] if ent.get("full") else ""))
+          (": tribonian case build cases/%s" % ent["full"] if ent.get("full") else ""))
 
 
 # ================================================================ map (outbound)
 
 def cocite_name(ref):
     try:
-        import cocite
+        from tribonian import cocite
         db = cocite.open_view(None)
         r = db.execute("SELECT name FROM names WHERE ref=?", (ref,)).fetchone() if db else None
         return r[0] if r else "cluster %d" % ref
@@ -703,14 +702,14 @@ def cmd_map(args):
     con, done = open_db()
     missing = {"citation-map", "citations", "opinion-clusters", "dockets", "opinions"} - done
     if missing:
-        sys.exit("map needs these loaded first: ./casedb.py load %s" % " ".join(sorted(missing)))
+        sys.exit("map needs these loaded first: tribonian db load %s" % " ".join(sorted(missing)))
     index = c.load_index()
     root = root_cluster(args, con)
     mode = args.by or ("depth" if args.depth is not None else "cluster")
     level = {root: 0}
     if mode == "cluster":
         try:
-            import cocite
+            from tribonian import cocite
             got = cocite.crawl_set(root, view=args.courts or cocite.NOTE_VIEW, top=args.cluster_max, scope=args.scope)
         except Exception as e:
             got = None
@@ -978,7 +977,7 @@ def level_of(court_id, jurisdiction):
 
 def open_db():
     if not casedb.DB.exists():
-        sys.exit("No database at %s. Build it with ./casedb.py load (see ./casedb.py status)." % casedb.DB)
+        sys.exit("No database at %s. Build it with tribonian db load (see tribonian db status)." % casedb.DB)
     lock = Path(str(casedb.DB) + ".loading")
     if lock.exists():
         sys.exit("casedb.py is loading into the database right now (%s exists). Reading during a load can make the "
@@ -1110,7 +1109,7 @@ def cmd_citedby(args):
     con, done = open_db()
     for need in ("citation-map", "parentheticals"):
         if need not in done:
-            sys.exit("the database has no %s table yet: ./casedb.py load %s" % (need, need))
+            sys.exit("the database has no %s table yet: tribonian db load %s" % (need, need))
     have_text = {"opinions", "opinion-clusters", "dockets", "courts"} <= done
 
     # 1. the cited case as sentences
@@ -1359,13 +1358,13 @@ def cmd_coupling(args):
     if args.as_json:
         print(json.dumps(res, indent=1))
         return
-    import cocite
+    from tribonian import cocite
     name, cite, yr, court = cocite.case_label(con, cid)
     print("%s (%s): cites %d cases; %d used, %d cited by more than %s decisions left out%s" % (
         name, ", ".join(t for t in (cite, court, yr) if t), res["refs"], res["used"], res["skipped"], format(res["max_df"], ","),
         ", %d not in the citation cache" % res["missing"] if res["missing"] else ""))
     if res.get("stale_cache"):
-        print("  note: the citation cache is from an older bulk load (./cocite.py prep refreshes it)")
+        print("  note: the citation cache is from an older bulk load (tribonian cocite prep refreshes it)")
     print("%4s %7s %6s  %s" % ("#", "score", "shared", "case"))
     for i, x in enumerate(res["results"], 1):
         print("%4d %7.1f %6d  %s%s" % (i, x["score"], x["shared"], x["name"],
@@ -1378,7 +1377,7 @@ def cmd_fixlinks(args):
     """Give every bare https://www.courtlistener.com/opinion/<id>/ link in md-cases/ and in the
     saved Cited-by sections its slug, without rerunning anything."""
     if c.local_db() is None:
-        sys.exit("fixlinks needs the local database for the slugs (./casedb.py status)")
+        sys.exit("fixlinks needs the local database for the slugs (tribonian db status)")
     rx = re.compile(r"\(%s/opinion/(\d+)/(?:case/)?\)" % re.escape(c.CL))    # bare, or the no-database stand-in
     files = list(c.NOTES.rglob("*.md")) + list((c.CASES / "citedby").glob("*/section.md"))
     changed = links = 0
@@ -1402,7 +1401,7 @@ def main():
     st.add_argument("--max", type=int, help="at most this many (the most-cited first)")
     st.add_argument("--api", action="store_true", help="fall back to the CourtListener API when the database has no readable text")
     st.set_defaults(func=cmd_stubs)
-    import semsearch
+    from tribonian import semsearch
     ss = sub.add_parser("semsearch", help="CourtListener semantic search, re-ranked, joined to the sub-clusters")
     semsearch.add_args(ss)
     ss.set_defaults(func=semsearch.run)

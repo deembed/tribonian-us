@@ -327,7 +327,7 @@ impl Db {
         let schema = schema_of(&con);
         if schema != SCHEMA {
             return Err(format!(
-                "{} has results schema {schema}; this app reads schema {SCHEMA}. Rebuild it with ./cocite.py build, or update the app.",
+                "{} has results schema {schema}; this app reads schema {SCHEMA}. Rebuild it with tribonian cocite build, or update the app.",
                 path.display()
             ));
         }

@@ -114,7 +114,7 @@ pub struct App {
     pub run_done: usize,
     pub run_failed: Vec<String>,
     pub show_log: bool,
-    /// cases/scotus/*.json (scotus.py fetch), and _recent.json (scotus.py recent)
+    /// cases/scotus/*.json (tribonian scotus fetch), and _recent.json (scotus.py recent)
     pub dockets: Vec<scotus::Docket>,
     pub docket_errors: Vec<String>,
     pub recent: Result<Option<scotus::Recent>, String>,
@@ -240,7 +240,7 @@ impl App {
     /// Reread scotus.py's files: at start and after every queued job.
     pub fn load_scotus(&mut self) {
         let Some(cfg) = &self.cfg else { return };
-        (self.dockets, self.docket_errors) = scotus::load_dockets(&cfg.cases_dir(), &cfg.repo_dir);
+        (self.dockets, self.docket_errors) = scotus::load_dockets(&cfg.cases_dir(), &cfg.work_dir);
         self.recent = scotus::load_recent(&cfg.cases_dir());
     }
 
@@ -253,7 +253,7 @@ impl App {
     pub fn enqueue_scotus(&mut self, num: &str, what: &[&str]) {
         let steps = what
             .iter()
-            .map(|w| (vec!["scotus.py".to_string(), w.to_string(), num.to_string()], (*w == "build").then(|| "wrote pdf/".to_string())))
+            .map(|w| (vec!["scotus".to_string(), w.to_string(), num.to_string()], (*w == "build").then(|| "wrote pdf/".to_string())))
             .collect();
         let title = format!("No. {num}: {}", what.join(" + "));
         self.enqueue(Queued { r#ref: scotus::docket_key(num), title, job: QueuedJob::Steps(steps) });
@@ -264,7 +264,7 @@ impl App {
         self.enqueue(Queued {
             r#ref: scotus::RECENT_KEY,
             title: "Supreme Court recent activity".into(),
-            job: QueuedJob::Script(vec!["scotus.py".into(), "recent".into()]),
+            job: QueuedJob::Script(vec!["scotus".into(), "recent".into()]),
         });
     }
 
@@ -288,10 +288,10 @@ impl App {
     /// Queue `casemap.py recent` (citing cases newer than the bulk data, from the API) and then a full
     /// build, whose good-law check reads them. Needs the case file; false when there is none yet.
     pub fn enqueue_recent_citers(&mut self, r: i64, title: String) -> bool {
-        let Some(full) = self.cfg.as_ref().and_then(|cfg| jobs::full_file(&cfg.repo_dir, r)) else { return false };
+        let Some(full) = self.cfg.as_ref().and_then(|cfg| jobs::full_file(&cfg.work_dir, r)) else { return false };
         let steps = vec![
-            (vec!["casemap.py".into(), "recent".into(), "--cluster".into(), r.to_string()], None),
-            (vec!["case2md.py".into(), "build".into(), format!("cases/{full}")], Some("wrote ".to_string())),
+            (vec!["map".into(), "recent".into(), "--cluster".into(), r.to_string()], None),
+            (vec!["case".into(), "build".into(), format!("cases/{full}")], Some("wrote ".to_string())),
         ];
         self.enqueue(Queued { r#ref: r, title: format!("{title}: recent citers + build"), job: QueuedJob::Steps(steps) });
         true
@@ -343,11 +343,11 @@ impl App {
         };
         let title = q.label();
         self.job_log.push(format!("── {title}"));
-        let (python, repo) = (cfg.python.clone(), cfg.repo_dir.clone());
+        let py = cfg.py();
         self.job = Some(match q.job {
-            QueuedJob::Build { quick } => jobs::build_case(python, repo, q.r#ref, title, quick, wake),
-            QueuedJob::Script(args) => jobs::run_script(python, repo, q.r#ref, title, args, wake),
-            QueuedJob::Steps(steps) => jobs::run_steps(python, repo, q.r#ref, title, steps, wake),
+            QueuedJob::Build { quick } => jobs::build_case(py, q.r#ref, title, quick, wake),
+            QueuedJob::Script(args) => jobs::run_script(py, q.r#ref, title, args, wake),
+            QueuedJob::Steps(steps) => jobs::run_steps(py, q.r#ref, title, steps, wake),
         });
     }
 
@@ -534,7 +534,7 @@ impl App {
         let Some(cfg) = &self.cfg else { return };
         let ctx = self.egui_ctx.clone();
         self.api_pending.insert(page.clone());
-        apisearch::spawn(cfg.python.clone(), cfg.repo_dir.clone(), page.clone(), self.atx.clone(), move || {
+        apisearch::spawn(cfg.py(), page.clone(), self.atx.clone(), move || {
             if let Some(c) = &ctx {
                 c.request_repaint();
             }

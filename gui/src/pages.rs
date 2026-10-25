@@ -265,7 +265,7 @@ fn home(app: &mut App, ui: &mut Ui) {
         ui.add_space(8.0);
         if ui
             .add_sized(size, egui::Button::new(RichText::new("SCOTUS").size(18.0)))
-            .on_hover_text("Supreme Court: dockets fetched with scotus.py, recent opinions, grants and orders; add a docket by number")
+            .on_hover_text("Supreme Court: dockets fetched with tribonian scotus, recent opinions, grants and orders; add a docket by number")
             .clicked()
         {
             app.goto = Some(Page::Scotus);
@@ -273,7 +273,7 @@ fn home(app: &mut App, ui: &mut Ui) {
         ui.add_space(8.0);
         if ui
             .add_sized(size, egui::Button::new(RichText::new("Sub-Cluster Search (draft)").size(18.0)))
-            .on_hover_text("paste a draft: CourtListener semantic search per paragraph, grouped by sub-cluster (casemap.py semsearch)")
+            .on_hover_text("paste a draft: CourtListener semantic search per paragraph, grouped by sub-cluster (tribonian map semsearch)")
             .clicked()
         {
             app.goto = Some(Page::SemSearch);
@@ -283,7 +283,7 @@ fn home(app: &mut App, ui: &mut Ui) {
         let label = if trouble { RichText::new("Check setup (something is missing)").size(18.0).color(Color32::LIGHT_RED) } else { RichText::new("Check setup").size(18.0) };
         if ui
             .add_sized(size, egui::Button::new(label))
-            .on_hover_text("is each tool and database there, and does it answer a query (./check.py)")
+            .on_hover_text("is each tool and database there, and does it answer a query (tribonian check)")
             .clicked()
         {
             app.goto = Some(Page::Check);
@@ -333,7 +333,7 @@ fn cases_home(app: &mut App, ui: &mut Ui) {
 
 fn areas(app: &mut App, ui: &mut Ui, rows: &[AreaRow]) {
     ui.heading("Areas");
-    ui.label("Sub-cluster lineages pooled over all slices (cocite.py areas). Heaviest first.");
+    ui.label("Sub-cluster lineages pooled over all slices (tribonian cocite areas). Heaviest first.");
     ui.add_space(6.0);
     let f = app.filter.clone();
     egui::Grid::new("areas").striped(true).num_columns(4).show(ui, |ui| {
@@ -639,7 +639,7 @@ fn gl_color(status: &str) -> Color32 {
 }
 
 /// Hover on the Good law column heading.
-const GL_HELP: &str = "From casemap.py goodlaw (warning words in the opinions that cite the case; no language model), \
+const GL_HELP: &str = "From tribonian map goodlaw (warning words in the opinions that cite the case; no language model), \
 where it has been run for the case.\n\
 Red: a court that could overrule the case used an overruling word about it (overruled, abrogated, superseded, reversed, \
 vacated, …), or two lower courts did.\n\
@@ -724,7 +724,7 @@ fn goodlaw_cell(ui: &mut Ui, g: &Option<GoodLaw>, d: &Option<Dormancy>) {
                 ui.colored_label(gl_color(&g.status), &g.status).on_hover_text(evidence_hover(g));
             }
             (None, None) => {
-                ui.weak("–").on_hover_text("not computed (casemap.py goodlaw)");
+                ui.weak("–").on_hover_text("not computed (tribonian map goodlaw)");
             }
         }
     });
@@ -885,8 +885,8 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
             .add_enabled(!queued, egui::Button::new("Quick build"))
             .on_hover_text(format!(
                 "note, PDF and case profile, with the quick good-law check: only the newest 100 citing opinions, so the status \
-                 now but not the year it changed. Queues ./casemap.py get --cluster {0} (only if the case has no file yet), \
-                 then ./case2md.py build --quick-goodlaw. A current full result is kept.",
+                 now but not the year it changed. Queues tribonian map get --cluster {0} (only if the case has no file yet), \
+                 then tribonian case build --quick-goodlaw. A current full result is kept.",
                 c.r#ref
             ));
         let full = ui
@@ -901,7 +901,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         let recent = ui
             .add_enabled(!queued && note.is_some(), egui::Button::new("Recent citers"))
             .on_hover_text(
-                "ask CourtListener who has cited this case since the bulk data (./casemap.py recent: 1 request per 20 \
+                "ask CourtListener who has cited this case since the bulk data (tribonian map recent: 1 request per 20 \
                  citing cases, plus 1 per opinion read, up to 25), then Build: the good-law check reads them too. \
                  Only the cases the local database lacks are added.",
             )
@@ -915,7 +915,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         if queued {
             ui.weak("in the build queue");
         } else if note.is_some() {
-            ui.weak("sync_vault.sh / sync_remarkable.py still copy it to Obsidian and the tablet");
+            ui.weak("tribonian sync-vault / sync-remarkable still copy it to Obsidian and the tablet");
         }
     });
 
@@ -1246,7 +1246,7 @@ fn coupling_section(app: &mut App, ui: &mut Ui, c: &CaseData) {
     let button = |app: &mut App, ui: &mut Ui, text: &str| {
         let b = ui.add_enabled(!queued, egui::Button::new(text)).on_hover_text(format!(
             "Finds the cases that cite the most of the same cases as this one, rare shared citations counting more \
-             (bibliographic coupling). Queues ./casemap.py coupling --cluster {}, which reads the whole citation cache \
+             (bibliographic coupling). Queues tribonian map coupling --cluster {}, which reads the whole citation cache \
              (about 300 MB), so it takes seconds to a minute. Only on request: builds never run it. A later build then \
              shows the result in the note and the PDF.",
             c.r#ref
@@ -1255,7 +1255,7 @@ fn coupling_section(app: &mut App, ui: &mut Ui, c: &CaseData) {
             app.enqueue_script(
                 c.r#ref,
                 format!("Coupled cases: {}", c.name),
-                vec!["casemap.py".into(), "coupling".into(), "--cluster".into(), c.r#ref.to_string()],
+                vec!["map".into(), "coupling".into(), "--cluster".into(), c.r#ref.to_string()],
             );
         }
     };
@@ -1385,7 +1385,7 @@ fn search_side(app: &mut App, ui: &mut Ui) {
     app.search_mode = mode;
     ui.checkbox(&mut app.include_api, "Include CourtListener").on_hover_text(
         "also search CourtListener for cases filed after the local database's bulk data (less a month): \
-         1 API request per search, reused for a day (./case2md.py api-search). Cases already in the local \
+         1 API request per search, reused for a day (tribonian case api-search). Cases already in the local \
          database are left to the local results.",
     );
     if (ui.button("Search").clicked() || enter || (changed && !app.search_input.trim().is_empty()))
@@ -1620,8 +1620,8 @@ fn api_hits(app: &mut App, ui: &mut Ui, page: &Page) {
                 if ui
                     .add_enabled(!queued && app.files.note_of(h.cluster).is_none(), egui::Button::new("Get"))
                     .on_hover_text(format!(
-                        "download from CourtListener and build (about 3 API requests): ./casemap.py get --cluster {}, \
-                         then ./case2md.py build --no-goodlaw",
+                        "download from CourtListener and build (about 3 API requests): tribonian map get --cluster {}, \
+                         then tribonian case build --no-goodlaw",
                         h.cluster
                     ))
                     .clicked()

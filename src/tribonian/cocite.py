@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """cocite.py -- co-citation clusters, five years at a time, from the local bulk database.
 
 Two cases are co-cited when one later decision cites both. The citing decisions are sliced
@@ -40,43 +39,43 @@ nodes is left out of that slice (string-cite compilations swamp the pair counts)
 reports how many.
 
 Commands
-    ./cocite.py prep                                 # one pass over the database -> cache (rerun after a bulk load)
-    ./cocite.py build [--slices 2005,2010] [--force] # cluster every slice (or just these), then lineage
-    ./cocite.py status
-    ./cocite.py index [--courts appellate ...]       # add indexes newer than the view (no rebuild)
-    ./cocite.py case --cite "463 U.S. 29" [--slice 2005] [--top 8]
-    ./cocite.py cluster 2005-09:3                    # members of one cluster, its sub-clusters, before and after
-    ./cocite.py cluster 2010-14:1.3                  # one sub-cluster
-    ./cocite.py tree 2010                            # one slice: clusters with their sub-clusters
-    ./cocite.py note --cite "463 U.S. 29"            # preview the '## Co-citation' section of a case note
-    ./cocite.py areas --courts appellate             # areas: sub-cluster lineages grouped once, over all slices
-    ./cocite.py area-evidence --courts appellate     # build/cocite/areas-*.jsonl, for naming them
-    ./cocite.py lineage 17                           # one lineage, slice by slice
-    ./cocite.py subdoc 2020-24:2.3 [--goodlaw]       # explain one sub-cluster: note + PDF (cocite_subdoc.py)
-    ./cocite.py together --cite "550 U.S. 544" --cite "556 U.S. 662"
+    tribonian cocite prep                                 # one pass over the database -> cache (rerun after a bulk load)
+    tribonian cocite build [--slices 2005,2010] [--force] # cluster every slice (or just these), then lineage
+    tribonian cocite status
+    tribonian cocite index [--courts appellate ...]       # add indexes newer than the view (no rebuild)
+    tribonian cocite case --cite "463 U.S. 29" [--slice 2005] [--top 8]
+    tribonian cocite cluster 2005-09:3                    # members of one cluster, its sub-clusters, before and after
+    tribonian cocite cluster 2010-14:1.3                  # one sub-cluster
+    tribonian cocite tree 2010                            # one slice: clusters with their sub-clusters
+    tribonian cocite note --cite "463 U.S. 29"            # preview the '## Co-citation' section of a case note
+    tribonian cocite areas --courts appellate             # areas: sub-cluster lineages grouped once, over all slices
+    tribonian cocite area-evidence --courts appellate     # build/cocite/areas-*.jsonl, for naming them
+    tribonian cocite lineage 17                           # one lineage, slice by slice
+    tribonian cocite subdoc 2020-24:2.3 [--goodlaw]       # explain one sub-cluster: note + PDF (cocite_subdoc.py)
+    tribonian cocite together --cite "550 U.S. 544" --cite "556 U.S. 662"
                                                      # falsification check: same cluster? pair support, lift
-    ./cocite.py shift --cite "375 U.S. 384" --courts appellate
+    tribonian cocite shift --cite "375 U.S. 384" --courts appellate
                                                      # good-law signals from cluster change (cocite_shift.py)
-    ./cocite.py shift --eval --courts appellate      # the same, scored on goodlaw_eval.py's cases
-    ./cocite.py positions [--show ID | --sample N]   # where every citation occurs (cocite_positions.py)
-    ./cocite.py prox-evidence --courts appellate --slice 2010
+    tribonian cocite shift --eval --courts appellate      # the same, scored on goodlaw_eval.py's cases
+    tribonian cocite positions [--show ID | --sample N]   # where every citation occurs (cocite_positions.py)
+    tribonian cocite prox-evidence --courts appellate --slice 2010
                                                      # blind evidence: pairs by sentence share, for a reader
-    ./cocite.py diag                                 # citing decisions per slice by court level
-    ./cocite.py evidence --courts appellate          # build/cocite/evidence-*.jsonl: what to describe, and the evidence
-    ./cocite.py labels import labels.jsonl           # descriptions -> data/cocite_labels.json, attached to lineages
-    ./cocite.py labels list --courts appellate
+    tribonian cocite diag                                 # citing decisions per slice by court level
+    tribonian cocite evidence --courts appellate          # build/cocite/evidence-*.jsonl: what to describe, and the evidence
+    tribonian cocite labels import labels.jsonl           # descriptions -> data/cocite_labels.json, attached to lineages
+    tribonian cocite labels list --courts appellate
 
 Proximity weights: --weight on build and the read commands replaces "decisions citing both" with
 a weight from where the citations sit (same sentence, same string cite, ...), in its own results
-file (cocite-appellate-sentence.sqlite); see cocite_positions.py. Needs ./cocite.py positions --index.
-    ./cocite.py build --courts appellate --weight sentence
-    ./cocite.py build --courts appellate --weight sentence --mix 0.2   # binary edges, re-weighted
-    ./cocite.py areas --courts appellate --weight sentence --grid "cpm:0.5@10"
+file (cocite-appellate-sentence.sqlite); see cocite_positions.py. Needs tribonian cocite positions --index.
+    tribonian cocite build --courts appellate --weight sentence
+    tribonian cocite build --courts appellate --weight sentence --mix 0.2   # binary edges, re-weighted
+    tribonian cocite areas --courts appellate --weight sentence --grid "cpm:0.5@10"
 
 Court views: --courts on build and the read commands keeps only citing decisions from those
 courts (the cited cases can come from anywhere), in its own results file:
-    ./cocite.py build --courts appellate             # -> cocite-appellate.sqlite
-    ./cocite.py tree 2010 --courts appellate
+    tribonian cocite build --courts appellate             # -> cocite-appellate.sqlite
+    tribonian cocite tree 2010 --courts appellate
 Levels: scotus, circuit (federal courts of appeals), district (federal district courts),
 state-supreme, state-appellate, other (bankruptcy, specialty, state trial, tribal, military...).
 Shortcuts: appellate = scotus,circuit,state-supreme,state-appellate; federal = scotus,circuit,district.
@@ -93,13 +92,7 @@ from pathlib import Path
 
 import numpy as np
 
-import casedb
-
-# cocite_shift.py and cocite_positions.py `import cocite`. Run as ./cocite.py this module is
-# __main__, and a plain import would load a SECOND copy with its own COCITE_DB, _LABELS and
-# _VAULT_NAMES. Registering this module under its import name first makes both names one object.
-if __name__ == "__main__":
-    sys.modules.setdefault("cocite", sys.modules[__name__])
+from tribonian import casedb, tconfig
 
 BASE_DB = casedb.tconfig.get("cocite_db", casedb.DB.with_name("cocite.sqlite"))   # CL_COCITE_DB or config cocite_db
 COCITE_DB = BASE_DB                      # cocite-<view>.sqlite under --courts (set in main)
@@ -203,14 +196,14 @@ def parse_label(t):
 
 def main_db():
     if not casedb.DB.exists():
-        sys.exit("No database at %s (./casedb.py status)." % casedb.DB)
+        sys.exit("No database at %s (tribonian db status)." % casedb.DB)
     if Path(str(casedb.DB) + ".loading").exists():
         sys.exit("casedb.py is loading right now; run this when it has finished.")
     con = sqlite3.connect("file:%s?mode=ro" % casedb.DB, uri=True, timeout=30)
     done = {r[0] for r in con.execute("SELECT name FROM loaded")}
     need = {"citation-map", "opinion-clusters", "opinions", "citations"} - done
     if need:
-        sys.exit("cocite needs these loaded first: ./casedb.py load %s" % " ".join(sorted(need)))
+        sys.exit("cocite needs these loaded first: tribonian db load %s" % " ".join(sorted(need)))
     return con
 
 
@@ -221,7 +214,7 @@ def source_stamp(con):
 
 
 def schema_exit(db):
-    sys.exit("%s has results schema %s, this code needs %s: rebuild with ./cocite.py build" % (
+    sys.exit("%s has results schema %s, this code needs %s: rebuild with tribonian cocite build" % (
         COCITE_DB.name, meta(db, "schema") or "1", SCHEMA_VERSION))
 
 
@@ -260,7 +253,7 @@ def check_cache(db):
     if stamp is None:
         print("warning: %s records no bulk load stamp; cannot tell whether the cache matches it" % nm, flush=True)
     elif (CACHE / "stamp.txt").read_text() != stamp:
-        sys.exit("cache is newer than this view (%s): rerun ./cocite.py build" % nm)
+        sys.exit("cache is newer than this view (%s): rerun tribonian cocite build" % nm)
 
 
 def meta(db, key, value=None):
@@ -383,7 +376,7 @@ def prep_levels(con):
     Two sequential scans (a join would seek on the hard disk once per case)."""
     t0 = time.time()
     if not con.execute("SELECT 1 FROM loaded WHERE name='dockets'").fetchone():
-        sys.exit("court levels need the dockets table: ./casedb.py load dockets")
+        sys.exit("court levels need the dockets table: tribonian db load dockets")
     con.execute("CREATE TEMP TABLE lv(id TEXT PRIMARY KEY, code INTEGER)")
     con.executemany("INSERT INTO temp.lv VALUES (?,?)",
                     [(cid, court_code(cid, jur)) for cid, jur in con.execute("SELECT id, jurisdiction FROM courts")])
@@ -430,13 +423,13 @@ def load_cache(stamp=None, view=None):
     results database being read, which must have been built from this cache (check_cache)."""
     s = CACHE / "stamp.txt"
     if not s.exists():
-        sys.exit("No cache yet: run ./cocite.py prep")
+        sys.exit("No cache yet: run tribonian cocite prep")
     if stamp is not None and s.read_text() != stamp:
-        sys.exit("The cache is from an older bulk load: run ./cocite.py prep")
+        sys.exit("The cache is from an older bulk load: run tribonian cocite prep")
     if view is not None:
         check_cache(view)
     if not (CACHE / "level.npy").exists():
-        sys.exit("The cache has no court levels yet: run ./cocite.py prep (it adds only those)")
+        sys.exit("The cache has no court levels yet: run tribonian cocite prep (it adds only those)")
     return (np.load(CACHE / "citing.npy", mmap_mode="r"), np.load(CACHE / "cited.npy", mmap_mode="r"),
             np.load(CACHE / "year.npy", mmap_mode="r"), s.read_text(), np.load(CACHE / "level.npy", mmap_mode="r"))
 
@@ -464,7 +457,7 @@ def slice_pairs(ci, cd, p):
     N = int(pop.sum())
     n = np.bincount(c, minlength=len(refs))          # citing decisions per node, inside the population
     if p.get("weight") and p.get("mix") is None:     # proximity weighting: pair weights from citation positions
-        import cocite_positions
+        from tribonian import cocite_positions
         ea, eb, es = cocite_positions.weighted_pairs(p["weight"], rows_u[pop].astype(np.int64),
                                                      refs.astype(np.int64), p["min_support"])[:3]
         return refs, n, N, skipped, ea, eb, es, mc, None
@@ -486,7 +479,7 @@ def slice_pairs(ci, cd, p):
         ea, eb, es = np.concatenate(ea), np.concatenate(eb), np.concatenate(es)
     bin_ = es                                        # decisions citing both, kept beside the mixed weight (partners.binary)
     if p.get("weight") and len(ea):                  # --mix: the binary pairs, weights mix * support + (1 - mix) * proximity
-        import cocite_positions
+        from tribonian import cocite_positions
         pa, pb, pw = cocite_positions.weighted_pairs(p["weight"], rows_u[pop].astype(np.int64),
                                                      refs.astype(np.int64), 1e-12)[:3]
         bits = max(1, len(refs).bit_length())
@@ -796,7 +789,7 @@ def open_view(view=NOTE_VIEW):
         return None
     db = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=30)
     if (meta(db, "schema") or "1") != SCHEMA_VERSION:       # loud, not a missing-column traceback mid-note
-        sys.exit("%s has results schema %s, this code needs %s: rebuild with ./cocite.py build" % (
+        sys.exit("%s has results schema %s, this code needs %s: rebuild with tribonian cocite build" % (
             path.name, meta(db, "schema") or "1", SCHEMA_VERSION))
     return db
 
@@ -1045,7 +1038,7 @@ def case_md(ref, index=None, view=NOTE_VIEW, top=8, year=None):
         if lab:
             L += ["> [!info]- %s (written by Claude from the cluster evidence; not part of the record)" % lab[0],
                   "> " + lab[1], ""]
-    L += ["*Codes like `5.3` are sub-cluster 3 of cluster 5 in that slice: `./cocite.py cluster %s:5.3 --courts %s`.*"
+    L += ["*Codes like `5.3` are sub-cluster 3 of cluster 5 in that slice: `tribonian cocite cluster %s:5.3 --courts %s`.*"
           % (now["label"], view), ""]
     return L
 
@@ -1320,7 +1313,7 @@ def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP, opinions=()):
     as in cocite-cache: citing.npy (sorted by citing decision) and the by-cited index from prep, so
     N is exact, not estimated. -> dict for coupling.json (case2md.coupling_cache adds the stamp)."""
     if not (CACHE / "cited_sorted.npy").exists():
-        sys.exit("No citation cache at %s: run ./cocite.py prep" % CACHE)
+        sys.exit("No citation cache at %s: run tribonian cocite prep" % CACHE)
     stale = (CACHE / "stamp.txt").read_text() != source_stamp(con)
     refs = cited_refs(con, ref, opinions)
     # citing.npy whole (about 290 MB, one sequential read): thousands of scattered reads into a
@@ -1584,7 +1577,7 @@ def cmd_vault(args):
         if ar in alab:
             L += [alab[ar]["description"], ""]
         L += ["- **Span:** %s to %s" % (label(f) if f else "?", label(t) if t else "?"),
-              "- **Lineages:** %d (%d with notes; the rest are small and listed by number in `./cocite.py areas`)" % (
+              "- **Lineages:** %d (%d with notes; the rest are small and listed by number in `tribonian cocite areas`)" % (
                   n, len(noted)), ""]
         L += ["## Core cases", ""] + ["%d. %s" % (i + 1, case(r)) for i, (r,) in enumerate(db.execute(
             "SELECT ref FROM area_fp WHERE area=? ORDER BY rank LIMIT ?", (ar, args.core)))] + [""]
@@ -1696,7 +1689,7 @@ def cmd_build(args):
     p = params_of(args)
     p["courts"] = tag
     if getattr(args, "weight", None):                # binary builds keep their old params (no rebuild)
-        import cocite_positions
+        from tribonian import cocite_positions
         cocite_positions.index()                     # fail now, not after the first slice
         p["weight"] = args.weight
         if args.mix is not None:
@@ -1724,7 +1717,7 @@ def cmd_build(args):
         build_slice(db, s, np.asarray(ci_all)[sel], np.asarray(cd_all)[sel], p, stamp)
     build_lineage(db, args.carry)
     fill_names(db, con)
-    if LABELS.exists():
+    if labels_path().exists():
         match_labels(db)
     meta(db, "stamp", stamp)
     db.commit()
@@ -1734,7 +1727,7 @@ def need_db(write=False):
     """The current view's results, read-only unless write (areas, labels): a read command never
     upgrades or drops anything, and never locks a running build. A schema mismatch exits."""
     if not COCITE_DB.exists():
-        sys.exit("No %s yet: ./cocite.py prep, then ./cocite.py build" % COCITE_DB)
+        sys.exit("No %s yet: tribonian cocite prep, then tribonian cocite build" % COCITE_DB)
     if write:
         return out_db()
     db = sqlite3.connect("file:%s?mode=ro" % COCITE_DB, uri=True, timeout=60)
@@ -1795,7 +1788,7 @@ def cmd_status(args):
 
 
 def resolve(cite):
-    import casemap
+    from tribonian import casemap
     con = main_db()
     return casemap.db_lookup(con, cite)
 
@@ -1844,10 +1837,10 @@ def cmd_cluster(args):
     s, k, j = parse_label(args.which)
     s -= s % WIDTH
     if k is None or not db.execute("SELECT 1 FROM clusters WHERE slice=? AND cl=?", (s, k)).fetchone():
-        sys.exit("no cluster %s (./cocite.py status lists the slices and their cluster counts)" % args.which)
+        sys.exit("no cluster %s (tribonian cocite status lists the slices and their cluster counts)" % args.which)
     if j is not None:
         if not db.execute("SELECT 1 FROM subs WHERE slice=? AND sub=?", (s, j)).fetchone():
-            sys.exit("no sub-cluster %s (./cocite.py cluster %s:%d lists them)" % (args.which, label(s), k))
+            sys.exit("no sub-cluster %s (tribonian cocite cluster %s:%d lists them)" % (args.which, label(s), k))
         print(cl_title(db, s, j, "sub"))
         print("members, most weight inside the sub-cluster first:")
         for ref, n in db.execute("SELECT ref, n FROM nodes WHERE slice=? AND sub=? ORDER BY subw DESC LIMIT ?", (s, j, args.top)):
@@ -1898,7 +1891,7 @@ def cmd_diag(args):
 def cmd_note(args):
     ref = args.cluster or resolve(args.cite)
     try:
-        import case2md
+        from tribonian import case2md
         index = case2md.load_index()
     except Exception:
         index = {}
@@ -1918,7 +1911,7 @@ def cmd_tree(args):
         for (j,) in subs[:args.subs]:
             print("    " + cl_title(db, s, j, "sub"))
         if len(subs) > args.subs:
-            print("    ... %d more sub-clusters (./cocite.py cluster %s:%d)" % (len(subs) - args.subs, label(s), k))
+            print("    ... %d more sub-clusters (tribonian cocite cluster %s:%d)" % (len(subs) - args.subs, label(s), k))
 
 
 def cmd_lineage(args):
@@ -2115,7 +2108,7 @@ def cmd_areas(args):
             print("%8.3g %7d %10d %10d %8.3f" % (gamma, sum(1 for z in sz if z >= 5), sz[0], sz[1] if len(sz) > 1 else 0, ari),
                   flush=True)
         print("pick a gamma where ARI is high and the area count is steady across neighbours, then:\n"
-              "  ./cocite.py areas --courts ... --method %s --resolution <gamma>" % args.method)
+              "  tribonian cocite areas --courts ... --method %s --resolution <gamma>" % args.method)
         return
     if args.consensus > 1:
         # consensus clustering (Lancichinetti & Fortunato 2012): run many seeds, weight each tie by the
@@ -2241,14 +2234,14 @@ def cmd_areas(args):
           format(len(small_ties), ","), q, ", ".join(map(str, sizes[:10])), (time.time() - t0) / 60))
     big_n = np.bincount(memb)
     print("coverage: %.1f%% of node lineages sit in areas of 5+" % (100 * float(np.mean(big_n[memb] >= 5))))
-    if Path(args.gold).exists() and LABELS.exists():
+    if Path(args.gold).exists() and labels_path().exists():
         gold = load_gold(db, args.gold, idx)
         if gold:
             f1, pr, rc = gold_score(memb, gold)
             gmed, ngs = gold_extent(memb, gold)
             print("benchmark (this partition): F1 %.3f, precision %.3f, recall %.3f; areas holding benchmark lineages: "
                   "median %d lineages, %.0f%% of them not in the benchmark" % (f1, pr, rc, gmed, 100 * ngs))
-    if LABELS.exists():
+    if labels_path().exists():
         match_labels(db)
     show_areas(db, args.top)
 
@@ -2291,7 +2284,7 @@ def cmd_gold_common(args):
     for v in args.views:
         p = EVIDENCE_DIR / ("gold-missing-%s.json" % v)
         if not p.exists():
-            sys.exit("no %s: run ./cocite.py areas --grid cpm:0.5@10 for that view first" % p.name)
+            sys.exit("no %s: run tribonian cocite areas --grid cpm:0.5@10 for that view first" % p.name)
         m = json.loads(p.read_text(encoding="utf-8"))["missing"]
         missing |= set(m); seen.append("%s drops %d" % (v, len(m)))
     common = {g: [n for n in names if n not in missing] for g, names in groups.items()}
@@ -2400,8 +2393,14 @@ def cmd_area_evidence(args):
 # Lineage numbers change with every build, so a label is tied to a fingerprint (the lineage's 30
 # heaviest members) and re-attached after a build to whichever lineage overlaps it best.
 
-HERE = Path(__file__).resolve().parent
-LABELS = HERE / "data" / "cocite_labels.json"
+HERE = tconfig.WORK                      # the work folder
+
+
+def labels_path(write=False):
+    """data/cocite_labels.json: git-tracked, can't be rebuilt (see tconfig.data_file for which copy)."""
+    return tconfig.data_file("cocite_labels.json", write)
+
+
 EVIDENCE_DIR = HERE / "build" / "cocite"
 FINGER = 30
 STABLE = 0.7          # a label still matching its lineage at this Jaccard or better counts as unchanged
@@ -2436,7 +2435,7 @@ def lineage_members(db, lin, level, k=FINGER):
 
 def load_labels():
     try:
-        return json.loads(LABELS.read_text(encoding="utf-8"))
+        return json.loads(labels_path().read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
 
@@ -2696,11 +2695,12 @@ def cmd_labels(args):
                 ",".join(map(str, sorted(rec["fingerprint"]))).encode()).hexdigest()[:10])
             n_new += rec["key"] not in by_key
             by_key[rec["key"]] = rec
-        tmp = LABELS.with_suffix(".tmp")
+        out = labels_path(write=True)
+        tmp = out.with_suffix(".tmp")
         tmp.write_text(json.dumps(sorted(by_key.values(), key=lambda r: r["key"]), indent=1, ensure_ascii=False),
                        encoding="utf-8")
-        tmp.replace(LABELS)
-        print("labels: %d new, %d in %s" % (n_new, len(by_key), LABELS.name))
+        tmp.replace(out)
+        print("labels: %d new, %d in %s" % (n_new, len(by_key), out.name))
         match_labels(need_db(write=True))
     elif args.action == "match":
         match_labels(need_db(write=True))
@@ -2717,8 +2717,8 @@ def cmd_labels(args):
                 print("  %-9s %-7s overlap %.2f  lineage %-6s %s" % (status, level, j or 0, lin or "-", labs[key]["name"][:60]))
         big = db.execute("SELECT count(*) FROM lineages l JOIN subs s ON s.lineage = l.lineage WHERE l.level='sub' "
                          "AND l.lineage NOT IN (SELECT lineage FROM label_map) AND s.size >= 100").fetchone()[0]
-        print("unlabelled sub-cluster slices of 100+ cases: %d (./cocite.py evidence picks the largest)" % big)
-        print("drifted and displaced labels are re-described with: ./cocite.py evidence --stale")
+        print("unlabelled sub-cluster slices of 100+ cases: %d (tribonian cocite evidence picks the largest)" % big)
+        print("drifted and displaced labels are re-described with: tribonian cocite evidence --stale")
     else:
         db = need_db()
         labs = {lab["key"]: lab for lab in load_labels()}
@@ -2733,15 +2733,14 @@ def cmd_labels(args):
 
 
 def cmd_shift(args):
-    """Lives in cocite_shift.py, which imports this module as 'cocite' (the same object as
-    __main__, see the sys.modules line at the top), so it sees the COCITE_DB main() chose."""
-    import cocite_shift
+    """Lives in cocite_shift.py, which imports this module, so it sees the COCITE_DB main() chose."""
+    from tribonian import cocite_shift
     cocite_shift.cmd_shift(args)
 
 
 def cmd_prox_evidence(args):
     """Lives in cocite_positions.py (same arrangement as cmd_shift)."""
-    import cocite_positions
+    from tribonian import cocite_positions
     cocite_positions.cmd_prox_evidence(args)
 
 
@@ -2758,7 +2757,7 @@ def main():
                                                 "(its own results file)")
     view.add_argument("--weight", help="pair weights: binary (default: decisions citing both), or from citation "
                                        "positions: decision, paragraph, sentence, string, kernel:<chars> "
-                                       "(each has its own results file; needs ./cocite.py positions --index)")
+                                       "(each has its own results file; needs tribonian cocite positions --index)")
     p = sub.add_parser("prep", help="read the database once into cocite-cache/")
     p.add_argument("--force", action="store_true")
     p.set_defaults(func=cmd_prep)
@@ -2842,7 +2841,7 @@ def main():
                    help="cpm: add shrink x median strength to each side of the association-strength division")
     p.add_argument("--grid", help='score many settings against the benchmark, nothing written: '
                    '"cpm:1,2,4@0,1,10;modularity:1,2,4,8"')
-    p.add_argument("--gold", default=str(HERE / "data" / "cocite_gold.json"), help="benchmark groupings (default %(default)s)")
+    p.add_argument("--gold", default=str(tconfig.data_file("cocite_gold.json")), help="benchmark groupings (default %(default)s)")
     p.add_argument("--consensus", type=int, default=1,
                    help="runs per consensus round; 20 gives one reproducible partition (default 1 = a single run)")
     p.add_argument("--consensus-rounds", dest="consensus_rounds", type=int, default=6)
@@ -2882,12 +2881,12 @@ def main():
     p.add_argument("--cohort-pct", dest="cohort_pct", type=float, default=0.10,
                    help="collapse: fires when at most this share of the cohort fell further")
     p.set_defaults(func=cmd_shift)
-    import cocite_subdoc
+    from tribonian import cocite_subdoc
     cocite_subdoc.add_parser(sub, view)
-    import cocite_positions
+    from tribonian import cocite_positions
     cocite_positions.add_parser(sub)
     cocite_positions.add_evidence_parser(sub, view)
-    import cocite_usc
+    from tribonian import cocite_usc
     cocite_usc.add_parser(sub)
     p = sub.add_parser("together", parents=[view], help="do these cases share a cluster, slice by slice?")
     p.add_argument("--cite", action="append", default=[])
@@ -2895,7 +2894,7 @@ def main():
     p.set_defaults(func=cmd_together)
     p = sub.add_parser("gold-common", help="benchmark names every listed view can score -> build/cocite/gold-common.json")
     p.add_argument("views", nargs="+", help="results file stems, e.g. cocite-appellate cocite-appellate-sentence-m0.2")
-    p.add_argument("--gold", default=str(HERE / "data" / "cocite_gold.json"))
+    p.add_argument("--gold", default=str(tconfig.data_file("cocite_gold.json")))
     p.set_defaults(func=cmd_gold_common)
     args = ap.parse_args()
     global COCITE_DB
@@ -2905,7 +2904,7 @@ def main():
         if tag != "all":
             tags.append(tag)
     if getattr(args, "weight", None):
-        import cocite_positions
+        from tribonian import cocite_positions
         args.weight = cocite_positions.parse_weight(args.weight)
         if args.weight:
             tags.append(args.weight)

@@ -43,7 +43,7 @@ fn add_box(app: &mut App, ui: &mut Ui) {
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ui
             .button("Fetch & build")
-            .on_hover_text("queues ./scotus.py fetch <docket> (the Court's docket and every filed PDF), then ./scotus.py build <docket> (PDF and notes)")
+            .on_hover_text("queues tribonian scotus fetch <docket> (the Court's docket and every filed PDF), then tribonian scotus build <docket> (PDF and notes)")
             .clicked()
             || enter
         {
@@ -56,7 +56,7 @@ fn add_box(app: &mut App, ui: &mut Ui) {
                 }
                 None => {
                     app.scotus_ui.add_err = Some(
-                        "Not a docket number like 25-579. Applications (25A374) and original cases aren't read by scotus.py fetch.".into(),
+                        "Not a docket number like 25-579. Applications (25A374) and original cases aren't read by tribonian scotus fetch.".into(),
                     )
                 }
             }
@@ -104,7 +104,7 @@ pub fn scotus_side(app: &mut App, ui: &mut Ui) {
 pub fn scotus_home(app: &mut App, ui: &mut Ui) {
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         ui.heading("Supreme Court");
-        ui.label("Dockets fetched with scotus.py, and what the Court has done in the last year.");
+        ui.label("Dockets fetched with tribonian scotus, and what the Court has done in the last year.");
         ui.weak(CERT_HELP);
         ui.add_space(8.0);
         dockets_table(app, ui);
@@ -170,7 +170,7 @@ fn docket_action(app: &mut App, ui: &mut Ui, num: &str) {
             let queued = app.is_queued(scotus::docket_key(&n));
             if ui
                 .add_enabled(!queued, egui::Button::new("Fetch & build").small())
-                .on_hover_text(format!("queues ./scotus.py fetch {n} then ./scotus.py build {n}"))
+                .on_hover_text(format!("queues tribonian scotus fetch {n} then tribonian scotus build {n}"))
                 .on_disabled_hover_text("in the build queue")
                 .clicked()
             {
@@ -178,7 +178,7 @@ fn docket_action(app: &mut App, ui: &mut Ui, num: &str) {
             }
         }
         None => {
-            ui.weak("–").on_hover_text("an application or original case: scotus.py fetch reads numbered petitions only");
+            ui.weak("–").on_hover_text("an application or original case: tribonian scotus fetch reads numbered petitions only");
         }
     }
 }
@@ -189,7 +189,7 @@ fn recent_panel(app: &mut App, ui: &mut Ui) {
         let queued = app.is_queued(scotus::RECENT_KEY);
         if ui
             .add_enabled(!queued, egui::Button::new("Refresh"))
-            .on_hover_text("queues ./scotus.py recent: reads supremecourt.gov's opinion pages, Granted & Noted lists and order lists of the last year")
+            .on_hover_text("queues tribonian scotus recent: reads supremecourt.gov's opinion pages, Granted & Noted lists and order lists of the last year")
             .on_disabled_hover_text("in the build queue")
             .clicked()
         {
@@ -202,7 +202,7 @@ fn recent_panel(app: &mut App, ui: &mut Ui) {
             return;
         }
         Ok(None) => {
-            ui.label("Not fetched yet: cases/scotus/_recent.json doesn't exist. Refresh runs ./scotus.py recent.");
+            ui.label("Not fetched yet: cases/scotus/_recent.json doesn't exist. Refresh runs tribonian scotus recent.");
             ui.weak(NO_PENDING_LIST);
             return;
         }
@@ -354,7 +354,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
         if app.is_queued(scotus::docket_key(num)) {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label("Not fetched yet; scotus.py fetch is in the build queue. Output: the panel at the bottom.");
+                ui.label("Not fetched yet; tribonian scotus fetch is in the build queue. Output: the panel at the bottom.");
             });
         } else {
             ui.label(format!("cases/scotus/{num}.json doesn't exist yet."));
@@ -370,7 +370,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
         if !d.lower_court.is_empty() {
             ui.weak(format!("Below: {}, No. {}, decided {}", d.lower_court, d.lower_numbers, d.lower_decision));
         }
-        ui.weak(format!("Docket retrieved {} (scotus.py fetch)", d.retrieved));
+        ui.weak(format!("Docket retrieved {} (tribonian scotus fetch)", d.retrieved));
         ui.add_space(6.0);
 
         // files and actions
@@ -413,7 +413,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
             let queued = app.is_queued(scotus::docket_key(&d.number));
             if ui
                 .add_enabled(!queued, egui::Button::new("Fetch updates"))
-                .on_hover_text(format!("queues ./scotus.py fetch {}: the docket again, and any new filing's PDF", d.number))
+                .on_hover_text(format!("queues tribonian scotus fetch {}: the docket again, and any new filing's PDF", d.number))
                 .clicked()
             {
                 app.enqueue_scotus(&d.number, &["fetch"]);
@@ -421,7 +421,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
             if ui
                 .add_enabled(!queued, egui::Button::new("Build"))
                 .on_hover_text(format!(
-                    "queues ./scotus.py build {}: one PDF (pdf/Pending SCOTUS/), the docket note and a note per filing, \
+                    "queues tribonian scotus build {}: one PDF (pdf/Pending SCOTUS/), the docket note and a note per filing, \
                      with the good-law check of every cited case (slow the first time, cached after)",
                     d.number
                 ))
@@ -435,7 +435,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
             if queued {
                 ui.weak("in the build queue");
             } else if note.is_some() {
-                ui.weak("sync_vault.sh / sync_remarkable.py still copy it to Obsidian and the tablet");
+                ui.weak("tribonian sync-vault / sync-remarkable still copy it to Obsidian and the tablet");
             }
         });
         ui.add_space(6.0);
@@ -455,7 +455,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
                 }
             });
         } else {
-            ui.weak("Decision below: not resolved yet (scotus.py build looks it up in the local database).");
+            ui.weak("Decision below: not resolved yet (tribonian scotus build looks it up in the local database).");
         }
 
         // question presented: the Clerk's PDF text, else the docket note's section
@@ -475,7 +475,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
         // filings
         let filings: Vec<scotus::Entry> = d.filings().cloned().collect();
         egui::CollapsingHeader::new(RichText::new(format!("Filings ({})", filings.len())).strong()).default_open(true).show(ui, |ui| {
-            let repo = app.cfg.as_ref().map(|c| c.repo_dir.clone());
+            let repo = app.cfg.as_ref().map(|c| c.work_dir.clone());
             egui::Grid::new("filings").striped(true).num_columns(5).show(ui, |ui| {
                 for h in ["Filed", "Kind", "Stage", "Filed by", ""] {
                     ui.strong(h);
@@ -601,7 +601,7 @@ pub fn docket_hits(app: &mut App, ui: &mut Ui, query: &str) {
         return;
     }
     egui::Frame::group(ui.style()).show(ui, |ui| {
-        ui.strong("Supreme Court dockets (scotus.py)");
+        ui.strong("Supreme Court dockets (tribonian scotus)");
         for (n, t, st) in &hits {
             ui.horizontal(|ui| {
                 ui.label(format!("No. {n}"));
@@ -615,7 +615,7 @@ pub fn docket_hits(app: &mut App, ui: &mut Ui, query: &str) {
             ui.horizontal(|ui| {
                 ui.label(format!("No. {n} isn't fetched. Pending cases aren't in the CourtListener database."));
                 let queued = app.is_queued(scotus::docket_key(n));
-                if ui.add_enabled(!queued, egui::Button::new("Fetch & build")).on_hover_text(format!("queues ./scotus.py fetch {n} then build")).clicked() {
+                if ui.add_enabled(!queued, egui::Button::new("Fetch & build")).on_hover_text(format!("queues tribonian scotus fetch {n} then build")).clicked() {
                     app.enqueue_scotus(n, &["fetch", "build"]);
                     app.goto = Some(Page::Docket(n.clone()));
                 }

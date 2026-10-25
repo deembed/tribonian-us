@@ -52,7 +52,7 @@ impl Default for GraphOpts {
 
 /// What the export needs that the graph data doesn't carry: where to write and what to call it.
 pub struct ExportInfo {
-    /// `<repo_dir>/build/exports`.
+    /// `<work_dir>/build/exports`.
     pub dir: PathBuf,
     pub area_code: String,
     pub area_name: String,

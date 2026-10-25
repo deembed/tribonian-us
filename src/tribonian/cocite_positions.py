@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
 """cocite_positions.py -- where every citation occurs (scope: docs/scope-cocite-next.md, section C).
 
-    ./cocite.py positions                       # every opinion, sharded, resumable (all cores)
-    ./cocite.py positions --show 690840         # one opinion's rows, with context, to check by eye
-    ./cocite.py positions --sample 2000         # random opinions: rates and speed, nothing written
-    ./cocite.py positions --status              # shards done / to do
-    ./cocite.py positions --index               # positions by decision, for ./cocite.py build --weight
+    tribonian cocite positions                       # every opinion, sharded, resumable (all cores)
+    tribonian cocite positions --show 690840         # one opinion's rows, with context, to check by eye
+    tribonian cocite positions --sample 2000         # random opinions: rates and speed, nothing written
+    tribonian cocite positions --status              # shards done / to do
+    tribonian cocite positions --index               # positions by decision, for tribonian cocite build --weight
 
 The expensive text pass runs once and stores positions, not pairs or distances: any proximity
 weight (same sentence, same paragraph, string cite, a distance kernel) is then a cheap
@@ -49,7 +48,7 @@ from pathlib import Path
 
 import numpy as np
 
-import casedb
+from tribonian import casedb
 
 VERSION = 2                                        # 2: control characters in the source text stripped
 SHARD = 50_000                                     # rowids per shard file
@@ -84,7 +83,7 @@ MARK_COLS = ("m_op", "m_fn", "m_char", "m_sent")
 
 
 def pos_dir(out=None):
-    import cocite
+    from tribonian import cocite
     return Path(out) if out else cocite.CACHE / "pos"
 
 
@@ -310,13 +309,13 @@ IDX_COLS = (("yr", np.int16), ("dec", np.int32), ("op", np.int32), ("cited", np.
 
 
 def idx_dir():
-    import cocite
+    from tribonian import cocite
     return cocite.CACHE / "posidx"
 
 
 def op_to_case():
     """opinion id -> decision (cluster) id, from the two indexes of the text table (as prep does)."""
-    import cocite
+    from tribonian import cocite
     con = ops_db()
     a = cocite.fetch_array(con.execute("SELECT rowid, id FROM opinions INDEXED BY opinions_by_id"), 2)
     b = cocite.fetch_array(con.execute("SELECT rowid, coalesce(cluster_id, -1) FROM opinions INDEXED BY opinions_by_cluster"), 2)
@@ -330,19 +329,21 @@ def op_to_case():
 
 
 def idx_meta():
-    import cocite, json
+    import json
+    from tribonian import cocite
     return {"idx_version": IDX_VERSION, "pos_version": VERSION, "cache_stamp": (cocite.CACHE / "stamp.txt").read_text()}
 
 
 def cmd_index(out=None, limit=None):
-    import cocite, json
+    import json
+    from tribonian import cocite
     t0 = time.time()
     d = Path(out) if out else idx_dir()
     files = sorted(pos_dir().glob("*-*.npz"))
     if limit:
         files = files[:limit]
     if not files:
-        sys.exit("no position shards: run ./cocite.py positions first")
+        sys.exit("no position shards: run tribonian cocite positions first")
     ci = np.load(cocite.CACHE / "citing.npy", mmap_mode="r")
     yv = np.load(cocite.CACHE / "year.npy", mmap_mode="r")
     dec_year = np.zeros(int(ci.max()) + 1, np.int16)
@@ -354,7 +355,7 @@ def cmd_index(out=None, limit=None):
     for i, f in enumerate(files):
         with np.load(f) as z:
             if int(z["version"]) != VERSION:
-                sys.exit("%s is extractor version %d, not %d: rerun ./cocite.py positions" % (f.name, int(z["version"]), VERSION))
+                sys.exit("%s is extractor version %d, not %d: rerun tribonian cocite positions" % (f.name, int(z["version"]), VERSION))
             op, cited, para, sent, char, sep = (z[c] for c in ("op", "cited", "para", "sent", "char", "sep"))
         n = len(op)
         n_in += n
@@ -417,12 +418,12 @@ def index():
     import json
     d = idx_dir()
     if not (d / "meta.json").exists():
-        sys.exit("No position index: run ./cocite.py positions --index")
+        sys.exit("No position index: run tribonian cocite positions --index")
     m = json.loads((d / "meta.json").read_text())
     want = idx_meta()
     stale = [k for k in want if m.get(k) != want[k]]
     if stale:
-        sys.exit("The position index is stale (%s): run ./cocite.py positions --index" % ", ".join(stale))
+        sys.exit("The position index is stale (%s): run tribonian cocite positions --index" % ", ".join(stale))
     for c, _t in IDX_COLS:
         _IDX[c] = np.load(d / ("%s.npy" % c), mmap_mode="r")
     _IDX["dec_year"] = np.load(d / "dec_year.npy", mmap_mode="r")
@@ -615,8 +616,9 @@ or parenthetical it relies on."""
 
 
 def cmd_prox_evidence(args):
-    import cocite, json, random as rnd_mod
-    import casemap
+    import json, random as rnd_mod
+    from tribonian import cocite
+    from tribonian import casemap
     slice_ = int(args.slice) - int(args.slice) % cocite.WIDTH
     con = cocite.main_db()
     db = cocite.need_db()
@@ -694,7 +696,7 @@ def cmd_prox_evidence(args):
     for i, r in enumerate(cited.tolist()):
         by_case.setdefault(r, []).append(i)
     ops_con = ops_db()
-    import case2md
+    from tribonian import case2md
     con.execute("ATTACH DATABASE ? AS ops", ("file:%s?mode=ro" % casedb.OPS_DB,))
     text_cache = {}
 
@@ -780,9 +782,8 @@ def add_evidence_parser(sub, view):
     p.add_argument("--passages", type=int, default=4, help="decisions quoted per pair (default %(default)s)")
     p.add_argument("--window", type=int, default=220, help="characters either side of a citation (default %(default)s)")
     p.add_argument("--seed", type=int, default=1)
-    import cocite
-    p.set_defaults(func=sys.modules["__main__"].cmd_prox_evidence if hasattr(sys.modules["__main__"], "cmd_prox_evidence")
-                   else cmd_prox_evidence)
+    from tribonian import cocite
+    p.set_defaults(func=cmd_prox_evidence)
 
 
 # ---------------------------------------------------------------- commands
@@ -883,10 +884,3 @@ def add_parser(sub):
     p.set_defaults(func=cmd_positions)
     return p
 
-
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sp = ap.add_subparsers(dest="cmd", required=True)
-    add_parser(sp)
-    a = ap.parse_args(["positions"] + sys.argv[1:])
-    a.func(a)

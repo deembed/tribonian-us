@@ -1,16 +1,15 @@
-#!/usr/bin/env python3
 """cocite_usc.py -- US Code provisions in the co-citation build (scope: docs/scope-cocite-usc.md).
 
-    ./cocite.py usc-sample --n 2000             # step 1: how Code cites appear in the opinion text; writes nothing
-    ./cocite.py usc-sample --n 2000 --examples 10
-    ./cocite.py usc-extract --show 690840       # step 2: one opinion's Code references, with context
-    ./cocite.py usc-extract --sample 2000       # rates by how/part, commonest sections and popular names
-    ./cocite.py usc-map                         # step 3: old numbers -> current, from xml/ notes -> cocite-cache/usc/usc_map.json
-    ./cocite.py usc-check --holdout 34,52,54    # step 4: map vs data (after the full run)
-    ./cocite.py usc-profile                     # step 5: provisions per sub-cluster -> cocite-cache/usc/profile-<view>.sqlite
-    ./cocite.py usc-profile --node 42:1983      #   which sub-clusters cite a provision; --sub 2010:17 the reverse
-    ./cocite.py usc-citedby                     # step 6: most cited / newest appellate decisions per section -> cocite-cache/usc/citedby.sqlite
-    ./cocite.py usc-extract                     # full run -> cocite-cache/usc/, sharded, resumable, all cores
+    tribonian cocite usc-sample --n 2000             # step 1: how Code cites appear in the opinion text; writes nothing
+    tribonian cocite usc-sample --n 2000 --examples 10
+    tribonian cocite usc-extract --show 690840       # step 2: one opinion's Code references, with context
+    tribonian cocite usc-extract --sample 2000       # rates by how/part, commonest sections and popular names
+    tribonian cocite usc-map                         # step 3: old numbers -> current, from xml/ notes -> cocite-cache/usc/usc_map.json
+    tribonian cocite usc-check --holdout 34,52,54    # step 4: map vs data (after the full run)
+    tribonian cocite usc-profile                     # step 5: provisions per sub-cluster -> cocite-cache/usc/profile-<view>.sqlite
+    tribonian cocite usc-profile --node 42:1983      #   which sub-clusters cite a provision; --sub 2010:17 the reverse
+    tribonian cocite usc-citedby                     # step 6: most cited / newest appellate decisions per section -> cocite-cache/usc/citedby.sqlite
+    tribonian cocite usc-extract                     # full run -> cocite-cache/usc/, sharded, resumable, all cores
 
 Step 1 measures, per random opinion with html_with_citations (the only field positions reads):
     span        citation spans CourtListener marked, by kind: linked case, ambiguous, Id., no link
@@ -31,9 +30,9 @@ from pathlib import Path
 
 import numpy as np
 
-import casedb
-import cocite_positions as cp
-from cocite_positions import NO_LINK
+from tribonian import casedb, tconfig
+from tribonian import cocite_positions as cp
+from tribonian.cocite_positions import NO_LINK
 
 CITE_RE = re.compile(r'<span class="citation([^"]*)"[^>]*>(.*?)</span>', re.S)
 HREF_RE = re.compile(r'href="/opinion/(\d+)/')
@@ -407,7 +406,7 @@ def extract_usc(oid, htm, own):
 
 
 def usc_dir(out=None):
-    import cocite
+    from tribonian import cocite
     return Path(out) if out else cocite.CACHE / "usc"
 
 
@@ -740,7 +739,7 @@ CHECKS = [("42:1973", 2010, "52:10301"), ("42:11603", 2010, "22:9003"), ("18:80"
 
 def cmd_usc_map(args):
     import json
-    xml_dir = Path(args.xml or Path(__file__).resolve().parent / "xml")
+    xml_dir = Path(args.xml or tconfig.WORK / "xml")
     m = build_map(xml_dir)
     if not args.dry:
         p = map_path()
@@ -778,7 +777,7 @@ TITLED = (HOW_CODE["span"], HOW_CODE["regex"], HOW_CODE["short-resolved"], HOW_C
 
 def op2ref():
     """opinion id -> cluster id, cached as cocite-cache/usc/op2ref.npy (prep's pairing of the two indexes)"""
-    import cocite
+    from tribonian import cocite
     f = usc_dir() / "op2ref.npy"
     if f.exists():
         return np.load(f, mmap_mode="r")
@@ -800,7 +799,7 @@ def op2ref():
 
 def load_refs(courts=None):
     """all usc shards -> decision, key id, year arrays (one row per decision x section), key names"""
-    import cocite
+    from tribonian import cocite
     o2r = op2ref()
     ry = np.load(cocite.CACHE / "ref_year.npy", mmap_mode="r")
     lvl = np.load(cocite.CACHE / "level.npy", mmap_mode="r")
@@ -849,7 +848,7 @@ class Partners:
     """Profiles as sparse rows: (statute, decision set) x partners (cases, then Code sections), tf-idf weighted."""
 
     def __init__(self, dec, key, yr, nkeys):
-        import cocite
+        from tribonian import cocite
         self.ci = np.asarray(np.load(cocite.CACHE / "citing.npy", mmap_mode="r"))
         self.cd = np.asarray(np.load(cocite.CACHE / "cited.npy", mmap_mode="r"))
         self.dec, self.key, self.yr, self.nkeys = dec, key, yr, nkeys
@@ -904,7 +903,8 @@ def rowcos(A, B):
 
 
 def cmd_usc_check(args):
-    import cocite, json
+    import json
+    from tribonian import cocite
     courts, tag = cocite.parse_courts(args.courts)
     um = load_map()
     dec, key, yr, keys = load_refs(courts)
@@ -1033,13 +1033,13 @@ def home_subs(ci, cd, edge_year, lvl, sub_of, s, codes):
 
 
 def cmd_usc_profile(args):
-    import cocite
+    from tribonian import cocite
     view = args.view
     if args.node or args.sub:
         return profile_query(args)
     db = cocite.open_view(view)
     if db is None:
-        sys.exit("no results view %s: ./cocite.py build first" % view)
+        sys.exit("no results view %s: tribonian cocite build first" % view)
     codes, _ = cocite.parse_courts(view)
     um = load_map()
     dec, key, yr, keys = load_refs(codes)
@@ -1119,12 +1119,12 @@ def cmd_usc_profile(args):
 def profile_db(view):
     p = profile_path(view)
     if not p.exists():
-        sys.exit("no profile yet: ./cocite.py usc-profile --view %s" % view)
+        sys.exit("no profile yet: tribonian cocite usc-profile --view %s" % view)
     return sqlite3.connect("file:%s?mode=ro&immutable=1" % p, uri=True)
 
 
 def profile_query(args):
-    import cocite
+    from tribonian import cocite
     db, pr = cocite.open_view(args.view), profile_db(args.view)
     if args.node:
         nodes = [r[0] for r in pr.execute("SELECT DISTINCT node FROM noden WHERE node = ? OR node LIKE ?",
@@ -1157,7 +1157,7 @@ _SEC = {}
 def _sec_state(view):
     """(results view, profile db, map, links into each node) once per process; None when not built"""
     if view not in _SEC:
-        import cocite
+        from tribonian import cocite
         try:
             db, p = cocite.open_view(view), profile_path(view)
             if db is None or not p.exists() or not map_path().exists():
@@ -1184,7 +1184,7 @@ def note_link(node):
 def section_md(identifier, view=None, top=3, min_n=5):
     """Markdown lines for '## Cited with' in a section note: per slice, newest first, the sub-clusters whose decisions
     cite this section most, linked to their lineage notes in the co-citation vault. [] when nothing to show."""
-    import cocite
+    from tribonian import cocite
     st = _sec_state(view or cocite.NOTE_VIEW)
     if st is None:
         return []
@@ -1253,7 +1253,7 @@ def citedby_path():
 def case_rows(con, want):
     """cluster id -> (name, best citation, date filed, slug). One sequential scan for many ids, as cocite.fill_names
     (on the hard disk each index lookup is a seek). The slug as case2md.opinion_url: the database's, else from the name."""
-    from case2md import slugify
+    from tribonian.case2md import slugify
     want = sorted({int(x) for x in want})
     info, cites = {}, {}
     if not want:
@@ -1297,7 +1297,8 @@ def groups(n_sorted):
 
 
 def cmd_usc_citedby(args):
-    import cocite, shutil, tempfile
+    import shutil, tempfile
+    from tribonian import cocite
     con = cocite.main_db()
     row = con.execute("SELECT file FROM loaded WHERE name='citation-map'").fetchone()
     m = re.search(r"\d{4}-\d\d-\d\d", row[0]) if row else None
@@ -1411,13 +1412,13 @@ def _cb_state():
         except sqlite3.Error:
             _CB["db"] = None
         try:
-            _CB["index"] = json.loads((Path(__file__).resolve().parent / "cases" / "_index.json").read_text(encoding="utf-8"))
+            _CB["index"] = json.loads((tconfig.WORK / "cases" / "_index.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             _CB["index"] = {}
         _CB["meta"] = dict(_CB["db"].execute("SELECT key, value FROM meta")) if _CB["db"] else {}
         if _CB["meta"].get("version") != str(CITEDBY_VERSION):     # older file: leave the sections out until rebuilt
             if _CB["db"]:
-                print("  %s is version %s, this code needs %d: rerun ./cocite.py usc-citedby"
+                print("  %s is version %s, this code needs %d: rerun tribonian cocite usc-citedby"
                       % (p.name, _CB["meta"].get("version"), CITEDBY_VERSION), file=sys.stderr)
             _CB["db"] = None
     return _CB["db"], _CB["index"], _CB["meta"]
@@ -1528,7 +1529,7 @@ def add_parser(sub):
     p.add_argument("--show", type=int, default=15)
     p.add_argument("--seed", type=int, default=0)
     p.set_defaults(func=cmd_usc_check)
-    import cocite
+    from tribonian import cocite
     p = sub.add_parser("usc-profile", help="which Code provisions each sub-cluster's decisions cite (cocite_usc.py)")
     p.add_argument("--view", default=cocite.NOTE_VIEW, help="results view (default: the case notes' view)")
     p.add_argument("--node", help="show one provision, e.g. 42:1983 (all its reuse eras)")
@@ -1542,10 +1543,3 @@ def add_parser(sub):
     p.set_defaults(func=cmd_usc_citedby)
     return p
 
-
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sp = ap.add_subparsers(dest="cmd", required=True)
-    add_parser(sp)
-    a = ap.parse_args(["usc-sample"] + sys.argv[1:])
-    a.func(a)

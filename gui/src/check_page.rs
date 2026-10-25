@@ -14,7 +14,7 @@ use eframe::egui::{self, Color32, RichText, Ui};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use crate::config::Py;
 use std::sync::mpsc::{channel, Receiver};
 
 #[derive(Clone, Debug, Deserialize)]
@@ -52,18 +52,18 @@ pub struct CheckUi {
     started: bool,
 }
 
-fn spawn(python: String, repo: PathBuf, api: bool, wake: impl Fn() + Send + 'static) -> Receiver<Result<Report, String>> {
+fn spawn(py: Py, api: bool, wake: impl Fn() + Send + 'static) -> Receiver<Result<Report, String>> {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
-        let mut args = vec!["check.py".to_string(), "--json".to_string()];
+        let mut args = vec!["check".to_string(), "--json".to_string()];
         if api {
             args.push("--api".into());
         }
-        // check.py exits 1 when no mode is ready; its JSON is on stdout either way
-        let r = match Command::new(&python).current_dir(&repo).args(&args).output() {
-            Err(e) => Err(format!("could not run {python} check.py in {}: {e}", repo.display())),
+        // `tribonian check` exits 1 when no mode is ready; its JSON is on stdout either way
+        let r = match py.cmd().args(&args).output() {
+            Err(e) => Err(format!("could not run {} -m tribonian check: {e}", py.python)),
             Ok(o) => serde_json::from_slice::<Report>(&o.stdout)
-                .map_err(|e| format!("check.py gave no report ({e}):\n{}", String::from_utf8_lossy(&o.stderr))),
+                .map_err(|e| format!("tribonian check gave no report ({e}):\n{}", String::from_utf8_lossy(&o.stderr))),
         };
         let _ = tx.send(r);
         wake();
@@ -75,7 +75,7 @@ fn start(app: &mut App) {
     app.check_ui.started = true;
     let Some(cfg) = &app.cfg else { return };
     let ctx = app.egui_ctx.clone();
-    app.check_ui.rx = Some(spawn(cfg.python.clone(), cfg.repo_dir.clone(), app.check_ui.api, move || {
+    app.check_ui.rx = Some(spawn(cfg.py(), app.check_ui.api, move || {
         if let Some(c) = &ctx {
             c.request_repaint();
         }
@@ -94,7 +94,7 @@ fn local(status: &'static str, label: &str, detail: String, fix: &str) -> Local 
     Local { status, label: label.into(), detail, fix: fix.into() }
 }
 
-/// The scripts run with the repo as working directory, so their relative paths are relative to it.
+/// The scripts run in the work folder, so their relative paths are relative to it.
 fn resolve(repo: &Path, s: &str) -> PathBuf {
     let p = PathBuf::from(s);
     if p.is_absolute() {
@@ -141,19 +141,20 @@ fn local_checks(app: &App) -> Vec<Local> {
         });
     }
     match &cfg.paths_error {
-        None => out.push(local("ok", "Data paths", "from the scripts (check.py --paths)".into(), "")),
+        None => out.push(local("ok", "Data paths", "from the scripts (tribonian check --paths)".into(), "")),
         Some(e) => out.push(Local {
             status: "warn",
             label: "Data paths".into(),
             detail: format!("the app's own defaults, because {e}"),
-            fix: format!("check that `{} check.py --paths` runs in {}", cfg.python, cfg.repo_dir.display()),
+            fix: format!("check that `PYTHONPATH={}/src {} -m tribonian check --paths` runs", cfg.repo_dir.display(), cfg.python),
         }),
     }
-    if cfg.repo_dir.join("check.py").is_file() {
+    if cfg.repo_dir.join("src").join("tribonian").join("check.py").is_file() {
         out.push(local("ok", "repo_dir", cfg.repo_dir.display().to_string(), ""));
     } else {
-        out.push(local("fail", "repo_dir", format!("{}: no check.py there", cfg.repo_dir.display()), "set repo_dir in gui.toml to the tribonian-us folder"));
+        out.push(local("fail", "repo_dir", format!("{}: no src/tribonian/ there", cfg.repo_dir.display()), "set repo_dir in gui.toml to the tribonian-us folder"));
     }
+    out.push(local("ok", "Work folder", cfg.work_dir.display().to_string(), ""));
     if !cfg.bulk_dir.is_dir() {
         out.push(local("fail", "bulk_dir", format!("{}: not a folder (disk not mounted?)", cfg.bulk_dir.display()), "set bulk_dir (or cocite_db) in the config file, or mount the disk"));
     }
@@ -169,7 +170,7 @@ fn local_checks(app: &App) -> Vec<Local> {
     );
     // Old-schema files are only skipped (the app never opens them), so they don't make this a warning.
     let st = if good > 0 && default_found { "ok" } else { "warn" };
-    out.push(local(st, "Co-citation views", detail, if good == 0 { "./cocite.py build (README stage 5)" } else { "" }));
+    out.push(local(st, "Co-citation views", detail, if good == 0 { "tribonian cocite build (README stage 5)" } else { "" }));
     // gui.toml vs the scripts' paths
     if let Some(Ok(rep)) = &app.check_ui.result {
         let pairs = [
@@ -180,7 +181,7 @@ fn local_checks(app: &App) -> Vec<Local> {
         ];
         for (key, label, gui, toml_key, env) in pairs {
             let Some(s) = rep.paths.get(key).and_then(|v| v.as_str()) else { continue };
-            let script = resolve(&cfg.repo_dir, s);
+            let script = resolve(&cfg.work_dir, s);
             let label = format!("Same {} as the scripts", label.to_lowercase());
             if same(&gui, &script) {
                 out.push(local("ok", &label, gui.display().to_string(), ""));
@@ -236,7 +237,7 @@ pub fn check_page(app: &mut App, ui: &mut Ui) {
     }
     let running = app.check_ui.rx.is_some();
     ui.heading("Check setup");
-    ui.weak("Is each piece there, and does it answer a query? The same checks as ./check.py on the command line.");
+    ui.weak("Is each piece there, and does it answer a query? The same checks as tribonian check on the command line.");
     ui.horizontal(|ui| {
         if ui.add_enabled(!running && app.cfg.is_some(), egui::Button::new("Run again")).clicked() {
             start(app);

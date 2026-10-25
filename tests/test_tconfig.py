@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """tconfig: the TOML subset reader, and variable > config file > default, offline.
 
-    python3 -m unittest tests.test_tconfig -v
+    python -m pytest tests/test_tconfig.py
 """
 import json, os, shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-import tconfig                                  # noqa: E402
+from tribonian import tconfig                                  # noqa: E402
 
 SAMPLE = '''# comment
 bulk_dir = "~/bulk"     # trailing comment
@@ -23,10 +23,11 @@ on = true
 
 
 def paths(env):
-    """check.py --paths in a clean environment plus env."""
-    base = {k: v for k, v in os.environ.items() if not (k.startswith("CL_") or k in ("TRIBONIAN_CONFIG", "XDG_CONFIG_HOME"))}
-    out = subprocess.run([sys.executable, str(ROOT / "check.py"), "--paths"], capture_output=True, text=True,
-                         cwd=ROOT, env=dict(base, **env))
+    """tribonian check --paths in a clean environment plus env."""
+    base = {k: v for k, v in os.environ.items()
+            if not (k.startswith("CL_") or k in ("TRIBONIAN_CONFIG", "XDG_CONFIG_HOME", "TRIBONIAN_WORK"))}
+    out = subprocess.run([sys.executable, "-m", "tribonian", "check", "--paths"], capture_output=True, text=True,
+                         cwd=ROOT, env=dict(base, PYTHONPATH=str(ROOT / "src"), **env))
     return json.loads(out.stdout), out.stderr
 
 
@@ -58,12 +59,23 @@ class Precedence(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.d, ignore_errors=True)
 
-    def test_file_beats_default_and_relative_is_repo(self):
+    def test_file_beats_default_and_relative_is_work(self):
         p, _ = paths({"TRIBONIAN_CONFIG": str(self.cfg)})
         self.assertEqual(p["main_db"], str(self.d / "file.sqlite"))
+        self.assertEqual(p["work_dir"], str(ROOT))                      # a checkout works in itself
         self.assertEqual(p["search_db"], str(ROOT / "db" / "s.sqlite"))
         self.assertEqual(p["config_file"], str(self.cfg))
         self.assertEqual(p["gui"], {"default_view": "v"})
+
+    def test_work_dir_from_file_and_variable(self):
+        work = self.d / "work"
+        self.cfg.write_text('work_dir = "%s"\nsearch_db = "db/s.sqlite"\n' % work)
+        p, _ = paths({"TRIBONIAN_CONFIG": str(self.cfg)})
+        self.assertEqual(p["work_dir"], str(work))
+        self.assertEqual(p["search_db"], str(work / "db" / "s.sqlite"))
+        self.assertEqual(p["main_db"], str(work / "bulk" / "courtlistener.sqlite"))
+        p, _ = paths({"TRIBONIAN_CONFIG": str(self.cfg), "TRIBONIAN_WORK": str(self.d / "other")})
+        self.assertEqual(p["work_dir"], str(self.d / "other"))
 
     def test_variable_beats_file(self):
         p, _ = paths({"TRIBONIAN_CONFIG": str(self.cfg), "CL_DB": str(self.d / "env.sqlite")})
@@ -76,9 +88,13 @@ class Precedence(unittest.TestCase):
         self.assertEqual(p["config_file"], str(self.d / "tribonian-us" / "config.toml"))
 
     def test_no_file_is_default(self):
-        p, _ = paths({"XDG_CONFIG_HOME": str(self.d / "none")})
+        work = self.d / "work"
+        p, _ = paths({"XDG_CONFIG_HOME": str(self.d / "none"), "TRIBONIAN_WORK": str(work)})
         self.assertIsNone(p["config_file"])
-        self.assertEqual(p["opinions_db"], str(ROOT / "db" / "opinions.sqlite"))
+        self.assertEqual(p["opinions_db"], str(work / "bulk" / "opinions.sqlite"))   # no db/: beside main_db
+        (work / "db").mkdir(parents=True)
+        p, _ = paths({"XDG_CONFIG_HOME": str(self.d / "none"), "TRIBONIAN_WORK": str(work)})
+        self.assertEqual(p["opinions_db"], str(work / "db" / "opinions.sqlite"))
 
     def test_broken_file_is_ignored_and_reported(self):
         self.cfg.write_text("main_db =\n")

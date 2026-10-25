@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Audit wikilink connectivity across the generated US Code markdown corpus.
 
 Orphan = a note with zero outbound [[wikilinks]] AND zero inbound links.
@@ -6,7 +5,7 @@ Reports orphan counts by title/chapter and by heading archetype, so you can
 tell structural plumbing (definitions, savings clauses, effective dates)
 apart from genuinely missing link extraction.
 
-Usage:  ./link_audit.py [md_root]        # default: ./md
+Usage:  tribonian link-audit [md_root]        # default: ./md
 """
 import re, sys, os, collections
 

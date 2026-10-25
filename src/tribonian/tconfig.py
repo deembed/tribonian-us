@@ -1,4 +1,4 @@
-"""tconfig.py -- tribonian-us settings: environment variable, else the config file, else the default.
+r"""tconfig.py -- tribonian-us settings: environment variable, else the config file, else the default.
 
 The config file (optional) is:
     $TRIBONIAN_CONFIG                                if set, else
@@ -6,12 +6,13 @@ The config file (optional) is:
     %APPDATA%\tribonian-us\config.toml               (native Windows)
 
 It is TOML. Top-level keys are shared by the scripts and the GUI; the [gui] table is the GUI's own.
-See config.example.toml. Paths may start with ~; a relative path is relative to the repo.
+See config.example.toml. Paths may start with ~; a relative path is relative to the work folder.
 
     key                  variable               default
-    bulk_dir             CL_BULK                <repo>/bulk
+    work_dir             TRIBONIAN_WORK         the checkout (when run from one), else $XDG_DATA_HOME/tribonian-us
+    bulk_dir             CL_BULK                <work>/bulk
     main_db              CL_DB                  <bulk_dir>/courtlistener.sqlite
-    opinions_db          CL_OPS_DB              <repo>/db/opinions.sqlite (if db/ exists), else beside main_db
+    opinions_db          CL_OPS_DB              <work>/db/opinions.sqlite (if db/ exists), else beside main_db
     search_db            CL_SEARCH_DB           beside main_db
     cocite_db            CL_COCITE_DB           beside main_db (cocite.sqlite; views are cocite-<view>.sqlite)
     api_limits           CL_LIMITS              "5,50,125"  (per minute, hour, day)
@@ -23,12 +24,14 @@ subset this file needs ([tables], key = "string" | 'string' | number | true/fals
 import os, re, sys
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+PKG = Path(__file__).resolve().parent            # the package: shipped data (data/, sh/)
+# The source checkout this package runs from (pip install -e, or PYTHONPATH=src), else None.
+REPO = PKG.parent.parent if (PKG.parent.parent / "pyproject.toml").is_file() else None
 
 # key -> environment variable
-ENV = {"bulk_dir": "CL_BULK", "main_db": "CL_DB", "opinions_db": "CL_OPS_DB", "search_db": "CL_SEARCH_DB",
+ENV = {"work_dir": "TRIBONIAN_WORK", "bulk_dir": "CL_BULK", "main_db": "CL_DB", "opinions_db": "CL_OPS_DB", "search_db": "CL_SEARCH_DB",
        "cocite_db": "CL_COCITE_DB", "api_limits": "CL_LIMITS", "courtlistener_token": "COURTLISTENER_TOKEN"}
-PATH_KEYS = {"bulk_dir", "main_db", "opinions_db", "search_db", "cocite_db"}
+PATH_KEYS = {"work_dir", "bulk_dir", "main_db", "opinions_db", "search_db", "cocite_db"}
 
 
 def config_path():
@@ -105,9 +108,38 @@ except ValueError as e:          # reported by check.py; the scripts carry on wi
     print("tribonian-us: ignoring the config file: %s" % e, file=sys.stderr)
 
 
+def _work():
+    """The work folder: every input and output (xml/, cases/, md*/, pdf/, build/, state/, bulk/, db/)
+    lives under it. TRIBONIAN_WORK, else the config file's work_dir, else the checkout, else the XDG
+    data folder (a pip install with no config)."""
+    v = os.environ.get("TRIBONIAN_WORK") or FILE.get("work_dir")
+    if v:
+        return Path(str(v)).expanduser().resolve()
+    if REPO:
+        return REPO
+    if os.name == "nt" and os.environ.get("LOCALAPPDATA"):
+        return Path(os.environ["LOCALAPPDATA"]) / "tribonian-us"
+    return Path(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")) / "tribonian-us"
+
+
+WORK = _work()
+
+
+def data_file(name, write=False):
+    """A tracked data file, data/<name>: the work folder's copy if there is one, else the package's.
+    For writing, the package's copy only while it is writable (a checkout), else the work folder's."""
+    w, p = WORK / "data" / name, PKG / "data" / name
+    if w.exists():
+        return w
+    if write and not os.access(p.parent, os.W_OK):
+        w.parent.mkdir(parents=True, exist_ok=True)
+        return w
+    return p
+
+
 def _path(v):
     p = Path(str(v)).expanduser()
-    return p if p.is_absolute() else HERE / p
+    return p if p.is_absolute() else WORK / p
 
 
 def get(key, default=None):

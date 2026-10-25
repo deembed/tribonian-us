@@ -2,7 +2,7 @@
 //! cases CourtListener's semantic search finds for each paragraph, re-ranked by the semantic score
 //! and grouped by the co-citation sub-cluster each case sits in.
 //!
-//! The search is the repo's `casemap.py semsearch` (semsearch.py), queued like any other script:
+//! The search is the repo's `tribonian map semsearch` (semsearch.py), queued like any other script:
 //! the draft goes to it as the query argument (blank lines separate paragraphs), the output goes to
 //! cases/semsearch/gui-<time>/results.json, and this page reads that file. The app writes nothing;
 //! the API token, rate limits and the response cache all stay in the Python. A rerun of the same
@@ -157,7 +157,7 @@ fn refresh(app: &mut App) {
 
 pub fn sem_side(app: &mut App, ui: &mut Ui) {
     ui.heading("Sub-Cluster Search");
-    ui.weak("Earlier searches (this page's and casemap.py semsearch's)");
+    ui.weak("Earlier searches (this page's and tribonian map semsearch's)");
     ui.separator();
     let Some(cfg) = app.cfg.as_ref() else { return };
     let cases = cfg.cases_dir();
@@ -222,7 +222,7 @@ pub fn sem_page(app: &mut App, ui: &mut Ui) {
         let too_big = app.sem_ui.text.len() > MAX_TEXT;
         run = ui.add_enabled(!empty && !too_big && app.cfg.is_some(), egui::Button::new("Search")).clicked();
         if too_big {
-            ui.colored_label(Color32::LIGHT_RED, format!("over {} characters: run casemap.py semsearch --file instead", MAX_TEXT));
+            ui.colored_label(Color32::LIGHT_RED, format!("over {} characters: run tribonian map semsearch --file instead", MAX_TEXT));
         }
     });
     if windows == 0 {
@@ -247,7 +247,7 @@ fn start(app: &mut App) {
     let stamp = chrono_like_stamp();
     let dir = cfg.cases_dir().join("semsearch").join(format!("gui-{stamp}"));
     let rel = format!("cases/semsearch/gui-{stamp}");
-    let mut args: Vec<String> = vec!["casemap.py".into(), "semsearch".into(), "--out".into(), rel, "--pages".into(), app.sem_ui.pages.to_string()];
+    let mut args: Vec<String> = vec!["map".into(), "semsearch".into(), "--out".into(), rel, "--pages".into(), app.sem_ui.pages.to_string()];
     if !app.sem_ui.court.trim().is_empty() {
         args.extend(["--court".into(), app.sem_ui.court.trim().to_string()]);
     }
@@ -295,7 +295,7 @@ fn unit_page(slice: Option<i64>, cl: Option<i64>, sub: Option<i64>) -> Option<Pa
 fn show_results(app: &mut App, ui: &mut Ui) {
     let r = match &app.sem_ui.results {
         None if app.sem_ui.dir.is_some() => {
-            ui.weak("Waiting for casemap.py semsearch… (its output is in the log panel)");
+            ui.weak("Waiting for tribonian map semsearch… (its output is in the log panel)");
             return;
         }
         None => return,

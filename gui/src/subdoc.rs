@@ -56,14 +56,14 @@ pub fn bar(app: &mut App, ui: &mut Ui, slice: i64, sub: i64) {
     let label = format!("{sl}:{}", code(sub));
     let prefix = format!("{sl} {} - ", code(sub));
     let rel = rel_dir(&view, &sl);
-    let md_dir = cfg.repo_dir.join("md-cocite").join("Sub-clusters").join(&rel);
-    let pdf = find(&cfg.repo_dir.join("pdf").join("Co-citation").join(&rel), &prefix, "pdf");
+    let md_dir = cfg.work_dir.join("md-cocite").join("Sub-clusters").join(&rel);
+    let pdf = find(&cfg.work_dir.join("pdf").join("Co-citation").join(&rel), &prefix, "pdf");
     let md = find(&md_dir, &prefix, "md");
     let k = key(slice, sub);
     let queued = app.is_queued(k);
     ui.horizontal(|ui| {
         let args = |gl: bool| {
-            let mut a = vec!["cocite.py".to_string(), "subdoc".into(), label.clone(), "--view".into(), view.clone()];
+            let mut a = vec!["cocite".to_string(), "subdoc".into(), label.clone(), "--view".into(), view.clone()];
             if gl {
                 a.push("--goodlaw".into());
             }

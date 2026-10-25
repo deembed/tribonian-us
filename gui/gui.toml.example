@@ -1,5 +1,5 @@
 # Old: the GUI's settings now go in the [gui] table of ~/.config/tribonian-us/config.toml
-# (see ../config.example.toml), and its data paths come from the scripts (../check.py --paths).
+# (see ../config.example.toml), and its data paths come from the scripts (tribonian check --paths).
 # A gui.toml is still read (the app's first argument, then ./gui.toml, then gui.toml beside
 # Cargo.toml) and overrides [gui]; Check setup flags it. Kept for existing installs.
 
@@ -9,7 +9,7 @@
 # python = "python3"
 
 # Path overrides, for the app only (the scripts don't see them):
-# repo_dir = "/path/to/tribonian-us"
+# repo_dir = "/path/to/tribonian-us"      (the checkout: src/tribonian/, gui/)
 # bulk_dir = "/path/to/courtlistener"
 # main_db = "/path/to/courtlistener.sqlite"
 # opinions_db = "/path/to/opinions.sqlite"

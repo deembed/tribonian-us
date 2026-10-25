@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # Mirror the generated section notes into the USC Obsidian vault.
 #
-#   ./sync_vault.sh                      md/ -> ~/Obsidian/usc-vault/08-Reference/USC
-#   VAULT=/path/to/vault ./sync_vault.sh
-#   DRY=1 ./sync_vault.sh                show what would change, touch nothing
-#   FORCE=1 ./sync_vault.sh              sync even when the source looks like a partial build
+#   tribonian sync-vault                      md/ -> ~/Obsidian/usc-vault/08-Reference/USC
+#   VAULT=/path/to/vault tribonian sync-vault
+#   DRY=1 tribonian sync-vault                show what would change, touch nothing
+#   FORCE=1 tribonian sync-vault              sync even when the source looks like a partial build
 #
 # 08-Reference/USC is generator-owned: anything in it that is not in md/ is
 # DELETED. Your own notes belong in 00-Inbox / 06-Zettelkasten / 06-Zettel MOC
 # and link into the statutes with [[5-usc-552a]].
 set -euo pipefail
-cd "$(dirname "$0")"
+# Runs in the current folder: `tribonian sync-vault` starts it in the work folder.
 
 VAULT="${VAULT:-$HOME/Obsidian/usc-vault}"
 DEST="$VAULT/08-Reference/USC"
 
 [[ -d $VAULT/.obsidian ]] || { echo "not an Obsidian vault: $VAULT" >&2; exit 1; }
-[[ -d md ]]               || { echo "no md/ here -- run ./build_all.sh first" >&2; exit 1; }
+[[ -d md ]]               || { echo "no md/ here -- run tribonian build first" >&2; exit 1; }
 
 # --delete from a half-built source would prune the vault to match. Refuse when the
 # source holds fewer than 90% of the notes already in the vault; FORCE=1 overrides.

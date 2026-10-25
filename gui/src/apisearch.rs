@@ -6,8 +6,7 @@
 use crate::model::Page;
 use crate::search::{looks_like_cite, Mode};
 use serde::Deserialize;
-use std::path::PathBuf;
-use std::process::Command;
+use crate::config::Py;
 use std::sync::mpsc::Sender;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -47,16 +46,16 @@ pub fn api_mode(query: &str, mode: Mode) -> &'static str {
     }
 }
 
-pub fn spawn(python: String, repo: PathBuf, page: Page, tx: Sender<Resp>, wake: impl Fn() + Send + 'static) {
+pub fn spawn(py: Py, page: Page, tx: Sender<Resp>, wake: impl Fn() + Send + 'static) {
     let Page::Search { query, mode } = page.clone() else { return };
     std::thread::spawn(move || {
-        let out = Command::new(&python)
-            .current_dir(&repo)
-            .args(["case2md.py", "api-search", "--json", "--mode", api_mode(&query, mode), "--"])
+        let out = py
+            .cmd()
+            .args(["case", "api-search", "--json", "--mode", api_mode(&query, mode), "--"])
             .arg(&query)
             .output();
         let result = match out {
-            Err(e) => Err(format!("{python}: {e}")),
+            Err(e) => Err(format!("{} -m tribonian: {e}", py.python)),
             Ok(o) => {
                 let stdout = String::from_utf8_lossy(&o.stdout);
                 match stdout.lines().rev().find(|l| l.starts_with('{')) {

@@ -1,9 +1,8 @@
-#!/usr/bin/env python3
 """semsearch.py -- CourtListener semantic search, re-ranked and joined to the co-citation clusters.
 
-    ./casemap.py semsearch "an agency that reverses a rule must explain why"
-    ./casemap.py semsearch --file draft.md            one search per paragraph (blank-line separated)
-    ./casemap.py semsearch "..." --window 1983-01-01:1983-12-31 --court scotus
+    tribonian map semsearch "an agency that reverses a rule must explain why"
+    tribonian map semsearch --file draft.md            one search per paragraph (blank-line separated)
+    tribonian map semsearch "..." --window 1983-01-01:1983-12-31 --court scotus
 
 What it does, per paragraph:
   1. one search per date window (the date the hit was decided). Windows are the five-year co-citation
@@ -30,7 +29,7 @@ import argparse, hashlib, json, re, sqlite3, sys, time, urllib.parse
 from datetime import date
 from pathlib import Path
 
-import case2md as c
+from tribonian import case2md as c
 
 OUT = c.CASES / "semsearch"
 CACHE = OUT / "_cache"
@@ -46,7 +45,7 @@ def slice_windows(view=None):
     """The co-citation slices as date windows [(after, before, label)], oldest first. None when the
     view is not built (then --since or --window is needed)."""
     try:
-        import cocite
+        from tribonian import cocite
         db = cocite.open_view(view or cocite.NOTE_VIEW)
     except Exception:
         return None
@@ -68,7 +67,7 @@ def windows_for(args):
         return out
     wins = slice_windows(args.courts)
     if wins is None:                   # no view built: the same five-year grid, up to this year
-        import cocite
+        from tribonian import cocite
         w, now, since = cocite.WIDTH, date.today().year, args.since if args.since is not None else SINCE
         s0 = since - since % w
         wins = [("%d-01-01" % s, "%d-12-31" % (s + w - 1), cocite.label(s)) for s in range(s0, now + 1, w)]
@@ -175,7 +174,7 @@ def cluster_join(ids_list, view=None):
     any slice gets nothing. ids_list: per hit, all its record ids (a duplicate record may be the one
     the citation map uses)."""
     try:
-        import cocite
+        from tribonian import cocite
         db = cocite.open_view(view or cocite.NOTE_VIEW)
     except Exception:
         db = None
@@ -315,7 +314,11 @@ def add_args(p):
                    help="--file: skip paragraphs shorter than this (default %d)" % MIN_CHARS)
 
 
-if __name__ == "__main__":
+def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     add_args(ap)
     run(ap.parse_args())
+
+
+if __name__ == "__main__":
+    main()

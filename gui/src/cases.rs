@@ -25,7 +25,7 @@ pub struct Note {
     pub r#ref: Option<i64>,
     pub title: String,
     pub pdf: Option<PathBuf>,
-    /// `scotus.py build` notes (docket and filing notes): the docket number from the front matter.
+    /// `tribonian scotus build` notes (docket and filing notes): the docket number from the front matter.
     pub docket: Option<String>,
     /// A filing note's `source`: the URL of the filed PDF, which matches the docket entry's link.
     pub source: Option<String>,
@@ -173,7 +173,7 @@ impl CaseFiles {
         out
     }
 
-    /// The notes `scotus.py build` wrote for a docket: (the docket note, the filing notes).
+    /// The notes `tribonian scotus build` wrote for a docket: (the docket note, the filing notes).
     pub fn docket_notes(&self, num: &str) -> (Option<&Note>, Vec<&Note>) {
         let mine: Vec<&Note> = self.folders.values().flatten().filter(|n| n.docket.as_deref() == Some(num)).collect();
         let docket = mine.iter().find(|n| n.source.as_deref().is_some_and(|s| s.contains("/RSS/Cases/JSON/"))).copied();

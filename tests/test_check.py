@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """check.py: probes against small synthetic databases, and the mode logic, offline.
 
-    python3 -m unittest tests.test_check -v
+    python -m pytest tests/test_check.py
 """
 import json, os, shutil, sqlite3, subprocess, sys, tempfile, unittest, zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-import check                                    # noqa: E402
+from tribonian import check                                    # noqa: E402
 
 SF = 110991
 
@@ -43,8 +43,8 @@ def main_db(path, with_probe=True):
 
 
 def run(env):
-    out = subprocess.run([sys.executable, str(ROOT / "check.py"), "--json"], capture_output=True, text=True,
-                         cwd=ROOT, env=dict(os.environ, **env))
+    out = subprocess.run([sys.executable, "-m", "tribonian", "check", "--json"], capture_output=True, text=True,
+                         cwd=ROOT, env=dict(os.environ, PYTHONPATH=str(ROOT / "src"), **env))
     rep = json.loads(out.stdout)
     return out.returncode, rep, {r["key"]: r for r in rep["checks"]}
 
@@ -115,7 +115,7 @@ class Probes(unittest.TestCase):
         c.commit()
         code, rep, by = run(self.env)
         self.assertEqual(by["db:parentheticals"]["status"], "fail")
-        self.assertEqual(by["db:parentheticals"]["fix"], "./casedb.py load parentheticals")
+        self.assertEqual(by["db:parentheticals"]["fix"], "tribonian db load parentheticals")
         self.assertFalse(rep["modes"]["lite"]["ok"])
 
 

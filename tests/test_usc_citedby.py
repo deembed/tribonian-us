@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """usc-citedby: 'Cited by' and 'Recent appellate cites' for US Code notes, on a tiny fake database, offline.
 
-    python3 -m unittest tests.test_usc_citedby -v
+    python -m pytest tests/test_usc_citedby.py
 """
 import shutil, sqlite3, sys, tempfile, types, unittest
 from pathlib import Path
@@ -9,10 +9,10 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-import cocite                                  # noqa: E402
-import cocite_usc as cu                        # noqa: E402
+from tribonian import cocite                                  # noqa: E402
+from tribonian import cocite_usc as cu                        # noqa: E402
 
 
 class FakeMap:
