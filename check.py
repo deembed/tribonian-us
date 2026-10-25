@@ -17,7 +17,7 @@ CourtListener cluster 110991), through an index, so a check is quick even on a h
 A table that loaded but lacks that case (a --limit sample load) is a warning, not a failure.
 Reads only: every database is opened read-only; nothing is written.
 """
-import argparse, glob, importlib, json, os, shutil, sqlite3, subprocess, sys, time, zlib
+import argparse, glob, importlib, json, os, re, shutil, sqlite3, subprocess, sys, time, zlib
 from pathlib import Path
 
 import casedb                      # paths only (tconfig: CL_* variable, config file, default); stdlib
@@ -27,6 +27,7 @@ HERE = Path(__file__).resolve().parent
 # cocite.py's location, repeated here so the check runs before numpy/igraph are installed
 COCITE_BASE = tconfig.get("cocite_db", casedb.DB.with_name("cocite.sqlite"))
 COCITE_CACHE = COCITE_BASE.with_name("cocite-cache")
+COCITE_SCHEMA = "4"                # cocite.py SCHEMA_VERSION; the GUI reads only this one
 
 PROBE = {"cluster": 110991, "cite": ("463", "U.S.", "29"), "name": "State Farm"}
 
@@ -373,7 +374,9 @@ def run_derived():
         db = ro(casedb.SEARCH_DB)
         r = [x[0] for x in db.execute("SELECT cluster_id FROM names WHERE names MATCH ? LIMIT 50", ('"%s"' % PROBE["name"],))]
         stamp = db.execute("SELECT stamp FROM meta").fetchone()
-        msg = "%s (%s, %s); \"%s\": %d+ hits" % (casedb.SEARCH_DB, gb(casedb.SEARCH_DB), stamp[0] if stamp else "no stamp",
+        # the stamp records when its source tables were loaded; show just the dates
+        built = "built from tables loaded " + ", ".join(sorted(set(re.findall(r"\d{4}-\d\d-\d\d", stamp[0] or "")))) if stamp else "no stamp"
+        msg = "%s (%s, %s); \"%s\": %d+ hits" % (casedb.SEARCH_DB, gb(casedb.SEARCH_DB), built,
                                                 PROBE["name"], len(r))
         c.ok(msg) if r else c.warn(msg + ", none", "./casedb.py index")
 
@@ -390,8 +393,10 @@ def run_derived():
                 schema = db.execute("SELECT value FROM meta WHERE key='schema'").fetchone()
                 k = db.execute("SELECT count(*) FROM slices").fetchone()[0]
                 hit = db.execute("SELECT slice, cl FROM nodes WHERE ref=? ORDER BY slice DESC LIMIT 1", (PROBE["cluster"],)).fetchone()
-                parts.append("%s: schema %s, %d slices%s" % (Path(f).stem, schema[0] if schema else "?", k,
-                                                              ", probe in cluster %d (%d)" % (hit[1], hit[0]) if hit else ""))
+                old = (schema[0] if schema else "1") != COCITE_SCHEMA
+                parts.append("%s: schema %s%s, %d slices%s" % (
+                    Path(f).stem, schema[0] if schema else "?", " (older; the GUI skips it)" if old else "", k,
+                    ", probe in cluster %d (%d)" % (hit[1], hit[0]) if hit else ""))
             except sqlite3.Error as e:
                 bad += 1
                 parts.append("%s: %s" % (Path(f).stem, e))

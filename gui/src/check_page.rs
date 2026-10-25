@@ -38,8 +38,9 @@ pub struct Report {
     pub best: Option<String>,
     pub modes: BTreeMap<String, ModeState>,
     pub checks: Vec<Item>,
+    /// check.py's paths(): strings, plus config_error (null) and gui (a table), hence Value.
     #[serde(default)]
-    pub paths: BTreeMap<String, String>,
+    pub paths: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Default)]
@@ -178,7 +179,7 @@ fn local_checks(app: &App) -> Vec<Local> {
             ("cocite_dir", "Co-citation folder", cfg.bulk_dir.clone(), "bulk_dir", "CL_COCITE_DB"),
         ];
         for (key, label, gui, toml_key, env) in pairs {
-            let Some(s) = rep.paths.get(key) else { continue };
+            let Some(s) = rep.paths.get(key).and_then(|v| v.as_str()) else { continue };
             let script = resolve(&cfg.repo_dir, s);
             let label = format!("Same {} as the scripts", label.to_lowercase());
             if same(&gui, &script) {

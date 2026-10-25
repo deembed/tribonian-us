@@ -94,6 +94,15 @@ class Probes(unittest.TestCase):
         code, rep, by = run(self.env)
         self.assertEqual(by["ops:text"]["status"], "ok", by["ops:text"])
 
+    def test_json_shape_the_gui_reads(self):
+        # gui/src/check_page.rs: every item field is a string; paths values are strings, null or a table
+        code, rep, by = run(self.env)
+        for c in rep["checks"]:
+            for k in ("group", "label", "status", "detail", "fix"):
+                self.assertIsInstance(c[k], str, (c["key"], k))
+        self.assertIsNone(rep["paths"]["config_error"])
+        self.assertIsInstance(rep["paths"]["gui"], dict)
+
     def test_settings_name_their_source(self):
         code, rep, by = run(self.env)
         self.assertIn("from CL_DB", by["cfg:main_db"]["detail"])
