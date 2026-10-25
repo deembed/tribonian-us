@@ -93,6 +93,11 @@ class Probes(unittest.TestCase):
         code, rep, by = run(self.env)
         self.assertEqual(by["ops:text"]["status"], "ok", by["ops:text"])
 
+    def test_settings_name_their_source(self):
+        code, rep, by = run(self.env)
+        self.assertIn("from CL_DB", by["cfg:CL_DB"]["detail"])
+        self.assertEqual(rep["paths"]["main_db"], self.env["CL_DB"])
+
     def test_missing_table_fails_with_fix(self):
         main_db(self.env["CL_DB"])
         c = sqlite3.connect(self.env["CL_DB"])

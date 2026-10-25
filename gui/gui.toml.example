@@ -1,28 +1,22 @@
-# Copy to gui.toml (git-ignored) and edit. The app looks for: its first argument,
+# Optional. Without a gui.toml the app takes every data path from the scripts (./check.py --paths:
+# the CL_* variables or their defaults) and finds the repo as the folder above gui/.
+# Copy to gui.toml (git-ignored) to change the settings below. The app looks for: its first argument,
 # then ./gui.toml, then gui.toml beside Cargo.toml.
-
-# Folder holding cocite*.sqlite (where bulk/ points)
-bulk_dir = "/path/to/courtlistener"
-
-# The tribonian-us repo: cases/, md-cases/, pdf/, data/cocite_labels.json
-repo_dir = "/path/to/tribonian-us"
 
 # View opened at start (a cocite*.sqlite file stem)
 default_view = "cocite-appellate-sentence-m0.2"
 
 # Obsidian vault for "Open note"; leave out to open the .md file instead
-obsidian_vault = "usc-vault"
-obsidian_cases_dir = "08-Reference/Cases"
+# obsidian_vault = "usc-vault"
+# obsidian_cases_dir = "08-Reference/Cases"
 
-# Full-text index (casedb.py) and main database, for Search for Cases and for names/courts of
-# cases outside the view. Defaults: bulk_dir/search.sqlite and bulk_dir/courtlistener.sqlite.
-# A first search on the HDD can take several seconds; a copy of search.sqlite (2.8 GB) on the
-# SSD makes it fast:
-# search_db = "/path/to/ssd/search.sqlite"
-# main_db = "/path/to/courtlistener/courtlistener.sqlite"
-
-# Interpreter for Build on the case page (runs casemap.py / case2md.py in repo_dir)
+# Interpreter for the repo's scripts
 # python = "python3"
 
-# Opinion-text database (for the live "How later courts describe it"); default repo_dir/db/opinions.sqlite
-# opinions_db = "/path/to/tribonian-us/db/opinions.sqlite"
+# Overrides. Each one replaces the path the scripts use, so the app and the scripts read different
+# files; Check setup flags it. Prefer setting the CL_* variable instead, so both agree.
+# repo_dir = "/path/to/tribonian-us"
+# bulk_dir = "/path/to/courtlistener"                 # cocite*.sqlite (CL_COCITE_DB's folder)
+# main_db = "/path/to/courtlistener.sqlite"           # CL_DB
+# opinions_db = "/path/to/opinions.sqlite"            # CL_OPS_DB
+# search_db = "/path/to/ssd/search.sqlite"            # CL_SEARCH_DB

@@ -118,15 +118,28 @@ fn local_checks(app: &App) -> Vec<Local> {
         (None, e) => {
             out.push(local(
                 "fail",
-                "gui.toml",
+                "Config file in use (gui.toml)",
                 e.clone().unwrap_or_else(|| "not loaded".into()),
-                "cp gui/gui.toml.example gui/gui.toml   and set bulk_dir and repo_dir",
+                "fix gui.toml, or set repo_dir in it (cp gui/gui.toml.example gui/gui.toml)",
             ));
             return out;
         }
     };
-    let path = app.cfg_path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-    out.push(local("ok", "gui.toml", path, ""));
+    let file = match &app.cfg_path {
+        Some(p) if cfg.overrides.is_empty() => p.display().to_string(),
+        Some(p) => format!("{}; overrides the scripts' {}", p.display(), cfg.overrides.join(", ")),
+        None => "none (optional): defaults, and the scripts' paths".to_string(),
+    };
+    out.push(local("ok", "Config file in use (gui.toml)", file, ""));
+    match &cfg.paths_error {
+        None => out.push(local("ok", "Data paths", "from the scripts (check.py --paths)".into(), "")),
+        Some(e) => out.push(Local {
+            status: "warn",
+            label: "Data paths".into(),
+            detail: format!("the app's own defaults, because {e}"),
+            fix: format!("check that `{} check.py --paths` runs in {}", cfg.python, cfg.repo_dir.display()),
+        }),
+    }
     if cfg.repo_dir.join("check.py").is_file() {
         out.push(local("ok", "repo_dir", cfg.repo_dir.display().to_string(), ""));
     } else {
@@ -167,7 +180,7 @@ fn local_checks(app: &App) -> Vec<Local> {
                     status: "warn",
                     label,
                     detail: format!("app reads {}, scripts use {}", gui.display(), script.display()),
-                    fix: format!("make {toml_key} in gui.toml and {env} (or the default) agree"),
+                    fix: format!("remove {toml_key} from gui.toml to use the scripts' path, or set {env} to match"),
                 });
             }
         }

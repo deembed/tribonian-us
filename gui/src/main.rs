@@ -229,7 +229,7 @@ impl App {
                     ));
                 }
                 app.cfg = Some(cfg);
-                app.cfg_path = Some(path);
+                app.cfg_path = path;
                 app.open_view();
             }
             Err(e) => app.cfg_err = Some(e),

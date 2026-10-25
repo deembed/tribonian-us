@@ -6,13 +6,16 @@ slices, clusters and sub-clusters (`cocite*.sqlite`), and the built case notes (
 
 ```
 cd gui
-cp gui.toml.example gui.toml     # then edit the paths
 cargo run --release
 ```
 
+No gui.toml is needed: the app runs `../check.py --paths` at start and reads the same files as the scripts (the
+`CL_*` variables or their defaults). `gui.toml.example` lists the optional settings (default view, Obsidian vault,
+interpreter) and path overrides.
+
 - Start screen: View Clusters, View Cases, Search for Cases, SCOTUS, Sub-Cluster Search (draft), Check setup.
 - Check setup: runs `../check.py --json` (tools, databases, a probe query each, the data mode) and adds the app's own
-  checks: gui.toml, the co-citation views, and whether gui.toml and the scripts' `CL_*` variables name the same files.
+  checks: gui.toml, the co-citation views, and whether a gui.toml path override makes the app read other files than the scripts.
 - Sub-Cluster Search (draft): paste a draft or a question; each blank-line-separated paragraph is one CourtListener
   semantic search per five-year slice since the Since year (default 1980), cases cited more than N times (default 5) (`casemap.py semsearch`, queued like a build; the app passes the text as the
   query and writes nothing). Hits re-ranked by semantic score, grouped by sub-cluster, linked to the case and
@@ -46,8 +49,8 @@ cargo run --release
   CourtListener's citing count, every citation, headmatter, syllabus/summary when present), the cached case
   profile (citations per year, successor) when a build wrote one, how later courts describe the case (cached,
   or read live from the parentheticals), and the note's front matter. Good law says "not calculated" until a
-  build computes it (it reads up to ~2,000 citing opinions, so it is slow). `opinions_db` in gui.toml
-  (default repo_dir/db/opinions.sqlite) maps a case to its opinions for the live parentheticals.
+  build computes it (it reads up to ~2,000 citing opinions, so it is slow). The opinion-text database
+  (the scripts' `CL_OPS_DB`, default repo_dir/db/opinions.sqlite) maps a case to its opinions for the live parentheticals.
 - Two buttons on the case page: **Quick build** (`case2md.py build --quick-goodlaw`: note, PDF and profile with the quick good-law check, the newest 100 citing opinions, instead of
   the slow good-law check, keeping an earlier result) and **Build** (everything).
 - Builds queue: the status line at the bottom shows "Building k of n" and what is queued, then "Done" (with any

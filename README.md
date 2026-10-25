@@ -60,7 +60,7 @@ And a desktop browser over all of it (`gui/`, Rust):
 A walk from an empty machine to everything working: US Code PDFs, case notes, the local CourtListener database,
 the co-citation map and the GUI. Each stage works on its own, so you can stop after any of them.
 After any stage, `./check.py` shows what is there, whether each database answers a query, and the fix for
-anything missing (see [Checking the setup](#checking-the-setup)).
+anything missing (see [Database health](#database-health)).
 
 | You want | Stages |
 |---|---|
@@ -259,8 +259,15 @@ Needs Rust 1.85+ (<https://rustup.rs/>) and stages 4–5.
 
 ```
 cd gui
-cp gui.toml.example gui.toml     # set repo_dir, bulk_dir and the other paths
-cargo run --release
+cargo run --release              # no gui.toml needed: the data paths come from the scripts
+```
+
+The app runs `../check.py --paths` at start and uses the same files as the scripts (the `CL_*` variables or
+their defaults). The variables reach it only if they're in its environment, so set them in your shell profile
+and start the app from a shell. `gui.toml` is optional: copy `gui.toml.example` to change the default view, the
+Obsidian vault or the interpreter, or to override a path.
+
+```
 ```
 
 Details in [`gui/README.md`](gui/README.md).
@@ -540,18 +547,45 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 - **`./sync_vault.sh`:** mirrors `md/` into `$VAULT/08-Reference/USC` (default vault `~/Obsidian/usc-vault`), `md-cases/` into `08-Reference/Cases` and `md-cocite/` into `08-Reference/Co-citation`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. It refuses to run when a source holds fewer than 90% of the notes already in the vault (a partial build); `FORCE=1` overrides. Options: `VAULT=/path`, `DRY=1`, `FORCE=1`. `build_all.sh` exits non-zero when any job failed, so `./build_all.sh && ./sync_vault.sh` is safe.
 - **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmapi (reMarkable cloud, or rmfakecloud when `RMAPI_HOST` is set), under `/LawFormatter/Laws/USC/Title-NN/`, `/LawFormatter/Laws/Cases/...` and `/LawFormatter/Laws/Co-citation/<slice>/` (sub-cluster explainers). It never deletes on the tablet. `state/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
 
-## Checking the setup
+## Database health
+
+`check.py` answers two questions about each piece: is it there, and does it give a query result? Run it after
+a first install, after loading new bulk data, or when a script or the GUI stops finding things.
 
 ```
 ./check.py           # every tool and database: there? answers a query? the fix if not
-./check.py --api     # also one live CourtListener request (counts against the daily limit)
-./check.py --json    # the same as JSON
+./check.py --api     # also one live CourtListener request (uses 1 of the day's API requests)
+./check.py --json    # the same as JSON (the GUI reads this)
 ```
 
-Each database probe looks up one known case (State Farm, 463 U.S. 29, cluster 110991) through an index, so the
-check takes well under a second even on a hard disk. It opens every database read-only. A table that loaded but
-lacks that case (a `--limit` sample load) shows as a warning. The last lines name the **data mode** the install
-supports:
+The scripts have no config file: each setting is an environment variable with a default, so the first group
+lists the value in effect for each one and whether it came from the variable or the default. The GUI reads
+its data paths from the scripts (`./check.py --paths`), so both read the same files. Its optional `gui/gui.toml`
+(or the file given as its first argument) holds GUI-only settings and any path overrides. The CLI checks
+`gui/gui.toml`; the GUI page shows the file it actually loaded.
+
+Each line is `OK`, `WARN` (works, but something is missing or old), `FAIL` (not there or not answering) or `--`
+(skipped). Every `WARN` and `FAIL` line comes with the command that fixes it. The check opens every database
+read-only and writes nothing. It exits 1 when not even `api` mode is ready.
+
+### What it probes
+
+Each database probe looks up one known case, Motor Vehicle Mfrs. Ass'n v. State Farm (463 U.S. 29, cluster
+110991), through an index. That keeps the whole check under a second, even with the data on a hard disk.
+
+| Group | Check | Query result it expects |
+|---|---|---|
+| Configuration | each `CL_*` setting, `gui/gui.toml`, the rmapi config | the value in effect and where it came from (variable or default); which paths gui.toml overrides, and whether its folders exist |
+| Tools | Python packages, pdflatex (XCharter, tcolorbox, ulem), pdftotext, rmapi | importable / found by `kpsewhich` |
+| CourtListener API | token (`COURTLISTENER_TOKEN` or `secret-tool`); live request with `--api` | cluster 110991 comes back |
+| Main database | `courtlistener.sqlite`, then each loaded table | `courts`: scotus · `citations`: 463 U.S. 29 → 110991 · `opinion-clusters`: its name · `opmap`: its opinion ids · `citation-map`: who cites it · `parentheticals`: how many · `dockets`: its docket number |
+| Opinion text | `opinions.sqlite` | the opinion text decompresses and contains "arbitrary and capricious" |
+| Built from the data | search index, co-citation views, cluster labels, citing-sentence index | a name search for "State Farm"; the view's schema, slices, and State Farm's cluster |
+| US Code | title XML, US Code citation data | `usc01.xml` parses into sections; map, profiles and Cited-by tables present |
+
+### Data modes
+
+The last lines of the report name the data mode the install supports, and what each higher mode still needs.
 
 | Mode | Local data | From the API |
 |---|---|---|
@@ -559,9 +593,36 @@ supports:
 | `lite` | the small bulk tables: courts, citations, citation map, parentheticals, clusters, opmap | opinion text |
 | `full` | lite + `opinions.sqlite` | only cases newer than the bulk data |
 
-pdflatex and rmapi are checked but block no mode, because notes alone need neither. In the GUI, **Check setup** on
-the start screen runs the same checks and adds the app's own: `gui.toml`, the co-citation views it found, and
-whether `gui.toml` points at the same databases as the scripts' `CL_*` variables.
+pdflatex and rmapi are checked but don't block any mode, because notes alone need neither. Lite still needs
+the opinions bulk file once, because opmap (opinion id → case) is built from it. For now `check.py` only reports
+the mode; the scripts don't yet switch their behaviour by mode.
+
+### Common warnings
+
+| You see | Meaning | Fix |
+|---|---|---|
+| `opinions.sqlite ... (dangling link)` | `db/opinions.sqlite` is a symlink to a disk that isn't mounted | mount the disk, or set `CL_OPS_DB` |
+| `a load is running` | `casedb.py load` or `opmap` holds the lock file | wait for it; reads now can fail with "database is locked" |
+| `probe case 110991 not found (a --limit sample?)` | the table loaded, but without State Farm | reload it in full: `./casedb.py load --force <table>` |
+| `opmap ... STALE` | opmap was built from an older opinions file | `./casedb.py opmap` |
+| `older schema, skipped` (GUI) | a co-citation view built before the current schema; the app doesn't open it | rebuild it with `./cocite.py build ...`, or move it out of `bulk_dir` |
+| `app reads X, scripts use Y` (GUI) | a path in `gui.toml` overrides the scripts' path | delete it from `gui.toml`, or set the `CL_*` variable to match |
+| `Data paths ... the app's own defaults` (GUI) | `check.py --paths` didn't run (interpreter or repo not found) | check `python` and `repo_dir` in `gui.toml` |
+
+### In the GUI
+
+**Check setup** on the start screen runs `check.py --json`. A checkbox adds the live API request. The app then
+adds its own checks:
+
+- Which `gui.toml` it loaded (if any) and which paths it overrides; whether the data paths came from the scripts.
+- `repo_dir` holds the scripts and `bulk_dir` exists.
+- The co-citation views: how many it can read, which it skips (older schema), and whether `default_view` is
+  among the readable ones.
+- The app and the scripts use the same main database, opinion text, search index and co-citation folder
+  (symlinks are followed). They differ only when `gui.toml` overrides a path.
+
+The button turns red when the app couldn't start up (no repo found, a broken `gui.toml`) or the default view
+is missing. Each fix has a **Copy** button.
 
 ## Other
 

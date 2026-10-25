@@ -4,6 +4,7 @@
     ./check.py              # every check, grouped, then which data mode this install supports
     ./check.py --api        # also make one live CourtListener request (counts against the daily limit)
     ./check.py --json       # the same as JSON (the GUI's Check setup page reads this)
+    ./check.py --paths      # only the files the scripts use, as JSON; the GUI reads this at start
 
 Data modes (what the local data supports; the best one that passes is reported):
     api    nothing local: every case, citer and text comes from the CourtListener API
@@ -86,6 +87,67 @@ def gb(p):
 
 def n(x):
     return format(x, ",")
+
+
+# ------------------------------------------------------------------ configuration
+
+# The scripts have no config file: each setting is an environment variable with a default.
+# (setting, variable, value in effect)
+SETTINGS = [
+    ("Bulk folder", "CL_BULK", casedb.BULK),
+    ("Main database", "CL_DB", casedb.DB),
+    ("Opinion text", "CL_OPS_DB", casedb.OPS_DB),
+    ("Search index", "CL_SEARCH_DB", casedb.SEARCH_DB),
+    ("Co-citation base", "CL_COCITE_DB", COCITE_BASE),
+    ("API rate limits", "CL_LIMITS", os.environ.get("CL_LIMITS") or "5,50,125"),
+]
+GUI_TOML = HERE / "gui" / "gui.toml"          # where the GUI looks when started without an argument from gui/
+
+
+def read_toml(path):
+    """gui.toml as a dict. tomllib (Python 3.11+), else the flat key = "value" lines this file uses."""
+    text = path.read_text(encoding="utf-8")
+    try:
+        import tomllib
+        return tomllib.loads(text)
+    except ImportError:
+        out = {}
+        for line in text.splitlines():
+            k, eq, v = line.partition("=")
+            if eq and not line.lstrip().startswith("#"):
+                out[k.strip()] = v.split("#")[0].strip().strip('"')
+        return out
+
+
+def run_config():
+    for label, var, value in SETTINGS:
+        @check("cfg:" + var, "Configuration", label)
+        def _(c, var=var, value=value):
+            c.ok("%s  (%s)" % (value, "from %s" % var if os.environ.get(var) else "default; %s not set" % var))
+
+    @check("cfg:gui", "Configuration", "GUI config (gui.toml)")
+    def _(c):
+        if not GUI_TOML.exists():
+            return c.ok("none (optional): the GUI uses these paths and finds the repo above gui/")
+        cfg = read_toml(GUI_TOML)
+        over = [k for k in ("bulk_dir", "main_db", "opinions_db", "search_db") if cfg.get(k)]
+        missing = [k for k in ("repo_dir", "bulk_dir") if cfg.get(k) and not Path(cfg[k]).is_dir()]
+        if cfg.get("repo_dir") and Path(cfg["repo_dir"]).is_dir() and Path(cfg["repo_dir"]).resolve() != HERE:
+            missing.append("repo_dir is another folder than this one")
+        msg = "%s, %d settings" % (GUI_TOML.relative_to(HERE), len(cfg))
+        if over:
+            msg += "; overrides the paths above: " + ", ".join(over)
+        if missing:
+            c.warn(msg + "; not found: " + ", ".join(missing), "edit gui/gui.toml, or delete those lines to use the paths above")
+        else:
+            c.ok(msg)
+
+    @check("cfg:rmapi", "Configuration", "rmapi config")
+    def _(c):
+        p = Path(os.environ.get("RMAPI_CONFIG") or os.path.expanduser("~/.config/rmapi/rmapi.conf"))
+        host = os.environ.get("RMAPI_HOST")
+        where = "rmfakecloud at %s" % host if host else "reMarkable cloud (RMAPI_HOST not set)"
+        c.ok("%s; %s" % (p, where)) if p.exists() else c.skip("not paired (%s); only sync_remarkable.py needs it" % p)
 
 
 # ------------------------------------------------------------------ tools
@@ -376,11 +438,22 @@ def modes():
 MARK = {"ok": "OK  ", "warn": "WARN", "fail": "FAIL", "skip": "--  "}
 
 
+def paths():
+    """The files the scripts use (CL_* variables or defaults). The GUI takes its paths from here."""
+    return {"repo_dir": str(HERE), "main_db": str(casedb.DB), "opinions_db": str(casedb.OPS_DB),
+            "search_db": str(casedb.SEARCH_DB), "cocite_dir": str(COCITE_BASE.parent)}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--api", action="store_true", help="make one live CourtListener request")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--paths", action="store_true", help="print only the paths the scripts use, as JSON (no checks)")
     args = ap.parse_args()
+    if args.paths:
+        print(json.dumps(paths()))
+        return
+    run_config()
     run_tools()
     run_api(args.api)
     run_db()
@@ -389,10 +462,7 @@ def main():
     run_usc()
     best, ms = modes()
     if args.json:
-        # paths: what the scripts use (env vars), so the GUI can compare them with gui.toml
-        paths = {"main_db": str(casedb.DB), "opinions_db": str(casedb.OPS_DB), "search_db": str(casedb.SEARCH_DB),
-                 "cocite_dir": str(COCITE_BASE.parent)}
-        print(json.dumps({"best": best, "modes": ms, "needs": NEEDS, "paths": paths,
+        print(json.dumps({"best": best, "modes": ms, "needs": NEEDS, "paths": paths(),
                           "checks": [r.as_dict() for r in RESULTS]}, indent=1))
     else:
         group = None
