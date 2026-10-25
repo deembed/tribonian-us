@@ -48,6 +48,7 @@ pub fn side_panel(app: &mut App, ui: &mut Ui, section: Section) {
         Section::Cases => cases_side(app, ui),
         Section::Search => search_side(app, ui),
         Section::Scotus => crate::scotus_page::scotus_side(app, ui),
+        Section::SemSearch => crate::semsearch_page::sem_side(app, ui),
         Section::Home => {}
     }
 }
@@ -209,6 +210,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::Search { .. } => return search_page(app, ui, &page),
         Page::Scotus => return crate::scotus_page::scotus_home(app, ui),
         Page::Docket(n) => return crate::scotus_page::docket_page(app, ui, n),
+        Page::SemSearch => return crate::semsearch_page::sem_page(app, ui),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -268,8 +270,13 @@ fn home(app: &mut App, ui: &mut Ui) {
             app.goto = Some(Page::Scotus);
         }
         ui.add_space(8.0);
-        ui.add_enabled(false, egui::Button::new(RichText::new("Sub-Cluster Search (draft)").size(18.0)).min_size(size))
-            .on_disabled_hover_text("TBD: find cases to cite from a draft document");
+        if ui
+            .add_sized(size, egui::Button::new(RichText::new("Sub-Cluster Search (draft)").size(18.0)))
+            .on_hover_text("paste a draft: CourtListener semantic search per paragraph, grouped by sub-cluster (casemap.py semsearch)")
+            .clicked()
+        {
+            app.goto = Some(Page::SemSearch);
+        }
         ui.add_space(30.0);
         if let Some(e) = &app.cfg_err {
             ui.colored_label(Color32::LIGHT_RED, e);

@@ -1,0 +1,656 @@
+{
+"query": "a federal agency that reverses a safety regulation must give a reasoned explanation, and it acts unlawfully if it ignores an obvious alternative or its stated reasons do not match the evidence in the record",
+"court": "scotus",
+"window": [
+"1983-01-01",
+"1983-12-31"
+],
+"count": 207,
+"note": "CourtListener semantic search results, server order, fetched 2026-10-24; two pages of 20",
+"pages": [
+[
+{
+"cluster_id": 110991,
+"caseName": "Motor Vehicle Mfrs. Assn. of United States, Inc. v. State Farm Mut. Automobile Ins. Co.",
+"dateFiled": "1983-06-24",
+"citeCount": 8635,
+"citation": [
+"463 U.S. 29"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.5678365,
+"semantic": 7.425754
+}
+}
+},
+{
+"cluster_id": 110903,
+"caseName": "Metropolitan Edison Co. v. People Against Nuclear Energy",
+"dateFiled": "1983-04-19",
+"citeCount": 208,
+"citation": [
+"460 U.S. 766"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.3205326,
+"semantic": 7.2250986
+}
+}
+},
+{
+"cluster_id": 110933,
+"caseName": "United States v. Hasting",
+"dateFiled": "1983-05-23",
+"citeCount": 2009,
+"citation": [
+"461 U.S. 499"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.3166695,
+"semantic": 7.191901
+}
+}
+},
+{
+"cluster_id": 110919,
+"caseName": "Pacific Gas & Electric Co. v. State Energy Resources Conservation & Development Commission",
+"dateFiled": "1983-04-20",
+"citeCount": 1388,
+"citation": [
+"461 U.S. 190"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.312432,
+"semantic": 7.0915365
+}
+}
+},
+{
+"cluster_id": 111008,
+"caseName": "Guardians Assn. v. Civil Serv. Comm'n of New York City",
+"dateFiled": "1983-07-01",
+"citeCount": 560,
+"citation": [
+"463 U.S. 582"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.308143,
+"semantic": 7.1107745
+}
+}
+},
+{
+"cluster_id": 110953,
+"caseName": "Baltimore Gas & Electric Co. v. Natural Resources Defense Council, Inc.",
+"dateFiled": "1983-06-06",
+"citeCount": 1340,
+"citation": [
+"462 U.S. 87"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.3026037,
+"semantic": 7.153225
+}
+}
+},
+{
+"cluster_id": 110875,
+"caseName": "Connecticut v. Johnson",
+"dateFiled": "1983-02-23",
+"citeCount": 605,
+"citation": [
+"460 U.S. 73"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2808514,
+"semantic": 6.7727065
+}
+}
+},
+{
+"cluster_id": 110985,
+"caseName": "Immigration & Naturalization Service v. Chadha",
+"dateFiled": "1983-06-23",
+"citeCount": 1830,
+"citation": [
+"462 U.S. 919"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2643077,
+"semantic": 6.353948
+}
+}
+},
+{
+"cluster_id": 111049,
+"caseName": "Bureau of Alcohol, Tobacco & Firearms v. Federal Labor Relations Authority",
+"dateFiled": "1983-11-29",
+"citeCount": 523,
+"citation": [
+"464 U.S. 89"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2640364,
+"semantic": 6.946311
+}
+}
+},
+{
+"cluster_id": 110924,
+"caseName": "Commissioner v. Tufts",
+"dateFiled": "1983-05-02",
+"citeCount": 305,
+"citation": [
+"461 U.S. 300"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.240272,
+"semantic": 6.977763
+}
+}
+},
+{
+"cluster_id": 110830,
+"caseName": "Community Television of Southern Cal. v. Gottfried",
+"dateFiled": "1983-02-22",
+"citeCount": 28,
+"citation": [
+"459 U.S. 498"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2379956,
+"semantic": 6.9917536
+}
+}
+},
+{
+"cluster_id": 110930,
+"caseName": "Heckler v. Campbell",
+"dateFiled": "1983-05-16",
+"citeCount": 1944,
+"citation": [
+"461 U.S. 458"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2378125,
+"semantic": 6.9494843
+}
+}
+},
+{
+"cluster_id": 110876,
+"caseName": "Dickerson v. New Banner Institute, Inc.",
+"dateFiled": "1983-02-23",
+"citeCount": 596,
+"citation": [
+"460 U.S. 103"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2350705,
+"semantic": 6.98241
+}
+}
+},
+{
+"cluster_id": 110955,
+"caseName": "BankAmerica Corp. v. United States",
+"dateFiled": "1983-06-08",
+"citeCount": 94,
+"citation": [
+"462 U.S. 122"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2347705,
+"semantic": 6.9288015
+}
+}
+},
+{
+"cluster_id": 110881,
+"caseName": "Equal Employment Opportunity Commission v. Wyoming",
+"dateFiled": "1983-03-02",
+"citeCount": 505,
+"citation": [
+"460 U.S. 226"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2289054,
+"semantic": 6.9655466
+}
+}
+},
+{
+"cluster_id": 111048,
+"caseName": "Wainwright v. Goode",
+"dateFiled": "1983-11-28",
+"citeCount": 502,
+"citation": [
+"464 U.S. 78"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2255762,
+"semantic": 6.5314865
+}
+}
+},
+{
+"cluster_id": 111026,
+"caseName": "United States Nuclear Regulatory Commission v. Steven Sholly",
+"dateFiled": "1983-07-06",
+"citeCount": 0,
+"citation": [
+"463 U.S. 1224"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2218072,
+"semantic": 6.8434525
+}
+}
+},
+{
+"cluster_id": 110965,
+"caseName": "Bush v. Lucas",
+"dateFiled": "1983-06-13",
+"citeCount": 1436,
+"citation": [
+"462 U.S. 367"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2187088,
+"semantic": 6.632304
+}
+}
+},
+{
+"cluster_id": 111037,
+"caseName": "HECKLER, SECRETARY OF HEALTH AND HUMAN SERVICES v. LOPEZ Et Al.",
+"dateFiled": "1983-09-09",
+"citeCount": 146,
+"citation": [
+"463 U.S. 1328"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2169669,
+"semantic": 6.8391037
+}
+}
+},
+{
+"cluster_id": 111024,
+"caseName": "Process Gas Consumers Group v. Consumer Energy Council of America",
+"dateFiled": "1983-07-06",
+"citeCount": 47,
+"citation": [
+"463 U.S. 1216"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.2167058,
+"semantic": 6.864817
+}
+}
+}
+],
+[
+{
+"cluster_id": 111001,
+"caseName": "Public Serv. Comm'n of NY v. Mid-Louisiana Gas Co.",
+"dateFiled": "1983-06-28",
+"citeCount": 58,
+"citation": [
+"463 U.S. 319"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1956902,
+"semantic": 6.8094873
+}
+}
+},
+{
+"cluster_id": 111010,
+"caseName": "Ruckelshaus v. Sierra Club",
+"dateFiled": "1983-07-01",
+"citeCount": 810,
+"citation": [
+"463 U.S. 680"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1952748,
+"semantic": 6.7995
+}
+}
+},
+{
+"cluster_id": 111006,
+"caseName": "Belknap, Inc. v. Hale",
+"dateFiled": "1983-06-30",
+"citeCount": 357,
+"citation": [
+"463 U.S. 491"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1919653,
+"semantic": 6.5588713
+}
+}
+},
+{
+"cluster_id": 110945,
+"caseName": "Bell v. New Jersey",
+"dateFiled": "1983-05-31",
+"citeCount": 302,
+"citation": [
+"461 U.S. 773"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.175184,
+"semantic": 6.762743
+}
+}
+},
+{
+"cluster_id": 110928,
+"caseName": "American Paper Institute, Inc. v. American Electric Power Service Corp.",
+"dateFiled": "1983-05-16",
+"citeCount": 228,
+"citation": [
+"461 U.S. 402"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1711829,
+"semantic": 6.746533
+}
+}
+},
+{
+"cluster_id": 110823,
+"caseName": "Shepard v. National Labor Relations Board",
+"dateFiled": "1983-01-18",
+"citeCount": 61,
+"citation": [
+"459 U.S. 344"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.171055,
+"semantic": 6.599114
+}
+}
+},
+{
+"cluster_id": 110921,
+"caseName": "Olim v. Wakinekona",
+"dateFiled": "1983-04-26",
+"citeCount": 3143,
+"citation": [
+"461 U.S. 238"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1699474,
+"semantic": 6.4453936
+}
+}
+},
+{
+"cluster_id": 110927,
+"caseName": "Arkansas Electric Cooperative Corp. v. Arkansas Public Service Commission",
+"dateFiled": "1983-05-16",
+"citeCount": 292,
+"citation": [
+"461 U.S. 375"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1690836,
+"semantic": 6.739745
+}
+}
+},
+{
+"cluster_id": 110943,
+"caseName": "Bill Johnson's Restaurants, Inc. v. National Labor Relations Board",
+"dateFiled": "1983-05-31",
+"citeCount": 830,
+"citation": [
+"461 U.S. 731"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1561823,
+"semantic": 6.6432
+}
+}
+},
+{
+"cluster_id": 111034,
+"caseName": "Ruckelshaus, Administrator, United States Environmental Protection Agency v. Monsanto Co.",
+"dateFiled": "1983-09-09",
+"citeCount": 24,
+"citation": [
+"463 U.S. 1315"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1461623,
+"semantic": 6.6291785
+}
+}
+},
+{
+"cluster_id": 110966,
+"caseName": "National Labor Relations Board v. Transportation Management Corp.",
+"dateFiled": "1983-06-15",
+"citeCount": 984,
+"citation": [
+"462 U.S. 393"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1430848,
+"semantic": 6.6583276
+}
+}
+},
+{
+"cluster_id": 110968,
+"caseName": "City of Akron v. Akron Center for Reproductive Health, Inc.",
+"dateFiled": "1983-06-15",
+"citeCount": 533,
+"citation": [
+"462 U.S. 416"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.136564,
+"semantic": 6.6315246
+}
+}
+},
+{
+"cluster_id": 110888,
+"caseName": "United States v. Generix Drug Corp.",
+"dateFiled": "1983-03-22",
+"citeCount": 90,
+"citation": [
+"460 U.S. 453"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1329195,
+"semantic": 6.6620803
+}
+}
+},
+{
+"cluster_id": 111020,
+"caseName": "Michigan v. Long",
+"dateFiled": "1983-07-06",
+"citeCount": 3788,
+"citation": [
+"463 U.S. 1032"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.129133,
+"semantic": 6.536691
+}
+}
+},
+{
+"cluster_id": 110822,
+"caseName": "Director, Office of Workers' Compensation Programs v. Perini North River Associates",
+"dateFiled": "1983-01-11",
+"citeCount": 260,
+"citation": [
+"459 U.S. 297"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.126735,
+"semantic": 6.480658
+}
+}
+},
+{
+"cluster_id": 9046364,
+"caseName": "Hawaii Housing Authority v. Midkiff",
+"dateFiled": "1983-09-02",
+"citeCount": 35,
+"citation": [
+"463 U.S. 1323"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1145685,
+"semantic": 6.529243
+}
+}
+},
+{
+"cluster_id": 110907,
+"caseName": "Interstate Commerce Commission v. Steere Tank Lines, Inc.",
+"dateFiled": "1983-03-07",
+"citeCount": 18,
+"citation": [
+"460 U.S. 1025"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.111746,
+"semantic": 6.5888
+}
+}
+},
+{
+"cluster_id": 111076,
+"caseName": "McCarren Et Al. v. Town of Springfield, Vermont, Et Al.",
+"dateFiled": "1983-10-31",
+"citeCount": 57,
+"citation": [
+"464 U.S. 942"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.106818,
+"semantic": 6.477959
+}
+}
+},
+{
+"cluster_id": 111018,
+"caseName": "Barclay v. Florida",
+"dateFiled": "1983-07-06",
+"citeCount": 842,
+"citation": [
+"463 U.S. 939"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1038215,
+"semantic": 5.951519
+}
+}
+},
+{
+"cluster_id": 111047,
+"caseName": "Iron Arrow Honor Society v. Heckler",
+"dateFiled": "1983-11-14",
+"citeCount": 508,
+"citation": [
+"464 U.S. 67"
+],
+"court_id": "scotus",
+"meta": {
+"score": {
+"bm25": 2.1021974,
+"semantic": 6.466925
+}
+}
+}
+]
+]
+}

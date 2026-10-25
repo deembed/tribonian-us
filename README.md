@@ -228,7 +228,7 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 - **`--depth N`:** the crawl `casemap.py map --depth` does, rooted at the decision below and the filings' authorities: full text for the first `--text` steps (default 1), stubs beyond; `--max` (3000) stops a runaway crawl. It writes the same `cases/*.json` and notes, so `./build_all.sh` builds their PDFs; rerun `./scotus.py build` afterwards so its notes link to them.
 - **Not a `build_all.sh` job:** `build_all.sh` has no scotus job kind (`cases/scotus/` is not scanned), so `./scotus.py build` makes the PDF itself. Rerun it after new filings arrive.
 
-## casemap.py — citation graph (no API unless `--api`)
+## casemap.py — citation graph (no API unless `--api`, `recent` or `semsearch`)
 
 ```
 ./casemap.py get --cite "401 U.S. 402"          # one case from the local database -> cases/*.json + note
@@ -241,6 +241,8 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 ./casemap.py stubs --api --max 20               # fall back to CourtListener for the rest
 ./casemap.py stubs brown 108283                 # only matching note names or cluster IDs
 ./casemap.py fixlinks                           # give bare courtlistener.com/opinion/<id>/ links in md-cases/ their slug
+./casemap.py semsearch "plain-language text"    # semantic search (API), re-ranked, grouped by sub-cluster
+./casemap.py semsearch --file draft.md --since 1980 --court scotus   # one search per paragraph of a draft
 ```
 
 - **`map --by cluster`** (the default): the cases in the root's sub-cluster lineage in the newest full slice of `cocite.py`'s case-note view, plus cases that joined it since, heaviest first, up to `--cluster-max` (60); all get full text (`--text 0`: stubs only). `--scope all` takes every lineage the root has belonged to; `--courts` picks another `cocite.py` view.
@@ -248,6 +250,7 @@ The chart's bars take the colour of the status as of that year. It is a pointer 
 - **`citedby`:** options are `--list`, `--full`, `--level`, `--sample-over`, `--margin`, `--top`, `--steps` and `--min-run`; see `./casemap.py citedby -h`.
 - **`coupling`:** bibliographic coupling. For each case it cites, cited by df decisions (at most `--max-df`, default 2000; more-cited ones are left out and counted), every other decision citing it scores log(N/df), N = decisions citing anything; the top `--top` (30) by total score, with the shared cited cases. Reads `bulk/cocite-cache/` (run `./cocite.py prep` first), a few seconds for most cases, up to half a minute for a case citing 150+ cases on a cold disk. Prints a table (`--json`: the JSON) and caches `cases/citedby/<cluster>/coupling.json` with the bulk data's stamp; never run by a build. The GUI's "Find coupled cases" runs it.
 - **`stubs`:** a stub becomes a full case only if `build` can read its text. Otherwise it stays a stub and the output says why. After filling stubs, run `./build_all.sh cases`, or use `./build_all.sh --stubs` to do both.
+- **`semsearch`:** CourtListener's semantic search (`semantic=true`), one search per date window per paragraph: the five-year slices of the case-note view: by default only the newest slice (`--since YEAR` widens it to every slice ending in or after YEAR, `--since 1700` for all; `--window START:END` sets windows by hand), `--pages` pages of 20 per window (default 2). The server orders hits by its keyword (bm25) score with a recency boost, so everything is re-ranked by `meta.score.semantic`; records of one decision (same name without "Revisions: …", same date) collapse to the most-cited one. Each hit gets its sub-cluster and area from the co-citation view, as of the newest complete slice it is in. Writes `cases/semsearch/<slug>/results.json` (`--out DIR` to choose), with a per-paragraph roll-up by sub-cluster. Cost: paragraphs × windows × pages requests through the shared throttle; raw responses are cached in `cases/semsearch/_cache/`, so reruns are free and a run stopped at the daily limit resumes. The GUI's "Sub-Cluster Search (draft)" runs it.
 - **`fixlinks`:** takes no options (it is handled before argparse); rewrites notes and saved Cited-by sections in place and needs the local database.
 
 ## casedb.py — local CourtListener database

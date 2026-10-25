@@ -19,6 +19,8 @@ pub enum Page {
     Docket(String),
     /// Cited together ("where used"): decisions citing every one of these cases (sorted, no repeats)
     CoCited(Vec<i64>),
+    /// Sub-Cluster Search from a draft: CourtListener semantic search per paragraph (semsearch_page.rs)
+    SemSearch,
 }
 
 impl Page {
@@ -29,12 +31,13 @@ impl Page {
             Page::Cases => Section::Cases,
             Page::Search { .. } | Page::CoCited(_) => Section::Search,
             Page::Scotus | Page::Docket(_) => Section::Scotus,
+            Page::SemSearch => Section::SemSearch,
             _ => Section::Clusters,
         }
     }
     /// Pages that need the database (everything but the start screen and the case list).
     pub fn needs_db(&self) -> bool {
-        !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_))
+        !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::SemSearch)
     }
 }
 
@@ -45,6 +48,7 @@ pub enum Section {
     Cases,
     Search,
     Scotus,
+    SemSearch,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

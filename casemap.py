@@ -37,6 +37,11 @@
         read, fetch it from CourtListener instead (rate-limited; stops cleanly at the
         daily limit, and rerunning resumes). --list: show the stubs, fetch nothing.
 
+    ./casemap.py semsearch "plain-language text" [--file draft.md] [--court scotus] [--since 1980]
+        CourtListener semantic search (API), one search per five-year slice, re-ranked by the semantic
+        score and joined to each hit's sub-cluster and area. Writes cases/semsearch/<slug>/results.json.
+        See semsearch.py.
+
 Everything downloaded is cached under cases/. No language model anywhere:
 counting, regular expressions, string matching.
 """
@@ -1397,6 +1402,10 @@ def main():
     st.add_argument("--max", type=int, help="at most this many (the most-cited first)")
     st.add_argument("--api", action="store_true", help="fall back to the CourtListener API when the database has no readable text")
     st.set_defaults(func=cmd_stubs)
+    import semsearch
+    ss = sub.add_parser("semsearch", help="CourtListener semantic search, re-ranked, joined to the sub-clusters")
+    semsearch.add_args(ss)
+    ss.set_defaults(func=semsearch.run)
     for name, fn in (("get", cmd_get), ("map", cmd_map), ("citedby", cmd_citedby), ("goodlaw", cmd_goodlaw),
                      ("coupling", cmd_coupling), ("recent", cmd_recent)):
         p = sub.add_parser(name)
@@ -1448,7 +1457,7 @@ def main():
             p.add_argument("--steps", type=int, default=10, help="how many citation steps back to follow a sentence's wording")
             p.add_argument("--min-run", type=int, default=7, help="consecutive shared words that count as the same wording")
     args = ap.parse_args()
-    if args.cmd != "stubs" and not (args.json or args.cluster or args.cite):
+    if args.cmd not in ("stubs", "semsearch") and not (args.json or args.cluster or args.cite):
         ap.error('give a cases/*.json file, --cluster ID or --cite "401 U.S. 402"')
     args.func(args)
 

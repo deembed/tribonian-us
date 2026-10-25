@@ -16,6 +16,7 @@ mod scotus;
 mod scotus_page;
 mod subdoc;
 mod search;
+mod semsearch_page;
 
 use cases::CaseFiles;
 use config::Config;
@@ -117,6 +118,7 @@ pub struct App {
     pub docket_errors: Vec<String>,
     pub recent: Result<Option<scotus::Recent>, String>,
     pub scotus_ui: scotus_page::ScotusUi,
+    pub sem_ui: semsearch_page::SemUi,
     egui_ctx: Option<egui::Context>,
     /// Database pages requested and not answered yet (the main window's and every pop-out's).
     inflight: std::collections::HashSet<Page>,
@@ -189,6 +191,7 @@ impl App {
             docket_errors: Vec::new(),
             recent: Ok(None),
             scotus_ui: Default::default(),
+            sem_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
             inflight: Default::default(),
             cocite: Vec::new(),
@@ -615,6 +618,7 @@ impl App {
             Page::Search { query, mode: search::Mode::Name } => format!("Search: {query}"),
             Page::Search { query, mode: search::Mode::Parenthetical } => format!("Parentheticals: {query}"),
             Page::Scotus => "SCOTUS".into(),
+            Page::SemSearch => "Sub-Cluster Search".into(),
             Page::CoCited(refs) if !self.cache.contains_key(p) && !self.titles.contains_key(p) => {
                 let names: Vec<String> = refs
                     .iter()
@@ -671,6 +675,7 @@ impl App {
             Page::Search { .. } => {}
             Page::CoCited(_) => {}
             Page::Scotus => {}
+            Page::SemSearch => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Case(_) => match self.section_at(self.pos) {
                 Section::Cases => c.push(("Built cases".into(), Some(Page::Cases))),
@@ -719,6 +724,7 @@ impl App {
                     Page::Case(_) => "case",
                     Page::Search { .. } => "search",
                     Page::Scotus => "scotus",
+                    Page::SemSearch => "semantic search",
                     Page::Docket(_) => "docket",
                     Page::CoCited(_) => "cited together",
                 };
