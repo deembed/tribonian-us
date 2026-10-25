@@ -7,6 +7,34 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 > Not legal advice and not a citator. The good-law check and the co-citation map are reading aids built from
 > CourtListener data; read the opinions they point to.
 
+## How to support
+
+### The data sources
+
+Almost everything here rests on [CourtListener](https://www.courtlistener.com/), run by the non-profit
+[Free Law Project](https://free.law/): the opinions, dockets, citation graph, parentheticals and bulk data.
+
+- **Donate:** <https://donate.free.law/forms/supportflp>
+- **Add documents:** the [RECAP extension](https://free.law/recap/) copies documents you buy from PACER (the federal courts' paid records system) into
+  CourtListener's free archive, which is where this project's RECAP dockets come from.
+
+The US Code (Office of the Law Revision Counsel) and Supreme Court filings (supremecourt.gov) are government
+sources and take no donations.
+
+### The tools used
+
+| Tool | What it does here | Support |
+|---|---|---|
+| TeX Live / pdflatex | typesets every PDF | [TeX Users Group](https://tug.org/donate.html) |
+| lxml | parses the US Code XML and opinion HTML | [lxml: support the project](https://lxml.de/#support-the-project) |
+| NumPy, SciPy | co-citation matrices and statistics | [NumFOCUS](https://numfocus.org/donate) (choose the project) |
+| igraph | co-citation clustering | [igraph on Open Collective](https://opencollective.com/igraph) |
+| Obsidian | the note vault | an optional [Catalyst license](https://obsidian.md/pricing) |
+
+### tribonian-us
+
+tribonian-us isn't accepting support at this time.
+
 ## What it makes
 
 | US Code | A case: profile and good-law check | A co-citation sub-cluster |
