@@ -1,6 +1,6 @@
 # tribonian-us — architecture and design intent
 
-For a developer opening the scripts for the first time. It covers what each system does, how data flows between them, and why things are built the way they are. For command usage, see `README.md` in the repo. Written 2026-09-30 against the working tree, which includes uncommitted changes.
+For a developer opening the scripts for the first time. It covers what each system does, how data flows between them, and why things are built the way they are. For command usage, see `README.md` in the repo. First written 2026-09-30; updated 2026-10-25 for the package layout (`src/tribonian/`, one `tribonian` command, the work folder: §2.1). Folder names such as `cases/` and `pdf/` are relative to the work folder throughout.
 
 ---
 
@@ -28,31 +28,31 @@ tribonian-us turns federal law into **dense PDFs you can read and annotate on a 
 
 ```
                  uscode.house.gov                 CourtListener
-                   xml/*.xml              API (rate-limited)        bulk CSV.bz2 (quarterly)
-                       │                     │         │                     │
-                       ▼                     ▼         ▼                     ▼
-                  usc2md.py          case2md.py fetch   case2md.py       casedb.py load
-               (USLM → Node tree)    (opinions →         recap fetch      ├─ bulk/courtlistener.sqlite
-                       │              cases/*.json)     (dockets →        │   courts, cites, edges,
-                       │                     │           cases/recap/)    │   parens, clusters, dockets
-                       │                     │               │            ├─ db/opinions.sqlite (text)
-                       │                     │               │            └─ bulk/search.sqlite (FTS5)
-                       │                     │               │                     │
-                       │                     │               │        casemap.py get / map / stubs
-                       │                     │               │        (cases/*.json from the DB,
-                       │                     │               │         stubs, cited-by, good-law)
-                       │                     ▼               ▼                     │
-                       │               case2md.py build / recap build ◄───────────┘
+                   xml/*.xml              API (rate-limited)          bulk CSV.bz2 (quarterly)
+                       │                     │           │                     │
+                       ▼                     ▼           ▼                     ▼
+                 tribonian usc       tribonian case   tribonian case     tribonian db load
+               (USLM → Node tree)       fetch          recap fetch       ├─ bulk/courtlistener.sqlite
+                       │             (opinions →      (dockets →         │   courts, cites, edges,
+                       │              cases/*.json)    cases/recap/)     │   parens, clusters, dockets
+                       │                     │           │               ├─ db/opinions.sqlite (text)
+                       │                     │           │               └─ bulk/search.sqlite (FTS5)
+                       │                     │           │                     │
+                       │                     │           │       tribonian map get / map / stubs
+                       │                     │           │       (cases/*.json from the DB,
+                       │                     │           │        stubs, cited-by, good-law)
+                       │                     ▼           ▼                     │
+                       │           tribonian case build / recap build ◄────────┘
                        │              (JSON → El tree → Part tree)
                        ▼                     ▼
                md/ + build/*.tex     md-cases/ + build/*.tex
                        └───────┬─────────────┘
                                ▼
-                         build_all.sh  (parallel, incremental, pdflatex ×2)
+                        tribonian build  (sh/build_all.sh: parallel, incremental, pdflatex ×2)
                                ▼
                              pdf/
                    ┌───────────┴────────────┐
-             sync_vault.sh             sync_remarkable.py
+         tribonian sync-vault      tribonian sync-remarkable
           (rsync --delete into      (rmapi via rmfakecloud,
            Obsidian 08-Reference)     never deletes on tablet)
 ```
@@ -82,6 +82,57 @@ code, the two tracked data files (`data/`) and the shell scripts (`sh/`).
 
 Modules import each other as `from tribonian import case2md`. `casemap.py` imports `case2md` (as `c`) and `casedb`;
 `case2md`, `cocite` and `casemap` import each other inside functions, so each is loaded once whichever command runs.
+
+### 2.1 One package, one command, one work folder
+
+The repository is a normal Python package: the code is `src/tribonian/`, `pyproject.toml` declares it, and
+`pip install -e .` puts a `tribonian` command on the PATH. Nothing else in the checkout is code: `gui/` is the Rust
+app, `tests/`, `docs/`, `examples/` and `templates/` are what they say.
+
+**How a command runs** (`cli.py`):
+
+1. `tribonian <command> args…` looks the command up in `COMMANDS` (command → module).
+2. It changes to the **work folder** and exports `TRIBONIAN_WORK` (that folder), `TRIBONIAN_PY` (the running
+   interpreter) and `PYTHONPATH` (with the package's `src/` first). Every child process, a build job or
+   `case find --get` re-running a command, therefore uses the same interpreter, the same code and the same data,
+   installed or not.
+3. It sets `sys.argv[0]` to `tribonian <command>`, so argparse prints `usage: tribonian case …`.
+4. It imports `tribonian.<module>` and calls its `main()`. The exceptions are the shell scripts in `sh/` (run with
+   `bash`; their header comment is their `--help`) and `link_audit.py` (a plain script, run with `runpy`).
+
+`python -m tribonian …` (`__main__.py`) is the same entry point; the GUI and the build jobs use it.
+
+Because each module is imported exactly once per run, module state such as `cocite.COCITE_DB` (set by `--courts`)
+is seen by every module that imports it. The old script layout loaded a second copy whenever a script both ran as
+`__main__` and was imported by a sibling; the `sys.modules` workarounds for that are gone.
+
+**The work folder** (`tconfig.WORK`) holds every input and output: `xml/`, `cases/`, `md/`, `md-cases/`,
+`md-cocite/`, `pdf/`, `build/`, `state/`, `bulk/`, `db/`. It is, in order:
+
+| Source | When |
+|---|---|
+| `TRIBONIAN_WORK` | set in the environment (the CLI sets it for its children) |
+| `work_dir` in `~/.config/tribonian-us/config.toml` | to keep the data away from the code |
+| the checkout (`tconfig.REPO`: the folder with `pyproject.toml` two levels above the package) | an editable install or `PYTHONPATH=src`: the old behaviour, data beside the code |
+| `$XDG_DATA_HOME/tribonian-us` (`%LOCALAPPDATA%` on Windows) | a plain `pip install` with no config |
+
+Every relative path in the config file or a `CL_*` variable resolves against it, and so does every relative path in
+a command's arguments (the CLI runs there). Code never finds data through `Path(__file__)`: `tconfig.PKG` (the
+package folder) is only for what ships with the code.
+
+**Shipped with the code:** `sh/build_all.sh`, `sh/sync_vault.sh` and `data/cocite_labels.json`,
+`data/cocite_gold.json` (git-tracked inputs that can't be rebuilt). `tconfig.data_file(name)` returns the work
+folder's `data/<name>` if there is one, else the package's; writing (`cocite labels import`) goes to the package's
+copy while it is writable (a checkout, so the change shows in git), else to the work folder's.
+
+**The GUI** gets the same picture from `tribonian check --paths`: `repo_dir` (the checkout, for `src/`),
+`work_dir`, `labels_file` and the database paths. It runs every command as `python -m tribonian …` with
+`<repo_dir>/src` on `PYTHONPATH` (`config::tribonian`, `Py::cmd`), and reads `cases/`, `md-cases/` and `pdf/` from
+`work_dir`.
+
+**Adding a command:** a module in `src/tribonian/` with a `main()` that parses `sys.argv[1:]`, plus one line in
+`cli.COMMANDS`. A module that is only part of a bigger command (as the `cocite_*` modules are of `cocite`) instead
+exposes `add_parser(sub)` and is registered in that command's `main()`.
 
 ---
 
@@ -243,10 +294,11 @@ The question is **which cases travel together, and how that changes over time**.
 
 ## 8. Build orchestration: `tribonian build`
 
+- **How it runs:** `tribonian build` starts `sh/build_all.sh` in the work folder. Each job calls `"$PY" -m tribonian usc …` or `case build …` (`PY` is `TRIBONIAN_PY`, the interpreter `tribonian` runs under), and the script fans out by re-running itself as `bash "$SELF" --job` under `xargs -P`.
 - **Job discovery:** `xml/*.xml` gives one job per chapter (chapter lists are cached in `build/chapters/` until the XML changes). `cases/*.json` gives case jobs and `cases/recap/*.json` gives docket jobs.
 - **Incremental builds:** `state/built.tsv` maps each job to its PDF. A job builds when it has no record, its PDF is missing, or its source is newer. Failures are never recorded, so the next run retries them. `FORCE=1` after changing a generator.
 - **Parallel runs:** each job gets its own scratch folder (`mktemp -d "$SCRATCH/job.XXXXXX"`), so parallel `.tex`, `.aux` and `.md` files never collide. Manifest lines are short enough that appends from parallel workers are atomic.
-- **Success signal:** `case2md.py` prints `wrote pdf/…` only when pdflatex succeeded. The script parses that line, and a missing line is a failure.
+- **Success signal:** `tribonian case build` prints `wrote pdf/…` only when pdflatex succeeded. The script parses that line, and a missing line is a failure.
 - **Failures:** saved to `build/failures.txt` and `build/failed_jobs.txt` (rerunnable as a list file).
 
 ---
@@ -265,20 +317,21 @@ The question is **which cases travel together, and how that changes over time**.
 3. **No cross-document links in PDFs.** Internal `GoTo` links and bookmarks only.
 4. **Every derived judgment carries its evidence:** good-law status lists the opinions behind it, and warnings name the ECF number and the heading.
 5. **Resumable and idempotent:** caches everywhere, atomic writes, locks for shared files, and a clean stop at API limits.
-6. **Generated output is disposable:** only scripts are tracked in git. `.tex`, `.md`, `.pdf` and caches are all ignored and rebuilt.
+6. **Generated output is disposable:** only the code (`src/`, `gui/`), docs, tests and the two files in `src/tribonian/data/` are tracked in git. `.tex`, `.md`, `.pdf` and caches are all ignored and rebuilt.
 7. **Front matter is uniform:** `title`, `aliases`, `citation`, `source`, `retrieved`, `synthetic: false`. Aliases are what make `[[5 U.S.C. § 552]]` resolve in Obsidian.
+8. **Data lives in the work folder, code in the package.** Data paths come from `tconfig.WORK` (or a `tconfig.get` setting), never from `Path(__file__)`; only shipped files use `tconfig.PKG`.
+9. **One way in:** modules import each other as `from tribonian import x`, and other processes run them as `python -m tribonian <command>`, never by file path. A by-name import hidden in a string (`__import__("casemap")`) breaks the same way a file path does.
 
 ## 11. Gotchas
 
-- **`FONT=XCharter`** needs the `xcharter` TeX package. Builds in the Cowork VM fail on it; use `FONT=charter` there for test builds only.
-- **Deletes are blocked in the project folder** (Cowork). Set `SCRATCH` outside the repo for test builds.
-- **`bulk/` is a symlink** to the CourtListener bulk-data folder (on a separate drive). Cowork sessions need that folder connected separately.
+- **`FONT=XCharter`** needs the `xcharter` TeX package (`texlive-fonts-extra` on Debian/Ubuntu). Where it is missing, `FONT=charter` (in base TeX Live) builds for testing; the metrics differ, so don't compare page counts across the two.
+- **`tribonian: command not found`:** the venv isn't active. Source its `activate` (with `.` or `source`; it can't be run directly) or link `<venv>/bin/tribonian` into `~/.local/bin`. Without installing, `PYTHONPATH=src python -m tribonian …` from the checkout does the same.
+- **Trying a build without touching real output:** point `TRIBONIAN_WORK` at a scratch folder. The tests do the same, and run against `src/` (they put it on `sys.path`).
 - **Reading the bulk CSVs by hand:** always pass `escapechar="\\", doublequote=False`.
-- **`*.prevault` and `*.bak` files** are old versions kept by hand; nothing reads them.
 
 ## 12. Suggested reading order
 
-1. `README.md`, for the commands.
+1. `README.md`, for the commands; then `cli.py` and `tconfig.py` (§2.1), for how a command reaches its module and its data.
 2. `render.py`: `PREAMBLE` (the box and header machinery); then `usc2md.py`: `build()` → `render_md()` → `render_tex()`.
 3. `case2md.py`, in this order:
    1. The module docstring.
@@ -287,4 +340,4 @@ The question is **which cases travel together, and how that changes over time**.
    4. `recap_build`.
 4. `casedb.py`: `TABLES`.
 5. `casemap.py`: `db_case`, then `cmd_citedby` and `goodlaw`.
-6. `tribonian build`: `build_case`, `run_job` and the manifest logic.
+6. `sh/build_all.sh` (`tribonian build`): `build_case`, `run_job` and the manifest logic.
