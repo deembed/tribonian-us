@@ -9,6 +9,7 @@
     ./cocite.py usc-check --holdout 34,52,54    # step 4: map vs data (after the full run)
     ./cocite.py usc-profile                     # step 5: provisions per sub-cluster -> cocite-cache/usc/profile-<view>.sqlite
     ./cocite.py usc-profile --node 42:1983      #   which sub-clusters cite a provision; --sub 2010:17 the reverse
+    ./cocite.py usc-citedby                     # step 6: most cited / newest appellate decisions per section -> cocite-cache/usc/citedby.sqlite
     ./cocite.py usc-extract                     # full run -> cocite-cache/usc/, sharded, resumable, all cores
 
 Step 1 measures, per random opinion with html_with_citations (the only field positions reads):
@@ -1234,6 +1235,265 @@ def section_md(identifier, view=None, top=3, min_n=5):
 
 
 
+# ================================================================ cited by / recent appellate cites (usc-citedby)
+# Two more derived sections for the US Code notes, from the same decision x section pairs as usc-profile:
+#   ## Cited by                 the decisions (any court) citing the section, the most cited first
+#   ## Recent appellate cites   appellate decisions citing it per year, and the newest ones
+# Precomputed once into cocite-cache/usc/citedby.sqlite, so a note build only reads a few rows.
+
+CITEDBY_VERSION = 2                             # 2: slug per case (CourtListener needs /opinion/<id>/<slug>/)
+APPELLATE = (1, 2, 4, 5)                        # cocite.COURT_LEVELS codes: scotus, circuit, state-supreme, state-appellate
+CAND = 400                                      # newest-candidates per section, sorted by filing date afterwards
+
+
+def citedby_path():
+    return usc_dir() / "citedby.sqlite"
+
+
+def case_rows(con, want):
+    """cluster id -> (name, best citation, date filed, slug). One sequential scan for many ids, as cocite.fill_names
+    (on the hard disk each index lookup is a seek). The slug as case2md.opinion_url: the database's, else from the name."""
+    from case2md import slugify
+    want = sorted({int(x) for x in want})
+    info, cites = {}, {}
+    if not want:
+        return {}
+    if len(want) > 20000:
+        w = np.zeros(want[-1] + 1, bool)
+        w[want] = True
+        for cid, short, full, filed, slug in con.execute("SELECT id, case_name_short, case_name, date_filed, slug FROM clusters"):
+            if cid is not None and 0 <= cid < len(w) and w[cid]:
+                info[cid] = (short, full, filed, slug)
+        for cid, v, rep, pg, typ in con.execute("SELECT cluster_id, volume, reporter, page, type FROM cites"):
+            if cid is not None and 0 <= cid < len(w) and w[cid] and (cid not in cites or (typ or 99) < cites[cid][0]):
+                cites[cid] = (typ or 99, "%s %s %s" % (v, rep, pg))
+    else:
+        for i in range(0, len(want), 500):
+            ids = want[i:i + 500]
+            q = ",".join("?" * len(ids))
+            for r in con.execute("SELECT id, case_name_short, case_name, date_filed, slug FROM clusters WHERE id IN (%s)" % q, ids):
+                info[r[0]] = r[1:]
+            for cid, v, rep, pg, typ in con.execute(
+                    "SELECT cluster_id, volume, reporter, page, type FROM cites WHERE cluster_id IN (%s)" % q, ids):
+                if cid not in cites or (typ or 99) < cites[cid][0]:
+                    cites[cid] = (typ or 99, "%s %s %s" % (v, rep, pg))
+    out = {}
+    for cid in want:
+        short, full, filed, slug = info.get(cid, (None, None, None, None))
+        name = short or full or "cluster %d" % cid
+        if not short and full and len(full) > 60:
+            name = full[:57] + "..."
+        slug = slug or slugify(full or short or "", 75) or "case"
+        out[cid] = (name, cites.get(cid, (0, ""))[1], filed or "", slug)
+    return out
+
+
+def groups(n_sorted):
+    """start, end of each run of equal values in a sorted array"""
+    if not len(n_sorted):
+        return np.zeros(0, np.int64), np.zeros(0, np.int64)
+    st = np.flatnonzero(np.r_[True, n_sorted[1:] != n_sorted[:-1]])
+    return st, np.r_[st[1:], len(n_sorted)]
+
+
+def cmd_usc_citedby(args):
+    import cocite, shutil, tempfile
+    con = cocite.main_db()
+    row = con.execute("SELECT file FROM loaded WHERE name='citation-map'").fetchone()
+    m = re.search(r"\d{4}-\d\d-\d\d", row[0]) if row else None
+    bulk = m.group(0) if m else ""
+    um = load_map()
+    dec, key, yr, keys = load_refs()                # every court
+    t0 = time.time()
+    cd = np.asarray(np.load(cocite.CACHE / "cited.npy", mmap_mode="r"))
+    lvl = np.asarray(np.load(cocite.CACHE / "level.npy", mmap_mode="r"))
+    n_cited = np.bincount(cd, minlength=int(dec.max()) + 1 if len(dec) else 0)   # decisions citing each case
+    c = n_cited[dec].astype(np.int64)
+    dl = np.where(dec < len(lvl), lvl[np.minimum(dec, len(lvl) - 1)], 0).astype(np.int64)
+
+    # node = the section as cited; a reused number cited before its reuse is its own era node (as usc-profile)
+    node = key.astype(np.int64)
+    names = list(keys)
+    extra = {}
+    order = np.argsort(key, kind="stable")
+    ks = key[order]
+    for i, k in enumerate(keys):
+        if not um.ends.get(k):
+            continue
+        rows = order[np.searchsorted(ks, i):np.searchsorted(ks, i, "right")]
+        for y in np.unique(yr[rows]).tolist():
+            nd = um.node(k, int(y))
+            if nd != k:
+                node[rows[yr[rows] == y]] = extra.setdefault(nd, len(keys) + len(extra))
+    names += [nd for nd, _ in sorted(extra.items(), key=lambda x: x[1])]
+
+    # most cited: per node by cited-by count, then newest decision id
+    o = np.lexsort((-dec.astype(np.int64), -c, node))
+    st, en = groups(node[o])
+    total = dict(zip(node[o][st].tolist(), (en - st).tolist()))
+    rank = np.arange(len(o)) - np.repeat(st, en - st)
+    top_rows = o[rank < args.top]
+
+    # newest appellate: per node by year, then the candidates are sorted by filing date
+    a = np.flatnonzero(np.isin(dl, APPELLATE))
+    oa = a[np.lexsort((-dec[a].astype(np.int64), -yr[a], node[a]))]
+    st, en = groups(node[oa])
+    app_total = dict(zip(node[oa][st].tolist(), (en - st).tolist()))
+    size = en - st
+    ya = yr[oa]
+    thr = np.where(size >= args.top, ya[np.minimum(st + args.top - 1, len(oa) - 1)], 0) if len(oa) else np.zeros(0)
+    rank = np.arange(len(oa)) - np.repeat(st, size)
+    cand = oa[(ya >= np.repeat(thr, size)) & (rank < CAND)]
+
+    # appellate decisions per year, the last --years years
+    y0 = int(bulk[:4]) - args.years if bulk else int(yr.max()) - args.years
+    k = a[yr[a] >= y0]
+    py, pn = np.unique(node[k] * 10000 + yr[k], return_counts=True)
+
+    info = case_rows(con, np.concatenate([dec[top_rows], dec[cand]]))
+    lv = lambda l: cocite.COURT_LEVELS[l - 1] if 1 <= l <= len(cocite.COURT_LEVELS) else ""
+    p = citedby_path()
+    tmpdir = Path(tempfile.mkdtemp(prefix="usc-citedby-"))
+    tmp = tmpdir / p.name
+    out = sqlite3.connect(tmp)
+    out.executescript("""
+        CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);
+        CREATE TABLE total(node TEXT PRIMARY KEY, decisions INTEGER, appellate INTEGER);
+        CREATE TABLE top(node TEXT, kind TEXT, rank INTEGER, ref INTEGER, cited_by INTEGER, year INTEGER,
+                         court TEXT, name TEXT, cite TEXT, filed TEXT, slug TEXT);
+        CREATE TABLE peryear(node TEXT, year INTEGER, decisions INTEGER);
+    """)
+    out.executemany("INSERT INTO total VALUES (?,?,?)",
+                    [(names[n], t, app_total.get(n, 0)) for n, t in total.items()])
+
+    def row(n, kind, r, i):
+        nm, ct, fd, sl = info[int(dec[i])]
+        return (names[n], kind, r, int(dec[i]), int(c[i]), int(yr[i]), lv(int(dl[i])), nm, ct, fd, sl)
+    rows, last, r = [], None, 0
+    for i in top_rows.tolist():
+        n = int(node[i])
+        r = r + 1 if n == last else 1
+        last = n
+        rows.append(row(n, "cited", r, i))
+    by = defaultdict(list)
+    for i in cand.tolist():
+        by[int(node[i])].append(i)
+    for n, lst in by.items():
+        lst.sort(key=lambda i: (info[int(dec[i])][2] or "%04d" % yr[i], int(dec[i])), reverse=True)
+        rows += [row(n, "recent", j + 1, i) for j, i in enumerate(lst[:args.top])]
+    out.executemany("INSERT INTO top VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+    out.executemany("INSERT INTO peryear VALUES (?,?,?)",
+                    [(names[int(v // 10000)], int(v % 10000), int(n)) for v, n in zip(py.tolist(), pn.tolist())])
+    out.executescript("CREATE INDEX top_by_node ON top(node, kind, rank); CREATE INDEX peryear_by_node ON peryear(node, year);")
+    out.executemany("INSERT INTO meta VALUES (?,?)", [
+        ("version", str(CITEDBY_VERSION)), ("usc_version", str(USC_VERSION)), ("map_version", str(MAP_VERSION)),
+        ("bulk", bulk), ("top", str(args.top)), ("first_year", str(y0)), ("built", time.strftime("%Y-%m-%d %H:%M"))])
+    out.commit()
+    out.close()
+    part = p.with_name(p.name + ".part")
+    shutil.copyfile(tmp, part)
+    part.replace(p)
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    print("wrote %s: %s sections, %s rows  (%.1f min)" % (p, format(len(total), ","), format(len(rows), ","),
+                                                         (time.time() - t0) / 60))
+
+
+_CB = {}
+
+
+def _cb_state():
+    """(citedby db, case-note index) once per process; db None when usc-citedby hasn't run"""
+    if not _CB:
+        import json
+        p = citedby_path()
+        try:
+            _CB["db"] = sqlite3.connect("file:%s?mode=ro&immutable=1" % p, uri=True) if p.exists() else None
+        except sqlite3.Error:
+            _CB["db"] = None
+        try:
+            _CB["index"] = json.loads((Path(__file__).resolve().parent / "cases" / "_index.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            _CB["index"] = {}
+        _CB["meta"] = dict(_CB["db"].execute("SELECT key, value FROM meta")) if _CB["db"] else {}
+        if _CB["meta"].get("version") != str(CITEDBY_VERSION):     # older file: leave the sections out until rebuilt
+            if _CB["db"]:
+                print("  %s is version %s, this code needs %d: rerun ./cocite.py usc-citedby"
+                      % (p.name, _CB["meta"].get("version"), CITEDBY_VERSION), file=sys.stderr)
+            _CB["db"] = None
+    return _CB["db"], _CB["index"], _CB["meta"]
+
+
+def case_cell(ref, name, index, slug=None):
+    """the case note when there is one, else CourtListener's page, which needs the slug: /opinion/<id>/<slug>/"""
+    name = (name or "cluster %d" % ref).replace("|", "/")
+    e = index.get(str(ref))
+    if e:
+        return "[[%s\\|%s]]" % (e["slug"], name)
+    return "[%s](https://www.courtlistener.com/opinion/%d/%s/)" % (name.replace("[", "(").replace("]", ")"), ref, slug or "case")
+
+
+def _key_of(identifier):
+    keys = id_keys(identifier)
+    return keys[0] if len(keys) == 1 else None
+
+
+def citedby_md(identifier, top=20):
+    """'## Cited by': the most cited decisions (any court) citing this section; [] when nothing to show"""
+    db, index, meta = _cb_state()
+    key = _key_of(identifier) if db else None
+    if not key:
+        return []
+    nodes = [key] + sorted(r[0] for r in db.execute("SELECT node FROM total WHERE node LIKE ?", (key + "@-%",)))
+    out = []
+    for nd in nodes:
+        t = db.execute("SELECT decisions FROM total WHERE node=?", (nd,)).fetchone()
+        rows = db.execute("SELECT ref, name, cite, year, court, cited_by, slug FROM top WHERE node=? AND kind='cited' "
+                          "ORDER BY rank LIMIT ?", (nd, top)).fetchall()
+        if not t or not rows:
+            continue
+        if nd != key:
+            out += ["### As cited before %s (the number was later reused)" % nd.partition("@-")[2], ""]
+        out += ["%s decisions cite it; the %d most cited:" % (format(t[0], ","), len(rows)), "",
+                "| Case | Citation | Year | Court | Cited by |", "|---|---|---|---|---|"]
+        out += ["| %s | %s | %s | %s | %s |" % (case_cell(ref, nm, index, sl), ct or "", y or "", co, format(n, ","))
+                for ref, nm, ct, y, co, n, sl in rows]
+        out.append("")
+    if not out:
+        return []
+    return (["## Cited by", "",
+             "*Decisions from any court citing this section, the most cited by later decisions first (CourtListener "
+             "bulk data of %s; citations found in the opinion text by `cocite_usc.py`). Not part of the law.*"
+             % (meta.get("bulk") or "?"), ""] + out)
+
+
+def recent_md(identifier, top=20):
+    """'## Recent appellate cites': appellate decisions citing this section per year, and the newest; [] when none"""
+    db, index, meta = _cb_state()
+    key = _key_of(identifier) if db else None
+    if not key:
+        return []
+    rows = db.execute("SELECT ref, name, cite, filed, year, court, cited_by, slug FROM top WHERE node=? AND kind='recent' "
+                      "ORDER BY rank LIMIT ?", (key, top)).fetchall()
+    if not rows:
+        return []
+    bulk = meta.get("bulk") or ""
+    y0 = int(meta.get("first_year") or 0)
+    per = dict(db.execute("SELECT year, decisions FROM peryear WHERE node=?", (key,)))
+    last = int(bulk[:4]) if bulk else max(per or [y0])
+    years = " · ".join("%d%s %d" % (y, " (to %s)" % bulk[5:] if bulk and y == last and bulk[5:] != "12-31" else "",
+                                    per.get(y, 0)) for y in range(y0, last + 1))
+    t = db.execute("SELECT appellate FROM total WHERE node=?", (key,)).fetchone()
+    out = ["## Recent appellate cites", "",
+           "*Supreme Court, circuit, and state supreme and appellate decisions citing this section, to the CourtListener "
+           "bulk data of %s; newer decisions are not in it. Not part of the law.*" % (bulk or "?"), "",
+           "Per year: " + years + ("  (all years: %s)" % format(t[0], ",") if t else ""), "",
+           "| Filed | Case | Citation | Court | Cited by |", "|---|---|---|---|---|"]
+    out += ["| %s | %s | %s | %s | %s |" % (fd or y, case_cell(ref, nm, index, sl), ct or "", co, format(n, ","))
+            for ref, nm, ct, fd, y, co, n, sl in rows]
+    return out + [""]
+
+
+
 def add_parser(sub):
     p = sub.add_parser("usc-sample", help="how US Code cites appear in opinion text (cocite_usc.py); writes nothing")
     p.add_argument("--n", type=int, default=2000, help="random opinions to read")
@@ -1276,6 +1536,10 @@ def add_parser(sub):
     p.add_argument("--top", type=int, default=5)
     p.add_argument("--min-n", dest="min_n", type=int, default=5, help="decisions needed for a row")
     p.set_defaults(func=cmd_usc_profile)
+    p = sub.add_parser("usc-citedby", help="most cited and newest appellate decisions per Code section (cocite_usc.py)")
+    p.add_argument("--top", type=int, default=20, help="decisions kept per section and list")
+    p.add_argument("--years", type=int, default=5, help="per-year appellate counts: this many years before the bulk year")
+    p.set_defaults(func=cmd_usc_citedby)
     return p
 
 

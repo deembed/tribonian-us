@@ -1022,15 +1022,23 @@ def slug(meta):
 
 
 def cited_with(meta, args):
-    """'## Cited with' lines from the co-citation profile (cocite_usc.py), or [] when it isn't built or is off"""
+    """The derived sections after the law: '## Cited with' (co-citation profile), '## Cited by' and
+    '## Recent appellate cites' (cocite_usc.py usc-citedby). Each is [] when not built; --no-cocite leaves all out."""
     if args.no_cocite:
         return []
+    out = []
     try:
         import cocite_usc
-        return cocite_usc.section_md(meta["identifier"])
-    except Exception as e:                          # the law note must never fail over a derived section
-        print("  cited-with skipped for %s: %s: %s" % (meta["identifier"], type(e).__name__, e), file=sys.stderr)
+    except Exception as e:
+        print("  derived sections skipped: %s: %s" % (type(e).__name__, e), file=sys.stderr)
         return []
+    for name, fn in (("cited-with", cocite_usc.section_md), ("cited-by", cocite_usc.citedby_md),
+                     ("recent-appellate", cocite_usc.recent_md)):
+        try:
+            out += fn(meta["identifier"])
+        except Exception as e:                      # the law note must never fail over a derived section
+            print("  %s skipped for %s: %s: %s" % (name, meta["identifier"], type(e).__name__, e), file=sys.stderr)
+    return out
 
 
 def main():
@@ -1051,7 +1059,7 @@ def main():
                     help="append each section's editorial and statutory notes")
     ap.add_argument("--out", default=".")
     ap.add_argument("--no-cocite", dest="no_cocite", action="store_true",
-                    help="leave out the 'Cited with' section (co-citation profile, when built)")
+                    help="leave out the derived sections: Cited with, Cited by, Recent appellate cites (when built)")
     ap.add_argument("--style", choices=list(RULES), default="boxes",
                     help="boxes: rule on all four sides; rails: left rule only")
     ap.add_argument("--font", default="XCharter",

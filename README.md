@@ -100,8 +100,8 @@ the opinion text is read hard by the good-law check and `cocite.py positions`.
 
 When a new release point comes out, replace the files in `xml/` and rerun; only changed titles are rebuilt.
 
-The notes built now have no `## Cited with` section (which sub-clusters cite each section); that needs stage 5,
-whose last step rewrites the notes. The PDFs don't change.
+The notes built now have no `## Cited with`, `## Cited by` or `## Recent appellate cites` sections; those need
+stage 5, whose last step rewrites the notes. The PDFs don't change.
 
 ### 3. CourtListener account and API token
 
@@ -199,8 +199,20 @@ Then the US Code in the map, and the US Code notes again so they get their `## C
 ./cocite.py usc-extract                 # 8. every US Code cite in the opinion text -> cocite-cache/usc/ (all cores, resumable)
 ./cocite.py usc-map                     # 9. old Code numbers -> current, from xml/ (also sharpens case notes' old-cite marks)
 ./cocite.py usc-profile                 # 10. sections per sub-cluster, note view -> cocite-cache/usc/profile-<view>.sqlite
-MD_ONLY=1 ./build_all.sh usc            # 11. rewrite the US Code notes (notes only, every title; PDFs untouched)
+./cocite.py usc-citedby                 # 11. most cited and newest appellate decisions per section -> cocite-cache/usc/citedby.sqlite
+MD_ONLY=1 ./build_all.sh usc            # 12. rewrite the US Code notes (notes only, every title; PDFs untouched)
 ```
+
+Each US Code note then ends with three derived sections, each left out until its step has run:
+
+- **Cited with** (step 10): per five-year slice, the co-citation sub-clusters whose appellate decisions cite the section most.
+- **Cited by** (step 11): the 20 decisions from any court citing the section that later decisions cite most
+  (decisions citing each one in the local citation map). A reused number gets a separate list for cites before the reuse.
+- **Recent appellate cites** (step 11): Supreme Court, circuit and state supreme and appellate decisions citing it,
+  per year for the last 5 years, then the 20 newest by filing date. It stops at the bulk data's date.
+
+Cases link to your case note when you have one, otherwise to CourtListener. `--top` and `--years` change the
+list length and the years counted; `usc2md.py --no-cocite` leaves all three out.
 
 Optional:
 
