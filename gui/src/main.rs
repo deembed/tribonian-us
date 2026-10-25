@@ -4,6 +4,7 @@
 
 mod apisearch;
 mod cases;
+mod check_page;
 mod cocache;
 mod config;
 mod db;
@@ -119,6 +120,7 @@ pub struct App {
     pub recent: Result<Option<scotus::Recent>, String>,
     pub scotus_ui: scotus_page::ScotusUi,
     pub sem_ui: semsearch_page::SemUi,
+    pub check_ui: check_page::CheckUi,
     egui_ctx: Option<egui::Context>,
     /// Database pages requested and not answered yet (the main window's and every pop-out's).
     inflight: std::collections::HashSet<Page>,
@@ -192,6 +194,7 @@ impl App {
             recent: Ok(None),
             scotus_ui: Default::default(),
             sem_ui: Default::default(),
+            check_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
             inflight: Default::default(),
             cocite: Vec::new(),
@@ -619,6 +622,7 @@ impl App {
             Page::Search { query, mode: search::Mode::Parenthetical } => format!("Parentheticals: {query}"),
             Page::Scotus => "SCOTUS".into(),
             Page::SemSearch => "Sub-Cluster Search".into(),
+            Page::Check => "Check setup".into(),
             Page::CoCited(refs) if !self.cache.contains_key(p) && !self.titles.contains_key(p) => {
                 let names: Vec<String> = refs
                     .iter()
@@ -676,6 +680,7 @@ impl App {
             Page::CoCited(_) => {}
             Page::Scotus => {}
             Page::SemSearch => {}
+            Page::Check => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Case(_) => match self.section_at(self.pos) {
                 Section::Cases => c.push(("Built cases".into(), Some(Page::Cases))),
@@ -725,6 +730,7 @@ impl App {
                     Page::Search { .. } => "search",
                     Page::Scotus => "scotus",
                     Page::SemSearch => "semantic search",
+                    Page::Check => "check setup",
                     Page::Docket(_) => "docket",
                     Page::CoCited(_) => "cited together",
                 };

@@ -59,6 +59,8 @@ And a desktop browser over all of it (`gui/`, Rust):
 
 A walk from an empty machine to everything working: US Code PDFs, case notes, the local CourtListener database,
 the co-citation map and the GUI. Each stage works on its own, so you can stop after any of them.
+After any stage, `./check.py` shows what is there, whether each database answers a query, and the fix for
+anything missing (see [Checking the setup](#checking-the-setup)).
 
 | You want | Stages |
 |---|---|
@@ -81,6 +83,7 @@ sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic \
 pip install -r requirements.txt     # or: sudo apt install python3-lxml python3-numpy python3-scipy python3-igraph
 mkdir -p xml bulk db                # db/ must exist before stage 4, or the opinion text lands beside the main database
 python3 -m unittest discover tests  # smoke tests; no network, no database
+./check.py                          # what is installed and loaded so far, with a fix for each gap
 ```
 
 `bulk/` and `db/` can be symlinks to another disk (or set `CL_BULK`, `CL_OPS_DB`). Put `db/` on the fastest disk:
@@ -536,6 +539,29 @@ Results go to `bulk/cocite.sqlite` (`CL_COCITE_DB`). Derived and disposable: a s
 
 - **`./sync_vault.sh`:** mirrors `md/` into `$VAULT/08-Reference/USC` (default vault `~/Obsidian/usc-vault`), `md-cases/` into `08-Reference/Cases` and `md-cocite/` into `08-Reference/Co-citation`. It deletes anything in those vault folders that isn't in the source, so keep your own notes elsewhere in the vault. It refuses to run when a source holds fewer than 90% of the notes already in the vault (a partial build); `FORCE=1` overrides. Options: `VAULT=/path`, `DRY=1`, `FORCE=1`. `build_all.sh` exits non-zero when any job failed, so `./build_all.sh && ./sync_vault.sh` is safe.
 - **`./sync_remarkable.py`:** uploads new or changed PDFs to the tablet through rmapi (reMarkable cloud, or rmfakecloud when `RMAPI_HOST` is set), under `/LawFormatter/Laws/USC/Title-NN/`, `/LawFormatter/Laws/Cases/...` and `/LawFormatter/Laws/Co-citation/<slice>/` (sub-cluster explainers). It never deletes on the tablet. `state/rm_manifest.json` records what was uploaded. Use `--dry-run` to see the plan. A changed PDF **replaces** the tablet copy and its pen annotations go with it, so more than 10 replacements in one run stop unless `--yes` is given. Builds are byte-reproducible (`SOURCE_DATE_EPOCH` plus a fixed PDF trailer ID), so rebuilding an unchanged source does not count as a change.
+
+## Checking the setup
+
+```
+./check.py           # every tool and database: there? answers a query? the fix if not
+./check.py --api     # also one live CourtListener request (counts against the daily limit)
+./check.py --json    # the same as JSON
+```
+
+Each database probe looks up one known case (State Farm, 463 U.S. 29, cluster 110991) through an index, so the
+check takes well under a second even on a hard disk. It opens every database read-only. A table that loaded but
+lacks that case (a `--limit` sample load) shows as a warning. The last lines name the **data mode** the install
+supports:
+
+| Mode | Local data | From the API |
+|---|---|---|
+| `api` | none | everything |
+| `lite` | the small bulk tables: courts, citations, citation map, parentheticals, clusters, opmap | opinion text |
+| `full` | lite + `opinions.sqlite` | only cases newer than the bulk data |
+
+pdflatex and rmapi are checked but block no mode, because notes alone need neither. In the GUI, **Check setup** on
+the start screen runs the same checks and adds the app's own: `gui.toml`, the co-citation views it found, and
+whether `gui.toml` points at the same databases as the scripts' `CL_*` variables.
 
 ## Other
 

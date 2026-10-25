@@ -10,7 +10,9 @@ cp gui.toml.example gui.toml     # then edit the paths
 cargo run --release
 ```
 
-- Start screen: View Clusters, View Cases, Search for Cases, SCOTUS, Sub-Cluster Search (draft).
+- Start screen: View Clusters, View Cases, Search for Cases, SCOTUS, Sub-Cluster Search (draft), Check setup.
+- Check setup: runs `../check.py --json` (tools, databases, a probe query each, the data mode) and adds the app's own
+  checks: gui.toml, the co-citation views, and whether gui.toml and the scripts' `CL_*` variables name the same files.
 - Sub-Cluster Search (draft): paste a draft or a question; each blank-line-separated paragraph is one CourtListener
   semantic search per five-year slice since the Since year (default 1980), cases cited more than N times (default 5) (`casemap.py semsearch`, queued like a build; the app passes the text as the
   query and writes nothing). Hits re-ranked by semantic score, grouped by sub-cluster, linked to the case and

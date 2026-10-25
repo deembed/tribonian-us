@@ -211,6 +211,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::Scotus => return crate::scotus_page::scotus_home(app, ui),
         Page::Docket(n) => return crate::scotus_page::docket_page(app, ui, n),
         Page::SemSearch => return crate::semsearch_page::sem_page(app, ui),
+        Page::Check => return crate::check_page::check_page(app, ui),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -276,6 +277,16 @@ fn home(app: &mut App, ui: &mut Ui) {
             .clicked()
         {
             app.goto = Some(Page::SemSearch);
+        }
+        ui.add_space(8.0);
+        let trouble = app.cfg_err.is_some() || app.view_err.is_some();
+        let label = if trouble { RichText::new("Check setup (something is missing)").size(18.0).color(Color32::LIGHT_RED) } else { RichText::new("Check setup").size(18.0) };
+        if ui
+            .add_sized(size, egui::Button::new(label))
+            .on_hover_text("is each tool and database there, and does it answer a query (./check.py)")
+            .clicked()
+        {
+            app.goto = Some(Page::Check);
         }
         ui.add_space(30.0);
         if let Some(e) = &app.cfg_err {
