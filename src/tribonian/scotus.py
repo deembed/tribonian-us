@@ -209,6 +209,11 @@ def fetch(args):
             print("  %s %s  %-13s %-10s %s" % ("".join(marks) or " ", e["date"], e["kind"], e["side"] or "", e["text"][:80]))
     print("  (+ downloaded, = already here, ! failed)")
     print("saved %s" % case_file(num).relative_to(c.ROOT))
+    warn = []
+    data_ = json.loads(case_file(num).read_text(encoding="utf-8"))
+    ensure_below(data_, c.local_db(), warn)        # the decision below too: its case file and note
+    for w in warn:
+        print("  note:", w)
     print("next:  tribonian scotus build %s" % num)
 
 
@@ -607,6 +612,80 @@ def read_brief(text, f, oi, warn, appendix=False, vocab=None):
 
 
 
+# ================================================================ the decision below from the petition's appendix
+APP_ENTRY_RE = re.compile(r"^(.*?)\s*\.{3,}\s*(?:App\.\s*)?(\d+)a\s*$")
+
+
+def appendix_toc(text):
+    """The petition's list of its appendix: [(title, first page number)] in order, from the first "APPENDIX"
+    heading followed by entries ending in a dotted leader and a page ("Opinion, ... (10th Cir. 2025) .... 1a")."""
+    lines = text.replace("\f", "\n").split("\n")
+    for i, l in enumerate(lines):
+        if not re.fullmatch(r"\s*(?:APPENDIX TABLE OF CONTENTS|(?:TABLE OF )?APPENDI(?:X|CES)(?: CONTENTS)?)\s*", l):
+            continue
+        out, cur = [], []
+        for l2 in lines[i + 1:i + 400]:
+            t = l2.strip()
+            if not t or re.fullmatch(r"[ivxlc]+|\d+a?", t) or re.fullmatch(r"(?i)appendix table of contents", t):
+                continue
+            m = APP_ENTRY_RE.match(t)
+            if m:
+                out.append((" ".join(cur + [m.group(1)]).strip(), int(m.group(2))))
+                cur = []
+            elif len(cur) > 6:
+                break
+            else:
+                cur.append(t)
+        if len(out) >= 2 and out[0][1] == 1:
+            return out
+    return []
+
+
+def below_from_appendix(fs, data, con, warn):
+    """CourtListener has no copy of the decision below: the petition reproduces it in its appendix (Rule 14.1(i)).
+    The appendix entry that names the opinion and the lower court's docket number, to the next entry's page.
+    -> (opinion dict for the PDF, its citations Counter, "Pet. App. 1a–48a") or None."""
+    pet = next((f for f in fs if f["kind"] == "petition"), None)
+    if pet is None:
+        return None
+    toc = appendix_toc(pet["brief"])
+    num = (data["feed"].get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
+    pick = next((k for k, (t, p) in enumerate(toc) if num and num in t and re.search(r"(?i)\bopinion\b", t)), None)
+    if pick is None:
+        pick = next((k for k, (t, p) in enumerate(toc) if re.search(r"(?i)\bopinion\b", t)), None)
+    if pick is None:
+        return None
+    first = toc[pick][1]
+    last = next((p - 1 for t, p in toc[pick + 1:] if p > first), None)
+    sp = split_brief(pet["brief"], appendix=True)
+    keep = [(lab, ls) for lab, ls in sp["body"]
+            if re.fullmatch(r"\d+a", lab) and first <= int(lab[:-1]) <= (last or 10 ** 6)]
+    if not keep:
+        return None
+    labels = [lab for lab, _ in keep]
+    lines, footnotes, _ = c.layout_pages("\f".join("\n".join(ls) for lab, ls in keep))
+    blocks = segment_blocks(lines, labels, None, demote=False)
+    guessed = c.assign_levels([b["label"] for b in blocks if b["kind"] == "h"])
+    for b, (lv, pth) in zip([b for b in blocks if b["kind"] == "h"], guessed):
+        b["level"], b["path"] = lv, pth
+    c.place_marks(blocks, footnotes, warn, spaced=True)
+    court = re.sub(r"(?i)^united states ", "", data["feed"].get("LowerCourt") or "the court of appeals")
+    where = "Pet. App. %da–%sa" % (first, last if last else labels[-1][:-1])
+    o = {"oi": 0, "kind": "", "author": "", "byline": [], "flat": [], "footnotes": {}, "api": {},
+         "start": labels[0], "title": "Opinion", "who": court}
+    c.fill_opinion(o, blocks, footnotes)
+    o["levels"] = [(b["level"], b["path"]) for b in blocks if b["kind"] == "h"]
+    o["cite_text"] = "\n".join(l.text for l in lines) + "\n" + "\n".join(
+        c.join_lines(p) for _, _, paras in footnotes for p in paras)
+    o["ctx"] = c.Ctx("Pet. App.", court, 0)
+    o["kindname"] = "Opinion · %s (as reproduced in %s)" % (c.long_date(when(data["feed"].get("LowerCourtDecision"))), where)
+    o["byline"], o["byline_md"] = [], ""
+    o["byline_tex"] = c.esc("CourtListener has no copy of this decision; the text is the petition appendix's.", "tex")
+    o["tree"] = c.tree_of(o, o["levels"])
+    cites, _ = authorities(con, o["cite_text"])
+    return o, cites, where
+
+
 # ================================================================ authorities (citations in the filings)
 # Reporter citations, found with regular expressions and resolved to CourtListener clusters
 # through the local database's citations table. "605 U.S. at 181" counts for the case cited in
@@ -769,6 +848,20 @@ def party(title):
     return t.strip(" ,") or "?"
 
 
+ORG_WORDS = re.compile(r"(?i)\b(department|state|states|county|city|board|school|district|inc|corp|llc|university|"
+                       r"commission|church|parish|association|united|america|council|office|agency|bureau)\b")
+
+
+def short_party(title):
+    """For a footer: the first part of a party's caption, a person by surname.
+    'St. Mary Catholic Parish, Littleton, Colorado' -> 'St. Mary Catholic Parish'; 'Lisa Roy, in Her ...' -> 'Roy'."""
+    first = party(title).split(",")[0].strip()
+    words = first.split()
+    if 2 <= len(words) <= 3 and not ORG_WORDS.search(first) and all(w[:1].isupper() for w in words):
+        return words[-1]
+    return first
+
+
 def short_filer(filer):
     t = re.sub(r"^(?:the)\s+", "", filer or "", flags=re.I)
     t = re.split(r",?\s+et al\b|,", t)[0]
@@ -821,6 +914,77 @@ def below_cluster(data, con):
     data["below_cluster"] = rows[0][0]
     case_file(data["number"]).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
     return rows[0][0]
+
+
+def below_api(data):
+    """The decision below through the CourtListener API, when the local database doesn't have it (decided after
+    the last bulk dump): the court of appeals' docket by number, then its cluster filed on the decision date.
+    -> cluster id or None. Federal circuits only (the feed names them); a state court's needs its court id."""
+    feed = data["feed"]
+    num = (feed.get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
+    m = re.search(r"for the (.+?) Circuit", feed.get("LowerCourt") or "", re.I)
+    court = CIRCUITS.get(m.group(1).lower()) if m else None
+    if not (num and court):
+        return None
+    tok = c.token()
+    day = when(feed.get("LowerCourtDecision"))
+    # 1. the opinion search: court and docket number, one request, the cluster id in each hit
+    res = c.call("%s/search/?%s" % (c.API, urllib.parse.urlencode({"type": "o", "court": court, "docket_number": num})),
+                 tok, soft=True)
+    hits = [h for h in (res or {}).get("results") or [] if h.get("cluster_id")]
+    exact = [h for h in hits if (h.get("dateFiled") or "")[:10] == day]
+    if exact or hits:
+        return (exact or hits)[0]["cluster_id"]
+    # 2. the docket, then its clusters (a docket the search index doesn't have yet)
+    res = c.call("%s/dockets/?%s" % (c.API, urllib.parse.urlencode({"docket_number": num, "court": court})), tok, soft=True)
+    best = None
+    for d in (res or {}).get("results") or []:
+        for url in d.get("clusters") or []:
+            cl = c.call(url, tok, soft=True)
+            if not cl:
+                continue
+            if cl.get("date_filed") == day:
+                return cl["id"]
+            best = best or cl["id"]
+    return best
+
+
+def ensure_below(data, con, warnings):
+    """The decision below, found and kept: its cluster (local database, else the API), and its case file and
+    note (local database, else the API, as `tribonian map get --cluster`), so the PDF prints its text and the
+    docket note links it. Never fails the build: what could not be done is a note. -> cluster id or None."""
+    from tribonian import casemap
+    try:
+        cid = below_cluster(data, con)
+        if not cid and not data.get("below_cluster"):
+            cid = below_api(data)
+            if cid:
+                data["below_cluster"] = cid
+                case_file(data["number"]).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+                print("decision below: cluster %s (found through the CourtListener API)" % cid)
+        if not cid:
+            return None
+        index = c.load_index()
+        ent = index.get(str(cid)) or {}
+        if ent.get("full") and (c.CASES / ent["full"]).exists():
+            return cid
+        mcon, _ = casemap.open_db()
+        bd = casemap.db_case(mcon, cid, True) if mcon is not None else None
+        if bd is not None:
+            casemap.save_case(bd, index, True)
+            c.save_index(index)
+        else:
+            casemap.get_api(cid, index)
+            index = c.load_index()
+        c.write_note(cid, index)
+        e = index.get(str(cid)) or {}
+        print("decision below: %s -> md-cases/%s.md (its PDF: tribonian build)" % (e.get("short") or e.get("name") or cid, e.get("slug", "?")))
+        return cid
+    except SystemExit as e:                       # no token, no such case, an HTTP error: report, go on
+        warnings.append("decision below: could not get it: %s" % e.code)
+    except Exception as e:                        # network gone, timeout
+        warnings.append("decision below: could not get it: %s: %s" % (type(e).__name__, e))
+    return data.get("below_cluster")
 
 
 def below_case(cid, con, index):
@@ -957,7 +1121,8 @@ def law_sources(fs):
         t = provisions_involved(f["o"]["cite_text"])
         if not t.strip():
             continue
-        secs.append((f["abbr"], t))
+        raw = provisions_involved(f["brief"])        # pdftotext's own lines keep the indents that start paragraphs
+        secs.append((f["abbr"], raw if raw.strip() else t))
         flat, at = lawcites.flatten(t), 0
         for m in REPRO_RE.finditer(flat):
             # "Colo. Rev. Stat. §§ 26.5-4-201 et seq. is reproduced ... at App.187a-208a": the last cite before the
@@ -994,8 +1159,8 @@ def law_paras(text):
     """A pdftotext section -> paragraphs: a new one where a line starts indented."""
     out, cur = [], []
     for line in text.split("\n"):
-        if not line.strip():
-            continue
+        if not line.strip() or re.fullmatch(r"\s*(?:\d+a?|[ivxlc]+)\s*", line) or "\f" in line:
+            continue                                 # a page number, a page break
         if cur and re.match(r"\s{3,}\S", line):
             out.append(c.join_lines(cur))
             cur = []
@@ -1005,7 +1170,36 @@ def law_paras(text):
     return out
 
 
-def law_appendix_tex(lc, fs):
+def law_missing(lc, fetch, warnings):
+    """The law in question whose text is not local. fetch: get it first (lawtext.run_fetch: never fails the
+    build; what could not be fetched is reported). -> [(key, hint)] still missing, printed at the end."""
+    from tribonian import lawtext
+    todo = [k for k in lc["liq"] if lawtext.text_of(k) is None]
+    if fetch and todo:
+        specs = list(dict.fromkeys(s for s in map(lawtext.fetch_spec, todo) if s))
+        for spec in specs:
+            print("fetch: %s" % " ".join(spec[1:] if spec[0] == "state" else spec), flush=True)
+            ok, why = lawtext.run_fetch(spec)
+            if not ok:
+                warnings.append("could not fetch %s: %s" % (" ".join(spec[1:]), why))
+        todo = [k for k in todo if lawtext.text_of(k) is None]
+    return [(k, lawtext.fetch_hint(k)) for k in todo]
+
+
+def repro_links(where, fs, appendix):
+    """'Pet. App. 187a–208a' -> a link to page 187a of the petition's appendix, when --appendix printed it."""
+    E = lambda t: c.esc(t, "tex")
+    m = re.match(r"(.+?) App\. (\d+a)–(\d+a)$", where)
+    if not (appendix and m):
+        return E(where)
+    f = next((f for f in fs if f["abbr"].rstrip(".") == m.group(1).rstrip(".") and f.get("o", {}).get("oi") is not None
+              and f["o"].get("appendix_pages")), None)
+    if f is None:
+        return E(where)
+    return "\\hyperlink{app-%s-%s}{%s}" % (f["o"]["oi"], m.group(2), E(where))
+
+
+def law_appendix_tex(lc, fs, appendix=False):
     """The last part of the PDF: the law in question, as the parties set it out and, where it is
     stored locally, its text. Every cite of these provisions in the filings links here."""
     from tribonian import lawtext
@@ -1013,34 +1207,36 @@ def law_appendix_tex(lc, fs):
         return ""
     E = lambda t: c.esc(t, "tex")
     secs, repro = law_sources(fs)
-    out = ["\\clearpage\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
+    out = ["\\clearpage\\recordcover{none}\\recordpath{The Law in Question}\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
            "{\\Large\\bfseries The Law in Question\\par}\\vspace{4pt}",
            "{\\scriptsize\\itshape Not part of the record. The provisions the questions presented and the parties' "
            "provisions-involved sections name: first as each party sets them out, then each provision's text where it is "
            "stored locally (the US Code from the Code's XML; the Constitution, C.F.R. and state law once their local copies "
            "are built). A cite of one of these provisions anywhere in this PDF links to its entry here.\\par}\\vspace{6pt}"]
     for n, (abbr, t) in enumerate(secs):
-        out.append("\\pdfbookmark[1]{%s: provisions involved}{lawq-src%d}\\noindent{\\large\\bfseries %s: provisions involved\\par}\\vspace{2pt}" % (E(abbr), n, E(abbr)))
+        out.append("\\headroom{6}\\pdfbookmark[1]{%s: provisions involved}{lawq-src%d}\\noindent{\\large\\bfseries %s: provisions involved\\par}\\vspace{2pt}" % (E(abbr), n, E(abbr)))
         out += ["{\\small %s\\par}\\vspace{2pt}" % E(p) for p in law_paras(t)]
         out.append("\\vspace{6pt}")
     for k in lc["liq"]:
         lab = lawcites.label(k)
-        out.append("\\par\\vspace{6pt}\\hypertarget{%s}{}\\pdfbookmark[1]{%s}{%s}\\noindent{\\large\\bfseries %s\\par}\\vspace{2pt}" % (
+        out.append("\\headroom{6}\\vspace{6pt}\\hypertarget{%s}{}\\pdfbookmark[1]{%s}{%s}\\noindent{\\large\\bfseries %s\\par}\\vspace{2pt}" % (
             law_anchor(k), E(lab), law_anchor(k), E(lab)))
         out.append("{\\footnotesize Cited by the petitioners %d times (%d filings) and their amici %d (%d); by the respondent %d (%d) "
                    "and its amici %d (%d).%s\\par}\\vspace{2pt}" % (
             lc["Pp"][k], lc["nPp"][k], lc["Pa"][k], lc["nPa"][k], lc["Rp"][k], lc["nRp"][k], lc["Ra"][k], lc["nRa"][k],
-            " Reproduced in: %s." % E("; ".join(repro_for(repro, k))) if repro_for(repro, k) else ""))
+            " Reproduced in: %s." % "; ".join(repro_links(w, fs, appendix) for w in repro_for(repro, k)) if repro_for(repro, k) else ""))
         got = lawtext.text_of(k)
         if got is None:
-            out.append("{\\small\\itshape Text not stored locally.\\par}")
+            hint = lawtext.fetch_hint(k)
+            out.append("{\\small\\itshape Text not stored locally%s.\\par}" % (
+                " (\\texttt{%s} gets it)" % E(hint) if hint.startswith("tribonian ") else ""))
             continue
         head, rows = got
         if head:
             out.append("{\\small\\bfseries %s\\par}" % head)
         for depth, label, heading, text in rows:
-            out.append("{\\small\\leftskip=%.1fem %s%s%s\\par}" % (
-                1.2 * depth, "\\textbf{%s} " % label if label else "", "\\emph{%s.} " % heading if heading else "", text))
+            out.append("%s{\\small\\leftskip=%.1fem %s%s%s\\par}" % (
+                "\\headroom{4}" if label and heading and not text else "", 1.2 * depth, "\\textbf{%s} " % label if label else "", "\\emph{%s.} " % heading if heading else "", text))
     return "\n".join(out) + "\n"
 
 
@@ -1176,6 +1372,222 @@ def law_md(lc, statutes):
     return L + [""]
 
 
+# ---------------------------------------------------------------- the U.S. Code provisions in the case law (scope §4)
+USC_TOP = 25                                    # provisions shown, the most cited by the filings first
+
+
+def usc_context(lc, cp):
+    """Each U.S.C. provision the filings cite, as the co-citation build sees it: the sub-clusters ("areas") whose
+    decisions cite it most in the newest five-year slice (cocite usc-profile), and its most cited and newest
+    appellate decisions (cocite usc-citedby), marked where the filings cite them too.
+    -> (rows, missing): rows [{key, P, R, total, areas [(name, n, share)], cited [(ref, name, year, mine)],
+    recent [(ref, name, filed, mine)]}]; missing = the commands that would build what is not there."""
+    from tribonian import cocite_usc as cu
+    keys = sorted((k for k in set(lc["P"]) | set(lc["R"]) if k.startswith("usc:")),
+                  key=lambda k: (-(lc["P"][k] + lc["R"][k]), lawcites.sort_key(k)))
+    if not keys:
+        return [], []
+    missing = []
+    try:
+        from tribonian import cocite
+        st = cu._sec_state(cocite.NOTE_VIEW)
+    except Exception:
+        st = None
+    if st is None:
+        missing.append(("tribonian cocite usc-profile", "areas"))
+    try:
+        cb, _, _ = cu._cb_state()
+    except Exception:
+        cb = None
+    if cb is None:
+        missing.append(("tribonian cocite usc-citedby", "decisions"))
+    mine = set(cp["P"]) | set(cp["R"])
+    rows = []
+    for k in keys[:USC_TOP]:
+        _, t, sec = k.split(":", 2)
+        node = cu.ukey(t, sec)
+        r = {"key": k, "P": lc["P"][k], "R": lc["R"][k], "total": None, "areas": [], "cited": [], "recent": []}
+        if st is not None:
+            db, pr, _, _ = st
+            vl_lin = cocite.vault_links(db)[0]
+            last = pr.execute("SELECT slice FROM noden WHERE node=? ORDER BY slice DESC LIMIT 1", (node,)).fetchone()
+            if last:
+                for sub, n, share in pr.execute("SELECT sub, n, share FROM prof WHERE slice=? AND node=? ORDER BY n DESC LIMIT 2",
+                                                (last[0], node)):
+                    name, lin, _ = cocite.unit_name(db, last[0], sub, "sub")
+                    r["areas"].append((name or "sub-cluster %d" % sub, n, share, vl_lin.get(lin)))
+                r["slice"] = last[0]
+        if cb is not None:
+            t_ = cb.execute("SELECT decisions FROM total WHERE node=?", (node,)).fetchone()
+            r["total"] = t_[0] if t_ else 0
+            for kind, n_ in (("cited", 3), ("recent", 2)):
+                seen = set()
+                for ref, name, year, filed in cb.execute("SELECT ref, name, year, filed FROM top WHERE node=? AND kind=? "
+                                                         "ORDER BY rank LIMIT ?", (node, kind, n_ + 3)):
+                    if (name, filed) in seen or len(r[kind]) >= n_:   # CourtListener keeps some decisions twice
+                        continue
+                    seen.add((name, filed))
+                    r[kind].append((ref, name, filed[:4] if kind == "cited" and filed else (filed or year), ref in mine))
+        rows.append(r)
+    return rows, missing
+
+
+USC_NOTE = ("Not part of the record. The U.S. Code provisions the filings cite, most cited first, as the case law sees them: "
+            "the co-citation areas whose appellate decisions cite each most in the newest five years (share of the area's "
+            "decisions), the decisions citing it most cited by later courts, and the newest appellate ones. "
+            "A mark = a case the filings cite too.")
+
+
+def usc_tex(rows, missing, nall):
+    E = lambda t: c.esc(t, "tex")
+    if not rows:
+        return ""
+    mk = lambda m: "~$\\surd$" if m else ""
+    body = []
+    for r in rows:
+        lab = E(lawcites.label(r["key"]))
+        first = "\\textbf{%s}\\newline{\\scriptsize pet. %d, resp. %d%s}" % (
+            lab, r["P"], r["R"], "\\newline %s decisions" % format(r["total"], ",") if r["total"] else "")
+        areas = "; ".join("%s {\\scriptsize %d (%.0f\\%%)}" % (E(n), k, 100 * sh) for n, k, sh, _ in r["areas"]) or "--"
+        if r["areas"]:
+            areas = "{\\scriptsize %d--%02d:} " % (r["slice"], (r["slice"] + 4) % 100) + areas
+        cases = "; ".join("%s (%s)%s" % (E(n), y, mk(m)) for _, n, y, m in r["cited"])
+        new = "; ".join("%s (%s)%s" % (E(n), d, mk(m)) for _, n, d, m in r["recent"])
+        dec = ("\\textit{Most cited:} %s" % cases if cases else "") + ("\\newline\\textit{Newest:} %s" % new if new else "")
+        body.append("%s & %s & %s" % (first, areas, dec or "--"))
+    more = " %d more not shown." % (nall - len(rows)) if nall > len(rows) else ""
+    miss = (" Not built here: %s." % "; ".join("\\texttt{%s} (%s)" % (E(m), w) for m, w in missing)) if missing else ""
+    return ("\\headroom{8}\\pdfbookmark[0]{U.S. Code provisions in the case law}{usc-context}\n"
+            "\\noindent\\tocback\\tocadd{tocsec}{U.S. Code provisions in the case law}{\\large\\bfseries U.S. Code provisions in the case law\\par}\\vspace{2pt}\n"
+            "{\\scriptsize\\itshape %s%s%s\\par}\\vspace{3pt}\n"
+            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
+            "\\begin{longtable}{@{}p{3.3cm} p{5.2cm} p{7.3cm}@{}}\n"
+            "Provision & Areas citing it most & Decisions citing it\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
+        E(USC_NOTE), more, miss, RULED, "\\\\\\hline\n".join(body))
+
+
+def usc_md(rows, missing, nall, statutes):
+    from tribonian import cocite_usc as cu
+    E = lambda t: c.esc(t, "md")
+    if not rows:
+        return []
+    index = c.load_index()
+    link = lambda k: "[[%s\\|%s]]" % (lawcites.note_name(k), E(lawcites.label(k))) if lawcites.note_name(k) in statutes else E(lawcites.label(k))
+    case = lambda ref, n, m: cu.case_cell(ref, n, index) + (" ✓" if m else "")
+    L = ["### U.S. Code provisions in the case law", "", "*%s*" % USC_NOTE, ""]
+    if missing:
+        L += ["Not built here: %s." % "; ".join("`%s` (%s)" % mw for mw in missing), ""]
+    L += ["| Provision | Pet. | Resp. | Decisions | Areas citing it most | Most cited | Newest appellate |",
+          "|---|--:|--:|--:|---|---|---|"]
+    for r in rows:
+        areas = "; ".join("%s %d (%.0f%%)" % ("[[%s\\|%s]]" % (note, E(n).replace("|", "/")) if note else E(n).replace("|", "/"), k, 100 * sh)
+                          for n, k, sh, note in r["areas"])       # linked to the co-citation vault's lineage note
+        L.append("| %s | %d | %d | %s | %s | %s | %s |" % (
+            link(r["key"]), r["P"], r["R"], format(r["total"], ",") if r["total"] else "", areas,
+            "; ".join("%s (%s)" % (case(ref, n, m), y) for ref, n, y, m in r["cited"]),
+            "; ".join("%s (%s)" % (case(ref, n, m), d) for ref, n, d, m in r["recent"])))
+    if nall > len(rows):
+        L += ["", "%d more U.S. Code provisions not shown." % (nall - len(rows))]
+    return L + [""]
+
+
+# ---------------------------------------------------------------- a header per filing, in its cover color (scope §6)
+
+def covers_defs():
+    from tribonian import covers
+    return covers.tex_defs()
+
+
+def group_covers(fs, below=False):
+    """The cover color of each row of the grouped coupling table (group_sets' order)."""
+    from tribonian import covers
+    out = [covers.cover(f["kind"], f["stage"], f["side"]) for f in fs if f["kind"] != "amicus"]
+    for stage, _ in STAGES[1:]:
+        for side in ("petitioner", "respondent", "neither"):
+            if any(f["kind"] == "amicus" and f["stage"] == stage and (f["side"] or "neither") == side for f in fs):
+                out.append(covers.cover("amicus", stage, side))
+    return out + (["gray"] if below else [])
+
+
+def group_index(cp, f):
+    """The coupling-table row a filing belongs to: its own (a party filing) or its amici group."""
+    want = f["abbr"] if f["kind"] != "amicus" else "%s amici, %s" % (
+        dict(STAGES)[f["stage"]].replace(" Stage", "").replace("Certiorari", "Cert."),
+        {"petitioner": "pet.", "respondent": "resp.", "neither": "neither"}[f["side"] or "neither"])
+    return next((i for i, (lab, _, _) in enumerate(cp["groups"]) if lab == want), None)
+
+
+def filing_header(fs, i, cp, lc, ucr):
+    """The five parts of a filing's header (scope §6), as data both renderers read."""
+    f = fs[i]
+    mine = set(f["cites"])
+    others = set().union(*(set(g["cites"]) for j, g in enumerate(fs) if j != i)) if len(fs) > 1 else set()
+    own = set().union(*(set(g["cites"]) for j, g in enumerate(fs) if j != i and g["side"] == f["side"] and f["side"]), set())
+    other_side = set().union(*(set(g["cites"]) for g in fs if g["side"] and f["side"] and g["side"] != f["side"]), set())
+    parties = [j for j, g in enumerate(fs) if g["kind"] != "amicus" and j != i]
+    strip = [(fs[j]["abbr"], cp["matrix"][i][j]) for j in parties]
+    closest = max(strip, key=lambda x: x[1]) if strip else None
+    gi = group_index(cp, f)
+    laws = Counter()
+    for k, n in f["laws"]["cites"].items():
+        laws[lawcites.section_of(k)] += n
+    area = {r["key"]: r["areas"][0][0] for r in ucr if r["areas"]}
+    return {"letter": chr(65 + gi) if gi is not None else "", "group": cp["groups"][gi][0] if gi is not None else "",
+            "n": len(mine), "mentions": sum(f["cites"].values()), "miss": sum(f["miss"].values()),
+            "nlaws": len(laws), "lawmiss": sum(f["laws"].get("unresolved", {}).values()), "strip": strip, "closest": closest, "alone": len(mine - others),
+            "own_only": len((mine & own) - other_side), "both": len(mine & other_side),
+            "laws": [(k, n, area.get(k)) for k, n in sorted(laws.items(), key=lambda kv: (-kv[1], lawcites.sort_key(kv[0])))[:8]],
+            "more_laws": max(0, len(laws) - 8), "liq": set(lc["liq"])}
+
+
+def header_lines(f, h, fmt, link=None):
+    """The header as lines of text in fmt ('tex' | 'md'); link(key) -> a provision's link (md)."""
+    E = lambda t: c.esc(t, fmt)
+    pct = "\\%" if fmt == "tex" else "%"
+    who = "%s · %s · %s" % (f["who"] if f["kind"] == "amicus" else short_party(f["who"]), f["title"], c.long_date(f["date"]))
+    if f["kind"] == "amicus" and f["side"] in SIDE_NAME:
+        who += " · supporting %ss" % f["side"]
+    elif f["kind"] != "amicus" and f["side"]:
+        who += " · %s" % f["side"]
+    L = [E(who) + (" — coupling row %s%s" % (h["letter"], " (%s)" % E(h["group"]) if f["kind"] == "amicus" else "") if h["letter"] else "")]
+    L.append("Cites %d cases (%d mentions)%s; %d statutes and provisions%s." % (
+        h["n"], h["mentions"], ", %d citations not resolved" % h["miss"] if h["miss"] else "", h["nlaws"],
+        " (%d bare section cites not resolved)" % h["lawmiss"] if h.get("lawmiss") else ""))
+    if h["strip"]:
+        L.append("Shares with " + " · ".join("%s %d%s" % (E(a), round(100 * v), pct) for a, v in h["strip"]) +
+                 ("; closest: %s" % E(h["closest"][0]) if h["closest"] and h["closest"][1] > 0 else ""))
+    L.append("Its own ground: %d cases no other filing cites; %d shared with its own side only, %d with the other side." % (
+        h["alone"], h["own_only"], h["both"]))
+    if h["laws"]:
+        def one(k, n, area):
+            lab = E(lawcites.label(k))
+            if fmt == "tex" and k in h["liq"]:
+                lab = "\\hyperlink{%s}{%s}" % (law_anchor(k), lab)
+            elif fmt == "md" and link:
+                lab = link(k)
+            return lab + (" ×%d" % n if n > 1 else "") + (" (%s)" % E(area) if area else "")
+        L.append("Statutes: " + "; ".join(one(*x) for x in h["laws"]) + ("; %d more" % h["more_laws"] if h["more_laws"] else "") + ".")
+    return L
+
+
+def header_tex(f, h):
+    from tribonian import covers
+    name = covers.cover(f["kind"], f["stage"], f["side"])
+    L = header_lines(f, h, "tex")
+    return ("\\begin{tcolorbox}[enhanced, breakable, colback=cover-%s, colframe=cover-%s-edge, boxrule=%s, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=3pt, bottom=3pt, fontupper=\\small]\n\\textbf{%s}\\par\n%s\n\\end{tcolorbox}\\vspace{4pt}\n") % (
+        name, name, "0.8pt" if name == "white" else "0.4pt", L[0], "\n".join("%s\\par" % x for x in L[1:]))
+
+
+def header_md(f, h, statutes):
+    from tribonian import covers
+    name = covers.cover(f["kind"], f["stage"], f["side"])
+    link = lambda k: "[[%s|%s]]" % (lawcites.note_name(k), c.esc(lawcites.label(k), "md")) \
+        if lawcites.note_name(k) in statutes else c.esc(lawcites.label(k), "md")
+    L = header_lines(f, h, "md", link)
+    return ["> [!cover-%s] %s" % (name, L[0])] + [">"] + ["> %s" % x for x in L[1:]] + [""]
+
+
 def area_profile(cp, names, db):
     """Mentions per cocite area, each side. -> [(area name, share P, share R, n P, n R)]."""
     if db is None:
@@ -1277,7 +1689,9 @@ def couple_rows(cp):
 
 def couple_table(cp, E, table):
     rows = couple_rows(cp)
-    body = [["%s %s" % (L, E(lab))] + [("$\\cdot$" if v == "·" else v) for v in cells] + ["%d" % n] for L, lab, n, cells in rows]
+    sw = ["\\coverswatch{%s}\\ " % x for x in cp.get("covers", [])] + [""] * len(rows)
+    body = [["%s%s %s" % (sw[r], L, E(lab))] + [("$\\cdot$" if v == "·" else v) for v in cells] + ["%d" % n]
+            for r, (L, lab, n, cells) in enumerate(rows)]
     return table(body, [""] + [L for L, _, _, _ in rows] + ["$n$"], "l" + "r" * len(rows) + "|r")
 
 
@@ -1592,7 +2006,7 @@ def build(args):
 
     # ---- the decision below
     below_ops, below_cites, below_meta = [], {}, None
-    cid = below_cluster(data, con)
+    cid = ensure_below(data, con, warnings)
     if cid:
         bdata = below_case(cid, con, index)
         if bdata:
@@ -1602,9 +2016,16 @@ def build(args):
                 warnings += ["decision below: %s" % x for x in w]
             except c.Unsupported as e:
                 warnings.append("decision below: cannot read its text (%s)" % e)
-    elif con is not None:
-        warnings.append("decision below: not found in the local database (%s %s)" % (
-            data["feed"].get("LowerCourt"), data["feed"].get("LowerCourtCaseNumbers")))
+    below_where = None
+    if not below_ops:                              # CourtListener has none: the copy in the petition's appendix
+        got = below_from_appendix(fs, data, con, lambda w: warnings.append("decision below (Pet. App.): %s" % w))
+        if got:
+            o_, below_cites, below_where = got
+            below_ops = [o_]
+            print("decision below: from the petition's appendix, %s" % below_where)
+        elif con is not None and not any(w.startswith("decision below:") for w in warnings):
+            warnings.append("decision below: not found in the local database (%s %s), nor in the petition's appendix" % (
+                data["feed"].get("LowerCourt"), data["feed"].get("LowerCourtCaseNumbers")))
 
     # ---- one cluster per case (CourtListener keeps two digitizations of many)
     canon_ = canonical(con, {k for f in fs for k in f["cites"]} | set(below_cites))
@@ -1618,6 +2039,7 @@ def build(args):
     # ---- the analysis
     cp = coupling(fs, below_cites, con)
     lc = law_analysis(fs, qp_paragraphs(data))
+    missing = law_missing(lc, getattr(args, "fetch", False), warnings)
     allc = set(cp["P"]) | set(cp["R"]) | cp["below"] | {k for f in fs for k in f["cites"]}
     names = case_names(con, allc)
     areas = []
@@ -1634,11 +2056,23 @@ def build(args):
     # ---- good law for every cited case (cached per case; --no-goodlaw skips it)
     gl = goodlaw_all(set(cp["P"]) | set(cp["R"])) if args.goodlaw and con is not None else {}
     cols = status_columns(data, cp, names, gl, below_meta)
+    ucr, ucm = usc_context(lc, cp)
+    uc = (ucr, ucm, sum(1 for k in set(lc["P"]) | set(lc["R"]) if k.startswith("usc:")))
+    if ucm:
+        warnings.append("U.S. Code in the case law: not built here: %s" % "; ".join("%s (%s)" % mw for mw in ucm))
+    for i, f in enumerate(fs):                     # the cover-colored header of each filing (§6)
+        f["header"] = filing_header(fs, i, cp, lc, ucr)
+        f["o"]["headbox_tex"] = header_tex(f, f["header"])
+        from tribonian import covers
+        f["o"]["cover"] = covers.cover(f["kind"], f["stage"], f["side"])
+    cp["covers"] = group_covers(fs, bool(cp["below"]))
+    lc["covers"] = group_covers(fs)
 
     # ---- one PDF
     ops = []
     for o in below_ops:
         o["stage"] = "below"
+        o["cover"] = "gray"                         # not a filing: the proposed neutral color, on the contents line only
         ops.append(o)
     for f in fs:
         if f["kind"] == "amicus" and not args.amici:
@@ -1662,9 +2096,10 @@ def build(args):
     feed = data["feed"]
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
     meta = {"title": title, "name": "%s v. %s" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle"))),
-            "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) +
+            "foot": "%s v. %s, No. %s" % (short_party(feed.get("PetitionerTitle")), short_party(feed.get("RespondentTitle")), num),
+            "page": "1", "toc": True, "pretex": covers_defs() + docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) + usc_tex(*uc) +
                                    (status_tex(cols, names, gl, set(cp["amici_only"])) if gl else ""),
-            "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs),
+            "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs, args.appendix), "doc_newpage": True,
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",
                         "decision below: CourtListener cluster %s" % cid if cid else "", "retrieved " + data.get("retrieved", "")]}
     (c.ROOT / "build").mkdir(exist_ok=True)
@@ -1686,8 +2121,10 @@ def build(args):
                             ("kind", c.Raw(f["kind"])), ("stage", c.Raw(f["stage"])), ("side", c.Raw(f["side"] or "none")),
                             ("filer", f["who"]), ("docket", num), ("docket_note", "[[%s]]" % slug), ("filed", c.Raw(f["date"])),
                             ("source", c.Raw(f["link"]["url"])), ("retrieved", c.Raw(data.get("retrieved", ""))),
-                            ("synthetic", False)]) + ["", "# %s" % c.esc(cite, "md"), "",
+                            ("cover", c.Raw(f["o"].get("cover", ""))), ("synthetic", False)]) + ["", "# %s" % c.esc(cite, "md"), "",
                 "Docket: [[%s|No. %s]] · %s · [PDF](%s)" % (slug, num, c.esc(f["text"], "md"), f["link"]["url"]), ""]
+        if f.get("header"):
+            head += header_md(f, f["header"], statutes)
         tail = ["## Authorities", "", "*Reporter citations in this filing, resolved through the local database; ×n = mentions.*", ""]
         for k, n in f["cites"].most_common():
             tail.append("- %s ×%d" % (link_md(names, index, k), n))
@@ -1703,6 +2140,9 @@ def build(args):
             if f["laws"]["named"]:
                 tail.append("- By name: " + "; ".join("%s ×%d" % (c.esc(lawcites.label(k), "md"), n)
                                                       for k, n in f["laws"]["named"].most_common()))
+            if f["laws"].get("unresolved"):
+                tail.append("- Not resolved (a bare section with no code it plainly belongs to): " + ", ".join(
+                    "%s ×%d" % (c.esc(k, "md"), n) if n > 1 else c.esc(k, "md") for k, n in f["laws"]["unresolved"].most_common()))
         md = c.render_md(None, [o], "\n".join(tail) + "\n", head=head)
         (ndir / (f["slug"] + ".md")).write_text(md, encoding="utf-8")
 
@@ -1716,6 +2156,10 @@ def build(args):
          "PDF: `%s`" % rel_pdf, ""]
     if qp:
         L += ["## Questions presented", ""] + [c.esc(p, "md") + "\n" for p in qp]
+    if below_where and not cid:
+        L += ["## Decision below", "", "- %s, No. %s, decided %s: not in CourtListener; the PDF prints it as reproduced in %s" % (
+            c.esc(feed.get("LowerCourt", ""), "md"), (feed.get("LowerCourtCaseNumbers") or "").strip("() "),
+            feed.get("LowerCourtDecision", ""), below_where), ""]
     if cid:
         L += ["## Decision below", "", "- %s" % link_md(names, index, cid, 90) if str(cid) in index else
               "- %s — no note yet (`tribonian scotus build %s --depth 1`, or `tribonian map get --cluster %s`)" % (
@@ -1730,6 +2174,7 @@ def build(args):
             L.append("")
     L += couple_md(cp, names, index, fs, areas)
     L += law_md(lc, statutes)
+    L += usc_md(uc[0], uc[1], uc[2], statutes)
     L += law_appendix_md(lc, fs, statutes)
     if gl:
         L += status_md(cols, names, index, gl, set(cp["amici_only"]))
@@ -1749,8 +2194,14 @@ def build(args):
         print("  %-14s %-34s %s" % (o.get("stage", ""), (o["ctx"].who + " " + (o["ctx"].reporter if o.get("stage") != "below" else ""))[:34], o.get("summary", "")))
     print("  authorities: %d cases cited, %d by both parties (%d by both sides with amici), %d by amici only, %d unresolved citations" % (
         len(allc - cp["below"]), len(cp["contested"]), cp["sides_both"], len(cp["amici_only"]), sum(len(f["miss"]) for f in fs)))
+    print("  statutes: %d provisions cited, %d bare section cites not resolved (listed in each filing's note)" % (
+        len(set(lc["P"]) | set(lc["R"])), sum(sum(f["laws"].get("unresolved", {}).values()) for f in fs)))
     for w in warnings:
         print("  note:", w)
+    if missing:
+        print("  law in question not stored locally (%s):" % ("could not fetch" if getattr(args, "fetch", False) else "--fetch gets what it can"))
+        for k, hint in missing:
+            print("    %-34s %s" % (lawcites.label(k), hint or "no reader yet"))
     return data, fs, cp, cid
 
 
@@ -1799,6 +2250,29 @@ def crawl(args, data, fs, cid):
     kinds = Counter(c.write_note(k, index) for k, d in level.items() if d is not None and str(k) in index)
     print("wrote %d case notes in md-cases/: %s" % (sum(kinds.values()), ", ".join("%d %s" % (n, k) for k, n in kinds.items())))
     print("their PDFs: tribonian build   (then rerun tribonian scotus build %s so its notes link to them)" % data["number"])
+
+
+def swatches_cmd(args):
+    """The cover colors as the header boxes will show them, one box each, with black text, on the tablet's page size.
+    Copy to the reMarkable (tribonian sync-remarkable) and judge them there: the screen mutes color."""
+    from tribonian import covers
+    from tribonian.render import PREAMBLE, RULES
+    boxes = []
+    for name, role in covers.ROLES:
+        label, fill, edge = covers.COLORS[name]
+        boxes.append("\\begin{tcolorbox}[enhanced, colback=cover-%s, colframe=cover-%s-edge, boxrule=%s, arc=1.5pt, "
+                     "left=5pt, right=5pt, top=3pt, bottom=3pt]\n\\textbf{%s} \\hfill {\\footnotesize\\ttfamily %s / %s}\\par\n"
+                     "{\\small %s. Cites 30 cases (114 mentions); closest to Pet'rs Br. (35\\%%).}\n\\end{tcolorbox}\\vspace{2pt}\n"
+                     % (name, name, "0.8pt" if name == "white" else "0.4pt", c.esc(label.capitalize(), "tex"), fill, edge, c.esc(role, "tex")))
+    pre = (PREAMBLE.replace("__FONTPKG__", args.font).replace("__RULES__", RULES["boxes"])
+           .replace("__DOCTITLE__", "Cover colors").replace("__DOCHEAD__", "Cover colors (Rule 33.1(g)) on this screen")
+           .replace("__SRCLINE__", "tribonian scotus swatches; the table is src/tribonian/covers.py"))
+    tex = pre + covers.tex_defs() + "".join(boxes) + "\n\\end{document}\n"
+    (c.ROOT / "build").mkdir(exist_ok=True)
+    path = c.ROOT / "build" / "cover-swatches.tex"
+    path.write_text(tex, encoding="utf-8")
+    pdf = c.run_pdflatex(path, c.ROOT / "pdf")
+    print("wrote %s" % (pdf.relative_to(c.ROOT) if pdf else path.relative_to(c.ROOT)))
 
 
 def build_cmd(args):
@@ -2121,7 +2595,12 @@ def main():
     b.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
     b.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
+    b.add_argument("--fetch", action="store_true", help="download the text of the law in question that is not local "
+                   "(C.F.R. titles, Colorado law); a refusal or a dropped connection is reported and the build goes on")
     b.set_defaults(func=build_cmd)
+    sw = sub.add_parser("swatches", help="one page of the cover colors, to check the tints on the tablet -> pdf/cover-swatches.pdf")
+    sw.add_argument("--font", default="XCharter")
+    sw.set_defaults(func=swatches_cmd)
     r = sub.add_parser("recent", help="the Court's recent opinions, grants and orders -> cases/scotus/_recent.json")
     r.add_argument("--json", action="store_true", help="also print the result as JSON")
     r.add_argument("--days", type=int, default=RECENT_DAYS, help="how far back (default %d)" % RECENT_DAYS)

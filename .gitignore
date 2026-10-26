@@ -3,6 +3,8 @@ xml/
 md/
 md-cases/
 md-cocite/
+md-cfr/
+md-state/
 pdf/
 build/
 state/
@@ -10,6 +12,7 @@ cases/
 db/
 bulk/
 bulk
+law/
 nav-test/
 # never commit data, wherever it ends up
 *.sqlite

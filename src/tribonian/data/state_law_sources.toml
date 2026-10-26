@@ -205,7 +205,7 @@ terms = "none stated"
 url = "https://prdext3.cga.ct.gov/asp/Content/constitutions/Constitution_State_CT.pdf"
 format = "pdf; also html in the Register and Manual (currency unverified)"
 [CT.notes]
-text = "Check robots.txt before crawling. Hostname and path case vary."
+text = "Hostname and path case vary. 2026-10-26: Python on bblinux cannot verify cga.ct.gov's TLS certificate (CERTIFICATE_VERIFY_FAILED), so its robots.txt is unread; eregulations.ct.gov answers 200 and has no robots.txt."
 
 [DE]
 name = "Delaware"
@@ -387,7 +387,7 @@ terms = "none stated; robots.txt disallows the JCAR FTP and admincode pages"
 url = "https://www.ilga.gov/legislation/constitution"
 format = "html table of contents linking articles; older single page https://ilga.gov/Documents/commission/lrb/conmain.htm"
 [IL.notes]
-text = "Decide how to treat robots.txt on JCAR. ILCS order needs Section Sequence.txt."
+text = "ILCS order needs Section Sequence.txt. 2026-10-26: Python on bblinux cannot verify ilga.gov's TLS certificate (CERTIFICATE_VERIFY_FAILED on ilga.gov and www.ilga.gov), so robots.txt is unread too; the JCAR robots question stays open until that is solved."
 
 [IN]
 name = "Indiana"
@@ -621,7 +621,7 @@ terms = "form, arrangement and numbering copyrighted by MOAHR; unauthorized repr
 url = "https://www.legislature.mi.gov/Publications/MIConstitution.pdf"
 format = "pdf whole; per-section PDFs /documents/mcl/pdf/mcl-Article-III-1.pdf"
 [MI.notes]
-text = "robots_disallowed on legislature.mi.gov: check robots.txt first. Avoid old ASP.NET session-token URLs."
+text = "Avoid old ASP.NET session-token URLs. 2026-10-26: legislature.mi.gov, www.legislature.mi.gov and ars.apps.lara.state.mi.us have no robots.txt (404) and answer 200 from bblinux; the earlier robots_disallowed note did not hold."
 
 [MN]
 name = "Minnesota"
@@ -751,7 +751,7 @@ terms = "unverified"
 url = "https://nebraskalegislature.gov/laws/browse-constitution.php"
 format = "html per section /laws/articles.php?article={ART-SEC}; whole text /laws/display-fullconst.php?print=false; pdf https://nebraskalegislature.gov/FloorDocs/Current/PDF/Constitution/constitution.pdf"
 [NE.notes]
-text = "Throttle: the site returned 'Too many connections'. Cite the reissue or supplement year. Proxy curl to rules.nebraska.gov got 403."
+text = "Throttle: the site returned 'Too many connections'. Cite the reissue or supplement year. bblinux reaches nebraskalegislature.gov (robots.txt allows); rules.nebraska.gov answers 200 with an empty page (a JavaScript app): regulations need another route (2026-10-26)."
 
 [NV]
 name = "Nevada"
@@ -803,7 +803,7 @@ terms = "public records (Right-to-Know Law); no scraping terms stated"
 url = "https://www.nh.gov/glance/state-constitution"
 format = "unverified (HTML presumed; not fetched)"
 [NH.notes]
-text = "gc.nh.gov and gencourt.state.nh.us serve the same content. Use the *-mrg.htm chapter files. Proxy curl got 403 on gc.nh.gov."
+text = "gc.nh.gov and gencourt.state.nh.us serve the same content. Use the *-mrg.htm chapter files. The 403 was the research proxy: bblinux reaches gc.nh.gov (statutes, rules), robots.txt allows (2026-10-26)."
 
 [NJ]
 name = "New Jersey"
@@ -1297,7 +1297,7 @@ terms = "none stated"
 url = "https://code.wvlegislature.gov/west-virginia-constitution"
 format = "html one page with article anchors"
 [WV.notes]
-text = "Keep the CSR marker (W. Va. Code § vs W. Va. C.S.R. §). Take only Active rule versions; check sunset dates. Walk rule.aspx -> ruleview.aspx -> readfile.aspx. Proxy curl got 403."
+text = "Keep the CSR marker (W. Va. Code § vs W. Va. C.S.R. §). Take only Active rule versions; check sunset dates. Walk rule.aspx -> ruleview.aspx -> readfile.aspx. The 403 was the research proxy: bblinux reaches both hosts, robots.txt allows (2026-10-26)."
 
 [WI]
 name = "Wisconsin"
@@ -1323,7 +1323,7 @@ terms = "none stated"
 url = "https://docs.legis.wisconsin.gov/constitution/wi.pdf"
 format = "pdf annotated (2022-12-09); html per section (/constitution/wi/000055); unannotated HTML blocked by robots.txt"
 [WI.notes]
-text = "Check robots.txt. Proxy curl got 403. Record the edition and certificate date when downloading."
+text = "Record the edition and certificate date when downloading. The 403 was the research proxy: bblinux reaches docs.legis.wisconsin.gov, and robots.txt allows statutes, admin code, constitution HTML and PDF (2026-10-26)."
 
 [WY]
 name = "Wyoming"

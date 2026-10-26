@@ -508,6 +508,8 @@ def inline(node, mode, ctx, marks):
             else:
                 ctx.page = pg
                 rec = "\\recordpath{%s}" % ctx.path() if ctx.record else ""
+                if re.fullmatch(r"\d+a", pg) and getattr(ctx, "oi", None) is not None:   # an appendix page: a link target
+                    rec += "\\hypertarget{app-%s-%s}{}" % (ctx.oi, pg)
                 out.append(" %s{\\scriptsize\\bfseries[*%s]} " % (rec, pg))
         elif k.tag == "footnotemark":
             label = k.text().strip()
@@ -633,8 +635,12 @@ def statute_note(text):
 
 
 def statute_notes():
-    md = ROOT / "md"
-    return {p.stem for p in md.rglob("*-usc-*.md")} if md.is_dir() else set()
+    """Names of the statute and regulation notes that exist: md/ (US Code), md-cfr/ (C.F.R., cfr.py notes)."""
+    out = set()
+    for d, pat in ((ROOT / "md", "*-usc-*.md"), (ROOT / "md-cfr", "*-cfr-*.md"), (ROOT / "md-state", "*.md")):
+        if d.is_dir():
+            out |= {p.stem for p in d.rglob(pat)}
+    return out
 
 
 def clean(s):
@@ -1764,6 +1770,8 @@ def render_tex(meta, ops, fontpkg, style):
                     lead = "\\recordpath{%s}" % ctx.path() + mark + "\\lab{%s.}" % esc(part.label, "tex")   # "I." not "I": a bare I reads as the pronoun
                     if toc and listed:
                         lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el)) + lead
+                    if depth <= 0:               # unboxed top-level heading: not alone at a page's foot (boxed ones
+                        lead = "\\headroom{5}" + lead      # already need 3 lines before tcolorbox breaks them)
                     if kind == "q" or kind is None:          # label on its own line
                         parts_add(depth, [lead + "\\par"], first and i == 0)
                         lead = ""
@@ -1799,17 +1807,26 @@ def render_tex(meta, ops, fontpkg, style):
             name = (meta.get("stages") or {}).get(stage, stage)
             body.append("\\clearpage%s\\pdfbookmark[0]{%s}{stage%d}{\\Large\\bfseries %s\\par}\\vspace{8pt}\n" % (
                 "\\noindent\\tocback" + toc_entry("tocstage", name) if toc else "", esc(name, "tex"), n, esc(name, "tex")))
+        elif n and meta.get("doc_newpage"):
+            body.append("\\clearpage\n")         # scotus.py: every filing on its own page (one cover color per page)
         elif n:
             # new opinion: start a fresh page unless 8 lines still fit under its heading
             body.append("\\par\\ifdim\\dimexpr\\pagegoal-\\pagetotal\\relax<8\\baselineskip\\clearpage"
                         "\\else\\vspace{12pt}\\hrule\\vspace{6pt}\\fi\n")
         if toc:
-            body.append("\\noindent\\tocback" + toc_entry("tocdoc", "%s — %s" % (ctx.who, o["kindname"])))
+            entry = toc_entry("tocdoc", "%s — %s" % (ctx.who, o["kindname"]))
+            if o.get("cover"):                   # its cover color on the contents line (scotus.py)
+                entry = entry.replace("\\tocadd{tocdoc}{", "\\tocadd{tocdoc}{\\protect\\coverswatch{%s}\\ " % o["cover"], 1)
+            body.append("\\noindent\\tocback" + entry)
+        if o.get("cover"):                       # scotus.py: the page band takes this filing's cover color from here
+            body.append("\\recordcover{%s}" % o["cover"])
         body.append("\\recordpath{%s}\\pdfbookmark[%d]{%s}{o%d}{\\large\\bfseries %s}\\ {\\large %s}\\par\n" % (
             ctx.path(), base, esc("%s — %s · *%s" % (ctx.who, o["kindname"], ctx.page), "tex"), ctx.oi,
             esc(ctx.who, "tex"), esc(o["kindname"], "tex")))
         if o["byline_tex"]:
             body.append("{\\small\\itshape %s\\par}\n" % o["byline_tex"])
+        if o.get("headbox_tex"):                 # scotus.py: the filing's header in its cover color
+            body.append("\\vspace{3pt}" + o["headbox_tex"])
         body.append("\\vspace{2pt}\n")
 
         top = o["tree"]
@@ -1828,7 +1845,8 @@ def render_tex(meta, ops, fontpkg, style):
            .replace("__DOCTITLE__", esc(meta["title"], "tex"))
            .replace("__DOCHEAD__", esc(meta["name"], "tex"))
            .replace("__SRCLINE__", src))
-    return pre + "".join(body) + meta.get("posttex", "") + "\n\\end{document}\n"
+    foot = "\\renewcommand{\\docfoot}{%s}\n" % esc(meta["foot"], "tex") if meta.get("foot") else ""
+    return pre + foot + "".join(body) + meta.get("posttex", "") + "\n\\end{document}\n"
 
 
 # ---------------------------------------------------------------- driver
@@ -2258,6 +2276,15 @@ def split_footnotes(raw, nxt, prev_open):
         if m and nxt <= int(m.group(1)) <= nxt + 2 and len(l) - len(l.lstrip()) <= 12 and any(x.strip() for x in raw[:j]) and any(x.strip() for x in raw[j + 1:]):
             k, nxt = j, int(m.group(1))         # a skipped number (lost in the text layer) costs one footnote, not the rest
             break
+    inline = False
+    if k is None:                   # "1  Plaintiffs refer to ...": the number on the same line as the note's text
+        # (court of appeals slip opinions); after a blank line, below the page's first lines, the next number only
+        for j in range(4, len(raw)):
+            m = FNSTART_RE.match(raw[j])
+            if m and nxt <= int(m.group(2)) <= nxt + 1 and not raw[j - 1].strip() and any(x.strip() for x in raw[:j]) and \
+                    not m.group(3)[:1].isdigit() and not NOT_FNTEXT_RE.match(m.group(3)):
+                k, nxt, inline = j, int(m.group(2)), True
+                break
     end = k if k is not None else len(raw)
     fns, body_end = [], end
     if prev_open:                   # its tail: the last group above, after 2+ blank lines, set wider than the body
@@ -2277,10 +2304,17 @@ def split_footnotes(raw, nxt, prev_open):
             body_end = g_start
     if k is not None:
         cur = None
+        prev_blank = True
         for l in raw[k:]:
             m = FNLABEL_RE.match(l)
+            mi = FNSTART_RE.match(l) if inline and prev_blank else None
+            prev_blank = not l.strip() or re.search(r"[.)\]”’\"]\s*$", l) is not None   # a note ends a sentence
             if m and int(m.group(1)) == nxt:
                 cur = (m.group(1), [[]])
+                fns.append(cur)
+                nxt += 1
+            elif mi and int(mi.group(2)) == nxt:
+                cur = (mi.group(2), [[mi.group(3).strip()]])
                 fns.append(cur)
                 nxt += 1
             elif cur is None:
@@ -2298,6 +2332,7 @@ def split_footnotes(raw, nxt, prev_open):
 
 FNRULE_RE = re.compile(r"^\s*—{4,}\s*$")        # the Supreme Court's footnote rule
 FNSTART_RE = re.compile(r"^(\s{0,6})(\d{1,3})\s+(\S.*)$")
+NOT_FNTEXT_RE = re.compile(r"(?:U\.\s?S\.|C\.\s?F\.\s?R|Stat\.|F\.\s?(?:\d|Supp)|S\.\s?Ct\.|L\.\s?Ed|[a-z])")   # a cite or a line's tail
 
 
 def split_ruled_footnotes(raw, rule, nxt):
@@ -2613,6 +2648,13 @@ def leader_entry(e):
     return e
 
 
+def _continues_number(pieces, pj):
+    """Does the text piece after pj go on with a digit? Then a digit ending piece pj is part of a number the
+    layout reader split ("42" as "4" + "2" across two pieces), not a footnote mark."""
+    nxt = next((q for q in pieces[pj + 1:] if isinstance(q, tuple)), None)
+    return bool(nxt and nxt[0][:1].isdigit())
+
+
 def place_marks(blocks, footnotes, warn, spaced=False):
     """Put a footnotemark where each footnote's number sits in the text, looking forward from the
     previous mark, no further than the page the footnote is printed on."""
@@ -2631,6 +2673,8 @@ def place_marks(blocks, footnotes, warn, spaced=False):
                             break
                         last = (bi, pj)
                         m = rx.search(p[0], ch)
+                        while m and m.end() == len(p[0]) and _continues_number(pieces, pj):
+                            m = rx.search(p[0], m.start() + 1)   # "Act, 4" + "2 U.S.C.": a split number, not a mark
                         if m:
                             found = (bi, pj, m)
                             break
@@ -2653,8 +2697,26 @@ def place_marks(blocks, footnotes, warn, spaced=False):
             blocks[bi]["pieces"].insert(pj + 1, mark)
             pos = [bi, pj + 2, 0]
             warn("footnote %s: its number was not found in the text; marked at the end of page %s" % (lab, pi + 1))
+        elif pos[0] < len(blocks) and pos[1] > 0:  # nothing left on its page after the previous mark: beside that mark
+            bi, pj = pos[0], min(pos[1], len(blocks[pos[0]]["pieces"]))
+            blocks[bi]["pieces"].insert(pj, mark)
+            pos = [bi, pj + 1, 0]
+            warn("footnote %s: its number was not found in the text; marked after the footnote before it" % lab)
         else:
             warn("footnote %s: nowhere to attach it; left out" % lab)
+
+
+def _whole_cites(spans):
+    """lawcites marks a list ("42 U.S.C. §§ 12112, 12102") as one span per section, all but the last only one
+    character long. Wrapping those would cut the cite ("4" + "2 U.S.C. ..."), and the US Code status marks then
+    read "2 U.S.C." (not found). One span per cite instead: the first one's start and key, the last one's end."""
+    out = []
+    for a, b, key in spans:
+        if out and out[-1][1] - out[-1][0] == 1 and key.split(":")[:2] == out[-1][2].split(":")[:2] and a > out[-1][0]:
+            out[-1] = (out[-1][0], b, out[-1][2])
+        else:
+            out.append((a, b, key))
+    return out
 
 
 def with_statutes(el):
@@ -2666,7 +2728,7 @@ def with_statutes(el):
     for k in el.kids:
         if isinstance(k, str):
             at = 0
-            for a, b, key in lawcites.spans_in(k):
+            for a, b, key in _whole_cites(lawcites.spans_in(k)):
                 if a < at:
                     continue
                 span = El("law", {"key": key})

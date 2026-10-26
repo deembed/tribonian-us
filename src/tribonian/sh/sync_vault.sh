@@ -59,6 +59,34 @@ if [[ -d md-cocite ]]; then
     echo "co-citation: $(find md-cocite -name '*.md' | wc -l) notes -> $VAULT/08-Reference/Co-citation"
 fi
 
+# C.F.R. section and part notes (tribonian cfr notes writes md-cfr/) -> 08-Reference/CFR. Generator-owned.
+if [[ -d md-cfr ]]; then
+    mkdir -p "$VAULT/08-Reference/CFR"
+    guard md-cfr "$VAULT/08-Reference/CFR"
+    rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
+          --include='*/' --include='*.md' --exclude='*' \
+          md-cfr/ "$VAULT/08-Reference/CFR/" | tail -20
+    echo "C.F.R.: $(find md-cfr -name '*.md' | wc -l) notes -> $VAULT/08-Reference/CFR"
+fi
+
+# State law and the U.S. Constitution (tribonian state notes writes md-state/<state>/) -> 08-Reference/State.
+if [[ -d md-state ]]; then
+    mkdir -p "$VAULT/08-Reference/State"
+    guard md-state "$VAULT/08-Reference/State"
+    rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
+          --include='*/' --include='*.md' --exclude='*' \
+          md-state/ "$VAULT/08-Reference/State/" | tail -20
+    echo "state law: $(find md-state -name '*.md' | wc -l) notes -> $VAULT/08-Reference/State"
+fi
+
+# The filing notes' cover-color callouts need a CSS snippet in the vault (written from covers.py; enable it once
+# under Settings > Appearance > CSS snippets).
+if [[ -z ${DRY:-} ]]; then
+    mkdir -p "$VAULT/.obsidian/snippets"
+    "${TRIBONIAN_PY:-python3}" -m tribonian.covers > "$VAULT/.obsidian/snippets/tribonian-covers.css" \
+        && echo "cover colors -> $VAULT/.obsidian/snippets/tribonian-covers.css"
+fi
+
 if [[ -z ${DRY:-} ]]; then
     echo "synced $(find "$DEST" -name '*.md' | wc -l) notes -> $DEST"
 else
