@@ -481,6 +481,7 @@ class Ctx:
         self.page, self.part, self.record = "", "", True
         self.links = {}                          # cluster id -> note filename, for [[wikilinks]]
         self.statutes = set()                    # US Code note names that exist (md/**/5-usc-552a.md)
+        self.lawtargets = {}                     # provision (lawcites section key) -> PDF anchor, where the build prints its text
         self.year = 0                            # decision year: what a US Code cite is judged against (usc_out)
 
     def path(self):
@@ -527,6 +528,16 @@ def inline(node, mode, ctx, marks):
             out.append(wrap(inline(k, mode, ctx, marks), "[[%s|" % statute_note(k.text()), "]]"))
         elif k.tag == "usc":
             out.append(usc_out(k, mode, ctx))
+        elif k.tag == "law":                             # a statute or constitutional cite (lawcites.py)
+            from tribonian import lawcites
+            key, inner = k.attrs.get("key", ""), inline(k, mode, ctx, marks)
+            note, target = lawcites.note_name(key), ctx.lawtargets.get(lawcites.section_of(key))
+            if mode == "md" and note in ctx.statutes and not key.startswith("usc:"):   # U.S.C.: mark_usc's <usc> inside links it
+                out.append(wrap(inner, "[[%s|" % note, "]]"))
+            elif mode != "md" and target:
+                out.append(wrap(inner, "\\hyperlink{%s}{" % target, "}"))
+            else:
+                out.append(inner)
         elif k.tag == "leader":                          # toc entry: dots out to the page(s)
             pages = esc(k.attrs.get("pages", ""), mode)
             out.append(" … %s" % pages if mode == "md" else
@@ -1811,7 +1822,7 @@ def render_tex(meta, ops, fontpkg, style):
            .replace("__DOCTITLE__", esc(meta["title"], "tex"))
            .replace("__DOCHEAD__", esc(meta["name"], "tex"))
            .replace("__SRCLINE__", src))
-    return pre + "".join(body) + "\n\\end{document}\n"
+    return pre + "".join(body) + meta.get("posttex", "") + "\n\\end{document}\n"
 
 
 # ---------------------------------------------------------------- driver
@@ -2641,17 +2652,21 @@ def place_marks(blocks, footnotes, warn, spaced=False):
 
 
 def with_statutes(el):
-    """Wrap '5 U.S.C. § 552' in <span class="citation">, as CourtListener does in opinion HTML,
-    so inline() links it to the US Code note."""
+    """Wrap each statute or constitutional cite ('5 U.S.C. § 552', 'Colo. Rev. Stat. § 26.5-4-205',
+    'U.S. Const. amend. I') in <law key=...>, so inline() links it: to the US Code note in Markdown,
+    to the provision's text in the PDF when the build prints it."""
+    from tribonian import lawcites
     kids = []
     for k in el.kids:
         if isinstance(k, str):
             at = 0
-            for m in STATUTE_RE.finditer(k):
-                span = El("span", {"class": "citation"})
-                span.kids.append(m.group(0))
-                kids += [k[at:m.start()], span]
-                at = m.end()
+            for a, b, key in lawcites.spans_in(k):
+                if a < at:
+                    continue
+                span = El("law", {"key": key})
+                span.kids.append(k[a:b])
+                kids += [k[at:a], span]
+                at = b
             kids.append(k[at:])
         else:
             kids.append(k)

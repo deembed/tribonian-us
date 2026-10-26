@@ -36,6 +36,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from tribonian import case2md as c
+from tribonian import lawcites
 
 SCOTUS = c.CASES / "scotus"
 FEED = "https://www.supremecourt.gov/RSS/Cases/JSON/%s.json"
@@ -389,7 +390,7 @@ def split_brief(text, appendix=False):
     qp = [p for p in front if QP_RE.match(next((x for x in p[1] if x.strip()), ""))]
     return {"cover": "\n".join(pages[0][1]) if pages else "", "front": front, "qp": qp,
             "body": pages[start:end] + (pages[end:] if appendix else []), "toc": read_toc(front),
-            "appendix_pages": len(pages) - end}
+            "appendix_pages": len(pages) - end, "main": end - start}
 
 
 def segment_blocks(lines, labels, prev_pi, demote=True):
@@ -510,6 +511,10 @@ def read_brief(text, f, oi, warn, appendix=False):
     o["appendix_pages"] = sp["appendix_pages"]
     o["body_text"] = "\n".join(l.text for l in lines) + "\n" + "\n".join(
         c.join_lines(p) for _, _, paras in footnotes for p in paras)
+    # what the filing itself cites: not its appendix (the lower courts' opinions, the record), even when --appendix prints it
+    main = nqp + sp["main"]
+    o["cite_text"] = "\n".join(l.text for l in lines if l.pi < main) + "\n" + "\n".join(
+        c.join_lines(p) for _, pi, paras in footnotes if pi < main for p in paras)
     return o
 
 
@@ -739,6 +744,26 @@ def below_case(cid, con, index):
     return casemap.db_case(con, cid, True) if con is not None else None
 
 
+def jaccard(a, b):
+    return len(a & b) / len(a | b) if a | b else 0.0
+
+
+def group_sets(fs, setof, below=None):
+    """The summary table's rows: each party filing, then the amici as one group per stage and side,
+    then the decision below. -> ([(label, set, briefs)], matrix of shared ÷ either)"""
+    groups = [(f["abbr"], setof(f), 1) for f in fs if f["kind"] != "amicus"]
+    for stage, label in STAGES[1:]:
+        for side in ("petitioner", "respondent", "neither"):
+            am = [setof(f) for f in fs if f["kind"] == "amicus" and f["stage"] == stage and (f["side"] or "neither") == side]
+            if am:
+                groups.append(("%s amici, %s" % (label.replace(" Stage", "").replace("Certiorari", "Cert."),
+                                                 {"petitioner": "pet.", "respondent": "resp.", "neither": "neither"}[side]),
+                               set().union(*am), len(am)))
+    if below:
+        groups.append(("Below", set(below), 1))
+    return groups, [[jaccard(a, b) for _, b, _ in groups] for _, a, _ in groups]
+
+
 def coupling(fs, below_cites, con):
     """The citation sets and what they share. fs: filings with ['cites'] (Counter) and ['side']."""
     sides = {"petitioner": Counter(), "respondent": Counter()}
@@ -758,9 +783,268 @@ def coupling(fs, below_cites, con):
     sets = [(f["abbr"], set(f["cites"])) for f in fs] + ([("Below", below)] if below else [])
     matrix = [[jac(a, b) for _, b in sets] for _, a in sets]
     engage = [(f["abbr"], len(set(f["cites"]) & below), len(f["cites"])) for f in fs]
-    return {"P": P, "R": R, "nP": nfil["petitioner"], "nR": nfil["respondent"], "contested": contested,
+    groups, gmatrix = group_sets(fs, lambda f: set(f["cites"]), below)
+    return {"groups": groups, "gmatrix": gmatrix, "P": P, "R": R, "nP": nfil["petitioner"], "nR": nfil["respondent"], "contested": contested,
             "only_p": only_p, "only_r": only_r, "below": below, "sets": [s for s, _ in sets], "matrix": matrix,
             "engage": engage}
+
+
+PROV_RE = re.compile(r"PROVISIONS?\s+INVOLVED\s*\n")
+PROV_END_RE = re.compile(r"\n\s*(?:STATEMENT|INTRODUCTION|SUMMARY|ARGUMENT|REASONS|JURISDICTION|OPINIONS?\s+BELOW)\b[A-Z ,]*\n")
+
+
+def provisions_involved(text):
+    """The text of a brief's "Constitutional, Statutory, and Regulatory Provisions Involved" section, or ''."""
+    m = PROV_RE.search(text)
+    if not m:
+        return ""
+    rest = text[m.end():]
+    e = PROV_END_RE.search(rest)
+    return rest[:e.start() if e else 3000]
+
+
+def law_analysis(fs, qp):
+    """The statutes and constitutional provisions the filings cite, compared the way the cases are.
+    Keys at section level (lawcites.section_of); mentions by name ("the First Amendment") kept apart:
+    nearly every filing names the clause in issue, so they would make every pair look alike."""
+    sec = lambda f: {lawcites.section_of(k) for k in f["laws"]["cites"]}
+    P, R, nP, nR, nameP, nameR = Counter(), Counter(), Counter(), Counter(), Counter(), Counter()
+    for f in fs:
+        cnt = Counter()
+        for k, n in f["laws"]["cites"].items():
+            cnt[lawcites.section_of(k)] += n
+        names = Counter()
+        for k, n in f["laws"]["named"].items():
+            names[lawcites.section_of(k)] += n
+        if f["side"] == "petitioner":
+            P.update(cnt); nP.update(set(cnt)); nameP.update(names)
+        elif f["side"] == "respondent":
+            R.update(cnt); nR.update(set(cnt)); nameR.update(names)
+    # the law in question: what the Clerk's questions and the parties' provisions-involved sections name
+    src = " ".join(qp or [])
+    etseq = set()
+    for f in fs:
+        if f["kind"] != "amicus":
+            src += "\n" + provisions_involved(f["o"]["cite_text"])
+    q = lawcites.find(src)
+    named_q = set(q["cites"]) | set(q["named"])
+    every = set(P) | set(R) | {lawcites.section_of(k) for f in fs for k in f["laws"]["cites"]}
+    liq = sorted({k for k in every if any(lawcites.covers(n, k, q["etseq"]) for n in named_q)} |
+                 {lawcites.section_of(n) for n in named_q}, key=lawcites.sort_key)
+    both = sorted(set(P) & set(R), key=lambda k: (-min(P[k], R[k]), lawcites.sort_key(k)))
+    only_p = sorted(set(P) - set(R), key=lambda k: (-P[k], lawcites.sort_key(k)))
+    only_r = sorted(set(R) - set(P), key=lambda k: (-R[k], lawcites.sort_key(k)))
+    groups, gmatrix = group_sets(fs, sec)
+    return {"P": P, "R": R, "nP": nP, "nR": nR, "nameP": nameP, "nameR": nameR, "liq": liq,
+            "contested": both, "only_p": only_p, "only_r": only_r, "groups": groups, "gmatrix": gmatrix}
+
+
+REPRO_RE = re.compile(r"(Pet\.?\s*)?App\.?\s*(\d+a)\s*[-–—]\s*(\d+a)")
+
+
+def law_sources(fs):
+    """Each party filing's provisions-involved section, and where a filing says it reproduces a
+    provision ("reproduced in relevant part at App.187a-208a"). -> ([(abbr, text)], {section key: [where]})"""
+    secs, repro = [], {}
+    for f in fs:
+        if f["kind"] == "amicus":
+            continue
+        t = provisions_involved(f["o"]["cite_text"])
+        if not t.strip():
+            continue
+        secs.append((f["abbr"], t))
+        flat, at = lawcites.flatten(t), 0
+        for m in REPRO_RE.finditer(flat):
+            # "Colo. Rev. Stat. §§ 26.5-4-201 et seq. is reproduced ... at App.187a-208a": the last cite before the
+            # page range, with "reproduced" between them, is what the range holds
+            got = lawcites.find(flat[at:m.start()])
+            between = lambda sp: flat[at + sp[1]:m.start()]
+            last = [sp for sp in got["spans"] if re.search(r"(?i)repro-?\s?duc|set out|appears", between(sp))
+                    and not any(o[0] > sp[1] for o in got["spans"])]
+            where = "Pet. App. %s–%s" % (m.group(2), m.group(3)) if m.group(1) or f["kind"] == "petition" else \
+                "%s App. %s–%s" % (f["abbr"].rstrip("."), m.group(2), m.group(3))
+            for _, _, k in last:
+                repro.setdefault(k, (set(), []))
+                repro[k][1].append(where)
+                if k in got["etseq"]:
+                    repro[k][0].add(k)
+            at = m.end()
+    return secs, repro
+
+
+def repro_for(repro, key):
+    """Where the filings reproduce a provision: its own entry, or a part it falls in ("§§ 26.5-4-201 et seq.")."""
+    out = []
+    for k, (etseq, where) in repro.items():
+        if lawcites.covers(k, key, etseq):
+            out += where
+    return list(dict.fromkeys(out))
+
+
+def law_anchor(key):
+    return "law-" + re.sub(r"[^A-Za-z0-9]+", "-", key).strip("-")
+
+
+def law_paras(text):
+    """A pdftotext section -> paragraphs: a new one where a line starts indented."""
+    out, cur = [], []
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        if cur and re.match(r"\s{3,}\S", line):
+            out.append(c.join_lines(cur))
+            cur = []
+        cur.append(line.strip())
+    if cur:
+        out.append(c.join_lines(cur))
+    return out
+
+
+def law_appendix_tex(lc, fs):
+    """The last part of the PDF: the law in question, as the parties set it out and, where it is
+    stored locally, its text. Every cite of these provisions in the filings links here."""
+    from tribonian import lawtext
+    if not lc["liq"]:
+        return ""
+    E = lambda t: c.esc(t, "tex")
+    secs, repro = law_sources(fs)
+    out = ["\\clearpage\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
+           "{\\Large\\bfseries The Law in Question\\par}\\vspace{4pt}",
+           "{\\scriptsize\\itshape Not part of the record. The provisions the questions presented and the parties' "
+           "provisions-involved sections name: first as each party sets them out, then each provision's text where it is "
+           "stored locally (the US Code from the Code's XML; the Constitution, C.F.R. and state law once their local copies "
+           "are built). A cite of one of these provisions anywhere in this PDF links to its entry here.\\par}\\vspace{6pt}"]
+    for n, (abbr, t) in enumerate(secs):
+        out.append("\\pdfbookmark[1]{%s: provisions involved}{lawq-src%d}\\noindent{\\large\\bfseries %s: provisions involved\\par}\\vspace{2pt}" % (E(abbr), n, E(abbr)))
+        out += ["{\\small %s\\par}\\vspace{2pt}" % E(p) for p in law_paras(t)]
+        out.append("\\vspace{6pt}")
+    for k in lc["liq"]:
+        lab = lawcites.label(k)
+        out.append("\\par\\vspace{6pt}\\hypertarget{%s}{}\\pdfbookmark[1]{%s}{%s}\\noindent{\\large\\bfseries %s\\par}\\vspace{2pt}" % (
+            law_anchor(k), E(lab), law_anchor(k), E(lab)))
+        out.append("{\\footnotesize Cited %d times by the petitioners' side (%d filings), %d by the respondent's side (%d filings).%s\\par}\\vspace{2pt}" % (
+            lc["P"][k], lc["nP"][k], lc["R"][k], lc["nR"][k],
+            " Reproduced in: %s." % E("; ".join(repro_for(repro, k))) if repro_for(repro, k) else ""))
+        got = lawtext.text_of(k)
+        if got is None:
+            out.append("{\\small\\itshape Text not stored locally.\\par}")
+            continue
+        head, rows = got
+        if head:
+            out.append("{\\small\\bfseries %s\\par}" % head)
+        for depth, label, heading, text in rows:
+            out.append("{\\small\\leftskip=%.1fem %s%s%s\\par}" % (
+                1.2 * depth, "\\textbf{%s} " % label if label else "", "\\emph{%s.} " % heading if heading else "", text))
+    return "\n".join(out) + "\n"
+
+
+def law_appendix_md(lc, fs, statutes):
+    if not lc["liq"]:
+        return []
+    E = lambda t: c.esc(t, "md")
+    secs, repro = law_sources(fs)
+    L = ["## The law in question", "",
+         "*The provisions the questions presented and the parties' provisions-involved sections name. The PDF ends with "
+         "their text where it is stored locally.*", ""]
+    for k in lc["liq"]:
+        note = lawcites.note_name(k)
+        lab = E(lawcites.label(k))
+        L.append("- %s — cited %d× by the petitioners' side, %d× by the respondent's%s" % (
+            "[[%s|%s]]" % (note, lab) if note in statutes else lab, lc["P"][k], lc["R"][k],
+            "; reproduced in %s" % E("; ".join(repro_for(repro, k))) if repro_for(repro, k) else ""))
+    for abbr, t in secs:
+        L += ["", "### %s: provisions involved" % E(abbr), ""] + ["> " + E(p) + "\n>" for p in law_paras(t)]
+    return L + [""]
+
+
+def law_rows(lc):
+    """Every provision once: the law in question first, then both sides, each side alone. -> [(key, group)]"""
+    seen, out = set(), []
+    for g, keys in (("liq", lc["liq"]), ("both", lc["contested"]), ("pet", lc["only_p"]), ("resp", lc["only_r"])):
+        for k in keys:
+            if k not in seen:
+                seen.add(k)
+                out.append((k, g))
+    return out
+
+
+LAW_GROUP = {"liq": "The law in question (questions presented; provisions involved)", "both": "Cited by both sides",
+             "pet": "Petitioners' side only", "resp": "Respondent's side only"}
+
+
+def law_tex(lc):
+    E = lambda t: c.esc(t, "tex")
+    if not law_rows(lc):
+        return ""
+    out = ["{\\scriptsize\\itshape Not part of the record. Statutes, regulations and constitutional provisions cited in each "
+           "filing (its appendix left out), at section level; a short form (``\\S\\ 26.5-4-205'') takes the code of the last full "
+           "cite. Named = mentions by name (``the First Amendment''), counted apart. Sides: the parties' filings plus the amici supporting each.\\par}\\vspace{3pt}"]
+    for side, key in (("petitioner", "P"), ("respondent", "R")):
+        out.append("\\textbf{%s:} %d provisions, %d citations.\\par" % (SIDE_NAME[side], len(lc[key]), sum(lc[key].values())))
+    out.append("\\textbf{Cited by both sides:} %d provisions.\\par\\vspace{4pt}" % len(lc["contested"]))
+    if lc["liq"]:
+        out.append("\\textbf{The law in question} {\\footnotesize (named in the questions presented or a party's provisions-involved section)}: "
+                   "{\\footnotesize %s}\\par\\vspace{4pt}" % "; ".join(E(lawcites.label(k)) for k in lc["liq"]))
+
+    def table(rows, head, spec):
+        return ("{\\footnotesize\\setlength{\\tabcolsep}{3pt}\\begin{tabular}{%s}\n%s\\\\\\hline\n%s\\\\\n\\end{tabular}\\par}\\vspace{4pt}\n"
+                % (spec, " & ".join(head), "\\\\\n".join(" & ".join(r) for r in rows)))
+    out.append("\\textbf{Coupling between the filings} {\\footnotesize (shared provisions $\\div$ provisions cited by either of the two, "
+               "\\%; amici grouped by stage and side, with the number of briefs; $n$ = provisions cited; appendices not counted)}\\par")
+    out.append(couple_table(lc, E, table))
+    rows, prev = [], None
+    for i, (k, g) in enumerate(law_rows(lc), 1):
+        if g != prev:
+            rows.append("\\multicolumn{6}{@{}l}{\\rule{0pt}{2.4ex}\\textbf{%s}}" % LAW_GROUP[g])
+            prev = g
+        lab = E(lawcites.label(k))
+        rows.append(" & ".join([str(i), "\\hyperlink{%s}{%s}" % (law_anchor(k), lab) if g == "liq" else lab,
+                                str(lc["P"][k] or "--"), str(lc["R"][k] or "--"),
+                                "%d/%d" % (lc["nP"][k], lc["nR"][k]),
+                                "%d/%d" % (lc["nameP"][k], lc["nameR"][k]) if lc["nameP"][k] or lc["nameR"][k] else ""]))
+    return ("\\pdfbookmark[1]{Statutes and provisions the filings cite}{laws}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!40!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
+            "\\tocback\\tocadd{tocsec}{Statutes and provisions the filings cite}\\textbf{Statutes and provisions the filings cite.}\\par\\vspace{2pt}\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n"
+            "\\clearpage\\pdfbookmark[1]{Every provision, by side}{provisions}\n"
+            "\\noindent\\tocback\\tocadd{tocsec}{Every provision, by side}{\\large\\bfseries Every provision, by side\\par}\\vspace{2pt}\n"
+            "{\\scriptsize\\itshape Citations by each side; Filings = petitioners'/respondent's filings citing it; Named = mentions by name, pet./resp.\\par}\\vspace{3pt}\n"
+            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
+            "\\begin{longtable}{@{}r p{8.6cm} r r r r@{}}\n"
+            "\\# & Provision & Pet. & Resp. & Filings & Named\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
+        COUPLE_COLOR, COUPLE_COLOR.split("!")[0], "\n".join(out), RULED, "\\\\\\hline\n".join(rows))
+
+
+def law_md(lc, statutes):
+    E = lambda t: c.esc(t, "md")
+    if not law_rows(lc):
+        return []
+    def link(k, table=False):
+        if lawcites.note_name(k) not in statutes:
+            return E(lawcites.label(k))
+        return "[[%s%s|%s]]" % (lawcites.note_name(k), "\\" if table else "", E(lawcites.label(k)))
+    L = ["## Statutes and provisions the filings cite", "",
+         "*Not part of the record. Statutes, regulations and constitutional provisions cited in each filing (its appendix "
+         "left out), at section level; a short form takes the code of the last full cite. Named = mentions by name "
+         "(\"the First Amendment\"), counted apart. Sides: the parties' filings plus the amici supporting each.*", ""]
+    for side, key in (("petitioner", "P"), ("respondent", "R")):
+        L.append("- **%s:** %d provisions, %d citations" % (SIDE_NAME[side], len(lc[key]), sum(lc[key].values())))
+    L += ["- **Cited by both sides:** %d provisions" % len(lc["contested"]), ""]
+    if lc["liq"]:
+        L += ["**The law in question** (named in the questions presented or a party's provisions-involved section): " +
+              "; ".join(link(k) for k in lc["liq"]), ""]
+    L += ["### Coupling between filings (provisions)", "",
+          "Shared provisions ÷ provisions cited by either of the two, in percent; amici grouped by stage and side; n = provisions cited.", ""]
+    rows = couple_rows(lc)
+    L += ["| | %s | n |" % " | ".join(r[0] for r in rows), "|---|%s--:|" % ("--:|" * len(rows))]
+    for letter, lab, n, cells in rows:
+        L.append("| %s %s | %s | %d |" % (letter, E(lab), " | ".join(cells), n))
+    L += ["", "### Every provision, by side", "", "| # | Provision | Group | Pet. | Resp. | Filings | Named |", "|--:|---|---|--:|--:|--:|--:|"]
+    for i, (k, g) in enumerate(law_rows(lc), 1):
+        L.append("| %d | %s | %s | %d | %d | %d/%d | %s |" % (
+            i, link(k, True), {"liq": "in question", "both": "both", "pet": "pet.", "resp": "resp."}[g], lc["P"][k], lc["R"][k],
+            lc["nP"][k], lc["nR"][k], "%d/%d" % (lc["nameP"][k], lc["nameR"][k]) if lc["nameP"][k] or lc["nameR"][k] else ""))
+    return L + [""]
 
 
 def area_profile(cp, names, db):
@@ -841,12 +1125,12 @@ def couple_md(cp, names, index, fs, areas):
         for abbr, k, n in cp["engage"]:
             L.append("| %s | %d | %d | %s |" % (E(abbr), k, n, "%d%%" % round(100 * k / n) if n else "–"))
     L += ["", "### Coupling between filings", "",
-          "Shared cases ÷ cases cited by either (Jaccard), in percent.", ""]
-    hdr = cp["sets"]
-    short = [re.sub(r" Amicus Br\.$", " (am.)", h) for h in hdr]
-    L += ["| | %s |" % " | ".join(E(s) for s in short), "|---|%s" % "--:|" * len(hdr)]
-    for i, row in enumerate(cp["matrix"]):
-        L.append("| %s | %s |" % (E(short[i]), " | ".join("·" if i == j else "%d" % round(100 * v) for j, v in enumerate(row))))
+          "Shared cases ÷ cases cited by either of the two (Jaccard), in percent. Amici are grouped by stage and side, "
+          "with the number of briefs in each group; n = cases cited (a group: all its briefs together). Appendices are not counted.", ""]
+    rows = couple_rows(cp)
+    L += ["| | %s | n |" % " | ".join(r[0] for r in rows), "|---|%s--:|" % ("--:|" * len(rows))]
+    for letter, lab, n, cells in rows:
+        L.append("| %s %s | %s | %d |" % (letter, E(lab), " | ".join(cells), n))
     if areas:
         L += ["", "### Areas each side draws on", "",
               "Mentions by the cited case's co-citation area (`cocite.py`, appellate view; area names written by Claude "
@@ -854,6 +1138,20 @@ def couple_md(cp, names, index, fs, areas):
         for a, p, r, np_, nr in areas[:15]:
             L.append("| %s | %d%% (%d) | %d%% (%d) |" % (E(a.replace("|", "/")), round(100 * p), np_, round(100 * r), nr))
     return L + [""]
+
+
+def couple_rows(cp):
+    """The grouped coupling table: (letter, label, n, cells), one rule for every cell, the diagonal '·'."""
+    g = cp["groups"]
+    return [(chr(65 + a), lab + (" (%d)" % k if k > 1 or "amici" in lab else ""), len(st),
+             ["·" if a == b else "%d" % round(100 * cp["gmatrix"][a][b]) for b in range(len(g))])
+            for a, (lab, st, k) in enumerate(g)]
+
+
+def couple_table(cp, E, table):
+    rows = couple_rows(cp)
+    body = [["%s %s" % (L, E(lab))] + [("$\\cdot$" if v == "·" else v) for v in cells] + ["%d" % n] for L, lab, n, cells in rows]
+    return table(body, [""] + [L for L, _, _, _ in rows] + ["$n$"], "l" + "r" * len(rows) + "|r")
 
 
 def couple_tex(cp, names, fs, areas):
@@ -875,12 +1173,9 @@ def couple_tex(cp, names, fs, areas):
                    "court of appeals also cites; %d there):} {\\footnotesize %s}\\par\\vspace{3pt}" % (
                        len(cp["below"]), "; ".join("%s %d/%d" % (E(a), k, n) for a, k, n in cp["engage"])))
     parties = [i for i, f in enumerate(fs) if f["kind"] != "amicus"] + ([len(fs)] if cp["below"] else [])
-    hdr = [cp["sets"][i] for i in parties]
-    rows = [[E(hdr[a])] + ["$\\cdot$" if a == b else "%d" % round(100 * cp["matrix"][i][j]) for b, j in enumerate(parties)]
-            for a, i in enumerate(parties)]
-    out.append("\\textbf{Coupling between the parties' filings} {\\footnotesize (shared cases $\\div$ cases cited by either, \\%)}\\par")
-    rows = [[chr(65 + a) + " " + r[0]] + r[1:] for a, r in enumerate(rows)]
-    out.append(table(rows, [""] + [chr(65 + a) for a in range(len(hdr))], "l" + "r" * len(hdr)))
+    out.append("\\textbf{Coupling between the filings} {\\footnotesize (shared cases $\\div$ cases cited by either of the two, "
+               "\\%; amici grouped by stage and side, with the number of briefs; $n$ = cases cited; appendices not counted)}\\par")
+    out.append(couple_table(cp, E, table))
     am = []
     for i, f in enumerate(fs):
         if f["kind"] != "amicus":
@@ -1162,7 +1457,8 @@ def build(args):
         if f["kind"] == "amicus":
             f["side"] = o["side_cover"] or f["side"]
         f["o"] = o
-        f["cites"], f["miss"] = authorities(con, o["body_text"])
+        f["cites"], f["miss"] = authorities(con, o["cite_text"])
+        f["laws"] = lawcites.find(o["cite_text"])
         f["slug"] = "%s-%s-%s" % (slug, f["date"], c.slugify(f["abbr"], 30))
 
     # ---- the decision below
@@ -1192,6 +1488,7 @@ def build(args):
 
     # ---- the analysis
     cp = coupling(fs, below_cites, con)
+    lc = law_analysis(fs, qp_paragraphs(data))
     allc = set(cp["P"]) | set(cp["R"]) | cp["below"] | {k for f in fs for k in f["cites"]}
     names = case_names(con, allc)
     areas = []
@@ -1228,15 +1525,17 @@ def build(args):
         o["tree"] = c.tree_of(o, o["levels"])
         o["stage"] = f["stage"]
         ops.append(o)
+    targets = {k: law_anchor(k) for k in lc["liq"]}
     for n, o in enumerate(ops):                  # unique ids for bookmarks and footnote keys across the documents
         o["oi"] = o["ctx"].oi = n
+        o["ctx"].lawtargets = targets
     qp = qp_paragraphs(data)
     feed = data["feed"]
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
     meta = {"title": title, "name": "%s v. %s" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle"))),
-            "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) +
+            "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) +
                                    (status_tex(cols, names, gl, set(cp["contested"])) if gl else ""),
-            "stages": dict(STAGES),
+            "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs),
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",
                         "decision below: CourtListener cluster %s" % cid if cid else "", "retrieved " + data.get("retrieved", "")]}
     (c.ROOT / "build").mkdir(exist_ok=True)
@@ -1265,14 +1564,16 @@ def build(args):
             tail.append("- %s ×%d" % (link_md(names, index, k), n))
         if f["miss"]:
             tail += ["", "Not resolved: " + ", ".join("%s ×%d" % (k, n) if n > 1 else k for k, n in f["miss"].most_common())]
-        stat = Counter(c.statute_note(m.group(0)) for m in c.STATUTE_RE.finditer(o["body_text"]))
-        stat.pop(None, None)
-        if stat:
-            tail += ["", "## Statutes cited", ""]
-            for sn, n in sorted(stat.items(), key=lambda kv: (-kv[1], kv[0])):
-                t, sec = sn.split("-usc-")
-                lab = "%s U.S.C. § %s" % (t, sec)
+        stat = f["laws"]["cites"]
+        if stat or f["laws"]["named"]:
+            tail += ["", "## Statutes and provisions cited", "",
+                     "*Statutes, regulations and constitutional provisions in this filing (its appendix left out); ×n = citations.*", ""]
+            for k, n in sorted(stat.items(), key=lambda kv: (-kv[1], lawcites.sort_key(kv[0]))):
+                lab, sn = c.esc(lawcites.label(k), "md"), lawcites.note_name(k)
                 tail.append("- %s%s" % ("[[%s|%s]]" % (sn, lab) if sn in statutes else lab, " ×%d" % n if n > 1 else ""))
+            if f["laws"]["named"]:
+                tail.append("- By name: " + "; ".join("%s ×%d" % (c.esc(lawcites.label(k), "md"), n)
+                                                      for k, n in f["laws"]["named"].most_common()))
         md = c.render_md(None, [o], "\n".join(tail) + "\n", head=head)
         (ndir / (f["slug"] + ".md")).write_text(md, encoding="utf-8")
 
@@ -1299,6 +1600,8 @@ def build(args):
                                               " · supporting %ss" % f["side"] if f["kind"] == "amicus" and f["side"] else "") for f in mine]
             L.append("")
     L += couple_md(cp, names, index, fs, areas)
+    L += law_md(lc, statutes)
+    L += law_appendix_md(lc, fs, statutes)
     if gl:
         L += status_md(cols, names, index, gl, set(cp["contested"]))
     L += ["## Proceedings and orders", ""]
