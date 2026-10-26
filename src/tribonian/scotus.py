@@ -764,18 +764,38 @@ def group_sets(fs, setof, below=None):
     return groups, [[jaccard(a, b) for _, b, _ in groups] for _, a, _ in groups]
 
 
-def coupling(fs, below_cites, con):
-    """The citation sets and what they share. fs: filings with ['cites'] (Counter) and ['side']."""
-    sides = {"petitioner": Counter(), "respondent": Counter()}
-    nfil = {"petitioner": Counter(), "respondent": Counter()}
+def side_split(fs, cntof, tie=lambda k: 0):
+    """Each side's counts, its parties' filings and its amici apart. cntof(f) -> Counter for one filing.
+    P/R (and nP/nR, filings) are the side totals; Pp/Pa/Rp/Ra the party and amici parts (nPp... filings).
+    Bands: both = cited by both *parties*; pet / resp = by that side's party and not the other party
+    (whatever the other side's amici do); amici = by no party at all.
+    Neutral amici ("neither") count on no side, as before."""
+    d = {k: Counter() for k in ("P", "R", "nP", "nR", "Pp", "Pa", "Rp", "Ra", "nPp", "nPa", "nRp", "nRa")}
     for f in fs:
-        if f["side"] in sides:
-            sides[f["side"]].update(f["cites"])
-            nfil[f["side"]].update(set(f["cites"]))
-    P, R = sides["petitioner"], sides["respondent"]
-    contested = sorted(set(P) & set(R), key=lambda k: (-min(P[k], R[k]), -(P[k] + R[k])))
-    only_p = sorted(set(P) - set(R), key=lambda k: -P[k])
-    only_r = sorted(set(R) - set(P), key=lambda k: -R[k])
+        s = {"petitioner": "P", "respondent": "R"}.get(f["side"])
+        if not s:
+            continue
+        cnt, part = cntof(f), "a" if f["kind"] == "amicus" else "p"
+        d[s].update(cnt); d["n" + s].update(set(cnt))
+        d[s + part].update(cnt); d["n" + s + part].update(set(cnt))
+    P, R, Pp, Rp = d["P"], d["R"], d["Pp"], d["Rp"]
+    d["contested"] = sorted(set(Pp) & set(Rp), key=lambda k: (-min(Pp[k], Rp[k]), -(P[k] + R[k]), tie(k)))
+    d["only_p"] = sorted(set(Pp) - set(Rp), key=lambda k: (-Pp[k], -P[k], tie(k)))
+    d["only_r"] = sorted(set(Rp) - set(Pp), key=lambda k: (-Rp[k], -R[k], tie(k)))
+    d["amici_only"] = sorted((set(P) | set(R)) - set(Pp) - set(Rp), key=lambda k: (-(P[k] + R[k]), tie(k)))
+    d["sides_both"] = len(set(P) & set(R))             # the old measure: both sides, amici included
+    return d
+
+
+def split_cells(d, k, dash="--"):
+    """The four count cells (pet. party, pet. amici, resp. party, resp. amici) and the filings cell."""
+    cells = [str(d[x][k] or dash) for x in ("Pp", "Pa", "Rp", "Ra")]
+    return cells, "%d+%d/%d+%d" % (d["nPp"][k], d["nPa"][k], d["nRp"][k], d["nRa"][k])
+
+
+def coupling(fs, below_cites, con):
+    """The citation sets and what they share. fs: filings with ['cites'] (Counter), ['side'], ['kind']."""
+    d = side_split(fs, lambda f: f["cites"])
     below = set(below_cites)
 
     def jac(a, b):
@@ -784,9 +804,7 @@ def coupling(fs, below_cites, con):
     matrix = [[jac(a, b) for _, b in sets] for _, a in sets]
     engage = [(f["abbr"], len(set(f["cites"]) & below), len(f["cites"])) for f in fs]
     groups, gmatrix = group_sets(fs, lambda f: set(f["cites"]), below)
-    return {"groups": groups, "gmatrix": gmatrix, "P": P, "R": R, "nP": nfil["petitioner"], "nR": nfil["respondent"], "contested": contested,
-            "only_p": only_p, "only_r": only_r, "below": below, "sets": [s for s, _ in sets], "matrix": matrix,
-            "engage": engage}
+    return dict(d, groups=groups, gmatrix=gmatrix, below=below, sets=[s for s, _ in sets], matrix=matrix, engage=engage)
 
 
 PROV_RE = re.compile(r"PROVISIONS?\s+INVOLVED\s*\n")
@@ -808,18 +826,21 @@ def law_analysis(fs, qp):
     Keys at section level (lawcites.section_of); mentions by name ("the First Amendment") kept apart:
     nearly every filing names the clause in issue, so they would make every pair look alike."""
     sec = lambda f: {lawcites.section_of(k) for k in f["laws"]["cites"]}
-    P, R, nP, nR, nameP, nameR = Counter(), Counter(), Counter(), Counter(), Counter(), Counter()
+
+    def per_section(cnt):
+        out = Counter()
+        for k, n in cnt.items():
+            out[lawcites.section_of(k)] += n
+        return out
+    d = side_split(fs, lambda f: per_section(f["laws"]["cites"]), lawcites.sort_key)
+    P, R = d["P"], d["R"]
+    nameP, nameR = Counter(), Counter()
     for f in fs:
-        cnt = Counter()
-        for k, n in f["laws"]["cites"].items():
-            cnt[lawcites.section_of(k)] += n
-        names = Counter()
-        for k, n in f["laws"]["named"].items():
-            names[lawcites.section_of(k)] += n
+        names = per_section(f["laws"]["named"])
         if f["side"] == "petitioner":
-            P.update(cnt); nP.update(set(cnt)); nameP.update(names)
+            nameP.update(names)
         elif f["side"] == "respondent":
-            R.update(cnt); nR.update(set(cnt)); nameR.update(names)
+            nameR.update(names)
     # the law in question: what the Clerk's questions and the parties' provisions-involved sections name
     src = " ".join(qp or [])
     etseq = set()
@@ -831,12 +852,8 @@ def law_analysis(fs, qp):
     every = set(P) | set(R) | {lawcites.section_of(k) for f in fs for k in f["laws"]["cites"]}
     liq = sorted({k for k in every if any(lawcites.covers(n, k, q["etseq"]) for n in named_q)} |
                  {lawcites.section_of(n) for n in named_q}, key=lawcites.sort_key)
-    both = sorted(set(P) & set(R), key=lambda k: (-min(P[k], R[k]), lawcites.sort_key(k)))
-    only_p = sorted(set(P) - set(R), key=lambda k: (-P[k], lawcites.sort_key(k)))
-    only_r = sorted(set(R) - set(P), key=lambda k: (-R[k], lawcites.sort_key(k)))
     groups, gmatrix = group_sets(fs, sec)
-    return {"P": P, "R": R, "nP": nP, "nR": nR, "nameP": nameP, "nameR": nameR, "liq": liq,
-            "contested": both, "only_p": only_p, "only_r": only_r, "groups": groups, "gmatrix": gmatrix}
+    return dict(d, nameP=nameP, nameR=nameR, liq=liq, groups=groups, gmatrix=gmatrix)
 
 
 REPRO_RE = re.compile(r"(Pet\.?\s*)?App\.?\s*(\d+a)\s*[-–—]\s*(\d+a)")
@@ -922,8 +939,9 @@ def law_appendix_tex(lc, fs):
         lab = lawcites.label(k)
         out.append("\\par\\vspace{6pt}\\hypertarget{%s}{}\\pdfbookmark[1]{%s}{%s}\\noindent{\\large\\bfseries %s\\par}\\vspace{2pt}" % (
             law_anchor(k), E(lab), law_anchor(k), E(lab)))
-        out.append("{\\footnotesize Cited %d times by the petitioners' side (%d filings), %d by the respondent's side (%d filings).%s\\par}\\vspace{2pt}" % (
-            lc["P"][k], lc["nP"][k], lc["R"][k], lc["nR"][k],
+        out.append("{\\footnotesize Cited by the petitioners %d times (%d filings) and their amici %d (%d); by the respondent %d (%d) "
+                   "and its amici %d (%d).%s\\par}\\vspace{2pt}" % (
+            lc["Pp"][k], lc["nPp"][k], lc["Pa"][k], lc["nPa"][k], lc["Rp"][k], lc["nRp"][k], lc["Ra"][k], lc["nRa"][k],
             " Reproduced in: %s." % E("; ".join(repro_for(repro, k))) if repro_for(repro, k) else ""))
         got = lawtext.text_of(k)
         if got is None:
@@ -949,8 +967,8 @@ def law_appendix_md(lc, fs, statutes):
     for k in lc["liq"]:
         note = lawcites.note_name(k)
         lab = E(lawcites.label(k))
-        L.append("- %s — cited %d× by the petitioners' side, %d× by the respondent's%s" % (
-            "[[%s|%s]]" % (note, lab) if note in statutes else lab, lc["P"][k], lc["R"][k],
+        L.append("- %s — cited %d× by the petitioners (%d× their amici), %d× by the respondent (%d× its amici)%s" % (
+            "[[%s|%s]]" % (note, lab) if note in statutes else lab, lc["Pp"][k], lc["Pa"][k], lc["Rp"][k], lc["Ra"][k],
             "; reproduced in %s" % E("; ".join(repro_for(repro, k))) if repro_for(repro, k) else ""))
     for abbr, t in secs:
         L += ["", "### %s: provisions involved" % E(abbr), ""] + ["> " + E(p) + "\n>" for p in law_paras(t)]
@@ -960,7 +978,8 @@ def law_appendix_md(lc, fs, statutes):
 def law_rows(lc):
     """Every provision once: the law in question first, then both sides, each side alone. -> [(key, group)]"""
     seen, out = set(), []
-    for g, keys in (("liq", lc["liq"]), ("both", lc["contested"]), ("pet", lc["only_p"]), ("resp", lc["only_r"])):
+    for g, keys in (("liq", lc["liq"]), ("both", lc["contested"]), ("pet", lc["only_p"]), ("resp", lc["only_r"]),
+                    ("amici", lc["amici_only"])):
         for k in keys:
             if k not in seen:
                 seen.add(k)
@@ -968,8 +987,30 @@ def law_rows(lc):
     return out
 
 
-LAW_GROUP = {"liq": "The law in question (questions presented; provisions involved)", "both": "Cited by both sides",
-             "pet": "Petitioners' side only", "resp": "Respondent's side only"}
+BAND = {"both": "Cited by both parties", "pet": "The petitioners, not the respondent",
+        "resp": "The respondent, not the petitioners", "amici": "Amici only (no party cites it)"}
+BAND_SHORT = {"liq": "in question", "both": "both", "pet": "pet.", "resp": "resp.", "amici": "amici"}
+LAW_GROUP = dict(BAND, liq="The law in question (questions presented; provisions involved)")
+SPLIT_NOTE = ("Pet./Resp.: mentions by the side's party filings and by its amici, apart; Filings = party+amici filings "
+              "citing it, pet./resp. Bands follow the parties: a case one party cites and the other side reaches only "
+              "through amici sits in the citing party's band.")
+
+
+def split_head(before, after):
+    """Two header rows: Pet. / Resp. over party / amici."""
+    top = [""] * len(before) + ["\\multicolumn{2}{c}{Pet.}", "\\multicolumn{2}{c}{Resp.}"] + [""] * len(after)
+    return " & ".join(top) + "\\\\\n" + " & ".join(before + ["party", "amici", "party", "amici"] + after)
+
+
+def summary_lines(d, what, unit="citations"):
+    """-> [(label, text)]: each side split party/amici, then the both-parties count."""
+    out = []
+    for side, s in (("petitioner", "P"), ("respondent", "R")):
+        out.append((SIDE_NAME[side], "%d %s (party %d, amici %d), %d %s" % (
+            len(d[s]), what, len(d[s + "p"]), len(d[s + "a"]), sum(d[s].values()), unit)))
+    out.append(("Cited by both parties", "%d %s (both sides counting amici: %d); by amici only: %d" % (
+        len(d["contested"]), what, d["sides_both"], len(d["amici_only"]))))
+    return out
 
 
 def law_tex(lc):
@@ -979,9 +1020,8 @@ def law_tex(lc):
     out = ["{\\scriptsize\\itshape Not part of the record. Statutes, regulations and constitutional provisions cited in each "
            "filing (its appendix left out), at section level; a short form (``\\S\\ 26.5-4-205'') takes the code of the last full "
            "cite. Named = mentions by name (``the First Amendment''), counted apart. Sides: the parties' filings plus the amici supporting each.\\par}\\vspace{3pt}"]
-    for side, key in (("petitioner", "P"), ("respondent", "R")):
-        out.append("\\textbf{%s:} %d provisions, %d citations.\\par" % (SIDE_NAME[side], len(lc[key]), sum(lc[key].values())))
-    out.append("\\textbf{Cited by both sides:} %d provisions.\\par\\vspace{4pt}" % len(lc["contested"]))
+    out += ["\\textbf{%s:} %s.\\par" % (a, b) for a, b in summary_lines(lc, "provisions")]
+    out.append("\\vspace{4pt}")
     if lc["liq"]:
         out.append("\\textbf{The law in question} {\\footnotesize (named in the questions presented or a party's provisions-involved section)}: "
                    "{\\footnotesize %s}\\par\\vspace{4pt}" % "; ".join(E(lawcites.label(k)) for k in lc["liq"]))
@@ -995,12 +1035,11 @@ def law_tex(lc):
     rows, prev = [], None
     for i, (k, g) in enumerate(law_rows(lc), 1):
         if g != prev:
-            rows.append("\\multicolumn{6}{@{}l}{\\rule{0pt}{2.4ex}\\textbf{%s}}" % LAW_GROUP[g])
+            rows.append("\\multicolumn{8}{@{}l}{\\rule{0pt}{2.4ex}\\textbf{%s}}" % LAW_GROUP[g])
             prev = g
         lab = E(lawcites.label(k))
-        rows.append(" & ".join([str(i), "\\hyperlink{%s}{%s}" % (law_anchor(k), lab) if g == "liq" else lab,
-                                str(lc["P"][k] or "--"), str(lc["R"][k] or "--"),
-                                "%d/%d" % (lc["nP"][k], lc["nR"][k]),
+        cells, fil = split_cells(lc, k)
+        rows.append(" & ".join([str(i), "\\hyperlink{%s}{%s}" % (law_anchor(k), lab) if g == "liq" else lab] + cells + [fil,
                                 "%d/%d" % (lc["nameP"][k], lc["nameR"][k]) if lc["nameP"][k] or lc["nameR"][k] else ""]))
     return ("\\pdfbookmark[1]{Statutes and provisions the filings cite}{laws}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!40!black, boxrule=0.4pt, arc=1.5pt,\n"
@@ -1008,11 +1047,12 @@ def law_tex(lc):
             "\\tocback\\tocadd{tocsec}{Statutes and provisions the filings cite}\\textbf{Statutes and provisions the filings cite.}\\par\\vspace{2pt}\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n"
             "\\clearpage\\pdfbookmark[1]{Every provision, by side}{provisions}\n"
             "\\noindent\\tocback\\tocadd{tocsec}{Every provision, by side}{\\large\\bfseries Every provision, by side\\par}\\vspace{2pt}\n"
-            "{\\scriptsize\\itshape Citations by each side; Filings = petitioners'/respondent's filings citing it; Named = mentions by name, pet./resp.\\par}\\vspace{3pt}\n"
+            "{\\scriptsize\\itshape %s Named = mentions by name, pet./resp. (amici included).\\par}\\vspace{3pt}\n"
             "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
-            "\\begin{longtable}{@{}r p{8.6cm} r r r r@{}}\n"
-            "\\# & Provision & Pet. & Resp. & Filings & Named\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
-        COUPLE_COLOR, COUPLE_COLOR.split("!")[0], "\n".join(out), RULED, "\\\\\\hline\n".join(rows))
+            "\\begin{longtable}{@{}r p{7.4cm} r r r r r r@{}}\n"
+            "%s\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
+        COUPLE_COLOR, COUPLE_COLOR.split("!")[0], "\n".join(out), E(SPLIT_NOTE), RULED,
+        split_head(["\\#", "Provision"], ["Filings", "Named"]), "\\\\\\hline\n".join(rows))
 
 
 def law_md(lc, statutes):
@@ -1027,9 +1067,7 @@ def law_md(lc, statutes):
          "*Not part of the record. Statutes, regulations and constitutional provisions cited in each filing (its appendix "
          "left out), at section level; a short form takes the code of the last full cite. Named = mentions by name "
          "(\"the First Amendment\"), counted apart. Sides: the parties' filings plus the amici supporting each.*", ""]
-    for side, key in (("petitioner", "P"), ("respondent", "R")):
-        L.append("- **%s:** %d provisions, %d citations" % (SIDE_NAME[side], len(lc[key]), sum(lc[key].values())))
-    L += ["- **Cited by both sides:** %d provisions" % len(lc["contested"]), ""]
+    L += ["- **%s:** %s" % ab for ab in summary_lines(lc, "provisions")] + [""]
     if lc["liq"]:
         L += ["**The law in question** (named in the questions presented or a party's provisions-involved section): " +
               "; ".join(link(k) for k in lc["liq"]), ""]
@@ -1039,11 +1077,14 @@ def law_md(lc, statutes):
     L += ["| | %s | n |" % " | ".join(r[0] for r in rows), "|---|%s--:|" % ("--:|" * len(rows))]
     for letter, lab, n, cells in rows:
         L.append("| %s %s | %s | %d |" % (letter, E(lab), " | ".join(cells), n))
-    L += ["", "### Every provision, by side", "", "| # | Provision | Group | Pet. | Resp. | Filings | Named |", "|--:|---|---|--:|--:|--:|--:|"]
+    L += ["", "### Every provision, by side", "", SPLIT_NOTE, "",
+          "| # | Provision | Group | Pet. party | Pet. amici | Resp. party | Resp. amici | Filings | Named |",
+          "|--:|---|---|--:|--:|--:|--:|--:|--:|"]
     for i, (k, g) in enumerate(law_rows(lc), 1):
-        L.append("| %d | %s | %s | %d | %d | %d/%d | %s |" % (
-            i, link(k, True), {"liq": "in question", "both": "both", "pet": "pet.", "resp": "resp."}[g], lc["P"][k], lc["R"][k],
-            lc["nP"][k], lc["nR"][k], "%d/%d" % (lc["nameP"][k], lc["nameR"][k]) if lc["nameP"][k] or lc["nameR"][k] else ""))
+        cells, fil = split_cells(lc, k, "0")
+        L.append("| %d | %s | %s | %s | %s | %s |" % (
+            i, link(k, True), BAND_SHORT[g], " | ".join(cells), fil,
+            "%d/%d" % (lc["nameP"][k], lc["nameR"][k]) if lc["nameP"][k] or lc["nameR"][k] else ""))
     return L + [""]
 
 
@@ -1082,10 +1123,10 @@ def cite_of(names, cid):
 
 
 def all_rows(cp):
-    """Every authority: both sides first (ranked by the lesser side's mentions), then the
-    petitioners' side only, then the respondent's side only. -> [(cid, group)]."""
+    """Every authority: both parties first (ranked by the lesser party's mentions), then each party
+    without the other, then the cases only amici cite. -> [(cid, group)]."""
     return ([(k, "both") for k in cp["contested"]] + [(k, "pet") for k in cp["only_p"]] +
-            [(k, "resp") for k in cp["only_r"]])
+            [(k, "resp") for k in cp["only_r"]] + [(k, "amici") for k in cp["amici_only"]])
 
 
 RULED = "\\setlength{\\arrayrulewidth}{0.2pt}"          # thin lines between rows, to follow a row across
@@ -1103,20 +1144,18 @@ def couple_md(cp, names, index, fs, areas):
          "left out), resolved to CourtListener clusters through the local database by `scotus.py`; counts are mentions, "
          "short cites (\"605 U.S. at 181\") included. Sides: the parties' filings plus the amici supporting each, from "
          "the briefs' covers.*", ""]
-    for side, key in (("petitioner", "P"), ("respondent", "R")):
-        mine = [f for f in fs if f["side"] == side]
-        L.append("- **%s:** %d filings, %d cases, %d mentions" % (SIDE_NAME[side], len(mine), len(cp[key]), sum(cp[key].values())))
-    L += ["- **Cited by both sides:** %d cases" % len(cp["contested"]), ""]
+    L += ["- **%s:** %s" % ab for ab in summary_lines(cp, "cases", "mentions")] + [""]
     L += ["### Every authority, by side", "",
-          "Cited by both sides first (ranked by how much the less-reliant side leans on them), then the petitioners' "
-          "side only, then the respondent's side only. Mentions and filings per side; Cite is what "
-          "`tribonian case fetch --cite` takes.", "",
-          "| # | Case | Cite | Pet. | Resp. | Pet. filings | Resp. filings | Below | Area |",
-          "|--:|---|---|--:|--:|--:|--:|:-:|---|"]
+          "Cited by both parties first (ranked by how much the less-reliant party leans on them), then the petitioners "
+          "and not the respondent, then the respondent and not the petitioners, then amici only. " + SPLIT_NOTE +
+          " Cite is what `tribonian case fetch --cite` takes.", "",
+          "| # | Case | Cite | Group | Pet. party | Pet. amici | Resp. party | Resp. amici | Filings | Below | Area |",
+          "|--:|---|---|---|--:|--:|--:|--:|--:|:-:|---|"]
     for i, (k, g) in enumerate(all_rows(cp), 1):
         a = (names[k].get("area") or (None, ""))[1] or ""
-        L.append("| %d | %s | %s | %d | %d | %d | %d | %s | %s |" % (
-            i, link_md(names, index, k), cite_of(names, k), cp["P"][k], cp["R"][k], cp["nP"][k], cp["nR"][k],
+        cells, fil = split_cells(cp, k, "0")
+        L.append("| %d | %s | %s | %s | %s | %s | %s | %s |" % (
+            i, link_md(names, index, k), cite_of(names, k), BAND_SHORT[g], " | ".join(cells), fil,
             "✓" if k in cp["below"] else "", E(a.replace("|", "/"))))      # before esc: it now writes \| itself
     if cp["below"]:
         L += ["", "### Engagement with the decision below", "",
@@ -1159,10 +1198,8 @@ def couple_tex(cp, names, fs, areas):
     out = ["{\\scriptsize\\itshape Not part of the record. Reporter citations in each filing, resolved to CourtListener "
            "clusters through the local database (\\texttt{scotus.py}); counts are mentions. Sides: the parties' filings "
            "plus the amici supporting each.\\par}\\vspace{3pt}"]
-    for side, key in (("petitioner", "P"), ("respondent", "R")):
-        mine = [f for f in fs if f["side"] == side]
-        out.append("\\textbf{%s:} %d filings, %d cases, %d mentions.\\par" % (SIDE_NAME[side], len(mine), len(cp[key]), sum(cp[key].values())))
-    out.append("\\textbf{Cited by both sides:} %d cases.\\par\\vspace{4pt}" % len(cp["contested"]))
+    out += ["\\textbf{%s:} %s.\\par" % (a, b) for a, b in summary_lines(cp, "cases", "mentions")]
+    out.append("\\vspace{4pt}")
 
     def table(rows, head, spec):
         return ("{\\footnotesize\\setlength{\\tabcolsep}{3pt}\\begin{tabular}{%s}\n%s\\\\\\hline\n%s\\\\\n\\end{tabular}\\par}\\vspace{4pt}\n"
@@ -1204,24 +1241,22 @@ def authorities_tex(cp, names):
     rows, prev = [], None
     for i, (k, g) in enumerate(all_rows(cp), 1):
         if g != prev:                            # a labelled band where the groups change
-            label = {"both": "Cited by both sides", "pet": "Petitioners' side only", "resp": "Respondent's side only"}[g]
-            rows.append("\\multicolumn{7}{@{}l}{\\rule{0pt}{2.4ex}\\textbf{%s}}" % label)
+            rows.append("\\multicolumn{9}{@{}l}{\\rule{0pt}{2.4ex}\\textbf{%s}}" % BAND[g])
             prev = g
-        rows.append(" & ".join([str(i), E(nm(names, k, 70)), E(cite_of(names, k)), str(cp["P"][k] or "--"),
-                                str(cp["R"][k] or "--"), "%d/%d" % (cp["nP"][k], cp["nR"][k]),
+        cells, fil = split_cells(cp, k)
+        rows.append(" & ".join([str(i), E(nm(names, k, 60)), E(cite_of(names, k))] + cells + [fil,
                                 "x" if k in cp["below"] else ""]))
     if not rows:
         return ""
-    head = "\\# & Case & Cite & Pet. & Resp. & Filings & Below"
+    head = split_head(["\\#", "Case", "Cite"], ["Filings", "Below"])
     return ("\\pdfbookmark[1]{Every authority, by side}{authorities}\n"
             "\\noindent\\tocback\\tocadd{tocsec}{Every authority, by side}{\\large\\bfseries Every authority, by side\\par}\\vspace{2pt}\n"
-            "{\\scriptsize\\itshape Not part of the record. Mentions by each side (its party's filings and amici); "
-            "Filings = petitioners'/respondent's filings citing it; Below = cited in the court of appeals' opinion. "
+            "{\\scriptsize\\itshape Not part of the record. %s Below = cited in the court of appeals' opinion. "
             "Cite is what \\texttt{tribonian case fetch --cite} takes.\\par}\\vspace{3pt}\n"
             "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
-            "\\begin{longtable}{@{}r p{8.1cm} p{3.3cm} r r r c@{}}\n"
+            "\\begin{longtable}{@{}r p{6.5cm} p{2.9cm} r r r r r c@{}}\n"
             "%s\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
-        RULED, head, "\\\\\\hline\n".join(rows))
+        c.esc(SPLIT_NOTE, "tex"), RULED, head, "\\\\\\hline\n".join(rows))
 
 
 def docket_tex(data, qp_text):
@@ -1340,7 +1375,7 @@ def status_columns(data, cp, names, gl, below_meta):
     return cols
 
 
-def status_parts(cols, contested):
+def status_parts(cols, amici_only):
     """-> (common [(cid, mentions left, mentions right)], left-only [(cid, n)], right-only [(cid, n)]).
     Common ones ranked by the lesser side's mentions; each side's own by its mentions."""
     left, right = dict(cols[0][3]), dict(cols[1][3])
@@ -1349,18 +1384,20 @@ def status_parts(cols, contested):
             [(k, n) for k, n in cols[1][3] if k not in left])
 
 
-def status_md(cols, names, index, gl, contested):
+def status_md(cols, names, index, gl, amici_only):
     E = lambda t: c.esc(t, "md")
     mark = lambda st: {"red": "🔴", "yellow": "🟡", "green": "🟢"}.get(st, "⚪")
-    common, lonly, ronly = status_parts(cols, contested)
+    common, lonly, ronly = status_parts(cols, amici_only)
     (ls, ln, lr, _), (rs, rn, rr, _) = cols
     L = ["## Authorities and their status", "",
          "*Status from `casemap.py goodlaw` (rules %s): words in later opinions from courts that could overrule it; "
-         "red is a lead to check, not a holding.*" % (next((g.get("version") for g in gl.values() if g), "?")), "",
+         "red is a lead to check, not a holding. Counts are each side's, amici included; † = cited only by amici, "
+         "no party.*" % (next((g.get("version") for g in gl.values() if g), "?")), "",
          "### Common authorities", "", "| # | Case | Cite | Status | %s | %s |" % (E(ln), E(rn)), "|--:|---|---|---|--:|--:|"]
     for i, (k, a, b) in enumerate(common, 1):
         st, w = gl_word(gl.get(k))
-        L.append("| %d | %s | %s | %s %s | %d | %d |" % (i, link_md(names, index, k, 60), cite_of(names, k), mark(st), w, a, b))
+        L.append("| %d | %s%s | %s | %s %s | %d | %d |" % (i, link_md(names, index, k, 60), " †" if k in amici_only else "",
+                                                         cite_of(names, k), mark(st), w, a, b))
     L += ["", "### Each side's own", "",
           "| # | %s (%s, %s below) | Cite | # | %s (%s, %s below) | Cite |" % (E(ln), ls, lr, E(rn), rs, rr),
           "|--:|---|---|--:|---|---|"]
@@ -1369,31 +1406,34 @@ def status_md(cols, names, index, gl, contested):
             return "", "", ""
         k, n = lst[i]
         st, w = gl_word(gl.get(k))
-        return str(i + 1), "%s %s ×%d — %s" % (mark(st), link_md(names, index, k, 50), n, w), cite_of(names, k)
+        return str(i + 1), "%s %s%s ×%d — %s" % (mark(st), link_md(names, index, k, 50), " †" if k in amici_only else "",
+                                                 n, w), cite_of(names, k)
     for i in range(max(len(lonly), len(ronly))):
         L.append("| %s | %s | %s | %s | %s | %s |" % (cell(lonly, i) + cell(ronly, i)))
     return L + [""]
 
 
-def status_tex(cols, names, gl, contested):
+def status_tex(cols, names, gl, amici_only):
     """Common authorities first, one ruled row each (status, cite, each side's mentions); then each
     side's own in two numbered columns, plaintiff below on the left. Longtables, so they run across
     pages with the header repeated."""
     E = lambda t: c.esc(t, "tex")
     col = {"red": c.GL_COLORS["red"][1], "yellow": c.GL_COLORS["yellow"][1], "green": c.GL_COLORS["green"][1]}
     dot = lambda st: "\\textcolor{%s}{$\\bullet$}" % col[st] if st in col else "$\\circ$"
-    common, lonly, ronly = status_parts(cols, contested)
+    common, lonly, ronly = status_parts(cols, amici_only)
     (ls, ln, lr, _), (rs, rn, rr, _) = cols
     out = ["\\clearpage\\noindent\\tocback\\tocadd{tocstage}{Authorities and their status}\\pdfbookmark[0]{Authorities and their status}{status}{\\Large\\bfseries Authorities and their status\\par}\\vspace{4pt}\n"
            "{\\scriptsize\\itshape Not part of the record. Status from \\texttt{casemap.py goodlaw}: words in later opinions from "
            "courts that could overrule it --- %s~good, %s~doubts, %s~likely overruled or superseded (a lead to check, with the "
-           "year the words start).\\par}\\vspace{4pt}\n" % (dot("green"), dot("yellow"), dot("red"))]
+           "year the words start). Counts are each side's, amici included; \\textdagger\\ = cited only by amici, no party.\\par}\\vspace{4pt}\n"
+           % (dot("green"), dot("yellow"), dot("red"))]
+    dag = lambda k: "\\,\\textdagger" if k in amici_only else ""
     if common:
         rows = []
         for i, (k, a, b) in enumerate(common, 1):
             st, w = gl_word(gl.get(k))
             rows.append("%d & %s %s & %s & {\\scriptsize\\itshape %s} & %d & %d" % (
-                i, dot(st), E(nm(names, k, 62)), E(cite_of(names, k)), E(w), a, b))
+                i, dot(st), E(nm(names, k, 62)) + dag(k), E(cite_of(names, k)), E(w), a, b))
         out.append("\\noindent\\tocback\\tocadd{tocsec}{Common authorities}\\pdfbookmark[1]{Common authorities}{status-common}{\\large\\bfseries Common authorities\\par}\\vspace{2pt}\n"
                    "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
                    "\\begin{longtable}{@{}r p{7.4cm} p{3.0cm} p{2.4cm} r r@{}}\n"
@@ -1407,7 +1447,7 @@ def status_tex(cols, names, gl, contested):
         st, w = gl_word(gl.get(k))
         cite = cite_of(names, k)
         return "%d.~%s %s~{\\scriptsize$\\times$%d}\\newline{\\scriptsize %s%s\\itshape %s}" % (
-            i + 1, dot(st), E(nm(names, k, 44)), n, E(cite), " --- " if cite else "", E(w))
+            i + 1, dot(st), E(nm(names, k, 44)) + dag(k), n, E(cite), " --- " if cite else "", E(w))
     rows = max(len(lonly), len(ronly))
     if rows:
         head = " & ".join("\\textbf{%s}\\newline{\\scriptsize %s side only, %s below}" % (E(n_), s_, r_)
@@ -1534,7 +1574,7 @@ def build(args):
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
     meta = {"title": title, "name": "%s v. %s" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle"))),
             "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) +
-                                   (status_tex(cols, names, gl, set(cp["contested"])) if gl else ""),
+                                   (status_tex(cols, names, gl, set(cp["amici_only"])) if gl else ""),
             "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs),
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",
                         "decision below: CourtListener cluster %s" % cid if cid else "", "retrieved " + data.get("retrieved", "")]}
@@ -1603,7 +1643,7 @@ def build(args):
     L += law_md(lc, statutes)
     L += law_appendix_md(lc, fs, statutes)
     if gl:
-        L += status_md(cols, names, index, gl, set(cp["contested"]))
+        L += status_md(cols, names, index, gl, set(cp["amici_only"]))
     L += ["## Proceedings and orders", ""]
     for e in data["entries"]:
         docs = " ".join("[%s](%s)" % (c.esc(l["desc"], "md"), l["url"]) for l in e["links"] if l.get("url") and not SKIP_LINK.search(l["desc"]))
@@ -1618,8 +1658,8 @@ def build(args):
     c.unmapped_note()
     for o in ops:
         print("  %-14s %-34s %s" % (o.get("stage", ""), (o["ctx"].who + " " + (o["ctx"].reporter if o.get("stage") != "below" else ""))[:34], o.get("summary", "")))
-    print("  authorities: %d cases cited, %d by both sides, %d unresolved citations" % (
-        len(allc - cp["below"]) , len(cp["contested"]), sum(len(f["miss"]) for f in fs)))
+    print("  authorities: %d cases cited, %d by both parties (%d by both sides with amici), %d by amici only, %d unresolved citations" % (
+        len(allc - cp["below"]), len(cp["contested"]), cp["sides_both"], len(cp["amici_only"]), sum(len(f["miss"]) for f in fs)))
     for w in warnings:
         print("  note:", w)
     return data, fs, cp, cid
