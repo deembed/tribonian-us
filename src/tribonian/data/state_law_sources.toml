@@ -5,6 +5,7 @@
 #   statutes, regulations: title, cite (the forms courts use), url, publisher, official, format, bulk, terms
 #   constitution:          url, format
 #   notes.text:            what a downloader must know
+#   fallback:              a third-party mirror (provider, covers, current_through, url, api); see the end
 #
 # Researched 2026-10-25 from the states' own sites, search results and the American Association of
 # Law Libraries (AALL) "State Online Legal Information" pages. "unverified" means the research could
@@ -1349,3 +1350,370 @@ url = "https://wyoleg.gov/statutes/compress/title97.pdf"
 format = "pdf (published as statutes Title 97)"
 [WY.notes]
 text = "Subsections go (a) -> (i) -> (A) -> (I). Status in section headings. Emergency rules are not part of the Code; use Current only."
+
+# ---------------------------------------------------------------- fallback: OpenJurist
+# A third-party mirror of every state's codified statutes (statutes only: no regulations, no
+# constitutions), read from https://openjurist.org/code on 2026-10-25. Use it only when the
+# official source above is impractical (vendor viewer, JavaScript-only site), and say in the
+# output that the text is "via OpenJurist, current through YYYY". Its API is read-only JSON under
+# https://openjurist.org/api/v1/ (state codes: /state-code, /statutes, /statutes/{slug}); no key
+# for low volume, rate limits and keys "planned after launch", bulk downloads planned, not live.
+# Sources per state are not named; its own additions have a license still being finalized.
+# "latest available" = OpenJurist's newest edition predates 2026.
+
+[AL.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[AK.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[AZ.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[AR.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2020 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[CA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[CO.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[CT.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[DE.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[DC.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[FL.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[GA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2024 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[HI.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[ID.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2020 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[IL.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[IN.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[IA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[KS.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[KY.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[LA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[ME.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[MD.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[MA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[MI.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[MN.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[MS.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2020 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[MO.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[MT.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[NE.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[NV.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[NH.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[NJ.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[NM.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[NY.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[NC.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[ND.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[OH.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[OK.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[OR.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[PA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[RI.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[SC.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[SD.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2024 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[TN.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2021 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[TX.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[UT.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[VT.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[VA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[WA.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[WV.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2026"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[WI.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
+
+[WY.fallback]
+provider = "openjurist"
+covers = "statutes"
+current_through = "2025 (latest available)"
+url = "https://openjurist.org/code"
+api = "https://openjurist.org/api/v1/state-code"
