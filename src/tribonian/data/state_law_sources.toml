@@ -1,0 +1,1351 @@
+# state_law_sources.toml -- where each state's current law is published (statutes, regulations, constitution)
+#
+# Read by the fetch commands (scope-scotus-law.md §3) and by `tribonian check`. One table per
+# jurisdiction, keyed by postal code, with three sub-tables:
+#   statutes, regulations: title, cite (the forms courts use), url, publisher, official, format, bulk, terms
+#   constitution:          url, format
+#   notes.text:            what a downloader must know
+#
+# Researched 2026-10-25 from the states' own sites, search results and the American Association of
+# Law Libraries (AALL) "State Online Legal Information" pages. "unverified" means the research could
+# not confirm the field; never build a URL from one. CourtListener has no statutes, so this file is
+# ours to keep. Re-check a state before relying on it: sites move (PA retired legis.state.pa.us in
+# Jan 2026; DE and MD moved their regulations in 2025-26).
+#
+# Machine-readable sources found (prefer these over crawling):
+#   DC  code: GitHub XML/HTML (dccouncil/law-xml)       MD  COMAR: GitHub XML (maryland-dsd/law-xml-codified)
+#   NJ  statutes: bulk zips (pub.njleg.gov/statutes/)   NY  laws: Open Legislation JSON API (key)
+#   TX  statutes: per-code zips (Download.aspx)          UT  code + constitution: XML API (token)
+#   VA  code, admin code, constitution: JSON/XML API, CSV  CO  C.R.S.: per-title htm/pdf/docx + zips
+#   IL  ILCS: FTP static HTML; admin code FTP (robots)  AL  admin code: per-chapter API
+#   WA  RCW/WAC: yearly archive directory listings       IA  official PDF volumes
+
+[meta]
+checked = "2026-10-25"
+schema = 1
+
+[AL]
+name = "Alabama"
+[AL.statutes]
+title = "Code of Alabama 1975"
+cite = ["Ala. Code", "Code of Ala. 1975"]
+url = "https://alison.legislature.state.al.us/code-of-alabama"
+publisher = "Alabama Legislature (ALISON); print Code publisher is West/Thomson Reuters"
+official = "no — per AALL only the printed West volumes and supplements are official (Act 2016-303)"
+format = "html — single-page app with a search filter; not fetched"
+bulk = "none found"
+terms = "AALL: copyright not claimed for the online code; site terms unverified"
+[AL.regulations]
+title = "Alabama Administrative Code"
+cite = ["Ala. Admin. Code r.", "Ala. Admin. Code"]
+url = "https://admincode.legislature.state.al.us/"
+publisher = "Alabama Legislative Services Agency, Administrative Procedure Division"
+official = "no — per AALL the official version is hardcopy only"
+format = "api — GET /api/chapter/{chapter-id} (e.g. 620-X-1) returns chapter text with history notes"
+bulk = "https://admincode.legislature.state.al.us/api/chapter/620-X-1 (per-chapter; no full dump found)"
+terms = "AALL: copyright not claimed; site terms unverified"
+[AL.constitution]
+url = "https://alison.legislature.state.al.us/constitution"
+format = "unverified (page not fetched); 2022 text as proposed: https://alison.legislature.state.al.us/files/pdf/lsa/proposed-constitution/Statewide_Volume_2022.docx and .../2022-constitution-local.pdf (predate later amendments)"
+[AL.notes]
+text = "ALISON is a JavaScript app: plan on its API, not HTML scraping. The proposed-constitution PDF on ALISON is not the current amended text."
+
+[AK]
+name = "Alaska"
+[AK.statutes]
+title = "Alaska Statutes"
+cite = ["Alaska Stat.", "AS"]
+url = "https://www.akleg.gov/basis/statutes.asp"
+publisher = "Alaska State Legislature (Legislative Affairs Agency); official print publisher LexisNexis"
+official = "unclear — court library names LexisNexis print as official; online page silent"
+format = "html — table of contents by title (2024 edition)"
+bulk = "none found"
+terms = "none stated"
+[AK.regulations]
+title = "Alaska Administrative Code"
+cite = ["Alaska Admin. Code tit. _, §", "AAC"]
+url = "https://www.akleg.gov/basis/aac.asp"
+publisher = "Hosted by the Alaska State Legislature; regulations filed with the Lieutenant Governor; print publisher LexisNexis"
+official = "unclear — no statement on the site"
+format = "html — Titles 1-23, query-string pages (aac.asp?title=5)"
+bulk = "none found"
+terms = "none stated"
+[AK.constitution]
+url = "https://ltgov.alaska.gov/?p=64"
+format = "html one page; pdf https://ltgov.alaska.gov/wp-content/uploads/PDF-Pocket-Constitution.pdf; also https://akleg.gov/docs/pdf/Alaska_Constitution.pdf"
+[AK.notes]
+text = "akleg.gov/basis pages show a 'no longer used' banner: a URL migration may be under way."
+
+[AZ]
+name = "Arizona"
+[AZ.statutes]
+title = "Arizona Revised Statutes"
+cite = ["A.R.S. § T-S", "Ariz. Rev. Stat. Ann."]
+url = "https://www.azleg.gov/arsDetail/?title=36"
+publisher = "Arizona Legislature (Legislative Council)"
+official = "no — maintained for drafting; the official version is published by Thomson Reuters"
+format = "html one file per section: https://www.azleg.gov/ars/36/00101.htm (5-digit padded; decimals with '-', e.g. 00103-01.htm; second versions '.01')"
+bulk = "none found"
+terms = "none stated"
+[AZ.regulations]
+title = "Arizona Administrative Code (A.A.C.)"
+cite = ["A.A.C. RT-C-S", "Ariz. Admin. Code"]
+url = "https://azsos.gov/rules/arizona-administrative-code"
+publisher = "Arizona Secretary of State, Administrative Rules Division"
+official = "yes for the PDFs — authenticated (digital signature) since Supp. 18-2; the RTFs are unofficial"
+format = "pdf (authenticated) and rtf per chapter: https://apps.azsos.gov/public_services/Title_NN/T-CC.pdf; quarterly supplements"
+bulk = "none; past supplements at https://azmemory.azlibrary.gov/nodes/view/39"
+terms = "may be reproduced without restriction; commercial use needs fees (A.R.S. § 39-121.03, R1-1-113)"
+[AZ.constitution]
+url = "https://www.azleg.gov/viewDocument/?docName=https://www.azleg.gov/const/9/17.htm"
+format = "html one file per section (/const/<article>/<section>.htm); article index unverified"
+[AZ.notes]
+text = "Take chapter file names from the azsos index (reserved chapters exist). Register: https://apps.azsos.gov/public_services/register/YYYY/NN/contents.pdf"
+
+[AR]
+name = "Arkansas"
+[AR.statutes]
+title = "Arkansas Code of 1987 Annotated"
+cite = ["Ark. Code Ann.", "A.C.A."]
+url = "http://www.lexisnexis.com/hottopics/arcode/"
+publisher = "LexisNexis, under contract with the state (vendor-run free site)"
+official = "no — per AALL print controls"
+format = "html — Lexis free-access viewer (legacy URL probably redirects to advance.lexis.com)"
+bulk = "none"
+terms = "AALL: copyright claimed (Lexis); scraping likely barred by Lexis terms (unverified)"
+[AR.regulations]
+title = "Code of Arkansas Rules (C.A.R.)"
+cite = ["unverified"]
+url = "https://codeofarrules.arkansas.gov/Rules/Rule"
+publisher = "Arkansas Secretary of State (Ark. Code § 25-15-218; Act 662 of 2019, Act 64 of 2021)"
+official = "yes — the official version of the Code of Arkansas Rules, effective 2025-01-01, updated weekly"
+format = "html hierarchical (Title > Chapter > Subchapter > Part > Subpart > Section), opaque id parameters; filings database https://sos-rules-reg.ark.org/rules/search"
+bulk = "none found"
+terms = "no formal terms on C.A.R.; ark.org acceptable use policy on the filings site"
+[AR.constitution]
+url = "https://ssl-sos-site.ark.org/uploads/education/ArkansasConstitution1874.pdf"
+format = "pdf (Secretary of State education copy; amendments through No. 87, may be stale)"
+[AR.notes]
+text = "Only free statute source found is the Lexis site. C.A.R. replaced agency filings on 2025-01-01; crawl via its Quick Find hierarchy (flaky .NET errors seen). No current official constitution found on arkleg."
+
+[CA]
+name = "California"
+[CA.statutes]
+title = "California Codes (29 codes)"
+cite = ["Cal. [Code name] Code §"]
+url = "http://leginfo.legislature.ca.gov/faces/codes.xhtml"
+publisher = "California Legislative Counsel Bureau (Gov. Code § 10248 requires free electronic publication)"
+official = "unclear — UELMA (Gov. Code § 10290 et seq.) names the LCB official publisher, but the leginfo HTML is not stated to be designated official"
+format = "html JSF pages (per-code TOC: /faces/codesTOCSelected.xhtml?tocCode=PEN); bulk database is tab-delimited .dat plus .lob files for section text"
+bulk = "https://downloads.leginfo.legislature.ca.gov/ — pubinfo_YYYY.zip (~1.1 GB, full session incl. code tables CODES_TBL, LAW_TOC_TBL, LAW_TOC_SECTIONS_TBL, LAW_SECTION_TBL; reloaded Sundays), pubinfo_Mon..Sat.zip (daily deltas), pubinfo_load.zip (MySQL load scripts); readme https://downloads.leginfo.legislature.ca.gov/pubinfo_Readme.pdf. pubinfo_daily_* zips omit the code tables."
+terms = "no fee (§ 10248(e)); State keeps any copyright (§ 10248(g)); leginfo terms unverified"
+[CA.regulations]
+title = "California Code of Regulations (CCR), Titles 1-28"
+cite = ["Cal. Code Regs., tit. N, § X"]
+url = "https://govt.westlaw.com/calregs/Index?transitionType=Default&contextData=%28sc.Default%29"
+publisher = "Office of Administrative Law, hosted by Barclays/Thomson Reuters (Westlaw)"
+official = "yes (qualified) — OAL: a free online version of the Official CCR; no UELMA authentication"
+format = "html only (Westlaw government site, cookies; opaque GUID document ids)"
+bulk = "none — print via Barclays; a 2021 records request for XML was refused"
+terms = "Thomson Reuters terms: no use that could overburden or impair the site; scraping effectively restricted"
+[CA.constitution]
+url = "http://leginfo.legislature.ca.gov/faces/codesTOCSelected.xhtml?tocCode=CONS&tocTitle=+California+Constitution+-+CONS"
+format = "html (same viewer); presence in pubinfo as code CONS unverified"
+[CA.notes]
+text = "Use pubinfo, not the viewer: pubinfo_load.zip + pubinfo_YYYY.zip (odd session start year), then daily deltas. Section text is in .lob files referenced from LAW_SECTION_TBL (mapping undocumented: read the load SQL). CCR has no bulk path: low priority or a mirror."
+
+[CO]
+name = "Colorado"
+[CO.statutes]
+title = "Colorado Revised Statutes"
+cite = ["Colo. Rev. Stat.", "C.R.S."]
+url = "https://content.leg.colorado.gov/agencies/office-legislative-legal-services/2026-crs-titles-download"
+publisher = "Office of Legislative Legal Services; free browse site hosted by LexisNexis"
+official = "unclear — official set is the annual LexisNexis print/CD edition; AALL: Lexis site not official"
+format = "html | pdf | docx per title, plus whole-set zips (olls.info/crs/crs2026-title-NN.{htm,pdf,docx}; crs2026-{htm,pdf,docx}.zip); current through 2026 2nd Regular Session"
+bulk = "crs2026-htm.zip / -pdf.zip / -docx.zip (from the download page); SGML by request: https://content.leg.colorado.gov/agencies/office-legislative-legal-services/colorado-revised-statutes-data"
+terms = "downloads for personal use; republishing needs a statement to the Committee on Legal Services (C.R.S. 2-5-118); republications may not call themselves official"
+[CO.regulations]
+title = "Code of Colorado Regulations"
+cite = ["Colo. Code Regs.", "CCR"]
+url = "https://www.sos.state.co.us/CCR/NumericalDeptList.do"
+publisher = "Colorado Secretary of State"
+official = "yes — Official Publication of the State Administrative Rules (24-4-103(11) C.R.S.); not authenticated"
+format = "html index pages linking to per-rule documents (PDF, unverified)"
+bulk = "none found"
+terms = "Terms & conditions page not read; AALL: no copyright claimed"
+[CO.constitution]
+url = "https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-00.pdf"
+format = "pdf/htm/docx as 'title 00' of the CRS download set (2026: olls.info/crs/crs2026-title-00.*)"
+[CO.notes]
+text = "Use the OLLS title files, not the Lexis viewer. leg.colorado.gov 302-redirects to content.leg.colorado.gov. Confirm the olls.info base URL on the download page."
+
+[CT]
+name = "Connecticut"
+[CT.statutes]
+title = "General Statutes of Connecticut"
+cite = ["Conn. Gen. Stat.", "C.G.S."]
+url = "https://cga.ct.gov/Current/pub/titles.htm"
+publisher = "Connecticut General Assembly, Legislative Commissioners' Office"
+official = "unclear — status page is robots-disallowed"
+format = "html one page per title (cga.ct.gov/Current/pub/title_NN.htm); revised to Jan 1 2025, 2026 Supplement separate"
+bulk = "none found"
+terms = "robots.txt blocks at least /LCO/statutes-about.asp"
+[CT.regulations]
+title = "Regulations of Connecticut State Agencies"
+cite = ["Conn. Agencies Regs. §", "RCSA"]
+url = "https://eregulations.ct.gov/eRegsPortal/Browse/RCSA"
+publisher = "Connecticut Secretary of the State (eRegulations System)"
+official = "unclear"
+format = "html path-based section URLs"
+bulk = "none found"
+terms = "none stated"
+[CT.constitution]
+url = "https://prdext3.cga.ct.gov/asp/Content/constitutions/Constitution_State_CT.pdf"
+format = "pdf; also html in the Register and Manual (currency unverified)"
+[CT.notes]
+text = "Check robots.txt before crawling. Hostname and path case vary."
+
+[DE]
+name = "Delaware"
+[DE.statutes]
+title = "Delaware Code"
+cite = ["Del. Code Ann. tit. _, §", "Del. C."]
+url = "https://delcode.delaware.gov/index.html"
+publisher = "Delaware Division of Legislative Services / Code Revisors, with LexisNexis editorial staff"
+official = "yes — considered an official version; authenticated PDFs under UELMA"
+format = "html index per title/chapter plus authenticated PDF per title (e.g. https://delcode.delaware.gov/title1/Title1.pdf)"
+bulk = "per-title PDFs"
+terms = "warranty disclaimer only"
+[DE.regulations]
+title = "Delaware Administrative Code"
+cite = ["Del. Admin. Code"]
+url = "http://regulations.delaware.gov/AdminCode/"
+publisher = "Registrar of Regulations, Division of Research"
+official = "yes — the official version of the regulations"
+format = "new Regulations Management System (live 2025-05-19): structure unverified. Frozen archive (to April 2025): static .shtml per regulation, https://archive.regulations.delaware.gov/AdminCode/titleN/{agency}/{reg}.shtml"
+bulk = "none found"
+terms = "none stated"
+[DE.constitution]
+url = "https://delcode.delaware.gov/constitution/index.shtml"
+format = "html; pdf https://www.delcode.delaware.gov/constitution/constitution.pdf"
+[DE.notes]
+text = "Do not scrape archive.regulations.delaware.gov for current text (frozen April 2025)."
+
+[DC]
+name = "District of Columbia"
+[DC.statutes]
+title = "Code of the District of Columbia"
+cite = ["D.C. Code §"]
+url = "https://code.dccouncil.gov"
+publisher = "Council of the District of Columbia; platform by Open Law Library"
+official = "yes — the online/GitHub code is the official digital source; public domain"
+format = "html and xml"
+bulk = "https://github.com/dccouncil/law-xml (XML), https://github.com/dccouncil/law-html (HTML)"
+terms = "public domain; do not scrape the site, use the GitHub repos"
+[DC.regulations]
+title = "District of Columbia Municipal Regulations"
+cite = ["D.C. Mun. Regs. tit. _, §", "DCMR"]
+url = "https://dcregs.dc.gov/Common/DCMR/RuleList.aspx"
+publisher = "Office of Documents and Administrative Issuances (ODAI)"
+official = "unclear — the online DC Register is official; DCMR not stated"
+format = "html ASP.NET pages; download formats unverified"
+bulk = "none found"
+terms = "dc.gov Terms and Conditions (not read)"
+[DC.constitution]
+url = "none — DC has no constitution; the Home Rule Act is in the D.C. Code"
+format = ""
+[DC.notes]
+text = "Clone the GitHub repos for the Code. DCMR uses ASP.NET postbacks."
+
+[FL]
+name = "Florida"
+[FL.statutes]
+title = "Florida Statutes"
+cite = ["Fla. Stat.", "F.S."]
+url = "https://www.leg.state.fl.us/Statutes/index.cfm?Tab="
+publisher = "Florida Legislature (Online Sunshine)"
+official = "unclear — official website, but only the print edition is official (s. 11.2421)"
+format = "html browse by title/chapter (CFM query pages), 1997-2026"
+bulk = "Statutes Download mode (index.cfm?Mode=Statutes%20Download); file format unverified"
+terms = "AALL: no copyright claimed in the statutes"
+[FL.regulations]
+title = "Florida Administrative Code"
+cite = ["Fla. Admin. Code R. 42F-1.001", "Rule 42F-1.001, F.A.C."]
+url = "https://www.flrules.org/"
+publisher = "Florida Department of State, Administrative Code and Register Section"
+official = "yes — s. 120.55(1)(a)1.: the electronic publication is the official compilation"
+format = "ASP pages plus Word (.doc) rule text: chapter https://flrules.org/gateway/ChapterHome.asp?Chapter=42F-1, rule https://flrules.org/gateway/RuleNo.asp?id=42F-1.001, Word via readFile.asp with per-version tid/caid ids from the chapter page; no PDF"
+bulk = "none found"
+terms = "Department of State retains the copyright over the F.A.C. (s. 120.55(1)(a)1.)"
+[FL.constitution]
+url = "https://flsenate.gov/laws/constitution"
+format = "html whole text and per article; DOS PDF https://files.floridados.gov/media/708636/2024-florida-const-index-with-covers.pdf"
+[FL.notes]
+text = "Look at the Statutes Download mode before crawling. FAC copyright claim may restrict republication."
+
+[GA]
+name = "Georgia"
+[GA.statutes]
+title = "Official Code of Georgia Annotated"
+cite = ["O.C.G.A. §", "Ga. Code Ann. §"]
+url = "https://advance.lexis.com/container?config=00JAAzZDgzNzU2ZC05MDA0LTRmMDItYjkzMS0xOGY3MjE3OWNlODIKAFBvZENhdGFsb2fcIFfJnJ2IC8XZi1AYM4Ne"
+publisher = "LexisNexis, under contract to the Georgia Code Revision Commission (older entry point https://www.lexisnexis.com/hottopics/gacode/)"
+official = "unclear — Lexis publishes the official print O.C.G.A.; AALL lists the online version as not official"
+format = "html — Lexis Advance session app behind a click-through"
+bulk = "none from the state; Public.Resource.Org mirror https://law.resource.org/pub/us/code/ga/ga.gov.20241024.pdf"
+terms = "click-through; state reserves copyright claims (AALL); Georgia v. Public.Resource.Org (2020) held the annotations uncopyrightable; Lexis scraping terms unverified"
+[GA.regulations]
+title = "Rules and Regulations of the State of Georgia"
+cite = ["Ga. Comp. R. & Regs. r."]
+url = "https://rules.sos.ga.gov/"
+publisher = "Georgia Secretary of State; Fastcase, Inc. runs the site"
+official = "unclear — certified copies from the SOS Administrative Procedure Division"
+format = "html per rule plus PDF download page (paths like /gac/303)"
+bulk = "none public; XML feeds to resellers on request via Fastcase"
+terms = "Copyright Fastcase, Inc.; AALL notes a click-through restricting automated scraping"
+[GA.constitution]
+url = "https://sos.ga.gov/sites/default/files/2023-08/Georgia%20Constitution%20-%20Electronic%20Version%20-%20January%2C%202023.pdf"
+format = "pdf single file (January 2023)"
+[GA.notes]
+text = "Statutes are a Lexis app: session and click-through, hard to script."
+
+[HI]
+name = "Hawaii"
+[HI.statutes]
+title = "Hawaii Revised Statutes"
+cite = ["HRS §", "Haw. Rev. Stat. §"]
+url = "https://data.capitol.hawaii.gov/hrscurrent/Vol01_Ch0001-0042F/HRS0021G"
+publisher = "Hawaii State Legislature (Legislative Reference Bureau as revisor)"
+official = "unclear — no statement seen"
+format = "html — open directory tree /hrscurrent/<Volume>/<Chapter>/ with one .htm per section"
+bulk = "none; directory listings crawlable; archive at /hrsarchive/hrsYYYY/"
+terms = "none stated (unverified)"
+[HI.regulations]
+title = "Hawaii Administrative Rules"
+cite = ["HAR §", "Haw. Code R. §"]
+url = "http://ltgov.hawaii.gov/the-office/administrative-rules/"
+publisher = "No central code — the Lt. Governor's page links each agency's rules site"
+official = "no — certified copies kept by each agency (HRS § 91-4.1)"
+format = "pdf per chapter, per agency"
+bulk = "none"
+terms = "none stated"
+[HI.constitution]
+url = "https://lrb.hawaii.gov/constitution"
+format = "html one page with annotations; alt https://data.capitol.hawaii.gov/hrscurrent/Vol01_Ch0001-0042F/05-CONST/CONST_.htm"
+[HI.notes]
+text = "Rules need a crawler per agency. /hrscurrent/ root not fetched."
+
+[ID]
+name = "Idaho"
+[ID.statutes]
+title = "Idaho Code"
+cite = ["Idaho Code §", "I.C. §"]
+url = "https://legislature.idaho.gov/statutesrules/idstat/"
+publisher = "Idaho Legislature / Legislative Services Office"
+official = "no — official copies published for the Idaho Code Commission by LexisNexis"
+format = "html per section and pdf per chapter (/wp-content/uploads/statutesrules/idstat/Title55/T55CH1.pdf)"
+bulk = "none seen"
+terms = "© Idaho State Legislature; no reuse limits stated"
+[ID.regulations]
+title = "Idaho Administrative Code (IDAPA)"
+cite = ["IDAPA"]
+url = "https://adminrules.idaho.gov/rules/current/44/index.html"
+publisher = "Division of Financial Management, Office of the Administrative Rules Coordinator"
+official = "unclear"
+format = "pdf per rule chapter under /rules/current/<agency>/ (archives /rules/<year>/<agency>/<chapter>.pdf)"
+bulk = "none; annual archives back to 1996"
+terms = "none stated"
+[ID.constitution]
+url = "https://legislature.idaho.gov/statutesrules/idconst/"
+format = "html per section (/idconst/ArtIII/Sect1/)"
+[ID.notes]
+text = "Statutes updated online each July 1."
+
+[IL]
+name = "Illinois"
+[IL.statutes]
+title = "Illinois Compiled Statutes"
+cite = ["ILCS", "Ill. Comp. Stat."]
+url = "https://ilga.gov/legislation/ilcs/ilcs4"
+publisher = "Illinois General Assembly, LIS / Legislative Reference Bureau"
+official = "no — only the printed copy kept by the Secretary of State is official"
+format = "html per section; FTP static HTML with coded filenames plus 'Section Sequence.txt'"
+bulk = "FTP static HTML copy, see https://lrb.ilga.gov/ftp/ILCS/aReadMe/aReadMe.txt (refreshed each fall; last 11/21/2025)"
+terms = "none beyond the not-official disclaimer"
+[IL.regulations]
+title = "Illinois Administrative Code"
+cite = ["Ill. Adm. Code"]
+url = "https://www.ilga.gov/commission/jcar/admincode/"
+publisher = "Joint Committee on Administrative Rules with the Secretary of State"
+official = "unclear — official compilation; online status not stated"
+format = "html per section; FTP https://www.ilga.gov/ftp/JCAR/AdminCode/<title>/ (.html) and /ftp/JCAR/AdminCodeDoc/ (.docx)"
+bulk = "https://www.ilga.gov/ftp/JCAR/AdminCode/"
+terms = "none stated; robots.txt disallows the JCAR FTP and admincode pages"
+[IL.constitution]
+url = "https://www.ilga.gov/legislation/constitution"
+format = "html table of contents linking articles; older single page https://ilga.gov/Documents/commission/lrb/conmain.htm"
+[IL.notes]
+text = "Decide how to treat robots.txt on JCAR. ILCS order needs Section Sequence.txt."
+
+[IN]
+name = "Indiana"
+[IN.statutes]
+title = "Indiana Code"
+cite = ["Ind. Code §", "IC"]
+url = "https://iga.in.gov/laws/current/ic/titles/1/"
+publisher = "Indiana General Assembly, LSA Office of Code Revision"
+official = "unverified — AALL (2017): not official; IALS directory calls the site official"
+format = "html JavaScript app (year pages /laws/2025/ic/titles/1); PDF downloads per IALS"
+bulk = "https://iga.in.gov/laws/ic/downloads (JavaScript, contents unverified); old MyIGA API http://docs.api.iga.in.gov/ (key; status unverified)"
+terms = "LSA claims copyright in headnotes from 2002 (AALL)"
+[IN.regulations]
+title = "Indiana Administrative Code"
+cite = ["IAC", "Ind. Admin. Code"]
+url = "http://iar.iga.in.gov/code/current"
+publisher = "Legislative Services Agency (IC 4-22-8)"
+official = "yes — official under IC 4-22-8-5, electronic only since 2006, LSA certificate of authenticity (AALL)"
+format = "unverified; Register posts documents identical to the Word files; Code updated continuously"
+bulk = "unverified"
+terms = "unverified"
+[IN.constitution]
+url = "http://iga.in.gov/legislative/laws/const/"
+format = "html (old path from the State Library; current route unverified)"
+[IN.notes]
+text = "iga.in.gov is client-rendered: needs a headless browser or the app's JSON endpoints (not identified)."
+
+[IA]
+name = "Iowa"
+[IA.statutes]
+title = "Iowa Code"
+cite = ["Iowa Code §"]
+url = "https://www.legis.iowa.gov/law/iowaCode"
+publisher = "Iowa Legislative Services Agency"
+official = "yes — the 8 PDF volumes are the Official Version, authenticated; per-chapter PDF/RTF are unofficial"
+format = "pdf — 8 official volumes (e.g. https://www.legis.iowa.gov/docs/publications/ICV/1594653.pdf) plus unofficial per chapter"
+bulk = "the official volume PDFs"
+terms = "disclaimer https://www.legis.iowa.gov/law/disclaimer (not read)"
+[IA.regulations]
+title = "Iowa Administrative Code"
+cite = ["Iowa Admin. Code r."]
+url = "https://www.legis.iowa.gov/law/administrativeRules/agencies"
+publisher = "Iowa Legislative Services Agency"
+official = "yes — Official Edition, updated every two weeks"
+format = "pdf per agency /docs/iac/agency/<MM-DD-YYYY>.<agency>.pdf; per chapter and rule under /docs/iac/chapter/ and /docs/iac/rule/"
+bulk = "per-agency PDFs"
+terms = "same disclaimer as the statutes"
+[IA.constitution]
+url = "https://www.legis.iowa.gov/law/statutory/constitution"
+format = "pdf (in the official Iowa Code since 2014)"
+[IA.notes]
+text = "Year via ?year=; agency PDFs keyed by publication date."
+
+[KS]
+name = "Kansas"
+[KS.statutes]
+title = "Kansas Statutes Annotated"
+cite = ["K.S.A.", "K.S.A. 20XX Supp."]
+url = "https://ksrevisor.gov/ksa.html"
+publisher = "Kansas Office of Revisor of Statutes"
+official = "no — authenticated K.S.A. are the printed volumes and supplement"
+format = "html per section (/statutes/chapters/ch77/077_001_0033.html); chapter index /statutes/ksa_chNN.html"
+bulk = "none"
+terms = "none stated"
+[KS.regulations]
+title = "Kansas Administrative Regulations"
+cite = ["K.A.R."]
+url = "https://rules.ks.gov/"
+publisher = "Kansas Secretary of State"
+official = "unclear"
+format = "searchable database (format unverified)"
+bulk = "unverified"
+terms = "unverified"
+[KS.constitution]
+url = "https://ksrevisor.gov/kanconst.html"
+format = "html index linking one page per section"
+[KS.notes]
+text = "Courts cite the supplement year for K.S.A. Supp."
+
+[KY]
+name = "Kentucky"
+[KY.statutes]
+title = "Kentucky Revised Statutes"
+cite = ["KRS", "Ky. Rev. Stat. Ann. §"]
+url = "https://apps.legislature.ky.gov/law/statutes/"
+publisher = "Kentucky Legislative Research Commission"
+official = "unclear — 'Certified Versions' offered separately"
+format = "per section statute.aspx?id=<db id> (file type unverified); chapter.aspx?id=<db id>"
+bulk = "none seen"
+terms = "© Kentucky LRC"
+[KY.regulations]
+title = "Kentucky Administrative Regulations"
+cite = ["KAR"]
+url = "https://apps.legislature.ky.gov/law/kar/titles/902/020"
+publisher = "Kentucky Legislative Research Commission"
+official = "unclear"
+format = "per regulation /law/kar/titles/<title>/<chapter>/<reg>/ (file type unverified)"
+bulk = "none seen"
+terms = "© Kentucky LRC"
+[KY.constitution]
+url = "https://apps.legislature.ky.gov/Law/Constitution"
+format = "html per section ViewConstitution?rsn=<n> (rsn not section number)"
+[KY.notes]
+text = "IDs are opaque: crawl chapter and index pages. Current through 2026 Regular Session."
+
+[LA]
+name = "Louisiana"
+[LA.statutes]
+title = "Louisiana Revised Statutes"
+cite = ["La. R.S.", "La. Rev. Stat. Ann. §"]
+url = "https://www.legis.la.gov/legis/Laws_Toc.aspx?folder=75"
+publisher = "Louisiana State Legislature"
+official = "unclear"
+format = "html Law.aspx?d=<id> per section; ASP.NET table of contents by folder id"
+bulk = "none seen"
+terms = "none stated"
+[LA.regulations]
+title = "Louisiana Administrative Code"
+cite = ["LAC", "La. Admin. Code tit. _, § _"]
+url = "https://www.doa.la.gov/pages/osr/lac/books.aspx"
+publisher = "Division of Administration, Office of the State Register"
+official = "yes — state-certified publication (R.S. 49:953 et seq.)"
+format = "docx per title (opaque media ids, e.g. https://www.doa.la.gov/media/0k0bgzuv/07.docx)"
+bulk = "per-title docx"
+terms = "© Louisiana Division of Administration"
+[LA.constitution]
+url = "https://legis.la.gov/legis/Laws_Toc.aspx?folder=72"
+format = "html (same viewer)"
+[LA.notes]
+text = "Folder ids: Civil Code 67, Code of Civil Procedure 68, Criminal Procedure 69, Evidence 70, Children's Code 71, Constitution Ancillaries 66."
+
+[ME]
+name = "Maine"
+[ME.statutes]
+title = "Maine Revised Statutes"
+cite = ["M.R.S. §", "Me. Rev. Stat. Ann. tit. _, §"]
+url = "https://legislature.maine.gov/statutes/"
+publisher = "Maine Legislature, Office of the Revisor of Statutes"
+official = "unclear"
+format = "html per section (/statutes/24-A/title24-Asec1.html); PDF and Word per title, chapter or section"
+bulk = "none; per-title PDF/Word"
+terms = "none stated"
+[ME.regulations]
+title = "Code of Maine Rules"
+cite = ["C.M.R."]
+url = "https://www.maine.gov/sos/rulemaking/agency-rules"
+publisher = "Maine Secretary of State, APA Office"
+official = "no — not official for adjudicatory or evidentiary use"
+format = "doc/docx mostly, one file per chapter; department indexes like https://www.maine.gov/sos/cec/rules/90/chaps90-.htm"
+bulk = "none"
+terms = "site footer copyright"
+[ME.constitution]
+url = "https://legislature.maine.gov/const/"
+format = "html (inferred, not fetched)"
+[ME.notes]
+text = "Statutes current through Oct 1, 2026."
+
+[MD]
+name = "Maryland"
+[MD.statutes]
+title = "Annotated Code of Maryland"
+cite = ["Md. Code Ann., [Article] §", "Md. Code, [Article] §"]
+url = "https://mgaleg.maryland.gov/mgawebsite/Laws/Statutes"
+publisher = "Maryland General Assembly, Department of Legislative Services"
+official = "no — per AALL the Laws of Maryland (session laws) are official; vendor copies at govt.westlaw.com/mdc and lexisnexis.com/hottopics/mdcode/"
+format = "html | pdf per article and section through a selector form"
+bulk = "none (legislative data download is bills only)"
+terms = "none stated; AALL: no copyright claimed"
+[MD.regulations]
+title = "Code of Maryland Regulations (COMAR)"
+cite = ["COMAR", "Md. Code Regs."]
+url = "https://regs.maryland.gov/us/md/exec/comar"
+publisher = "Division of State Documents; site by the non-profit Open Law Library"
+official = "no — printed COMAR is official (State Gov't §7-217); regs.maryland.gov is the official online home since March 2026"
+format = "html title pages /us/md/exec/comar/[title]; bulk XML/HTML on GitHub"
+bulk = "github.com/maryland-dsd/law-xml-codified (CC BY-NC-SA), github.com/maryland-dsd/law-xml-codified-cc0 (CC0), law-html, law-html-cc0"
+terms = "do not scrape, use GitHub; current text CC BY-NC-SA 4.0, CC0 after 180 days"
+[MD.constitution]
+url = "https://mgaleg.maryland.gov/pubs/LegisLegal/2019-constitution-maryland-us.pdf"
+format = "pdf 2019 (may be stale); current text in the statutes selector as articles c0-c20"
+[MD.notes]
+text = "Use the selector's c0-c20 articles for the current constitution. Clone the COMAR GitHub XML."
+
+[MA]
+name = "Massachusetts"
+[MA.statutes]
+title = "General Laws of Massachusetts"
+cite = ["Mass. Gen. Laws ch. X, § Y", "G.L. c. X, § Y", "M.G.L."]
+url = "https://malegislature.gov/Laws/GeneralLaws"
+publisher = "Massachusetts Legislature"
+official = "no — the Official Edition is printed every two years"
+format = "html /Laws/GeneralLaws/PartI/TitleXXI/Chapter149/Section24L"
+bulk = "none"
+terms = "none stated"
+[MA.regulations]
+title = "Code of Massachusetts Regulations (CMR)"
+cite = ["xxx CMR y.zz", "Mass. Code Regs."]
+url = "https://mass.gov/guides/code-of-massachusetts-regulations-cmr-by-number"
+publisher = "Trial Court Law Libraries on mass.gov; official CMR by the Secretary of the Commonwealth (print)"
+official = "no — unofficial, posted for convenience"
+format = "html index linking per-regulation pages with PDF and DOCX downloads; some titles on agency sites"
+bulk = "none"
+terms = "none stated"
+[MA.constitution]
+url = "https://malegislature.gov/Laws/Constitution"
+format = "html one page with anchors"
+[MA.notes]
+text = "Path case varies. CMR document slugs must be read from each regulation page."
+
+[MI]
+name = "Michigan"
+[MI.statutes]
+title = "Michigan Compiled Laws (MCL)"
+cite = ["Mich. Comp. Laws §", "MCL"]
+url = "https://legislature.mi.gov/Laws/MCLSearch"
+publisher = "Michigan Legislative Council"
+official = "no — per AALL"
+format = "html search and chapter index; pdf per section /documents/mcl/pdf/mcl-[id].pdf"
+bulk = "unverified"
+terms = "copyright notice on each section (AALL)"
+[MI.regulations]
+title = "Michigan Administrative Code"
+cite = ["Mich. Admin. Code R"]
+url = "https://ars.apps.lara.state.mi.us/AdminCode/AdminCode"
+publisher = "Michigan Office of Administrative Hearings and Rules (MOAHR), LARA"
+official = "unclear — AALL marks it official (MCL 24.259); LARA says online text may contain errors"
+format = "search UI by department/bureau/rule number (DeptBureauAdminCode?Department=..&Bureau=..); rule-set file format unverified"
+bulk = "none for the full code; annual supplement (changes only): https://www.michigan.gov/lara/bureau-list/moahr/admin-rules/publications/annual-administrative-code-supplement"
+terms = "form, arrangement and numbering copyrighted by MOAHR; unauthorized reproduction, sale or commercial use prohibited"
+[MI.constitution]
+url = "https://www.legislature.mi.gov/Publications/MIConstitution.pdf"
+format = "pdf whole; per-section PDFs /documents/mcl/pdf/mcl-Article-III-1.pdf"
+[MI.notes]
+text = "robots_disallowed on legislature.mi.gov: check robots.txt first. Avoid old ASP.NET session-token URLs."
+
+[MN]
+name = "Minnesota"
+[MN.statutes]
+title = "Minnesota Statutes"
+cite = ["Minn. Stat. §"]
+url = "https://www.revisor.mn.gov/statutes/"
+publisher = "Office of the Revisor of Statutes"
+official = "yes — official and authenticated (Minn. Stat. §§ 3E.04, 3E.05)"
+format = "html per section (/statutes/cite/14.47) with history; pdf"
+bulk = "none public — the Revisor sells database copies"
+terms = "Revisor claims copyright (Minn. Stat. § 3C.12)"
+[MN.regulations]
+title = "Minnesota Rules"
+cite = ["Minn. R."]
+url = "https://www.revisor.mn.gov/rules/"
+publisher = "Office of the Revisor of Statutes"
+official = "yes — official and authenticated"
+format = "html per part (/rules/2150.7505/); pdf per part (timestamped)"
+bulk = "none public"
+terms = "Revisor claims copyright (Minn. Stat. § 3C.12)"
+[MN.constitution]
+url = "https://www.revisor.mn.gov/constitution/"
+format = "html single page; pdf (timestamped path)"
+[MN.notes]
+text = "PDF URLs embed timestamps: take them from the HTML page."
+
+[MS]
+name = "Mississippi"
+[MS.statutes]
+title = "Mississippi Code of 1972"
+cite = ["Miss. Code Ann. §"]
+url = "https://www.lexisnexis.com/hottopics/mscode/"
+publisher = "LexisNexis (free public access)"
+official = "no — unannotated free version, not official"
+format = "html behind the advance.lexis.com container (session)"
+bulk = "none"
+terms = "State holds copyright (Miss. Code Ann. § 1-1-9); use only as the Joint Committee on Compilation directs"
+[MS.regulations]
+title = "Mississippi Administrative Code"
+cite = ["Miss. Admin. Code", "Miss. Code. R."]
+url = "https://www.sos.ms.gov/regulation-enforcement/administrative-code"
+publisher = "Mississippi Secretary of State"
+official = "yes — SOS APA rule 3.1: the electronic publication is the official legal codification"
+format = "Title/Part/Chapter/Rule hierarchy, supplemented within 2 business days; final-part file format unverified; proposed rules as PDF (sos.ms.gov/ACProposed/{id}.pdf)"
+bulk = "none"
+terms = "compilation copyrighted; rule text excluded (§ 25-43-2.101(6))"
+[MS.constitution]
+url = "https://www.sos.ms.gov/sites/default/files/publications/Mississippi_Constitution.pdf"
+format = "pdf"
+[MS.notes]
+text = "Statutes only on the Lexis viewer. adminsearch URL from AALL, may be outdated."
+
+[MO]
+name = "Missouri"
+[MO.statutes]
+title = "Revised Statutes of Missouri (RSMo)"
+cite = ["Mo. Rev. Stat. §", "RSMo"]
+url = "https://revisor.mo.gov/main/Home.aspx"
+publisher = "Missouri Revisor of Statutes"
+official = "unclear — calls itself the official website; AALL marks it not official"
+format = "html OneChapter.aspx?chapter=N, OneSection.aspx?section=N.NNN"
+bulk = "none"
+terms = "©Missouri Legislature, all rights reserved; Terms of Use 'TBD'"
+[MO.regulations]
+title = "Missouri Code of State Regulations (CSR)"
+cite = ["xx CSR yy-z.zzz"]
+url = "https://www.sos.mo.gov/adrules/csr/csr"
+publisher = "Missouri Secretary of State, Administrative Rules Division"
+official = "no — the paper version is official (§ 536.031 RSMo)"
+format = "pdf per chapter (/cmsimages/adrules/csr/current/13csr/13c5-1.pdf); monthly"
+bulk = "none"
+terms = "none stated"
+[MO.constitution]
+url = "https://www.revisor.mo.gov/main/Home.aspx?constit=y"
+format = "html articles and sections"
+[MO.notes]
+text = "Take bid ids from chapter pages. CSR path case varies."
+
+[MT]
+name = "Montana"
+[MT.statutes]
+title = "Montana Code Annotated (MCA)"
+cite = ["Mont. Code Ann. §", "MCA"]
+url = "http://leg.mt.gov/bills/mca/index.html"
+publisher = "Montana Legislative Services Division"
+official = "no — per AALL"
+format = "html per section /bills/[year]/mca/[title]/[chapter]/[t-c-sss].htm"
+bulk = "unverified"
+terms = "AALL: no copyright claimed"
+[MT.regulations]
+title = "Administrative Rules of Montana (ARM)"
+cite = ["ARM 1.4.101", "Admin. R. Mont."]
+url = "https://rules.mt.gov/browse/collections/aec52c46-128e-4279-9068-8af5d5432d74"
+publisher = "Montana Secretary of State, Administrative Rules Services"
+official = "unclear — the new site's disclaimer (https://rules.mt.gov/assets/DisclaimerForARM.pdf) calls the SOS role ministerial; reliance at your own risk"
+format = "web app with GUID URLs /browse/collections/{collection}/sections/{section}; register (MAR) is collection 5e1173a6-33c7-4df8-b426-5e0077cfc430; rule text format unverified; old mtrules.org still linked (live unverified)"
+bulk = "none found"
+terms = "disclaimer covers reliance only; no copyright statement"
+[MT.constitution]
+url = "https://mca.legmt.gov/bills/mca/title_0000/chapters_index.html"
+format = "html (redirect target; not fetched)"
+[MT.notes]
+text = "leg.mt.gov 302s to mca.legmt.gov; current-edition path unverified; mtrules.org may have moved."
+
+[NE]
+name = "Nebraska"
+[NE.statutes]
+title = "Revised Statutes of Nebraska"
+cite = ["Neb. Rev. Stat. § 23-1301 (Reissue 2022)", "Neb. Rev. Stat. § 32-553 (Cum. Supp. 2022)"]
+url = "https://nebraskalegislature.gov/laws/browse-statutes.php"
+publisher = "Nebraska Legislature (Revisor of Statutes)"
+official = "no — disclaimer points to the printed official publication; AALL: not official"
+format = "html per section /laws/statutes.php?statute={SECTION}; whole chapter /laws/display-chapters.php?chapter={N} (1..90); UCC /laws/ucc.php?code={SECTION}; print-volume PDFs under /pdf/revisor/"
+bulk = "no API; whole-chapter HTML; print-volume PDFs (e.g. https://nebraskalegislature.gov/pdf/revisor/2022reissue_v1.pdf, 2025suppv1.pdf), list on https://nebraskalegislature.gov/laws/laws.php"
+terms = "Copyright Nebraska Legislature, all rights reserved; no reuse or scraping terms"
+[NE.regulations]
+title = "Nebraska Administrative Code"
+cite = ["92 NAC 1", "434 Neb. Admin. Code, ch. 1, § 001"]
+url = "https://rules.nebraska.gov/"
+publisher = "Nebraska Secretary of State (registrar); agencies maintain their titles"
+official = "no — the SOS holds the official record; online text for research"
+format = "JavaScript app (patterns unverified; old regsearch URL redirects to /browse-rules); agencies also post title PDFs (naming varies)"
+bulk = "unverified"
+terms = "unverified"
+[NE.constitution]
+url = "https://nebraskalegislature.gov/laws/browse-constitution.php"
+format = "html per section /laws/articles.php?article={ART-SEC}; whole text /laws/display-fullconst.php?print=false; pdf https://nebraskalegislature.gov/FloorDocs/Current/PDF/Constitution/constitution.pdf"
+[NE.notes]
+text = "Throttle: the site returned 'Too many connections'. Cite the reissue or supplement year. Proxy curl to rules.nebraska.gov got 403."
+
+[NV]
+name = "Nevada"
+[NV.statutes]
+title = "Nevada Revised Statutes (NRS)"
+cite = ["Nev. Rev. Stat. §", "NRS"]
+url = "https://www.leg.state.nv.us/NRS/Index.html"
+publisher = "Legislative Counsel Bureau"
+official = "no — per AALL"
+format = "html one file per chapter: https://www.leg.state.nv.us/NRS/NRS-XXX.html (3-digit padded plus letter suffix, e.g. NRS-001A.html)"
+bulk = "unverified"
+terms = "copyright claimed (NRS 344.070)"
+[NV.regulations]
+title = "Nevada Administrative Code (NAC)"
+cite = ["Nev. Admin. Code §", "NAC"]
+url = "https://www.leg.state.nv.us/NAC/CHAPTERS.HTML"
+publisher = "Legislative Counsel Bureau"
+official = "no — per AALL"
+format = "html one file per chapter: https://www.leg.state.nv.us/NAC/NAC-XXX.html (e.g. NAC-062B.html); chapters page Rev. 8/25/2026"
+bulk = "none found (print at shop.leg.state.nv.us)"
+terms = "copyright claimed (NRS 344.070)"
+[NV.constitution]
+url = "https://www.leg.state.nv.us/Const/NVConst.html"
+format = "html single file, Rev. 4/15/2026"
+[NV.notes]
+text = "NRS and NAC paths are case-insensitive. Register: https://www.leg.state.nv.us/register/"
+
+[NH]
+name = "New Hampshire"
+[NH.statutes]
+title = "New Hampshire Revised Statutes Annotated (RSA)"
+cite = ["N.H. Rev. Stat. Ann. §", "RSA"]
+url = "https://gc.nh.gov/rsa/html/indexes/default.aspx"
+publisher = "NH General Court, Office of Legislative Services (gc.nh.gov; legacy host gencourt.state.nh.us)"
+official = "no — informational only; official text is the bound RSA Annotated (Thomson Reuters); current through the 2026 session"
+format = "html: title index https://gc.nh.gov/rsa/html/nhtoc.htm; whole chapter in one merged file /rsa/html/{TITLE}/{CH}/{CH}-mrg.htm (e.g. https://gc.nh.gov/rsa/html/I/21-P/21-P-mrg.htm); directory paths return 403"
+bulk = "none found (the General Court data dump has legislative data only)"
+terms = "unverified"
+[NH.regulations]
+title = "New Hampshire Code of Administrative Rules"
+cite = ["N.H. Code Admin. R."]
+url = "https://gencourt.state.nh.us/rules/About_Rules/listagencies.aspx"
+publisher = "Office of Legislative Services, Administrative Rules"
+official = "no — the as-filed or certified rule is official (https://gc.nh.gov/rules/about_rules/official_version.aspx)"
+format = "html one file per chapter (e.g. https://gc.nh.gov/rules/state_agencies/env-wq1300.html); filing history per agency; register PDFs under /rules/register/{year}/"
+bulk = "none found"
+terms = "public records (Right-to-Know Law); no scraping terms stated"
+[NH.constitution]
+url = "https://www.nh.gov/glance/state-constitution"
+format = "unverified (HTML presumed; not fetched)"
+[NH.notes]
+text = "gc.nh.gov and gencourt.state.nh.us serve the same content. Use the *-mrg.htm chapter files. Proxy curl got 403 on gc.nh.gov."
+
+[NJ]
+name = "New Jersey"
+[NJ.statutes]
+title = "New Jersey Statutes (Revised Statutes / N.J.S.A.)"
+cite = ["N.J. Stat. Ann.", "N.J.S.A.", "N.J.S."]
+url = "https://lis.njleg.state.nj.us/nxt/gateway.dll/statutes/1?f=templates&fn=default.htm&vid=Publish%3A10.1048%2FEnu"
+publisher = "New Jersey Legislature (Office of Legislative Services)"
+official = "yes per AALL 2017 (N.J.S.A. 52:11-78), not authenticated; bulk README silent on status"
+format = "bulk-zip; online viewer is a NextPage/Folio gateway (HTML)"
+bulk = "https://pub.njleg.gov/statutes/ (see _READ_ME.txt): STATUTES-TEXT.zip, STATUTES-FOLIO.zip, LCTOC-*.zip, NJCONST-*.zip; updated weekdays 2AM"
+terms = "none stated"
+[NJ.regulations]
+title = "New Jersey Administrative Code"
+cite = ["N.J. Admin. Code", "N.J.A.C."]
+url = "https://www.lexisnexis.com/hottopics/njcode"
+publisher = "LexisNexis (vendor), linked from NJ Office of Administrative Law https://www.nj.gov/oal/rules/accessp"
+official = "no — OAL: the online version of the Code is not the official Code"
+format = "html (LexisNexis viewer); updated semi-monthly"
+bulk = "none"
+terms = "unverified (LexisNexis terms not read)"
+[NJ.constitution]
+url = "https://njleg.gov/constitution"
+format = "html single page; also plain text in NJCONST-TEXT.zip at https://pub.njleg.gov/statutes/"
+[NJ.notes]
+text = "Use the pub.njleg.gov bulk zips, not the gateway. Folio zips need FOLIO.LCF. NJ Register 1995-now: http://www.lexisnexis.com/hottopics/njoal/ (vendor)."
+
+[NM]
+name = "New Mexico"
+[NM.statutes]
+title = "New Mexico Statutes Annotated 1978"
+cite = ["N.M. Stat. Ann.", "NMSA 1978"]
+url = "https://nmonesource.com/nmos/en/nav.do"
+publisher = "New Mexico Compilation Commission; NMOneSource platform by Lexum (vendor)"
+official = "yes — Commission: master database of official New Mexico laws (NMSA ch. 12, art. 1)"
+format = "html per document (document.do; collections nmsa, nmsa-unanno, nmsa-historical); PDF/Word export unverified"
+bulk = "none found"
+terms = "Copyright all rights reserved by NM Compilation Commission; no scraping terms seen"
+[NM.regulations]
+title = "New Mexico Administrative Code"
+cite = ["N.M. Code R.", "NMAC"]
+url = "https://www.srca.nm.gov/nmac-home/"
+publisher = "NM Commission of Public Records, State Records Center and Archives"
+official = "yes — the Official site of the New Mexico Administrative Code"
+format = "html and pdf per part (e.g. https://www.srca.nm.gov/parts/title01/01.024.0010.html and .pdf)"
+bulk = "none found"
+terms = "Copyright 2025 All Rights Reserved; no scraping terms seen"
+[NM.constitution]
+url = "https://nmonesource.com/nmos/en/nav.do"
+format = "html on NMOneSource; exact collection path unverified"
+[NM.notes]
+text = "NMOneSource not fetchable from the research session; URLs /nmos/{collection}/en/{id}/1/document.do with numeric ids, so walk the nav tree."
+
+[NY]
+name = "New York"
+[NY.statutes]
+title = "Consolidated Laws of New York"
+cite = ["N.Y. [Subject] Law § (McKinney)", "N.Y. Gen. Constr. Law"]
+url = "https://www.nysenate.gov/legislation/laws/CONSOLIDATED"
+publisher = "New York State Senate (Open Legislation)"
+official = "unclear — no official-status statement; official print editions are commercial (McKinney's/CLS)"
+format = "api JSON; html per section; PDF via /pdf/laws/{docId}?full=true"
+bulk = "https://legislation.nysenate.gov/api/3/laws (list), /api/3/laws/{lawId}?full=true; free API key"
+terms = "none stated in API docs"
+[NY.regulations]
+title = "Official Compilation of Codes, Rules and Regulations of the State of New York"
+cite = ["N.Y. Comp. Codes R. & Regs. tit. X, §", "NYCRR"]
+url = "https://govt.westlaw.com/nycrr"
+publisher = "Thomson Reuters/Westlaw (vendor) under contract with NY Department of State"
+official = "no — DOS and data.ny.gov call it the unofficial NYCRR"
+format = "html (Westlaw government viewer)"
+bulk = "none"
+terms = "unverified (Westlaw terms not read)"
+[NY.constitution]
+url = "https://dos.ny.gov/system/files/documents/2025/12/constitution-january-1-2026.pdf"
+format = "pdf (NY DOS, as amended to Jan 1 2026); also html on Senate site as law ID CNS, likely in the API"
+[NY.notes]
+text = "Law updates published weekly. Some full=true responses are several MB. CNS not on the CONSOLIDATED index but is a law ID."
+
+[NC]
+name = "North Carolina"
+[NC.statutes]
+title = "North Carolina General Statutes"
+cite = ["N.C. Gen. Stat. §", "N.C.G.S."]
+url = "https://www.ncleg.gov/Laws/GeneralStatutesTOC"
+publisher = "North Carolina General Assembly"
+official = "unclear — no official-status statement"
+format = "html and pdf per chapter and per section (/EnactedLegislation/Statutes/HTML/ByChapter/Chapter_1.html, /PDF/ByChapter/Chapter_1.pdf, /HTML/BySection/Chapter_164/GS_164-1.html)"
+bulk = "none found"
+terms = "none stated"
+[NC.regulations]
+title = "North Carolina Administrative Code"
+cite = ["N.C. Admin. Code", "NCAC"]
+url = "http://reports.oah.state.nc.us/ncac.asp"
+publisher = "NC Office of Administrative Hearings, Rules Division"
+official = "unclear — G.S. 150B-21.18 mandate, online copy not called official; subscription edition by Thomson Reuters"
+format = "folder browser: ncac.asp?folderName=<URL-encoded 'Title NN - Name\\Chapter NN - Name'>; weekly; rule file format unverified"
+bulk = "none found; print from OAH, commercial edition by Thomson Reuters"
+terms = "unverified"
+[NC.constitution]
+url = "https://www.ncleg.gov/EnactedLegislation/Constitution/NCConstitution.html"
+format = "html and pdf, whole document (NCConstitution.pdf)"
+[NC.notes]
+text = "Statute files static and predictable per chapter. NCAC updated weekly per OAH. reports.oah.state.nc.us was blocked from the research session."
+
+[ND]
+name = "North Dakota"
+[ND.statutes]
+title = "North Dakota Century Code"
+cite = ["N.D. Cent. Code §", "N.D.C.C."]
+url = "https://ndlegis.gov/general-information/north-dakota-century-code/index.html"
+publisher = "North Dakota Legislative Council"
+official = "yes — the official version of the North Dakota Century Code"
+format = "pdf per chapter (https://www.ndlegis.gov/cencode/t01c01.pdf; also https://ndlegis.gov/api/cencode/t01c01.pdf); html views"
+bulk = "none found"
+terms = "none stated"
+[ND.regulations]
+title = "North Dakota Administrative Code"
+cite = ["N.D. Admin. Code", "N.D.A.C."]
+url = "https://ndlegis.gov/agency-rules/north-dakota-administrative-code"
+publisher = "North Dakota Legislative Council"
+official = "unclear — derived from the Legislative Council database; no explicit statement"
+format = "pdf per chapter (base https://ndlegis.gov/information/acdata/pdf/, e.g. 4-07-20.1.pdf); some per article or title"
+bulk = "none found"
+terms = "none stated (page partly unread)"
+[ND.constitution]
+url = "https://ndlegis.gov/constitution"
+format = "pdf per article (https://ndlegis.gov/constit/preamble.pdf, a01.pdf)"
+[ND.notes]
+text = "All three are static PDFs with predictable names."
+
+[OH]
+name = "Ohio"
+[OH.statutes]
+title = "Ohio Revised Code"
+cite = ["Ohio Rev. Code Ann. §", "R.C."]
+url = "https://codes.ohio.gov/orc/"
+publisher = "Ohio Legislative Service Commission (LSC)"
+official = "yes — LSC is the designated official publisher; PDFs carry an authentication stamp"
+format = "html per section; authenticated pdf per section"
+bulk = "none found"
+terms = "Disclaimer page not read"
+[OH.regulations]
+title = "Ohio Administrative Code"
+cite = ["Ohio Admin. Code", "Ohio Adm.Code", "OAC"]
+url = "https://codes.ohio.gov/oac/4741"
+publisher = "Ohio Legislative Service Commission"
+official = "yes — LSC official publisher; authenticated PDFs"
+format = "html per rule (https://codes.ohio.gov/oac/122:5-2-03); authenticated pdf with _YYYYMMDD suffix"
+bulk = "none found"
+terms = "Disclaimer page not read"
+[OH.constitution]
+url = "https://codes.ohio.gov/ohio-constitution"
+format = "html per section"
+[OH.notes]
+text = "Strip ;jsessionid=... from URLs. OAC rule numbers contain colons. No top-level OAC index URL seen (example title URL used)."
+
+[OK]
+name = "Oklahoma"
+[OK.statutes]
+title = "Oklahoma Statutes"
+cite = ["Okla. Stat. tit. X, §", "O.S."]
+url = "https://www.oklegislature.gov/osstatuestitle.html?title=12"
+publisher = "Oklahoma Legislature; also Oklahoma State Courts Network (OSCN)"
+official = "no — per AALL the West print edition is official (75 O.S. 191-192)"
+format = "pdf per complete title (https://www.oklegislature.gov/OK_Statutes/CompleteTitles/os75.pdf); html per section on OSCN"
+bulk = "per-title PDFs; OSCN http://www.oscn.net/applications/oscn/index.asp?ftdb=STOKST&level=1"
+terms = "none stated"
+[OK.regulations]
+title = "Oklahoma Administrative Code"
+cite = ["Okla. Admin. Code §", "OAC"]
+url = "https://rules.ok.gov/code"
+publisher = "Oklahoma Secretary of State, Office of Administrative Rules"
+official = "yes — the only official version is maintained by the Secretary of State"
+format = "web app (pick a title); deep-link pattern unverified; per-title PDFs seen at oklahomarules.blob.core.windows.net/titlepdf/Title_590.pdf"
+bulk = "possibly per-title PDFs on that Azure blob (full listing unverified)"
+terms = "unverified"
+[OK.constitution]
+url = "https://www.oscn.net/applications/oscn/index.asp?level=1&ftdb=STOKCN&year="
+format = "html on OSCN; probably also on oklegislature.gov"
+[OK.notes]
+text = "Per-title PDFs last updated Nov 18 2025. rules.ok.gov and oscn.net blocked from the research session."
+
+[OR]
+name = "Oregon"
+[OR.statutes]
+title = "Oregon Revised Statutes (2025 Edition)"
+cite = ["Or. Rev. Stat. §", "ORS"]
+url = "https://www.oregonlegislature.gov/bills_laws/pages/ORS.aspx"
+publisher = "Oregon Legislative Counsel Committee"
+official = "no — the database text is not the official text; the printed ORS is"
+format = "html per chapter (static under /bills_laws/ors/; annotations e.g. ano488.html); file name pattern unverified"
+bulk = "none found"
+terms = "Disclaimer page not read"
+[OR.regulations]
+title = "Oregon Administrative Rules"
+cite = ["Or. Admin. R.", "OAR"]
+url = "https://sos.oregon.gov/archives/Pages/oregon_administrative_rules.aspx"
+publisher = "Oregon Secretary of State, Archives Division (OARD at secure.sos.state.or.us/oard)"
+official = "yes — OARD houses all the official copies of the OAR"
+format = "html (OARD); per-rule PDF attachments; browse URL pattern unverified"
+bulk = "none found"
+terms = "none stated"
+[OR.constitution]
+url = "https://www.oregonlegislature.gov/bills_laws/Pages/ORConst.aspx"
+format = "html (e.g. /bills_laws/ors/ocapream.html)"
+[OR.notes]
+text = "ORS index navigation is SharePoint/JS. OARD filing search: https://secure.sos.state.or.us/oard/filingSearch.action"
+
+[PA]
+name = "Pennsylvania"
+[PA.statutes]
+title = "Pennsylvania Consolidated Statutes; Unconsolidated Statutes (Purdon's)"
+cite = ["Pa.C.S.", "Pa. Cons. Stat.", "P.S."]
+url = "https://www.palegis.us/statutes/unconsolidated"
+publisher = "Pennsylvania General Assembly (LDPC / LRB); unofficial Westlaw copy at https://govt.westlaw.com/pac/"
+official = "consolidated: official unannotated per Jenkins Law Library; unconsolidated: as-passed, unclear; Westlaw Purdon's: not official"
+format = "html/pdf/doc per title or act (legacy); palegis.us format unverified"
+bulk = "none found"
+terms = "none stated"
+[PA.regulations]
+title = "Pennsylvania Code"
+cite = ["Pa. Code §"]
+url = "https://pacodeandbulletin.gov"
+publisher = "Pennsylvania Legislative Reference Bureau"
+official = "no — official version published by Fry Communications, Inc."
+format = "html; detail unverified"
+bulk = "unverified"
+terms = "No part may be reproduced for profit or sold for profit"
+[PA.constitution]
+url = "https://www.legis.state.pa.us/cfdocs/legis/LI/consCheck.cfm?txtType=HTM&ttl=0"
+format = "html/pdf/doc on legacy site; palegis.us location unverified"
+[PA.notes]
+text = "legis.state.pa.us retired Jan 6 2026; old URLs 302 to palegis.us. Consolidated path on palegis.us unverified. Pa. Code site disclaimer dated through 54 Pa.B. 7100 (Oct 26 2024): check currency."
+
+[RI]
+name = "Rhode Island"
+[RI.statutes]
+title = "General Laws of Rhode Island"
+cite = ["R.I. Gen. Laws §"]
+url = "https://webserver.rilegislature.gov/Statutes/Statutes.html"
+publisher = "Rhode Island General Assembly"
+official = "no — informational service only, not an official record"
+format = "html per section (https://webserver.rilegislature.gov/Statutes/TITLE16/16-57/16-57-1.htm)"
+bulk = "none found"
+terms = "All Rights Reserved; no scraping terms stated"
+[RI.regulations]
+title = "Rhode Island Code of Regulations"
+cite = ["R.I. Code R.", "220-RICR-30-00-4"]
+url = "https://rules.sos.ri.gov/organizations"
+publisher = "Rhode Island Department of State"
+official = "the PDF is official; HTML is a convenience copy"
+format = "html per part and pdf on S3 (names not predictable; take from each part page)"
+bulk = "none found; active list https://rules.sos.ri.gov/regulations/index/active"
+terms = "none stated"
+[RI.constitution]
+url = "https://rilegislature.gov/riconstitution/Constitution/ConstFull.aspx"
+format = "html full text; also per article (C01.aspx)"
+[RI.notes]
+text = "Statute paths case-insensitive."
+
+[SC]
+name = "South Carolina"
+[SC.statutes]
+title = "Code of Laws of South Carolina, 1976 (unannotated)"
+cite = ["S.C. Code Ann."]
+url = "https://www.scstatehouse.gov/code/statmast.php"
+publisher = "SC Legislative Services Agency"
+official = "no — the printed annotated Code is official"
+format = "html one .php page per chapter (/code/t01c023.php); Word per chapter (secondary source)"
+bulk = "none"
+terms = "personal, not commercial, use (disclaimer.php)"
+[SC.regulations]
+title = "South Carolina Code of Regulations (unannotated)"
+cite = ["S.C. Code Ann. Regs."]
+url = "https://www.scstatehouse.gov/coderegs/statmast.php"
+publisher = "SC Legislative Services Agency"
+official = "no — the printed annotated edition is official"
+format = "pdf and Word per chapter (/coderegs/Chapter%20N.pdf, /getfile.php?TYPE=CODEOFREGS&CHAPTER=N)"
+bulk = "none"
+terms = "may be copied without permission; site disclaimer says personal use"
+[SC.constitution]
+url = "https://www.scstatehouse.gov/scconstitution/scconst.php"
+format = "pdf + Word per article; full PDF /scconstitution/SCConstitution.pdf"
+[SC.notes]
+text = "Yearly snapshots under /Archives/CodeofLaws{YEAR}/."
+
+[SD]
+name = "South Dakota"
+[SD.statutes]
+title = "South Dakota Codified Laws"
+cite = ["S.D. Codified Laws", "SDCL"]
+url = "https://sdlegislature.gov/Statutes/2-16-13"
+publisher = "SD Legislative Research Council"
+official = "no — the printed volumes are official (SDCL 2-16-13)"
+format = "html JavaScript app; static HTML via /api/Statutes/{cite}.html (?all=true for a chapter)"
+bulk = "unverified — /api/Statutes/ path"
+terms = "none stated"
+[SD.regulations]
+title = "Administrative Rules of South Dakota"
+cite = ["ARSD", "S.D. Admin. R."]
+url = "https://sdlegislature.gov/Rules/Administrative"
+publisher = "SD Legislative Research Council"
+official = "unverified"
+format = "html /api/Rules/{rule}.html"
+bulk = "unverified"
+terms = "none stated"
+[SD.constitution]
+url = "https://sdlegislature.gov/Constitution/Preamble"
+format = "html app; static via /api/Statutes/Constitution/{numeric id}.html"
+[SD.notes]
+text = "Fetch the /api/ paths. Constitution ids are numeric: needs an index first."
+
+[TN]
+name = "Tennessee"
+[TN.statutes]
+title = "Tennessee Code Annotated (free version unannotated)"
+cite = ["Tenn. Code Ann.", "T.C.A."]
+url = "https://advance.lexis.com/container?config=014CJAA5ZGVhZjA3NS02MmMzLTRlZWQtOGJjNC00YzQ1MmZlNzc2YWYKAFBvZENhdGFsb2e9zYpNUjTRaIWVfyrur9ud&crid=3bfa6f9d-bc71-4b8e-bbef-26d69b5b683a"
+publisher = "LexisNexis under contract with the TN Code Commission (vendor)"
+official = "no"
+format = "html Lexis Advance viewer (session)"
+bulk = "none"
+terms = "Lexis click-through; the State claims copyright in the TCA"
+[TN.regulations]
+title = "Official Compilation of Rules and Regulations of the State of Tennessee"
+cite = ["Tenn. Comp. R. & Regs."]
+url = "https://sos.tn.gov/node/257"
+publisher = "TN Secretary of State, Publications Division"
+official = "yes — current and official rules (T.C.A. Title 4, Ch. 5)"
+format = "pdf per chapter with an htm index per agency (publications.tnsosfiles.com/rules/{agency}/{agency}.htm); date-stamped PDF names"
+bulk = "none"
+terms = "none stated"
+[TN.constitution]
+url = "https://sos.tn.gov/civics/guides/tennessee-state-constitution"
+format = "unverified"
+[TN.notes]
+text = "Lexis viewer not scriptable in practice. Scrape rule PDFs from the agency .htm index."
+
+[TX]
+name = "Texas"
+[TX.statutes]
+title = "Texas Statutes (codes)"
+cite = ["Tex. [Code] Ann. §"]
+url = "https://statutes.capitol.texas.gov/"
+publisher = "Texas Legislative Council"
+official = "unclear — TLC is the official publisher of the Constitution under UELMA; statutes status not stated"
+format = "bulk-zip per code (HTML, PDF, Word) plus full-code PDF"
+bulk = "https://statutes.capitol.texas.gov/Download.aspx"
+terms = "none stated"
+[TX.regulations]
+title = "Texas Administrative Code"
+cite = ["Tex. Admin. Code", "TAC"]
+url = "https://texas-sos.appianportalsgov.com/rules-and-meetings?interface=VIEW_TAC"
+publisher = "Texas Secretary of State on an Appian portal"
+official = "unclear"
+format = "html Appian dynamic app (1999-present)"
+bulk = "none"
+terms = "https://www.sos.texas.gov/policies.shtml (not read)"
+[TX.constitution]
+url = "https://statutes.capitol.texas.gov/"
+format = "html + signed PDF per provision (UELMA-authenticated since Jan 2022)"
+[TX.notes]
+text = "Use the Download page zips. TAC on Appian is hard to scrape."
+
+[UT]
+name = "Utah"
+[UT.statutes]
+title = "Utah Code"
+cite = ["Utah Code Ann.", "Utah Code"]
+url = "https://le.utah.gov/xcode/C_1800010118000101.html"
+publisher = "Office of Legislative Research and General Counsel"
+official = "yes — OLRGC is the official publisher; code XML described as the official electronic record"
+format = "html + pdf per section/title (versioned names); xml via API"
+bulk = "https://le.utah.gov/data/developer.htm — glen.le.utah.gov/code/list/<token> (XML, developer token, once a day)"
+terms = "free personal use; commercial use needs attribution; abusive API use may be blocked"
+[UT.regulations]
+title = "Utah Administrative Code"
+cite = ["Utah Admin. Code R."]
+url = "https://rules.utah.gov/publications/utah-adm-code/"
+publisher = "Utah Office of Administrative Rules (Department of Government Operations)"
+official = "unclear"
+format = "portal https://adminrules.utah.gov/public/home (per-rule pattern unverified); monthly change ZIPs of .docx plus an .xlsx change report"
+bulk = "monthly changes only: https://rules.utah.gov/publications/code-updates/ (e.g. https://rules.utah.gov/wp-content/uploads/05-2026-Changed-Rules.zip); full snapshot unverified"
+terms = "none stated on the updates page"
+[UT.constitution]
+url = "https://le.utah.gov/xcode/UC_1800010118000101.pdf"
+format = "pdf per article/section; xml via glen.le.utah.gov/const/list/<token>"
+[UT.notes]
+text = "Version-date codes in file names change: use index pages or the API."
+
+[VT]
+name = "Vermont"
+[VT.statutes]
+title = "Vermont Statutes Annotated (online unannotated)"
+cite = ["Vt. Stat. Ann. tit. X, §", "V.S.A."]
+url = "https://legislature.vermont.gov/statutes"
+publisher = "Vermont General Assembly / Office of Legislative Counsel"
+official = "no — unofficial copy"
+format = "html per section and full chapter (/statutes/fullchapter/{title}/{chapter})"
+bulk = "none"
+terms = "Copyright State of Vermont; not a replacement for official sources"
+[VT.regulations]
+title = "Code of Vermont Rules"
+cite = ["Code Vt. R.", "CVR"]
+url = "http://www.lexisnexis.com/hottopics/codeofvtrules/"
+publisher = "LexisNexis (vendor), linked from Vermont SOS"
+official = "unclear"
+format = "html Lexis viewer"
+bulk = "none"
+terms = "Lexis terms (unverified)"
+[VT.constitution]
+url = "https://legislature.vermont.gov/statutes/constitution-of-the-state-of-vermont"
+format = "html single page"
+[VT.notes]
+text = "Zero-padded title/chapter numbers; appendix titles like 03APPENDIX."
+
+[VA]
+name = "Virginia"
+[VA.statutes]
+title = "Code of Virginia"
+cite = ["Va. Code Ann.", "Code of Va."]
+url = "https://law.lis.virginia.gov/vacode/"
+publisher = "Virginia General Assembly, Legislative Information System"
+official = "unclear"
+format = "html per section; pdf + csv per title; json/xml API"
+bulk = "https://law.lis.virginia.gov/developers (JSON /jsonapi/, XML /xmlapi/); CSV/PDF at https://law.lis.virginia.gov/law-library"
+terms = "LIS terms https://lis.virginia.gov/tos and API registration (not read)"
+[VA.regulations]
+title = "Virginia Administrative Code"
+cite = ["Va. Admin. Code", "VAC"]
+url = "https://law.lis.virginia.gov/admincode"
+publisher = "Virginia General Assembly LIS (Virginia Code Commission)"
+official = "unverified"
+format = "html /admincode/titleN/agencyN/chapterN/sectionN; /admincodefull/ for full parts"
+bulk = "API collection listed (coverage unverified)"
+terms = "same as statutes"
+[VA.constitution]
+url = "https://law.lis.virginia.gov/constitution"
+format = "html per article; pdf https://law.lis.virginia.gov/constitution.pdf; csv https://law.lis.virginia.gov/CSV/Constitution.csv"
+[VA.notes]
+text = "Best bulk source of the set: per-title CSV plus JSON/XML API."
+
+[WA]
+name = "Washington"
+[WA.statutes]
+title = "Revised Code of Washington"
+cite = ["RCW", "Wash. Rev. Code"]
+url = "https://app.leg.wa.gov/rcw/"
+publisher = "Washington Statute Law Committee / Code Reviser's Office"
+official = "no for live HTML — only the certified archive is official"
+format = "html live per section; archive one HTML per title"
+bulk = "https://leg.wa.gov/state-laws-and-rules/state-laws-rcw/past-versions-of-state-laws/2026-rcw-archive/ ; directory listings like https://lawfilesext.leg.wa.gov/law/RCWArchive/2023/htm/"
+terms = "Statute Law Committee claims copyright for RCW and WAC"
+[WA.regulations]
+title = "Washington Administrative Code"
+cite = ["WAC", "Wash. Admin. Code"]
+url = "https://app.leg.wa.gov/Wac/default.aspx"
+publisher = "Code Reviser's Office"
+official = "no for live HTML — certified archive PDFs are official"
+format = "html per section; yearly archive since 2004"
+bulk = "https://leg.wa.gov/state-laws-and-rules/state-rules-wac/past-versions-of-state-rules/"
+terms = "same copyright claim as RCW"
+[WA.constitution]
+url = "https://www.leg.wa.gov/state-laws-and-rules/washington-state-constitution"
+format = "html (?showall=true); pdf; directory listing https://lawfilesext.leg.wa.gov/law/Constitution/Articles/"
+[WA.notes]
+text = "Archive file names have irregular space padding: copy links, don't build them."
+
+[WV]
+name = "West Virginia"
+[WV.statutes]
+title = "West Virginia Code"
+cite = ["W. Va. Code § 29A-3-19"]
+url = "https://code.wvlegislature.gov/"
+publisher = "West Virginia Legislature (Office of Reference & Information)"
+official = "no — terms of use: online copies are not the official versions"
+format = "html section /{ch}-{art}-{sec}/, article /{ch}-{art}/, chapter /{ch}/; pdf /pdf/{ch}-{art}[-{sec}]/; case-insensitive"
+bulk = "none found; per-article PDF is the coarsest unit; legacy wvcode site stale (to 2007)"
+terms = "https://www.wvlegislature.gov/termsofuse.cfm: nothing on copying or scraping"
+[WV.regulations]
+title = "Code of State Rules (CSR)"
+cite = ["W. Va. C.S.R. § 11-14-1", "153CSR6"]
+url = "https://apps.sos.wv.gov/adlaw/csr/"
+publisher = "West Virginia Secretary of State, Administrative Law Division"
+official = "unclear — W. Va. Code § 29A-2-7 requires electronic publication; AALL (2016): official, not authenticated"
+format = "html index: rule.aspx?rule={TT-SS} (zero-padded), ruleview.aspx?document={ID}; text readfile.aspx?DocId={ID}&Format=PDF or WORD; Active and Historical versions"
+bulk = "none; RSS https://apps.sos.wv.gov/adlaw/csr/Subscribe.aspx; State Register https://apps.sos.wv.gov/adlaw/registers/"
+terms = "none stated"
+[WV.constitution]
+url = "https://code.wvlegislature.gov/west-virginia-constitution"
+format = "html one page with article anchors"
+[WV.notes]
+text = "Keep the CSR marker (W. Va. Code § vs W. Va. C.S.R. §). Take only Active rule versions; check sunset dates. Walk rule.aspx -> ruleview.aspx -> readfile.aspx. Proxy curl got 403."
+
+[WI]
+name = "Wisconsin"
+[WI.statutes]
+title = "Wisconsin Statutes & Annotations (updated biennial edition)"
+cite = ["Wis. Stat."]
+url = "https://docs.legis.wisconsin.gov/statutes/prefaces/toc"
+publisher = "Legislative Reference Bureau"
+official = "certified, not 'official' — published under s. 35.18(1)(b), certified under s. 35.18(2)(b), prima facie evidence (s. 889.01)"
+format = "html per section (/document/statutes/35.19) and pdf per chapter (https://docs.legis.wisconsin.gov/statutes/statutes/889.pdf); some tables PDF only; past editions /{year}/statutes"
+bulk = "none found (a Folio version is mentioned, no download)"
+terms = "none stated"
+[WI.regulations]
+title = "Wisconsin Administrative Code"
+cite = ["Wis. Admin. Code"]
+url = "https://docs.legis.wisconsin.gov/code/admin_code"
+publisher = "Legislative Reference Bureau (s. 35.93; updated monthly)"
+official = "the online Code is the exclusive source of the current Code; prima facie evidence (s. 889.01)"
+format = "html per chapter with PDF (e.g. /document/administrativecode/ch.%20Comm%2040)"
+bulk = "none found"
+terms = "none stated"
+[WI.constitution]
+url = "https://docs.legis.wisconsin.gov/constitution/wi.pdf"
+format = "pdf annotated (2022-12-09); html per section (/constitution/wi/000055); unannotated HTML blocked by robots.txt"
+[WI.notes]
+text = "Check robots.txt. Proxy curl got 403. Record the edition and certificate date when downloading."
+
+[WY]
+name = "Wyoming"
+[WY.statutes]
+title = "Wyoming Statutes"
+cite = ["Wyo. Stat. Ann. § 5-2-120", "W.S. 16-3-104(a)"]
+url = "https://wyoleg.gov/statutes/compress/title01.pdf"
+publisher = "Wyoming Legislature, Legislative Service Office"
+official = "unclear — AALL: not official; annotated print set by LexisNexis"
+format = "pdf one per title: https://wyoleg.gov/statutes/compress/title{NN}.pdf (zero-padded); unannotated; wyoleg.gov itself is a JavaScript app"
+bulk = "the per-title PDFs (full title list unverified, e.g. decimal titles)"
+terms = "unverified"
+[WY.regulations]
+title = "Wyoming Administrative Code"
+cite = ["010-22 Wyo. Code R. §§ 22-13"]
+url = "https://rules.wyo.gov/"
+publisher = "Wyoming Secretary of State (registrar, W.S. 16-3-101); agencies maintain their rules"
+official = "no — electronic duplicates of the certified copies filed"
+format = "ASP.NET search: https://rules.wyo.gov/Search.aspx?mode=7 (code), mode=5 (proposed), Agencies.aspx; chapter PDF pattern unverified"
+bulk = "unverified"
+terms = "footer '2016 All Rights Reserved'"
+[WY.constitution]
+url = "https://wyoleg.gov/statutes/compress/title97.pdf"
+format = "pdf (published as statutes Title 97)"
+[WY.notes]
+text = "Subsections go (a) -> (i) -> (A) -> (I). Status in section headings. Emergency rules are not part of the Code; use Current only."
