@@ -94,9 +94,9 @@ def find(text, flat=True):
     for m in U.FULL_RE.finditer(t):
         refs, end = U.full_refs(t, m)
         if free(m.start(), end):
-            for k, (pos, title, sec, part) in enumerate(refs):
-                if part != 3:                    # a range's end: the range is listed by its start
-                    hits.append((pos, end if k == len(refs) - 1 else pos + 1, "usc:%s:%s" % (title.lower(), sec.lower()), "cite"))
+            kept = [r for r in refs if r[3] != 3]        # a range's end: the range is listed by its start
+            for k, (pos, title, sec, part) in enumerate(kept):
+                hits.append((pos, end if k == len(kept) - 1 else pos + 1, "usc:%s:%s" % (title.lower(), sec.lower()), "cite"))
             taken.append((m.start(), end))
     # short forms: the code of the last full cite with the same shape. A bare "§ N" after a U.S.C. cite is taken as
     # that title's only near a section the text cites in full (within 100): "§ 1414" after "20 U.S.C. § 1412" is,

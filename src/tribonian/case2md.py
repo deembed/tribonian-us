@@ -2631,6 +2631,13 @@ def leader_entry(e):
     return e
 
 
+def _continues_number(pieces, pj):
+    """Does the text piece after pj go on with a digit? Then a digit ending piece pj is part of a number the
+    layout reader split ("42" as "4" + "2" across two pieces), not a footnote mark."""
+    nxt = next((q for q in pieces[pj + 1:] if isinstance(q, tuple)), None)
+    return bool(nxt and nxt[0][:1].isdigit())
+
+
 def place_marks(blocks, footnotes, warn, spaced=False):
     """Put a footnotemark where each footnote's number sits in the text, looking forward from the
     previous mark, no further than the page the footnote is printed on."""
@@ -2649,6 +2656,8 @@ def place_marks(blocks, footnotes, warn, spaced=False):
                             break
                         last = (bi, pj)
                         m = rx.search(p[0], ch)
+                        while m and m.end() == len(p[0]) and _continues_number(pieces, pj):
+                            m = rx.search(p[0], m.start() + 1)   # "Act, 4" + "2 U.S.C.": a split number, not a mark
                         if m:
                             found = (bi, pj, m)
                             break
@@ -2675,6 +2684,19 @@ def place_marks(blocks, footnotes, warn, spaced=False):
             warn("footnote %s: nowhere to attach it; left out" % lab)
 
 
+def _whole_cites(spans):
+    """lawcites marks a list ("42 U.S.C. §§ 12112, 12102") as one span per section, all but the last only one
+    character long. Wrapping those would cut the cite ("4" + "2 U.S.C. ..."), and the US Code status marks then
+    read "2 U.S.C." (not found). One span per cite instead: the first one's start and key, the last one's end."""
+    out = []
+    for a, b, key in spans:
+        if out and out[-1][1] - out[-1][0] == 1 and key.split(":")[:2] == out[-1][2].split(":")[:2] and a > out[-1][0]:
+            out[-1] = (out[-1][0], b, out[-1][2])
+        else:
+            out.append((a, b, key))
+    return out
+
+
 def with_statutes(el):
     """Wrap each statute or constitutional cite ('5 U.S.C. § 552', 'Colo. Rev. Stat. § 26.5-4-205',
     'U.S. Const. amend. I') in <law key=...>, so inline() links it: to the US Code note in Markdown,
@@ -2684,7 +2706,7 @@ def with_statutes(el):
     for k in el.kids:
         if isinstance(k, str):
             at = 0
-            for a, b, key in lawcites.spans_in(k):
+            for a, b, key in _whole_cites(lawcites.spans_in(k)):
                 if a < at:
                     continue
                 span = El("law", {"key": key})
