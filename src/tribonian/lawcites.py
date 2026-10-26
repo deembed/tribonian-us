@@ -15,7 +15,7 @@ A short form ("§ 26.5-4-205(2)", "§ 1983") takes the code of the last full cit
 shape. Regular expressions only; no language model.
 """
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 
 ROMAN = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10,
          "XI": 11, "XII": 12, "XIII": 13, "XIV": 14, "XV": 15, "XVI": 16, "XVII": 17, "XVIII": 18,
@@ -34,9 +34,10 @@ NAMED_AMEND_RE = re.compile(r"\b(" + "|".join(ORD) + r")\s+Amendment\b")
 NAMED_CLAUSE_RE = re.compile(r"\b(Free Exercise|Establishment|Free Speech|Equal Protection|Supremacy|Spending|Commerce)\s+Clauses?\b", re.I)
 CFR_RE = re.compile(r"\b(\d{1,2})\s*C\.\s?F\.\s?R\.?\s*(?:(pts?\.|[Pp]arts?)\s*(\d+)|(§§?)?\s*(\d+)\.(\d+[a-z]?))" + SUBS)
 CRS_SECT = r"\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?"
-CRS_RE = re.compile(r"(?:Colo\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?|C\.\s?R\.\s?S\.)\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)?\s*(" + CRS_SECT + ")" + SUBS)
+CRS_RE = re.compile(r"(?:Colo\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?|C\.\s?R\.\s?S\.|Colorado\s+Revised\s+Statutes)\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)?\s*(" + CRS_SECT + ")" + SUBS)
 CRS_AFTER_RE = re.compile(r"(?:§§?|[Ss]ection)\s*(" + CRS_SECT + ")" + SUBS + r",?\s*(?:C\.\s?R\.\s?S\.|Colo\.\s?Rev\.\s?Stat\.)")
-CCR_RE = re.compile(r"\b(\d{1,2})\s*(?:CCR|C\.C\.R\.|Colo\.\s?Code\s?Regs\.|Code\s+of\s+Colorado\s+Regulations)\s*(?:§\s*)?(\d{3,4}-\d+)"
+CCR_RE = re.compile(r"\b(\d{1,2})\s*(?:CCR|C\.C\.R\.|Colo\.\s?Code\s?Regs?\.|Code\s+of\s+Colorado\s+Regulations)"
+                    r"(?:\s*\(\d{4}\))?:?\s*(?:§\s*)?(\d{3,4}-\d+)"
                     r"(?:\s*(?:,\s*)?(?:§§?|[Rr]ule(?:\s+[Ss]ections?)?|:)\s*(\d+\.\d+))?")
 COCONST_RE = re.compile(r"Colo\.\s?Const\.?,?\s*art\.?\s*(" + NUM + r")(?:,?\s*§+\s*(\d+))?", re.I)
 ETSEQ_RE = re.compile(r"\s*,?\s*et\s+seq\.")
@@ -49,8 +50,11 @@ def num(s):
 
 
 def flatten(text):
-    """pdftotext lines -> one line: a number broken after its hyphen ("26.5-4-" / "205") is rejoined."""
+    """pdftotext lines -> one line: a number broken after its hyphen ("26.5-4-" / "205") is rejoined. A Code
+    cite cut at a line's end and followed by a line opening with a small number and a word ("20 U.S.C." /
+    "5 In limited circumstances": a footnote, the cite's section on the next page) is not read as § 5."""
     t = re.sub(r"(\d-)\s*\n\s*(\d)", r"\1\2", text)
+    t = re.sub(r"(U\.\s?S\.\s?C\.?[AS]?\.?)[ \t]*\n\s*(?=\d{1,3}\s+[A-Z][a-z])", "\\1\u2063 ", t)
     return re.sub(r"\s+", " ", t)
 
 
@@ -94,9 +98,19 @@ def find(text, flat=True):
                 if part != 3:                    # a range's end: the range is listed by its start
                     hits.append((pos, end if k == len(refs) - 1 else pos + 1, "usc:%s:%s" % (title.lower(), sec.lower()), "cite"))
             taken.append((m.start(), end))
-    # short forms: the code of the last full cite with the same shape
+    # short forms: the code of the last full cite with the same shape. A bare "§ N" after a U.S.C. cite is taken as
+    # that title's only near a section the text cites in full (within 100): "§ 1414" after "20 U.S.C. § 1412" is,
+    # "§ 702" after "42 U.S.C. § 2000e" is not (Title VII's own section numbering); what is not placed is counted
     hits.sort()
     full = sorted(hits)
+    unresolved = Counter()
+    base = lambda sec: int(re.match(r"\d+", sec).group(0)) if re.match(r"\d+", sec) else None
+    full_usc = defaultdict(set)
+    for a, b, key, kind in full:
+        if key.startswith("usc:"):
+            n = base(key.split(":")[2])
+            if n is not None:
+                full_usc[key.split(":")[1]].add(n)
     for m in BARE_RE.finditer(t):
         if not free(m.start(), m.end()) or U.NOT_SHORT.search(t[max(0, m.start() - 30):m.start()]) or \
                 re.search(r"(?:\b[Cc]h\.|\b[Cc]hapter|P\.\s?L\.|Pub\.\s?L\.|Act|Laws)[^§;]{0,16}$", t[max(0, m.start() - 30):m.start()]):
@@ -104,15 +118,22 @@ def find(text, flat=True):
         s = m.group(1)
         crs = re.fullmatch(CRS_SECT, s) is not None
         prev = [h for h in full if h[1] <= m.start()]
+        placed = False
         for a, b, key, kind in reversed(prev):
             if crs and key.startswith("co-crs:"):
                 add(m.start(), m.end(), "co-crs:%s" % s, "short")
+                placed = True
                 break
             if not crs and key.startswith("usc:"):
-                add(m.start(), m.end(), "usc:%s:%s" % (key.split(":")[1], s.lower()), "short")
+                t_, n = key.split(":")[1], base(s)
+                if n is not None and any(abs(n - x) <= 100 for x in full_usc[t_]):
+                    add(m.start(), m.end(), "usc:%s:%s" % (t_, s.lower()), "short")
+                    placed = True
                 break
             if not crs and not key.startswith("usc:"):
                 break                            # the last full cite was another code: leave it
+        if not placed:
+            unresolved["§ " + s] += 1
     # by name: "the First Amendment", "the Free Exercise Clause"
     named = Counter()
     for m in NAMED_AMEND_RE.finditer(t):
@@ -125,7 +146,8 @@ def find(text, flat=True):
     cites = Counter(k for _, _, k, _ in hits)
     # "§§ 26.5-4-201 et seq.": the cite stands for the part it opens
     etseq = {k for a, b, k, _ in hits if ETSEQ_RE.match(t, b)}
-    return {"cites": cites, "named": named, "etseq": etseq, "spans": sorted((a, b, k) for a, b, k, _ in hits), "text": t}
+    return {"cites": cites, "named": named, "etseq": etseq, "spans": sorted((a, b, k) for a, b, k, _ in hits), "text": t,
+            "unresolved": unresolved}
 
 
 def covers(key, other, etseq=()):

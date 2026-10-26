@@ -508,6 +508,8 @@ def inline(node, mode, ctx, marks):
             else:
                 ctx.page = pg
                 rec = "\\recordpath{%s}" % ctx.path() if ctx.record else ""
+                if re.fullmatch(r"\d+a", pg) and getattr(ctx, "oi", None) is not None:   # an appendix page: a link target
+                    rec += "\\hypertarget{app-%s-%s}{}" % (ctx.oi, pg)
                 out.append(" %s{\\scriptsize\\bfseries[*%s]} " % (rec, pg))
         elif k.tag == "footnotemark":
             label = k.text().strip()
