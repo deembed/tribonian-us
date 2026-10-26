@@ -1208,6 +1208,125 @@ def law_md(lc, statutes):
     return L + [""]
 
 
+# ---------------------------------------------------------------- the U.S. Code provisions in the case law (scope §4)
+USC_TOP = 25                                    # provisions shown, the most cited by the filings first
+
+
+def usc_context(lc, cp):
+    """Each U.S.C. provision the filings cite, as the co-citation build sees it: the sub-clusters ("areas") whose
+    decisions cite it most in the newest five-year slice (cocite usc-profile), and its most cited and newest
+    appellate decisions (cocite usc-citedby), marked where the filings cite them too.
+    -> (rows, missing): rows [{key, P, R, total, areas [(name, n, share)], cited [(ref, name, year, mine)],
+    recent [(ref, name, filed, mine)]}]; missing = the commands that would build what is not there."""
+    from tribonian import cocite_usc as cu
+    keys = sorted((k for k in set(lc["P"]) | set(lc["R"]) if k.startswith("usc:")),
+                  key=lambda k: (-(lc["P"][k] + lc["R"][k]), lawcites.sort_key(k)))
+    if not keys:
+        return [], []
+    missing = []
+    try:
+        from tribonian import cocite
+        st = cu._sec_state(cocite.NOTE_VIEW)
+    except Exception:
+        st = None
+    if st is None:
+        missing.append(("tribonian cocite usc-profile", "areas"))
+    try:
+        cb, _, _ = cu._cb_state()
+    except Exception:
+        cb = None
+    if cb is None:
+        missing.append(("tribonian cocite usc-citedby", "decisions"))
+    mine = set(cp["P"]) | set(cp["R"])
+    rows = []
+    for k in keys[:USC_TOP]:
+        _, t, sec = k.split(":", 2)
+        node = cu.ukey(t, sec)
+        r = {"key": k, "P": lc["P"][k], "R": lc["R"][k], "total": None, "areas": [], "cited": [], "recent": []}
+        if st is not None:
+            db, pr, _, _ = st
+            vl_lin = cocite.vault_links(db)[0]
+            last = pr.execute("SELECT slice FROM noden WHERE node=? ORDER BY slice DESC LIMIT 1", (node,)).fetchone()
+            if last:
+                for sub, n, share in pr.execute("SELECT sub, n, share FROM prof WHERE slice=? AND node=? ORDER BY n DESC LIMIT 2",
+                                                (last[0], node)):
+                    name, lin, _ = cocite.unit_name(db, last[0], sub, "sub")
+                    r["areas"].append((name or "sub-cluster %d" % sub, n, share, vl_lin.get(lin)))
+                r["slice"] = last[0]
+        if cb is not None:
+            t_ = cb.execute("SELECT decisions FROM total WHERE node=?", (node,)).fetchone()
+            r["total"] = t_[0] if t_ else 0
+            for kind, n_ in (("cited", 3), ("recent", 2)):
+                seen = set()
+                for ref, name, year, filed in cb.execute("SELECT ref, name, year, filed FROM top WHERE node=? AND kind=? "
+                                                         "ORDER BY rank LIMIT ?", (node, kind, n_ + 3)):
+                    if (name, filed) in seen or len(r[kind]) >= n_:   # CourtListener keeps some decisions twice
+                        continue
+                    seen.add((name, filed))
+                    r[kind].append((ref, name, filed[:4] if kind == "cited" and filed else (filed or year), ref in mine))
+        rows.append(r)
+    return rows, missing
+
+
+USC_NOTE = ("Not part of the record. The U.S. Code provisions the filings cite, most cited first, as the case law sees them: "
+            "the co-citation areas whose appellate decisions cite each most in the newest five years (share of the area's "
+            "decisions), the decisions citing it most cited by later courts, and the newest appellate ones. "
+            "A mark = a case the filings cite too.")
+
+
+def usc_tex(rows, missing, nall):
+    E = lambda t: c.esc(t, "tex")
+    if not rows:
+        return ""
+    mk = lambda m: "~$\\surd$" if m else ""
+    body = []
+    for r in rows:
+        lab = E(lawcites.label(r["key"]))
+        first = "\\textbf{%s}\\newline{\\scriptsize pet. %d, resp. %d%s}" % (
+            lab, r["P"], r["R"], "\\newline %s decisions" % format(r["total"], ",") if r["total"] else "")
+        areas = "; ".join("%s {\\scriptsize %d (%.0f\\%%)}" % (E(n), k, 100 * sh) for n, k, sh, _ in r["areas"]) or "--"
+        if r["areas"]:
+            areas = "{\\scriptsize %d--%02d:} " % (r["slice"], (r["slice"] + 4) % 100) + areas
+        cases = "; ".join("%s (%s)%s" % (E(n), y, mk(m)) for _, n, y, m in r["cited"])
+        new = "; ".join("%s (%s)%s" % (E(n), d, mk(m)) for _, n, d, m in r["recent"])
+        dec = ("\\textit{Most cited:} %s" % cases if cases else "") + ("\\newline\\textit{Newest:} %s" % new if new else "")
+        body.append("%s & %s & %s" % (first, areas, dec or "--"))
+    more = " %d more not shown." % (nall - len(rows)) if nall > len(rows) else ""
+    miss = (" Not built here: %s." % "; ".join("\\texttt{%s} (%s)" % (E(m), w) for m, w in missing)) if missing else ""
+    return ("\\headroom{8}\\pdfbookmark[0]{U.S. Code provisions in the case law}{usc-context}\n"
+            "\\noindent\\tocback\\tocadd{tocsec}{U.S. Code provisions in the case law}{\\large\\bfseries U.S. Code provisions in the case law\\par}\\vspace{2pt}\n"
+            "{\\scriptsize\\itshape %s%s%s\\par}\\vspace{3pt}\n"
+            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
+            "\\begin{longtable}{@{}p{3.3cm} p{5.2cm} p{7.3cm}@{}}\n"
+            "Provision & Areas citing it most & Decisions citing it\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
+        E(USC_NOTE), more, miss, RULED, "\\\\\\hline\n".join(body))
+
+
+def usc_md(rows, missing, nall, statutes):
+    from tribonian import cocite_usc as cu
+    E = lambda t: c.esc(t, "md")
+    if not rows:
+        return []
+    index = c.load_index()
+    link = lambda k: "[[%s\\|%s]]" % (lawcites.note_name(k), E(lawcites.label(k))) if lawcites.note_name(k) in statutes else E(lawcites.label(k))
+    case = lambda ref, n, m: cu.case_cell(ref, n, index) + (" ✓" if m else "")
+    L = ["### U.S. Code provisions in the case law", "", "*%s*" % USC_NOTE, ""]
+    if missing:
+        L += ["Not built here: %s." % "; ".join("`%s` (%s)" % mw for mw in missing), ""]
+    L += ["| Provision | Pet. | Resp. | Decisions | Areas citing it most | Most cited | Newest appellate |",
+          "|---|--:|--:|--:|---|---|---|"]
+    for r in rows:
+        areas = "; ".join("%s %d (%.0f%%)" % ("[[%s\\|%s]]" % (note, E(n).replace("|", "/")) if note else E(n).replace("|", "/"), k, 100 * sh)
+                          for n, k, sh, note in r["areas"])       # linked to the co-citation vault's lineage note
+        L.append("| %s | %d | %d | %s | %s | %s | %s |" % (
+            link(r["key"]), r["P"], r["R"], format(r["total"], ",") if r["total"] else "", areas,
+            "; ".join("%s (%s)" % (case(ref, n, m), y) for ref, n, y, m in r["cited"]),
+            "; ".join("%s (%s)" % (case(ref, n, m), d) for ref, n, d, m in r["recent"])))
+    if nall > len(rows):
+        L += ["", "%d more U.S. Code provisions not shown." % (nall - len(rows))]
+    return L + [""]
+
+
 def area_profile(cp, names, db):
     """Mentions per cocite area, each side. -> [(area name, share P, share R, n P, n R)]."""
     if db is None:
@@ -1667,6 +1786,10 @@ def build(args):
     # ---- good law for every cited case (cached per case; --no-goodlaw skips it)
     gl = goodlaw_all(set(cp["P"]) | set(cp["R"])) if args.goodlaw and con is not None else {}
     cols = status_columns(data, cp, names, gl, below_meta)
+    ucr, ucm = usc_context(lc, cp)
+    uc = (ucr, ucm, sum(1 for k in set(lc["P"]) | set(lc["R"]) if k.startswith("usc:")))
+    if ucm:
+        warnings.append("U.S. Code in the case law: not built here: %s" % "; ".join("%s (%s)" % mw for mw in ucm))
 
     # ---- one PDF
     ops = []
@@ -1696,7 +1819,7 @@ def build(args):
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
     meta = {"title": title, "name": "%s v. %s" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle"))),
             "foot": "%s v. %s, No. %s" % (short_party(feed.get("PetitionerTitle")), short_party(feed.get("RespondentTitle")), num),
-            "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) +
+            "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) + usc_tex(*uc) +
                                    (status_tex(cols, names, gl, set(cp["amici_only"])) if gl else ""),
             "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs),
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",
@@ -1764,6 +1887,7 @@ def build(args):
             L.append("")
     L += couple_md(cp, names, index, fs, areas)
     L += law_md(lc, statutes)
+    L += usc_md(uc[0], uc[1], uc[2], statutes)
     L += law_appendix_md(lc, fs, statutes)
     if gl:
         L += status_md(cols, names, index, gl, set(cp["amici_only"]))

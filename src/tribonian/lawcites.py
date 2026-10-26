@@ -148,12 +148,41 @@ def section_of(key):
     return ":".join(p[:2]) if p[0] in ("co-ccr", "const", "co-const") and len(p) > 2 else key
 
 
+_USC_CASE = None
+
+
+def usc_section(title, sec):
+    """A section number as the Code writes it: keys are lower case ('25f'), the Code has '25F' and '2000e'.
+    From the identifiers in the US Code notes (md/, usc2md.py), read once; the key itself when there are none."""
+    global _USC_CASE
+    if not re.search(r"[a-z]", sec):
+        return sec
+    if _USC_CASE is None:
+        _USC_CASE = {}
+        try:
+            from tribonian import tconfig
+            for f in (tconfig.WORK / "md").rglob("*-usc-*.md"):
+                if not re.search(r"[a-z]$", f.stem):
+                    continue
+                with open(f, encoding="utf-8") as fh:
+                    for line in fh:
+                        m = re.match(r"identifier: /us/usc/t(\w+?)/s(\S+)", line)
+                        if m:
+                            _USC_CASE[(m.group(1).lower(), m.group(2).lower())] = m.group(2)
+                            break
+                        if line.startswith("aliases") or line.startswith("# "):
+                            break
+        except OSError:
+            pass
+    return _USC_CASE.get((title.lower(), sec.lower()), sec)
+
+
 def label(key):
     """A readable citation for a key."""
     p = key.split(":")
     kind = p[0]
     if kind == "usc":
-        return "%s U.S.C. § %s" % (p[1].upper(), p[2])
+        return "%s U.S.C. § %s" % (p[1].upper(), usc_section(p[1], p[2]))
     if kind == "const":
         a, n = p[1].split("-")
         r = {v: k for k, v in ROMAN.items()}[int(n)]
