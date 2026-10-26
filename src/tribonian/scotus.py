@@ -243,6 +243,83 @@ def norm(t):
     return re.sub(r"[^0-9a-z]", "", (t or "").lower())
 
 
+def words_of(*texts):
+    """Word counts (lower case) of the texts: the vocabulary despace splits headings into."""
+    return Counter(w for t in texts for w in re.findall(r"[a-z]+(?:[’'][a-z]+)?", t.lower()))
+
+
+def word_score(w, vocab):
+    """log of the word's share of the vocabulary, or None if it is not a word: seen fewer than three times
+    (fragments of letter-spaced text, "sary", "pri", are rare), or a single letter other than a and i."""
+    import math
+    n = vocab.get(w.lower(), 0)
+    if n < 3 or (len(w) == 1 and w.lower() not in "ai"):
+        return None
+    return math.log(n / vocab["__total__"]) if "__total__" in vocab else math.log(n / sum(vocab.values()))
+
+
+def split_words(s, vocab):
+    """'AMICICATHOLICFAMILIES' -> 'AMICI CATHOLIC FAMILIES': the likeliest split into vocab words
+    (the product of their frequencies). A stretch no word fits (a name) stays, at a cost per letter."""
+    import math
+    unknown = math.log(1 / vocab["__total__"]) - 2           # per letter: worse than any word
+    best = [(0.0, [])] + [None] * len(s)
+    for i in range(1, len(s) + 1):
+        for j in range(max(0, i - 30), i):
+            if best[j] is None:
+                continue
+            sc = word_score(s[j:i], vocab)
+            sc = sc if sc is not None else unknown * (i - j)
+            if best[i] is None or best[j][0] + sc > best[i][0]:
+                best[i] = (best[j][0] + sc, best[j][1] + [s[j:i]])
+    return " ".join(best[-1][1]) if best[-1] else None
+
+
+def despace(text, vocab):
+    """Letter-spaced capitals from pdftotext ("A M I C I C A T H O L I C FA M I L I E S", "H A S") -> words again.
+    vocab: words_of the docket's filings. Two steps:
+    1. where three or more tokens of one or two letters (or a lone ’) run together, the whole stretch of
+       letter tokens around them is joined and split again into the likeliest vocab words (the spacing
+       gives no word breaks)
+    2. two to four capital tokens are joined when together they are a word much commoner than the rarest
+       of them ("PRI MARY", "NECES SARY", "PRES CHO OLS"), so "IN TO" stays two words"""
+    if not vocab:
+        return " ".join(text.split())
+    vocab = Counter(vocab)
+    vocab["__total__"] = sum(vocab.values())
+    toks, out, k = text.split(), [], 0
+    caps = lambda t: re.fullmatch(r"[A-Z’']+", t)
+    word = lambda t: re.fullmatch(r"[A-Za-z’']+", t)           # "Religious E x e mp t i o n s" is spaced too
+    short = lambda t: word(t) and len(re.sub(r"[’']", "", t)) <= 2
+    while k < len(toks):
+        j = k
+        while j < len(toks) and short(toks[j]):
+            j += 1
+        if j - k >= 3:                         # letter-spaced: the whole stretch of capitals around it, split again
+            while k > 0 and out and word(out[-1]):
+                k -= 1
+                out.pop()
+            while j < len(toks) and word(toks[j]):
+                j += 1
+            out += split_words("".join(toks[k:j]), vocab).split()
+            k = j
+        else:
+            out.append(toks[k])
+            k += 1
+    count = lambda t: vocab.get(t.lower(), 0)
+    i = 0
+    while i < len(out):
+        for n in (4, 3, 2):
+            part = out[i:i + n]
+            whole = "".join(part)
+            if len(part) == n and all(caps(t) for t in part) and word_score(whole, vocab) is not None and \
+                    min(count(t) for t in part) < count(whole) / 10:
+                out[i:i + n] = [whole]
+                break
+        i += 1
+    return " ".join(out)
+
+
 def label_type(lab, stack):
     if re.fullmatch(r"\d+", lab):
         return "digit"
@@ -419,9 +496,13 @@ def segment_blocks(lines, labels, prev_pi, demote=True):
     return blocks
 
 
-def read_brief(text, f, oi, warn, appendix=False):
-    """One brief -> the opinion dict render_md / render_tex print."""
+def read_brief(text, f, oi, warn, appendix=False, vocab=None):
+    """One brief -> the opinion dict render_md / render_tex print. vocab: words_of every filing in the docket
+    (a word letter-spaced in one brief's headings is usually written plainly in another); default its own."""
     sp = split_brief(text, appendix)
+    vocab = vocab or words_of(text)
+    for e in sp["toc"]:
+        e["text"] = despace(e["text"], vocab)
     keep = sp["qp"] + sp["body"]
     mylabels = [lab or str(k + 1) for k, (lab, ls) in enumerate(keep)]
     lines, footnotes, _ = c.layout_pages("\f".join("\n".join(ls) for lab, ls in keep))
@@ -446,6 +527,13 @@ def read_brief(text, f, oi, warn, appendix=False):
         pos = r[1]
     for e in missed:
         warn("heading not found in the text: %s%s (p. %s)" % (e["label"] + ". " if e["label"] else "", e["text"][:60], e["page"]))
+    # --appendix: the appendix gets its own heading (an outline and contents entry under the filing)
+    main_ = nqp + sp["main"]
+    k = next((k for k, l in enumerate(lines) if l.pi >= main_), None) if appendix else None
+    if k is not None and (not heads or k >= heads[-1][1]):
+        first = lines[k].text.strip()
+        heads.append((k, k + 1 if re.fullmatch(r"(?i)appendix(\s+[a-z])?", first) else k,
+                      {"label": "", "text": "Appendix", "level": 1, "page": labels[lines[k].pi]}))
     o = {"oi": oi, "kind": "", "author": "", "byline": [], "flat": [], "footnotes": {}, "api": f,
          "start": labels[lines[0].pi] if lines else "1", "title": f["title"], "who": f["who"]}
     blocks, levels, at, prev_pi = [], [], 0, None
@@ -460,7 +548,7 @@ def read_brief(text, f, oi, warn, appendix=False):
         short = e["label"] or " ".join(c.titlecase(e["text"]).split()[:3]).rstrip(",;:")   # "Summary of Argument"
         path += [""] * (e["level"] - 1 - len(path)) + [short]
         blocks.append({"kind": "h", "label": lab, "pieces": [], "level": e["level"], "path": "-".join(p for p in path if p)})
-        tail = re.search(r"(?:\s|(?<=[A-Za-z’'”]))(\d{1,2})\s*$", lines[j - 1].text)   # "INTEREST OF AMICI CURIAE 1", or "CURIAE1"
+        tail = re.search(r"(?:\s|(?<=[A-Za-z’'”]))(\d{1,2})\s*$", lines[j - 1].text) if j > i else None   # "CURIAE 1", "CURIAE1"
         if tail and any(f[0] == tail.group(1) for f in footnotes) and not norm(e["text"]).endswith(tail.group(1)):
             heading_marks.append((len(blocks), tail.group(1)))
         if lines[i].pi != prev_pi:              # the page turns before the heading: mark it at the end of what precedes
@@ -469,7 +557,7 @@ def read_brief(text, f, oi, warn, appendix=False):
                 prev["pieces"].append(c.El("page-number", {"label": labels[lines[i].pi]}))
             else:
                 blocks[-1]["page"] = labels[lines[i].pi]
-        prev_pi = lines[j - 1].pi
+        prev_pi = lines[max(i, j - 1)].pi            # j == i: a heading with no line of its own (the appendix)
         if e["label"]:
             blocks.append({"kind": "title", "pieces": [(c.titlecase(e["text"]), lines[i].pi)]})
         at = j
@@ -1041,11 +1129,11 @@ def law_tex(lc):
         cells, fil = split_cells(lc, k)
         rows.append(" & ".join([str(i), "\\hyperlink{%s}{%s}" % (law_anchor(k), lab) if g == "liq" else lab] + cells + [fil,
                                 "%d/%d" % (lc["nameP"][k], lc["nameR"][k]) if lc["nameP"][k] or lc["nameR"][k] else ""]))
-    return ("\\pdfbookmark[1]{Statutes and provisions the filings cite}{laws}\n"
+    return ("\\pdfbookmark[0]{Statutes and provisions the filings cite}{laws}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!40!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
             "\\tocback\\tocadd{tocsec}{Statutes and provisions the filings cite}\\textbf{Statutes and provisions the filings cite.}\\par\\vspace{2pt}\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n"
-            "\\clearpage\\pdfbookmark[1]{Every provision, by side}{provisions}\n"
+            "\\clearpage\\pdfbookmark[0]{Every provision, by side}{provisions}\n"
             "\\noindent\\tocback\\tocadd{tocsec}{Every provision, by side}{\\large\\bfseries Every provision, by side\\par}\\vspace{2pt}\n"
             "{\\scriptsize\\itshape %s Named = mentions by name, pet./resp. (amici included).\\par}\\vspace{3pt}\n"
             "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\n"
@@ -1227,7 +1315,7 @@ def couple_tex(cp, names, fs, areas):
         rows = [[E(a[:58]), "%d\\%%" % round(100 * p), "%d\\%%" % round(100 * r)] for a, p, r, _, _ in areas[:12]]
         out.append("\\textbf{Areas each side draws on} {\\footnotesize (share of mentions by the cited case's co-citation area)}\\par")
         out.append(table(rows, ["Area", "Pet.", "Resp."], "p{7.4cm}rr"))
-    return ("\\pdfbookmark[1]{Authorities the filings share}{coupling}\n"
+    return ("\\pdfbookmark[0]{Authorities the filings share}{coupling}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!40!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
             "\\tocback\\tocadd{tocsec}{Authorities the filings share}\\textbf{Authorities the filings share.}\\par\\vspace{2pt}\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
@@ -1249,7 +1337,7 @@ def authorities_tex(cp, names):
     if not rows:
         return ""
     head = split_head(["\\#", "Case", "Cite"], ["Filings", "Below"])
-    return ("\\pdfbookmark[1]{Every authority, by side}{authorities}\n"
+    return ("\\pdfbookmark[0]{Every authority, by side}{authorities}\n"
             "\\noindent\\tocback\\tocadd{tocsec}{Every authority, by side}{\\large\\bfseries Every authority, by side\\par}\\vspace{2pt}\n"
             "{\\scriptsize\\itshape Not part of the record. %s Below = cited in the court of appeals' opinion. "
             "Cite is what \\texttt{tribonian case fetch --cite} takes.\\par}\\vspace{3pt}\n"
@@ -1273,7 +1361,7 @@ def docket_tex(data, qp_text):
     if qp_text:
         lines.append("\\vspace{3pt}\\textbf{Questions presented} {\\footnotesize (the Clerk's statement)}\\par")
         lines += ["{\\small %s\\par}" % E(p) for p in qp_text]
-    return ("\\tocadd{tocsec}{The case}\\pdfbookmark[1]{The case}{docket}\n"
+    return ("\\tocadd{tocsec}{The case}\\pdfbookmark[0]{The case}{docket}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!60!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n\\vspace{6pt}\n") % (
         c.HEAD_COLOR, c.HEAD_COLOR.split("!")[0], "\n".join(lines))
@@ -1492,8 +1580,9 @@ def build(args):
 
     # ---- the filings
     fs = filings(data, con)
+    vocab = words_of(*(f["brief"] for f in fs)) if fs else None
     for i, f in enumerate(fs):
-        o = read_brief(f["brief"], f, i, lambda w, a=f["abbr"]: warnings.append("%s: %s" % (a, w)), args.appendix)
+        o = read_brief(f["brief"], f, i, lambda w, a=f["abbr"]: warnings.append("%s: %s" % (a, w)), args.appendix, vocab)
         if f["kind"] == "amicus":
             f["side"] = o["side_cover"] or f["side"]
         f["o"] = o
