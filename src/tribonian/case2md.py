@@ -2276,6 +2276,15 @@ def split_footnotes(raw, nxt, prev_open):
         if m and nxt <= int(m.group(1)) <= nxt + 2 and len(l) - len(l.lstrip()) <= 12 and any(x.strip() for x in raw[:j]) and any(x.strip() for x in raw[j + 1:]):
             k, nxt = j, int(m.group(1))         # a skipped number (lost in the text layer) costs one footnote, not the rest
             break
+    inline = False
+    if k is None:                   # "1  Plaintiffs refer to ...": the number on the same line as the note's text
+        # (court of appeals slip opinions); after a blank line, below the page's first lines, the next number only
+        for j in range(4, len(raw)):
+            m = FNSTART_RE.match(raw[j])
+            if m and nxt <= int(m.group(2)) <= nxt + 1 and not raw[j - 1].strip() and any(x.strip() for x in raw[:j]) and \
+                    not m.group(3)[:1].isdigit() and not NOT_FNTEXT_RE.match(m.group(3)):
+                k, nxt, inline = j, int(m.group(2)), True
+                break
     end = k if k is not None else len(raw)
     fns, body_end = [], end
     if prev_open:                   # its tail: the last group above, after 2+ blank lines, set wider than the body
@@ -2295,10 +2304,17 @@ def split_footnotes(raw, nxt, prev_open):
             body_end = g_start
     if k is not None:
         cur = None
+        prev_blank = True
         for l in raw[k:]:
             m = FNLABEL_RE.match(l)
+            mi = FNSTART_RE.match(l) if inline and prev_blank else None
+            prev_blank = not l.strip() or re.search(r"[.)\]”’\"]\s*$", l) is not None   # a note ends a sentence
             if m and int(m.group(1)) == nxt:
                 cur = (m.group(1), [[]])
+                fns.append(cur)
+                nxt += 1
+            elif mi and int(mi.group(2)) == nxt:
+                cur = (mi.group(2), [[mi.group(3).strip()]])
                 fns.append(cur)
                 nxt += 1
             elif cur is None:
@@ -2316,6 +2332,7 @@ def split_footnotes(raw, nxt, prev_open):
 
 FNRULE_RE = re.compile(r"^\s*—{4,}\s*$")        # the Supreme Court's footnote rule
 FNSTART_RE = re.compile(r"^(\s{0,6})(\d{1,3})\s+(\S.*)$")
+NOT_FNTEXT_RE = re.compile(r"(?:U\.\s?S\.|C\.\s?F\.\s?R|Stat\.|F\.\s?(?:\d|Supp)|S\.\s?Ct\.|L\.\s?Ed|[a-z])")   # a cite or a line's tail
 
 
 def split_ruled_footnotes(raw, rule, nxt):
@@ -2680,6 +2697,11 @@ def place_marks(blocks, footnotes, warn, spaced=False):
             blocks[bi]["pieces"].insert(pj + 1, mark)
             pos = [bi, pj + 2, 0]
             warn("footnote %s: its number was not found in the text; marked at the end of page %s" % (lab, pi + 1))
+        elif pos[0] < len(blocks) and pos[1] > 0:  # nothing left on its page after the previous mark: beside that mark
+            bi, pj = pos[0], min(pos[1], len(blocks[pos[0]]["pieces"]))
+            blocks[bi]["pieces"].insert(pj, mark)
+            pos = [bi, pj + 1, 0]
+            warn("footnote %s: its number was not found in the text; marked after the footnote before it" % lab)
         else:
             warn("footnote %s: nowhere to attach it; left out" % lab)
 
