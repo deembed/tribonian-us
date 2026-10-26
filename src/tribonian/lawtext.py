@@ -2,8 +2,8 @@
 
 U.S.C. sections from the US Code XML in xml/ (usc2md.py's parser); C.F.R. sections and parts
 from eCFR's title XML in <law_dir>/cfr/ (cfr.py fetch); Colorado statutes and constitution from
-the OLLS title files in <law_dir>/co/crs/ (statelaw.py). The U.S. Constitution, the Code of Colorado
-Regulations and other states come once their local copies exist (scope-scotus-law.md §3); until then text_of() returns None and
+the OLLS title files in <law_dir>/co/crs/ (statelaw.py). Code of Colorado Regulations rules from
+the Secretary of State's Word files in <law_dir>/co/ccr/. The U.S. Constitution and other states come once their local copies exist (scope-scotus-law.md §3); until then text_of() returns None and
 the caller says the text is not local.
 """
 import re
@@ -270,6 +270,67 @@ def co_const(article, section=None):
     return c.esc(SEC_START.match(paras[i][0]).group(2), "tex") + when, _co_rows(paras, i + 1, min(_co_end(paras, i, is_start), end))
 
 
+def _ccr_paras(series):
+    """A Code of Colorado Regulations rule's Word file -> [(style, text)], or None if not local."""
+    import html, zipfile
+    key = "ccr" + series
+    if key not in _ROOTS:
+        from tribonian import statelaw
+        path, paras = statelaw.state_dir("CO") / "ccr" / ("%s.docx" % series), None
+        if path.exists():
+            xml = zipfile.ZipFile(path).read("word/document.xml").decode("utf-8")
+            paras = []
+            for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S):
+                st = re.search(r'<w:pStyle w:val="([^"]+)"', p)
+                text = "".join(html.unescape(m.group(1)) if m.group(1) is not None else " "
+                               for m in re.finditer(r"<w:t(?:\s[^>]*)?>([^<]*)</w:t>|<w:tab/>", p))
+                text = " ".join(text.split())
+                if text:
+                    paras.append((st.group(1) if st else "", text))
+        _ROOTS[key] = paras
+    return _ROOTS[key]
+
+
+CCR_SEC = re.compile(r"^(\d+\.\d+[A-Za-z]?)\s*(.*)")
+
+
+def co_ccr(series, section=None):
+    """8 CCR 1404-1 ('8-1404-1') -> the whole rule, section by section; with a section ('4.109') -> its text.
+    From the rule's current Word version (statelaw.py). Paragraph depth from the SOS styles par1/par2/par3."""
+    from tribonian import statelaw
+    paras = _ccr_paras(series)
+    if paras is None:
+        return None
+    meta = statelaw.local_meta(statelaw.state_dir("CO") / "ccr" / ("%s.docx" % series)) or {}
+    when = " {\\normalfont\\footnotesize (effective %s)}" % c.long_date(meta["effective"]) if meta.get("effective") else ""
+    heads = [(k, CCR_SEC.match(t)) for k, (st, t) in enumerate(paras) if st.startswith("Heading2")]
+    if section is None:                  # the whole rule: every section, heading then text (a rule runs to tens of pages)
+        title = next((t for st, t in paras if st == "Heading1"), "")
+        rows = []
+        for k, m in heads:
+            if not m:
+                continue
+            rows.append((0, c.esc("§ " + m.group(1), "tex"), c.esc(c.titlecase(m.group(2)), "tex"), ""))
+            rows += _ccr_body(paras, k)
+        return c.esc(c.titlecase(title), "tex") + when, rows
+    k = next((k for k, m in heads if m and m.group(1) == section), None)
+    if k is None:
+        return None
+    m = CCR_SEC.match(paras[k][1])
+    return c.esc(c.titlecase(m.group(2)), "tex") + when, _ccr_body(paras, k)
+
+
+def _ccr_body(paras, k):
+    """The paragraphs after the section heading at k, to the next heading; depth from the style (par1 = 0)."""
+    rows = []
+    for st, t in paras[k + 1:]:
+        if st.startswith("Heading"):
+            break
+        d = re.search(r"par(\d)", st)
+        rows.append((int(d.group(1)) - 1 if d else 0, "", "", c.esc(t, "tex")))
+    return rows
+
+
 def text_of(key):
     """A provision's local text: (heading, rows) or None."""
     p = key.split(":")
@@ -282,20 +343,59 @@ def text_of(key):
             return co_crs(p[1])
         if p[0] == "co-const":
             return co_const(p[1].split("-")[1], p[2] if len(p) > 2 else None)
+        if p[0] == "co-ccr":
+            return co_ccr(p[1], p[2] if len(p) > 2 else None)
     except Exception:
         return None
     return None
 
 
-def fetch_hint(key):
-    """The command that would store a provision's text locally, or '' when there is none yet."""
+def fetch_spec(key):
+    """What would store a provision's text locally: ("cfr", title) | ("state", state, code, item) | None."""
     p = key.split(":")
     if p[0] == "cfr":
-        return "tribonian cfr fetch %s" % p[1]
-    if p[0] == "usc":
-        return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1]
+        return ("cfr", p[1])
     if p[0] == "co-crs":
-        return "tribonian state fetch CO crs %s" % p[1].split("-")[0]
+        return ("state", "CO", "crs", p[1].split("-")[0])
     if p[0] == "co-const":
-        return "tribonian state fetch CO crs 00"
-    return ""
+        return ("state", "CO", "crs", "00")
+    if p[0] == "co-ccr":
+        return ("state", "CO", "ccr", p[1])
+    return None
+
+
+def fetch_hint(key):
+    """The command that would store a provision's text locally, or '' when there is none yet."""
+    spec = fetch_spec(key)
+    if spec is None:
+        p = key.split(":")
+        return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1] if p[0] == "usc" else ""
+    return "tribonian cfr fetch %s" % spec[1] if spec[0] == "cfr" else "tribonian state fetch %s %s %s" % spec[1:]
+
+
+def run_fetch(spec):
+    """Fetch what spec names, in this process. -> (True, '') or (False, why). Never raises and never exits:
+    the fetchers sys.exit on refusals (robots.txt, HTTP errors, no such title), which becomes the reason;
+    a dropped connection or timeout mid-download likewise. A half-written file stays as *.part, never
+    under the real name."""
+    try:
+        if spec[0] == "cfr":
+            from tribonian import cfr
+            known, _ = cfr.titles()
+            if spec[1] not in known:
+                return False, "no title %s in eCFR's list" % spec[1]
+            cfr.fetch_one(spec[1], known[spec[1]])
+        else:
+            from tribonian import statelaw
+            reader = statelaw.FETCHERS.get((spec[1], spec[2]))
+            if reader is None:
+                return False, "no reader for %s %s yet" % (spec[1], spec[2])
+            reader([spec[3]])
+    except SystemExit as e:
+        return False, str(e.code) if e.code not in (None, 0) else "stopped"
+    except KeyboardInterrupt:
+        raise
+    except Exception as e:                        # network gone, timeout, a page that changed shape
+        return False, "%s: %s" % (type(e).__name__, e)
+    _ROOTS.clear()                               # read the new files, not the cached "not local"
+    return True, ""

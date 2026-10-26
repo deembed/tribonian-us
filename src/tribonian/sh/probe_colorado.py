@@ -12,7 +12,7 @@ UA = "tribonian-us/0.1 (personal legal formatter; one request per second)"
 OUT = Path("law/co/probe")
 START = ["https://www.sos.state.co.us/CCR/NumericalDeptList.do"]
 # links worth following from a saved page: the early-childhood department, rule 1404-1, its documents
-FOLLOW = re.compile(r"(?i)early\s*childhood|1404|DisplayRule|GenerateRulePdf|ruleVersion|ruleinfo")
+FOLLOW = re.compile(r"(?i)1404|DisplayRule|GenerateRulePdf|ruleVersion|ruleinfo")
 robots, seen, log = {}, set(), []
 
 
@@ -66,7 +66,8 @@ def main():
         for m in re.finditer(r"""<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>""", html, re.I | re.S):
             href, text = m.group(1), re.sub(r"<[^>]+>|\s+", " ", m.group(2))
             if FOLLOW.search(href + " " + text):
-                queue.append((urllib.parse.urljoin(final, href.replace("&amp;", "&")), depth + 1))
+                url_ = urllib.parse.urljoin(final, href.replace("&amp;", "&"))
+                queue.append((urllib.parse.quote(url_, safe=":/?&=%#;,+"), depth + 1))   # the SOS links hold spaces
     (OUT / "index.txt").write_text("\n".join(log) + "\n", encoding="utf-8")
     print("saved %d pages in %s (index.txt lists them)" % (n, OUT))
 

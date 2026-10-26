@@ -4,6 +4,7 @@ data/state_law_sources.toml. Colorado so far:
 
     tribonian state fetch CO crs 26.5 00      C.R.S. titles (00 = the Colorado Constitution)
     tribonian state fetch CO crs 26.5 --force download again
+    tribonian state fetch CO ccr 8-1404-1     a rule of the Code of Colorado Regulations (8 CCR 1404-1)
     tribonian state list                      what is stored here
 
 C.R.S.: the Office of Legislative Legal Services' per-title HTML (olls.info/crs/crs<edition>-title-NN.htm),
@@ -85,7 +86,67 @@ def fetch_co_crs(titles, force=False, edition=CRS_EDITION):
         time.sleep(1)
 
 
-FETCHERS = {("CO", "crs"): fetch_co_crs}
+SOS = "https://www.sos.state.co.us/CCR/"
+
+
+def get_text(url):
+    """A page's HTML (robots.txt obeyed, a second between requests)."""
+    if not allowed(url):
+        sys.exit("robots.txt disallows %s; not fetched" % url)
+    time.sleep(1)
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.read().decode("utf-8", "replace")
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        sys.exit("%s: %s" % (url, e))
+
+
+def sos_url(path):
+    return urllib.parse.quote(urllib.parse.urljoin(SOS, path.replace("&amp;", "&")), safe=":/?&=%#;,+")
+
+
+def fetch_co_ccr(series, force=False):
+    """8 CCR 1404-1: the Secretary of State's department list -> the agency's rule list -> the rule's page ->
+    its current version, as the Word document (the PDF is the official one; the DOCX is the same text,
+    easier to read). Files: <law_dir>/co/ccr/8-1404-1.docx + .json {effective, version_id, url, ...}."""
+    import html as _html, re
+    for ser in series:
+        m = re.fullmatch(r"(\d+)-(\d{3,4})-(\d+)", ser)
+        if not m:
+            sys.exit("give the rule as volume-agency-number, e.g. 8-1404-1 for 8 CCR 1404-1")
+        vol, agency, num = m.groups()
+        name = "%s CCR %s-%s" % (vol, agency, num)
+        path = state_dir("CO") / "ccr" / ("%s.docx" % ser)
+        have = local_meta(path)
+        if have and not force:
+            print("%s: local, effective %s (fetched %s); --force to check for a newer version" % (name, have["effective"], have["fetched"]))
+            continue
+        page = get_text(SOS + "NumericalDeptList.do")
+        link = re.search(r"""href=["']([^"']*agencyName=%s[ %%][^"']*)["']""" % agency, page)
+        if not link:
+            sys.exit("%s: no agency %s in the Secretary of State's department list" % (name, agency))
+        page = get_text(sos_url(link.group(1)))
+        link = re.search(r"""href=["']([^"']*DisplayRule\.do[^"']*seriesNum=%s[^"']*)["']""" % re.escape(name).replace("\\ ", "(?: |%20|\\+)"), page)
+        if not link:
+            sys.exit("%s: not in the agency's rule list" % name)
+        page = get_text(sos_url(_html.unescape(link.group(1))))
+        cur = page                          # the current version's row comes first, before the archived ones
+        word = re.search(r"OpenRuleWordVersion\('(\d+)'", cur)
+        eff = re.search(r"OpenRuleWindow\('\d+'[^>]*>\s*(\d{2})/(\d{2})/(\d{4})", cur)
+        if not word:
+            sys.exit("%s: no current Word version on the rule's page" % name)
+        url = sos_url("GenerateRulePdf.do?type=word&ruleVersionId=%s&fileName=%s" % (word.group(1), name))
+        print("%s, current version %s ..." % (name, word.group(1)), flush=True)
+        n = download(url, path)
+        effective = "%s-%s-%s" % (eff.group(3), eff.group(1), eff.group(2)) if eff else ""
+        path.with_suffix(".json").write_text(json.dumps(
+            {"effective": effective, "version_id": word.group(1), "fetched": date.today().isoformat(), "url": url, "bytes": n},
+            indent=1), encoding="utf-8")
+        print("  wrote %s (effective %s, %.1f MB)" % (path, effective or "?", n / 1e6))
+
+
+FETCHERS = {("CO", "crs"): fetch_co_crs, ("CO", "ccr"): fetch_co_ccr}
 
 
 def cmd_fetch(args):
@@ -103,8 +164,8 @@ def cmd_list(args):
         return
     for p in rows:
         m = json.loads(p.read_text(encoding="utf-8"))
-        print("%-3s %-4s %-14s %s edition  fetched %s  %6.1f MB" % (p.parts[-3].upper(), p.parts[-2], p.stem,
-                                                                 m.get("edition", "?"), m["fetched"], m["bytes"] / 1e6))
+        print("%-3s %-4s %-14s %s  fetched %s  %6.1f MB" % (p.parts[-3].upper(), p.parts[-2], p.stem,
+              "%s edition" % m["edition"] if "edition" in m else "effective %s" % m.get("effective", "?"), m["fetched"], m["bytes"] / 1e6))
     print("in %s" % base)
 
 
@@ -113,8 +174,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch", help="download a state's code, title by title, unless already local")
     f.add_argument("state", help="postal code, e.g. CO")
-    f.add_argument("code", help="crs (Colorado Revised Statutes; title 00 is the constitution)")
-    f.add_argument("items", nargs="+", help="titles, e.g. 26.5 00")
+    f.add_argument("code", help="crs (Colorado Revised Statutes; title 00 is the constitution) or ccr (Code of Colorado Regulations)")
+    f.add_argument("items", nargs="+", help="crs: titles, e.g. 26.5 00; ccr: rules, e.g. 8-1404-1")
     f.add_argument("--force", action="store_true", help="download again whatever is local")
     f.set_defaults(func=cmd_fetch)
     l = sub.add_parser("list", help="what is stored here")

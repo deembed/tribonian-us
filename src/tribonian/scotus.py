@@ -917,6 +917,22 @@ def law_paras(text):
     return out
 
 
+def law_missing(lc, fetch, warnings):
+    """The law in question whose text is not local. fetch: get it first (lawtext.run_fetch: never fails the
+    build; what could not be fetched is reported). -> [(key, hint)] still missing, printed at the end."""
+    from tribonian import lawtext
+    todo = [k for k in lc["liq"] if lawtext.text_of(k) is None]
+    if fetch and todo:
+        specs = list(dict.fromkeys(s for s in map(lawtext.fetch_spec, todo) if s))
+        for spec in specs:
+            print("fetch: %s" % " ".join(spec[1:] if spec[0] == "state" else spec), flush=True)
+            ok, why = lawtext.run_fetch(spec)
+            if not ok:
+                warnings.append("could not fetch %s: %s" % (" ".join(spec[1:]), why))
+        todo = [k for k in todo if lawtext.text_of(k) is None]
+    return [(k, lawtext.fetch_hint(k)) for k in todo]
+
+
 def law_appendix_tex(lc, fs):
     """The last part of the PDF: the law in question, as the parties set it out and, where it is
     stored locally, its text. Every cite of these provisions in the filings links here."""
@@ -1531,6 +1547,7 @@ def build(args):
     # ---- the analysis
     cp = coupling(fs, below_cites, con)
     lc = law_analysis(fs, qp_paragraphs(data))
+    missing = law_missing(lc, getattr(args, "fetch", False), warnings)
     allc = set(cp["P"]) | set(cp["R"]) | cp["below"] | {k for f in fs for k in f["cites"]}
     names = case_names(con, allc)
     areas = []
@@ -1664,6 +1681,10 @@ def build(args):
         len(allc - cp["below"]), len(cp["contested"]), cp["sides_both"], len(cp["amici_only"]), sum(len(f["miss"]) for f in fs)))
     for w in warnings:
         print("  note:", w)
+    if missing:
+        print("  law in question not stored locally (%s):" % ("could not fetch" if getattr(args, "fetch", False) else "--fetch gets what it can"))
+        for k, hint in missing:
+            print("    %-34s %s" % (lawcites.label(k), hint or "no reader yet"))
     return data, fs, cp, cid
 
 
@@ -2034,6 +2055,8 @@ def main():
     b.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
     b.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
+    b.add_argument("--fetch", action="store_true", help="download the text of the law in question that is not local "
+                   "(C.F.R. titles, Colorado law); a refusal or a dropped connection is reported and the build goes on")
     b.set_defaults(func=build_cmd)
     r = sub.add_parser("recent", help="the Court's recent opinions, grants and orders -> cases/scotus/_recent.json")
     r.add_argument("--json", action="store_true", help="also print the result as JSON")
