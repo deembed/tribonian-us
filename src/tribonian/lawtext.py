@@ -1,8 +1,9 @@
 """lawtext.py -- the text of a cited provision, from what is stored locally.
 
 U.S.C. sections from the US Code XML in xml/ (usc2md.py's parser); C.F.R. sections and parts
-from eCFR's title XML in <law_dir>/cfr/ (cfr.py fetch). The Constitution and state codes come
-once their local copies exist (scope-scotus-law.md §3); until then text_of() returns None and
+from eCFR's title XML in <law_dir>/cfr/ (cfr.py fetch); Colorado statutes and constitution from
+the OLLS title files in <law_dir>/co/crs/ (statelaw.py). The U.S. Constitution, the Code of Colorado
+Regulations and other states come once their local copies exist (scope-scotus-law.md §3); until then text_of() returns None and
 the caller says the text is not local.
 """
 import re
@@ -147,6 +148,128 @@ def cfr(title, section):
     return head, rows
 
 
+# ---------------------------------------------------------------- Colorado (statelaw.py fetches the OLLS title files)
+
+def _co_paras(title):
+    """An OLLS C.R.S. title file (Word-filtered HTML) -> [(text, bold_start, centered)], or None if not local."""
+    import html
+    key = "co" + title
+    if key not in _ROOTS:
+        from tribonian import statelaw
+        path = statelaw.state_dir("CO") / "crs" / ("title-%s.htm" % statelaw.crs_title_name(title))
+        paras = None
+        if path.exists():
+            raw = path.read_text(encoding="cp1252", errors="replace")
+            paras = []
+            for m in re.finditer(r"<p\b([^>]*)>(.*?)</p>", raw, re.S | re.I):
+                body = m.group(2)
+                text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", body)).split())
+                if text:
+                    paras.append((text, re.match(r"\s*(<span[^>]*>\s*)?<b>", body, re.I) is not None, "center" in m.group(1)))
+        _ROOTS[key] = paras
+    return _ROOTS[key]
+
+
+CO_LABEL_RE = re.compile(r"\(([0-9]+(?:\.[0-9]+)?|[a-z]+(?:\.[0-9]+)?|[IVXL]+(?:\.[0-9]+)?|[A-Z](?:\.[0-9]+)?)\)")
+
+
+def _co_depth(label, prev_cap):
+    """C.R.S. paragraphs: (1) 0, (a) 1, (I) 2, (A) 3. (I), (V), (X) are letters after (H), (U), (W)."""
+    lab = label.split(".")[0]
+    if lab.isdigit():
+        return 0
+    if lab.islower():
+        return 1
+    if set(lab) <= set("IVXL") and not (len(lab) == 1 and prev_cap == chr(ord(lab) - 1)):
+        return 2
+    return 3
+
+
+def _co_rows(paras, start, stop):
+    """Body paragraphs -> rows; the Source note in small type; annotations left out."""
+    rows, depth, cap = [], 0, None
+    for text, bold, centered in paras[start:stop]:
+        if text.startswith("Source:") or text.startswith("Editor's note") or text.startswith("Cross references"):
+            rows.append((0, "", "", "{\\footnotesize %s}" % c.esc(text, "tex")))
+            continue
+        labels = []
+        rest = text
+        while True:
+            m = CO_LABEL_RE.match(rest)
+            if not m:
+                break
+            labels.append(m.group(1))
+            rest = rest[m.end():].lstrip()
+        if labels:
+            depth = _co_depth(labels[-1], cap)
+            if depth == 3:
+                cap = labels[-1].split(".")[0]
+        rows.append((depth if labels else 0, "", "", c.esc(text, "tex")))
+    return rows
+
+
+def _co_end(paras, i, is_start):
+    """Index of the paragraph after a section's text: the next section, a centered heading, or ANNOTATION."""
+    j = i + 1
+    while j < len(paras):
+        text, bold, centered = paras[j]
+        if centered or is_start(paras[j]) or text == "ANNOTATION":
+            break
+        j += 1
+    return j
+
+
+CRS_START = re.compile(r"^(\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?)\.\s+(.*)")
+
+
+def co_crs(section):
+    """'26.5-4-205' -> (heading, rows) from the local OLLS title file, or None."""
+    from tribonian import statelaw
+    paras = _co_paras(section.split("-")[0])
+    if paras is None:
+        return None
+    is_start = lambda p: p[1] and CRS_START.match(p[0]) is not None
+    i = next((k for k, p in enumerate(paras) if is_start(p) and CRS_START.match(p[0]).group(1) == section), None)
+    if i is None:
+        return None
+    head = c.esc(CRS_START.match(paras[i][0]).group(2), "tex")
+    meta = statelaw.local_meta(statelaw.state_dir("CO") / "crs" / ("title-%s.htm" % statelaw.crs_title_name(section.split("-")[0]))) or {}
+    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") else ""
+    return head + when, _co_rows(paras, i + 1, _co_end(paras, i, is_start))
+
+
+SEC_START = re.compile(r"^Section (\d+[a-z]?)\.\s+(.*)")
+
+
+def co_const(article, section=None):
+    """Colo. Const. art. IX, § 7 -> (heading, rows); the article alone lists its sections. From title 00."""
+    from tribonian import lawcites, statelaw
+    paras = _co_paras("0")
+    if paras is None:
+        return None
+    roman = {v: k for k, v in lawcites.ROMAN.items()}.get(int(article))
+    a = next((k for k, p in enumerate(paras) if p[0] == "ARTICLE %s" % roman and p[2]), None)
+    if a is None:
+        return None
+    end = next((k for k in range(a + 1, len(paras)) if re.fullmatch(r"ARTICLE [IVXL]+", paras[k][0]) and paras[k][2]), len(paras))
+    is_start = lambda p: SEC_START.match(p[0]) is not None
+    meta = statelaw.local_meta(statelaw.state_dir("CO") / "crs" / "title-00.htm") or {}
+    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") else ""
+    if section is None:
+        title = paras[a + 1][0] if a + 1 < end and paras[a + 1][2] else ""
+        rows, seen = [], set()
+        for k in range(a + 1, end):
+            m = SEC_START.match(paras[k][0])
+            if m and m.group(1) not in seen:
+                seen.add(m.group(1))
+                rows.append((0, c.esc("§ " + m.group(1), "tex"), c.esc(m.group(2).rstrip("."), "tex"), ""))
+        return c.esc(("Article %s. %s" % (roman, title.title())).strip(), "tex") + when, rows
+    i = next((k for k in range(a + 1, end) if is_start(paras[k]) and SEC_START.match(paras[k][0]).group(1) == section), None)
+    if i is None:
+        return None
+    return c.esc(SEC_START.match(paras[i][0]).group(2), "tex") + when, _co_rows(paras, i + 1, min(_co_end(paras, i, is_start), end))
+
+
 def text_of(key):
     """A provision's local text: (heading, rows) or None."""
     p = key.split(":")
@@ -155,6 +278,10 @@ def text_of(key):
             return usc(p[1], p[2])
         if p[0] == "cfr":
             return cfr(p[1], p[2])
+        if p[0] == "co-crs":
+            return co_crs(p[1])
+        if p[0] == "co-const":
+            return co_const(p[1].split("-")[1], p[2] if len(p) > 2 else None)
     except Exception:
         return None
     return None
@@ -167,4 +294,8 @@ def fetch_hint(key):
         return "tribonian cfr fetch %s" % p[1]
     if p[0] == "usc":
         return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1]
+    if p[0] == "co-crs":
+        return "tribonian state fetch CO crs %s" % p[1].split("-")[0]
+    if p[0] == "co-const":
+        return "tribonian state fetch CO crs 00"
     return ""

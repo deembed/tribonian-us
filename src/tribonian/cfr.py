@@ -46,14 +46,24 @@ def local(title):
         return None
 
 
+def read_robots(host, ua):
+    """host's robots.txt, read with our own user agent. RobotFileParser.read() sends Python's default agent,
+    which some servers (the Colorado Secretary of State's) answer with 403, and it then treats the whole site
+    as disallowed. A missing or unreadable file means no rules."""
+    rp = urllib.robotparser.RobotFileParser(host + "/robots.txt")
+    try:
+        req = urllib.request.Request(host + "/robots.txt", headers={"User-Agent": ua})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            rp.parse(r.read().decode("utf-8", "replace").splitlines())
+    except Exception:
+        rp.parse([])
+    return rp
+
+
 def allowed(url):
     global _robots
     if _robots is None:
-        _robots = urllib.robotparser.RobotFileParser("https://www.ecfr.gov/robots.txt")
-        try:
-            _robots.read()
-        except Exception:            # unreadable robots.txt: treat as no rules, as robotparser does for 404
-            _robots.allow_all = True
+        _robots = read_robots("https://www.ecfr.gov", UA)
     return _robots.can_fetch(UA, url)
 
 
