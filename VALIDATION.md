@@ -4,7 +4,19 @@ What has been measured, how, and what has not. The good-law check and the co-cit
 a citator and not a source of doctrine. This file is meant to make it clear which parts are measured, which are
 heuristics, and which are untested. Numbers come from the runs cited; the commands to reproduce them are given.
 
-Contents: [1. Good-law check](#1-good-law-check) · [2. Co-citation map](#2-co-citation-map) ·
+## Summary
+
+| Claim | Evidence | Limitation |
+|---|---|---|
+| The good-law check flags overruled cases | Red within the overruling window for 35 of 40 overruled Supreme Court cases (37 of 40 red now); no control red (§1.2–1.3) | Supreme Court cases only, all overruled loudly; set B was a soft check, not a clean holdout |
+| The quick check (newest 100) costs little accuracy | 34 of 40 red, 2 false greens vs 1 for the full check (§1.3) | Status now only, not the year it changed; same favourable test set |
+| Co-citation areas recover known doctrinal groupings | F1 0.990 (sentence view) vs 0.913 (binary) on 32 shared benchmark names; switch decided by a rule fixed before the run (§2.3) | 16 hand groupings; the shared names are the stable ones; grades about 1 lineage in 8 |
+| Areas are not artefacts of one run | Consensus over 20 runs; seed ranges for the two views don't overlap (§2.2) | No resolution plateau: the area level is a chosen cut. Not yet compared across bulk snapshots |
+| Co-citation can hint at overruling | Successor fires at 37 of 41 overrulings… and at 11 of 20 controls (§2.5) | Demoted to a flag; never sets a colour |
+| The US Code renumbering map is sound | Moved sections keep their citation partners (median cosine 0.21 vs 0.00 random), on held-out titles (§3) | The detector for missing moves is a review list only |
+| Results can be reproduced | Rule versions, reading windows and bulk-load stamps are recorded (§4) | No clean-directory rebuild from a fixed snapshot yet |
+
+Contents: [Summary](#summary) · [1. Good-law check](#1-good-law-check) · [2. Co-citation map](#2-co-citation-map) ·
 [3. US Code renumbering](#3-us-code-renumbering) · [4. Provenance and reproducibility](#4-provenance-and-reproducibility) ·
 [5. Not yet measured](#5-not-yet-measured)
 
