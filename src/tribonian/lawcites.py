@@ -172,9 +172,14 @@ def label(key):
 
 
 def note_name(key):
-    """The Obsidian note a key links to, where one is built: U.S.C. sections only for now ('42-usc-1983')."""
+    """The Obsidian note a key links to, where one is built: U.S.C. sections ('42-usc-1983'), C.F.R. sections
+    and parts ('34-cfr-104.4', '34-cfr-pt-104'; cfr.py notes)."""
     p = key.split(":")
-    return "%s-usc-%s" % (p[1], p[2]) if p[0] == "usc" else None
+    if p[0] == "usc":
+        return "%s-usc-%s" % (p[1], p[2])
+    if p[0] == "cfr":
+        return "%s-cfr-%s" % (p[1], p[2])
+    return None
 
 
 ORDER = {"const": 0, "usc": 1, "cfr": 2, "co-const": 3, "co-crs": 4, "co-ccr": 5}

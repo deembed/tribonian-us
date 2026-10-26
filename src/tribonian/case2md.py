@@ -633,8 +633,12 @@ def statute_note(text):
 
 
 def statute_notes():
-    md = ROOT / "md"
-    return {p.stem for p in md.rglob("*-usc-*.md")} if md.is_dir() else set()
+    """Names of the statute and regulation notes that exist: md/ (US Code), md-cfr/ (C.F.R., cfr.py notes)."""
+    out = set()
+    for d, pat in ((ROOT / "md", "*-usc-*.md"), (ROOT / "md-cfr", "*-cfr-*.md")):
+        if d.is_dir():
+            out |= {p.stem for p in d.rglob(pat)}
+    return out
 
 
 def clean(s):
@@ -1758,6 +1762,8 @@ def render_tex(meta, ops, fontpkg, style):
                     lead = "\\recordpath{%s}" % ctx.path() + mark + "\\lab{%s.}" % esc(part.label, "tex")   # "I." not "I": a bare I reads as the pronoun
                     if toc and listed:
                         lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el)) + lead
+                    if depth <= 0:               # unboxed top-level heading: not alone at a page's foot (boxed ones
+                        lead = "\\headroom{5}" + lead      # already need 3 lines before tcolorbox breaks them)
                     if kind == "q" or kind is None:          # label on its own line
                         parts_add(depth, [lead + "\\par"], first and i == 0)
                         lead = ""

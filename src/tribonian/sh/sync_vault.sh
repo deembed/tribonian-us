@@ -59,6 +59,16 @@ if [[ -d md-cocite ]]; then
     echo "co-citation: $(find md-cocite -name '*.md' | wc -l) notes -> $VAULT/08-Reference/Co-citation"
 fi
 
+# C.F.R. section and part notes (tribonian cfr notes writes md-cfr/) -> 08-Reference/CFR. Generator-owned.
+if [[ -d md-cfr ]]; then
+    mkdir -p "$VAULT/08-Reference/CFR"
+    guard md-cfr "$VAULT/08-Reference/CFR"
+    rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
+          --include='*/' --include='*.md' --exclude='*' \
+          md-cfr/ "$VAULT/08-Reference/CFR/" | tail -20
+    echo "C.F.R.: $(find md-cfr -name '*.md' | wc -l) notes -> $VAULT/08-Reference/CFR"
+fi
+
 if [[ -z ${DRY:-} ]]; then
     echo "synced $(find "$DEST" -name '*.md' | wc -l) notes -> $DEST"
 else

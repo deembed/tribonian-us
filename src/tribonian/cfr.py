@@ -4,6 +4,7 @@
     tribonian cfr fetch 34 40 --since 2026-10-01
                                            ... or the local copy is older than that date
     tribonian cfr fetch 34 --force         download again whatever is local
+    tribonian cfr notes 34                 (re)write title 34's Obsidian notes -> md-cfr/t34/pt<part>/ (fetch does it)
     tribonian cfr list                     the titles stored here, with their dates
 
 Source: the eCFR versioner API (www.ecfr.gov/api/versioner/v1). titles.json gives each title's
@@ -16,7 +17,7 @@ default <work>/law; some titles run to hundreds of MB):
 
 Standard library only. robots.txt is obeyed (scope §3): a disallowed URL is reported, not fetched.
 """
-import argparse, json, os, sys, time, urllib.error, urllib.request, urllib.robotparser, zlib
+import argparse, json, os, re, sys, time, urllib.error, urllib.request, urllib.robotparser, zlib
 from datetime import date
 from pathlib import Path
 
@@ -127,6 +128,105 @@ def fetch_one(title, entry, force=False, since=None):
     print("  wrote %s (%.1f MB, %.0f s)" % (d / ("title-%s.xml" % title), n / 1e6, time.time() - t0))
 
 
+# ---------------------------------------------------------------- notes (Obsidian), like the US Code's
+
+def notes_dir():
+    return tconfig.WORK / "md-cfr"
+
+
+def _md_inline(el):
+    """eCFR inline markup -> Markdown: <I>/<E> italic, the rest plain, escaped."""
+    from tribonian import case2md as c
+    out = [c.esc(el.text or "", "md")]
+    for k in el:
+        inner = _md_inline(k)
+        out.append("*%s*" % inner.strip() if k.tag in ("I", "E") and inner.strip() else inner)
+        out.append(c.esc(k.tail or "", "md"))
+    return " ".join("".join(out).split())
+
+
+def _link(text, known):
+    """Statute and regulation cites in a note's paragraph -> [[note|cite]] where that note exists."""
+    from tribonian import lawcites
+    for start, end, key in sorted(lawcites.spans_in(text), reverse=True):
+        note = lawcites.note_name(key)
+        if note and note in known:
+            text = text[:start] + "[[%s|%s]]" % (note, text[start:end]) + text[end:]
+    return text
+
+
+def write_notes(title, quiet=False):
+    """md-cfr/t<title>/pt<part>/: one note per section (<t>-cfr-<sec>.md) and per part (<t>-cfr-pt-<part>.md),
+    from the local title XML. Notes of the title that no longer exist are left (sync-vault mirrors md-cfr/)."""
+    from lxml import etree
+    from tribonian import case2md as c
+    meta = local(title)
+    if meta is None:
+        sys.exit("title %s is not local: tribonian cfr fetch %s" % (title, title))
+    root = etree.parse(str(cfr_dir() / ("title-%s.xml" % title)), etree.XMLParser(huge_tree=True, remove_comments=True)).getroot()
+    known = c.statute_notes()
+    parts = list(root.iter("DIV5"))
+    known |= {"%s-cfr-pt-%s" % (title, p.get("N")) for p in parts}
+    known |= {"%s-cfr-%s" % (title, s_.get("N")) for p in parts for s_ in p.iter("DIV8")}
+    head = lambda el: " ".join((el.findtext("HEAD") or "").split())
+    common = [("source", "ecfr.gov (versioner API)"), ("current_as_of", c.Raw(meta["date"])),
+              ("retrieved", c.Raw(meta["fetched"])), ("synthetic", False)]
+    n = 0
+    for part in parts:
+        pn = part.get("N")
+        d = notes_dir() / ("t%s" % title) / ("pt%s" % pn)
+        d.mkdir(parents=True, exist_ok=True)
+        pcite = "%s C.F.R. pt. %s" % (title, pn)
+        ptitle = re.sub(r"^PARTS?\s+\S+\s*[—-]\s*", "", head(part))
+        L = c.yaml_head([("title", pcite), ("heading", c.titlecase(ptitle)), ("citation", pcite),
+                         ("identifier", "/us/cfr/t%s/pt%s" % (title, pn))] + common + [("aliases", [pcite, "%s CFR %s" % (title, pn)])])
+        L += ["", "# %s — %s" % (pcite, c.esc(c.titlecase(ptitle), "md")), ""]
+        for tag in ("AUTH", "SOURCE"):
+            el = part.find(tag)
+            if el is not None:
+                L += ["*%s*" % c.esc(" ".join(" ".join(el.itertext()).split()), "md"), ""]      # "Authority: 20 U.S.C. ..."
+        for el in part.iter("DIV6", "DIV8"):
+            if el.tag == "DIV6":
+                L += ["", "## %s" % c.esc(head(el), "md"), ""]
+                continue
+            sn = el.get("N")
+            h = re.sub(r"^§\s*\S+\s*", "", head(el))
+            L.append("- [[%s-cfr-%s|§ %s]] %s" % (title, sn, sn, c.esc(h, "md")))
+            # the section's own note
+            cite = "%s C.F.R. § %s" % (title, sn)
+            S = c.yaml_head([("title", cite), ("heading", h.rstrip(".")), ("citation", cite),
+                             ("identifier", "/us/cfr/t%s/s%s" % (title, sn))] + common +
+                            [("aliases", [cite, "%s CFR %s" % (title, sn)])])
+            S += ["", "# %s — %s" % (cite, c.esc(h.rstrip("."), "md")), "",
+                  "Part: [[%s-cfr-pt-%s|%s]]" % (title, pn, pcite), ""]
+            for k in el:
+                if k.tag in ("P", "FP"):
+                    t = _md_inline(k)
+                    m = re.match(r"((?:\([a-zA-Z0-9]{1,4}\)\s*)+)(.*)", t)
+                    t = "**%s** %s" % (m.group(1).strip(), m.group(2)) if m else t
+                    S += [_link(t, known), ""]
+                elif k.tag in ("HD1", "HD2", "HD3"):
+                    S += ["**%s**" % _md_inline(k), ""]
+                elif k.tag == "EXTRACT":
+                    S += ["> " + _link(_md_inline(p), known) for p in k.iter("P", "FP")] + [""]
+                elif k.tag in ("GPOTABLE", "TABLE", "DIV") or k.find(".//TABLE") is not None:
+                    S += ["*[A table: see this section on ecfr.gov.]*", ""]
+                elif k.tag in ("NOTE", "EDNOTE"):
+                    S += ["> *%s*" % _md_inline(p) for p in k.iter("P")] + [""]
+                elif k.tag == "CITA":
+                    S += ["*%s*" % _md_inline(k), ""]
+            (d / ("%s-cfr-%s.md" % (title, sn))).write_text("\n".join(S).rstrip() + "\n", encoding="utf-8")
+            n += 1
+        (d / ("%s-cfr-pt-%s.md" % (title, pn))).write_text("\n".join(L).rstrip() + "\n", encoding="utf-8")
+    if not quiet:
+        print("title %s: %d section notes, %d part notes -> %s" % (title, n, len(parts), notes_dir() / ("t%s" % title)))
+
+
+def cmd_notes(args):
+    for t in args.titles:
+        write_notes(str(int(t)))
+
+
 def cmd_fetch(args):
     known, busy = titles()
     if busy:
@@ -136,6 +236,8 @@ def cmd_fetch(args):
         if t not in known:
             sys.exit("no title %s in eCFR's list (1-50)" % t)
         fetch_one(t, known[t], args.force, args.since)
+        if local(t):
+            write_notes(t)
         time.sleep(1)
 
 
@@ -159,6 +261,9 @@ def main():
     f.add_argument("--since", metavar="YYYY-MM-DD", help="also replace a local copy older than this date")
     f.add_argument("--force", action="store_true", help="download again whatever is local")
     f.set_defaults(func=cmd_fetch)
+    nt = sub.add_parser("notes", help="(re)write the Obsidian notes of local titles -> md-cfr/ (fetch does it too)")
+    nt.add_argument("titles", nargs="+")
+    nt.set_defaults(func=cmd_notes)
     l = sub.add_parser("list", help="the titles stored here, with their dates")
     l.set_defaults(func=cmd_list)
     args = ap.parse_args()
