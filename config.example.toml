@@ -23,6 +23,9 @@
 # Co-citation results; views are cocite-<view>.sqlite beside it               (CL_COCITE_DB)
 # cocite_db = "/path/to/courtlistener/cocite.sqlite"
 
+# Downloaded C.F.R. titles and state law (tribonian cfr fetch); default <work>/law   (TRIBONIAN_LAW)
+# law_dir = "/path/to/large/disk/law"
+
 # CourtListener API limits per minute, hour, day; members raise them          (CL_LIMITS)
 # api_limits = "5,50,125"
 

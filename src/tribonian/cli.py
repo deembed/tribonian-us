@@ -19,6 +19,7 @@ COMMANDS = {
     "db":              ("casedb",          "bulk CSV -> local SQLite databases, full-text index"),
     "cocite":          ("cocite",          "co-citation clusters, lineages, areas, labels, vault, US Code co-citation"),
     "scotus":          ("scotus",          "pending Supreme Court cases: fetch, build, recent"),
+    "cfr":             ("cfr",             "Code of Federal Regulations: fetch titles from eCFR, list what is local"),
     "build":           ("sh/build_all.sh", "build every PDF and note that is out of date, in parallel"),
     "sync-vault":      ("sh/sync_vault.sh", "mirror md/, md-cases/, md-cocite/ into the Obsidian vault"),
     "sync-remarkable": ("sync_remarkable", "upload changed PDFs to the reMarkable (rmapi)"),

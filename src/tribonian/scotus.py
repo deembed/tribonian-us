@@ -945,7 +945,9 @@ def law_appendix_tex(lc, fs):
             " Reproduced in: %s." % E("; ".join(repro_for(repro, k))) if repro_for(repro, k) else ""))
         got = lawtext.text_of(k)
         if got is None:
-            out.append("{\\small\\itshape Text not stored locally.\\par}")
+            hint = lawtext.fetch_hint(k)
+            out.append("{\\small\\itshape Text not stored locally%s.\\par}" % (
+                " (\\texttt{%s} gets it)" % E(hint) if hint.startswith("tribonian cfr") else ""))
             continue
         head, rows = got
         if head:

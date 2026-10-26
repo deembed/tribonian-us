@@ -17,6 +17,7 @@ See config.example.toml. Paths may start with ~; a relative path is relative to 
     cocite_db            CL_COCITE_DB           beside main_db (cocite.sqlite; views are cocite-<view>.sqlite)
     api_limits           CL_LIMITS              "5,50,125"  (per minute, hour, day)
     courtlistener_token  COURTLISTENER_TOKEN    secret-tool lookup service courtlistener
+    law_dir              TRIBONIAN_LAW          <work>/law   (downloaded C.F.R. and state law: cfr.py)
 
 Standard library only. Python 3.11+ reads the file with tomllib; on 3.10 a small reader handles the
 subset this file needs ([tables], key = "string" | 'string' | number | true/false, # comments).
@@ -30,8 +31,9 @@ REPO = PKG.parent.parent if (PKG.parent.parent / "pyproject.toml").is_file() els
 
 # key -> environment variable
 ENV = {"work_dir": "TRIBONIAN_WORK", "bulk_dir": "CL_BULK", "main_db": "CL_DB", "opinions_db": "CL_OPS_DB", "search_db": "CL_SEARCH_DB",
-       "cocite_db": "CL_COCITE_DB", "api_limits": "CL_LIMITS", "courtlistener_token": "COURTLISTENER_TOKEN"}
-PATH_KEYS = {"work_dir", "bulk_dir", "main_db", "opinions_db", "search_db", "cocite_db"}
+       "cocite_db": "CL_COCITE_DB", "api_limits": "CL_LIMITS", "courtlistener_token": "COURTLISTENER_TOKEN",
+       "law_dir": "TRIBONIAN_LAW"}
+PATH_KEYS = {"work_dir", "bulk_dir", "main_db", "opinions_db", "search_db", "cocite_db", "law_dir"}
 
 
 def config_path():
