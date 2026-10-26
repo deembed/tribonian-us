@@ -612,6 +612,80 @@ def read_brief(text, f, oi, warn, appendix=False, vocab=None):
 
 
 
+# ================================================================ the decision below from the petition's appendix
+APP_ENTRY_RE = re.compile(r"^(.*?)\s*\.{3,}\s*(?:App\.\s*)?(\d+)a\s*$")
+
+
+def appendix_toc(text):
+    """The petition's list of its appendix: [(title, first page number)] in order, from the first "APPENDIX"
+    heading followed by entries ending in a dotted leader and a page ("Opinion, ... (10th Cir. 2025) .... 1a")."""
+    lines = text.replace("\f", "\n").split("\n")
+    for i, l in enumerate(lines):
+        if not re.fullmatch(r"\s*(?:APPENDIX TABLE OF CONTENTS|(?:TABLE OF )?APPENDI(?:X|CES)(?: CONTENTS)?)\s*", l):
+            continue
+        out, cur = [], []
+        for l2 in lines[i + 1:i + 400]:
+            t = l2.strip()
+            if not t or re.fullmatch(r"[ivxlc]+|\d+a?", t) or re.fullmatch(r"(?i)appendix table of contents", t):
+                continue
+            m = APP_ENTRY_RE.match(t)
+            if m:
+                out.append((" ".join(cur + [m.group(1)]).strip(), int(m.group(2))))
+                cur = []
+            elif len(cur) > 6:
+                break
+            else:
+                cur.append(t)
+        if len(out) >= 2 and out[0][1] == 1:
+            return out
+    return []
+
+
+def below_from_appendix(fs, data, con, warn):
+    """CourtListener has no copy of the decision below: the petition reproduces it in its appendix (Rule 14.1(i)).
+    The appendix entry that names the opinion and the lower court's docket number, to the next entry's page.
+    -> (opinion dict for the PDF, its citations Counter, "Pet. App. 1a–48a") or None."""
+    pet = next((f for f in fs if f["kind"] == "petition"), None)
+    if pet is None:
+        return None
+    toc = appendix_toc(pet["brief"])
+    num = (data["feed"].get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
+    pick = next((k for k, (t, p) in enumerate(toc) if num and num in t and re.search(r"(?i)\bopinion\b", t)), None)
+    if pick is None:
+        pick = next((k for k, (t, p) in enumerate(toc) if re.search(r"(?i)\bopinion\b", t)), None)
+    if pick is None:
+        return None
+    first = toc[pick][1]
+    last = next((p - 1 for t, p in toc[pick + 1:] if p > first), None)
+    sp = split_brief(pet["brief"], appendix=True)
+    keep = [(lab, ls) for lab, ls in sp["body"]
+            if re.fullmatch(r"\d+a", lab) and first <= int(lab[:-1]) <= (last or 10 ** 6)]
+    if not keep:
+        return None
+    labels = [lab for lab, _ in keep]
+    lines, footnotes, _ = c.layout_pages("\f".join("\n".join(ls) for lab, ls in keep))
+    blocks = segment_blocks(lines, labels, None, demote=False)
+    guessed = c.assign_levels([b["label"] for b in blocks if b["kind"] == "h"])
+    for b, (lv, pth) in zip([b for b in blocks if b["kind"] == "h"], guessed):
+        b["level"], b["path"] = lv, pth
+    c.place_marks(blocks, footnotes, warn, spaced=True)
+    court = re.sub(r"(?i)^united states ", "", data["feed"].get("LowerCourt") or "the court of appeals")
+    where = "Pet. App. %da–%sa" % (first, last if last else labels[-1][:-1])
+    o = {"oi": 0, "kind": "", "author": "", "byline": [], "flat": [], "footnotes": {}, "api": {},
+         "start": labels[0], "title": "Opinion", "who": court}
+    c.fill_opinion(o, blocks, footnotes)
+    o["levels"] = [(b["level"], b["path"]) for b in blocks if b["kind"] == "h"]
+    o["cite_text"] = "\n".join(l.text for l in lines) + "\n" + "\n".join(
+        c.join_lines(p) for _, _, paras in footnotes for p in paras)
+    o["ctx"] = c.Ctx("Pet. App.", court, 0)
+    o["kindname"] = "Opinion · %s (as reproduced in %s)" % (c.long_date(when(data["feed"].get("LowerCourtDecision"))), where)
+    o["byline"], o["byline_md"] = [], ""
+    o["byline_tex"] = c.esc("CourtListener has no copy of this decision; the text is the petition appendix's.", "tex")
+    o["tree"] = c.tree_of(o, o["levels"])
+    cites, _ = authorities(con, o["cite_text"])
+    return o, cites, where
+
+
 # ================================================================ authorities (citations in the filings)
 # Reporter citations, found with regular expressions and resolved to CourtListener clusters
 # through the local database's citations table. "605 U.S. at 181" counts for the case cited in
@@ -853,8 +927,16 @@ def below_api(data):
     if not (num and court):
         return None
     tok = c.token()
-    res = c.call("%s/dockets/?%s" % (c.API, urllib.parse.urlencode({"docket_number": num, "court": court})), tok, soft=True)
     day = when(feed.get("LowerCourtDecision"))
+    # 1. the opinion search: court and docket number, one request, the cluster id in each hit
+    res = c.call("%s/search/?%s" % (c.API, urllib.parse.urlencode({"type": "o", "court": court, "docket_number": num})),
+                 tok, soft=True)
+    hits = [h for h in (res or {}).get("results") or [] if h.get("cluster_id")]
+    exact = [h for h in hits if (h.get("dateFiled") or "")[:10] == day]
+    if exact or hits:
+        return (exact or hits)[0]["cluster_id"]
+    # 2. the docket, then its clusters (a docket the search index doesn't have yet)
+    res = c.call("%s/dockets/?%s" % (c.API, urllib.parse.urlencode({"docket_number": num, "court": court})), tok, soft=True)
     best = None
     for d in (res or {}).get("results") or []:
         for url in d.get("clusters") or []:
@@ -1934,9 +2016,16 @@ def build(args):
                 warnings += ["decision below: %s" % x for x in w]
             except c.Unsupported as e:
                 warnings.append("decision below: cannot read its text (%s)" % e)
-    elif con is not None and not any(w.startswith("decision below:") for w in warnings):
-        warnings.append("decision below: not found in the local database (%s %s)" % (
-            data["feed"].get("LowerCourt"), data["feed"].get("LowerCourtCaseNumbers")))
+    below_where = None
+    if not below_ops:                              # CourtListener has none: the copy in the petition's appendix
+        got = below_from_appendix(fs, data, con, lambda w: warnings.append("decision below (Pet. App.): %s" % w))
+        if got:
+            o_, below_cites, below_where = got
+            below_ops = [o_]
+            print("decision below: from the petition's appendix, %s" % below_where)
+        elif con is not None and not any(w.startswith("decision below:") for w in warnings):
+            warnings.append("decision below: not found in the local database (%s %s), nor in the petition's appendix" % (
+                data["feed"].get("LowerCourt"), data["feed"].get("LowerCourtCaseNumbers")))
 
     # ---- one cluster per case (CourtListener keeps two digitizations of many)
     canon_ = canonical(con, {k for f in fs for k in f["cites"]} | set(below_cites))
@@ -2067,6 +2156,10 @@ def build(args):
          "PDF: `%s`" % rel_pdf, ""]
     if qp:
         L += ["## Questions presented", ""] + [c.esc(p, "md") + "\n" for p in qp]
+    if below_where and not cid:
+        L += ["## Decision below", "", "- %s, No. %s, decided %s: not in CourtListener; the PDF prints it as reproduced in %s" % (
+            c.esc(feed.get("LowerCourt", ""), "md"), (feed.get("LowerCourtCaseNumbers") or "").strip("() "),
+            feed.get("LowerCourtDecision", ""), below_where), ""]
     if cid:
         L += ["## Decision below", "", "- %s" % link_md(names, index, cid, 90) if str(cid) in index else
               "- %s — no note yet (`tribonian scotus build %s --depth 1`, or `tribonian map get --cluster %s`)" % (
