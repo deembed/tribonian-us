@@ -1682,7 +1682,9 @@ TOC_DEFS = r"""\makeatletter
 \setcounter{tocdepth}{3}
 \newcommand{\tocback}{\leavevmode\tikz[remember picture,overlay]\node[anchor=base west,inner sep=0pt]
   at ([xshift=3pt]current page.west |- 0,0) {\hyperlink{contents}{\makebox[18pt][c]{\normalsize$\uparrow$}}};}
-\newcommand{\tocadd}[2]{\phantomsection\addcontentsline{toc}{#1}{#2}}
+% a contents line without hyperref's bookmark: \addcontentsline would also put every line in the PDF outline,
+% beside the \pdfbookmark each heading writes (doubled, and at the wrong level). The outline comes from \pdfbookmark alone.
+\newcommand{\tocadd}[2]{\phantomsection\protected@write\@auxout{}{\string\@writefile{toc}{\protect\contentsline{#1}{#2}{\thepage}{\@currentHref}\protected@file@percent}}}
 \newcommand*\l@tocstage[2]{\par\addvspace{6pt}{\bfseries\@dottedtocline{0}{0pt}{0pt}{#1}{#2}}}
 \newcommand*\l@tocsec{\@dottedtocline{1}{1em}{0pt}}
 \newcommand*\l@tocdoc{\@dottedtocline{1}{1em}{0pt}}
@@ -1721,15 +1723,17 @@ def render_tex(meta, ops, fontpkg, style):
         j = tex.find("]\n", i)
         if not toc or i < 0 or j < 0:
             return tex
+        tex = tex.replace("\\pdfbookmark[1]", "\\pdfbookmark[0]", 1)      # top of the outline, as on the contents page
         return tex[:j + 2] + "\\tocback" + toc_entry("tocsec", title) + tex[j + 2:]
     head = headmatter_tex(meta)
     if toc and head:
-        head = toc_entry("tocsec", "Headmatter") + head          # the yellow box: listed, no arrow
+        head = toc_entry("tocsec", "Headmatter") + head.replace("\\pdfbookmark[1]", "\\pdfbookmark[0]", 1)   # the yellow box: listed, no arrow
     contents = "" if not toc or meta.get("pretex") else "\\contentspage\n" if head else "\\contentsbody\n"
     body = [TOC_DEFS if toc else "", meta.get("pretex", ""), head, contents, sec(profile_tex(meta), "Case profile"),
             sec(cocite_tex(meta), "Co-citation"), sec(draws_tex(meta), "What it draws on"),
             sec(coupling_tex(meta), "Coupled with"), sec(parens_tex(meta), "How later courts describe it")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
+    base = 1 if meta.get("stages") else 0    # outline level of a document: under its stage, else at the top
     for n, o in enumerate(ops):
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""
@@ -1751,10 +1755,12 @@ def render_tex(meta, ops, fontpkg, style):
                 lead = ""
                 if i == 0 and part.level:
                     ctx.part = part.path
-                    # PDF outline entry (the reMarkable's table of contents): "V-A · *46 · first words"
-                    title = " · ".join(x for x in (part.path, "*" + ctx.page if ctx.page else "",
-                                                  plain(el) if el is not None else "") if x)
-                    mark = "\\pdfbookmark[%d]{%s}{o%d-%s}" % (part.level + 1, esc(title, "tex"), ctx.oi, anchor(part.path))
+                    # PDF outline entry (the reMarkable's table of contents), as the contents page words it:
+                    # "B. The Archdiocese of Denver… · *6"; nested by its place in the heading tree under its
+                    # document (not by part.level: a brief whose "I." was not found has "A." two levels down,
+                    # and hyperref drops an entry that skips a level)
+                    title = toc_head(part, el) + (" · *" + ctx.page if ctx.page else "")
+                    mark = "\\pdfbookmark[%d]{%s}{o%d-%s}" % (depth + 1 + base, esc(title, "tex"), ctx.oi, anchor(part.path))
                     lead = "\\recordpath{%s}" % ctx.path() + mark + "\\lab{%s.}" % esc(part.label, "tex")   # "I." not "I": a bare I reads as the pronoun
                     if toc and listed:
                         lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el)) + lead
@@ -1799,8 +1805,8 @@ def render_tex(meta, ops, fontpkg, style):
                         "\\else\\vspace{12pt}\\hrule\\vspace{6pt}\\fi\n")
         if toc:
             body.append("\\noindent\\tocback" + toc_entry("tocdoc", "%s — %s" % (ctx.who, o["kindname"])))
-        body.append("\\recordpath{%s}\\pdfbookmark[1]{%s}{o%d}{\\large\\bfseries %s}\\ {\\large %s}\\par\n" % (
-            ctx.path(), esc("%s — %s · *%s" % (ctx.who, o["kindname"], ctx.page), "tex"), ctx.oi,
+        body.append("\\recordpath{%s}\\pdfbookmark[%d]{%s}{o%d}{\\large\\bfseries %s}\\ {\\large %s}\\par\n" % (
+            ctx.path(), base, esc("%s — %s · *%s" % (ctx.who, o["kindname"], ctx.page), "tex"), ctx.oi,
             esc(ctx.who, "tex"), esc(o["kindname"], "tex")))
         if o["byline_tex"]:
             body.append("{\\small\\itshape %s\\par}\n" % o["byline_tex"])
