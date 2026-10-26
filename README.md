@@ -774,4 +774,18 @@ MIT — see `LICENSE`.
 
 Most of the code and documentation in this repository was written by Claude (Anthropic's AI model), working from my specifications, design decisions and review. The design, the selection and arrangement of the parts, and the edits are mine. Parts that are purely AI-generated may not be protected by copyright; the MIT license covers whatever is, and the no-warranty terms apply to all of it.
 
-Data: opinions, dockets and bulk files come from [CourtListener](https://www.courtlistener.com/) (Free Law Project), under its terms and API rate limits; the US Code XML from the [Office of the Law Revision Counsel](https://uscode.house.gov/); Supreme Court filings from [supremecourt.gov](https://www.supremecourt.gov/). `data/cocite_labels.json` (cluster and area names) was written by a language model.
+### Data sources and licenses
+
+The repository holds code only. The scripts download data and build PDFs and notes on your own machine; none of
+that data or output is in this repository or published by it. What each source says about reuse:
+
+| Source | What the scripts take from it | Terms |
+|---|---|---|
+| [CourtListener](https://www.courtlistener.com/), [Free Law Project](https://free.law/) | opinions, dockets, citations, parentheticals, bulk files, API results | Bulk files carry the Creative Commons [Public Domain Mark](https://creativecommons.org/publicdomain/mark/1.0/) ("free of known copyright restrictions", [bulk-data page](https://wiki.free.law/c/courtlistener/help/api/bulk-data/bulk-legal-data)). API use is under CourtListener's terms of service (linked from its site footer) and its rate limits. Every case PDF names its CourtListener cluster and every case note links its CourtListener page. |
+| [Caselaw Access Project](https://case.law/) (Harvard Law School Library), via CourtListener | opinion text marked "Harvard CAP text" | See case.law for its terms. |
+| [Office of the Law Revision Counsel](https://uscode.house.gov/) | US Code XML | A work of the US government, not subject to copyright (17 U.S.C. § 105). |
+| [supremecourt.gov](https://www.supremecourt.gov/) | docket JSON, the Clerk's questions presented, filed briefs | Court records are public; briefs are written by the parties' and amici's counsel and are reproduced only in your local build, as filed. |
+| State legislatures and secretaries of state | statutes, regulations, constitutions (planned) | Terms differ by state; some claim copyright in their compilations (for example Minnesota, Washington, Nevada, Mississippi, Florida's administrative code). Each state's terms, as found, are in `src/tribonian/data/state_law_sources.toml`. |
+| [OpenJurist](https://openjurist.org/code) | state statutes, as a fallback only (planned) | States the statute text is public domain; its own additions are under a license it is still finalizing. Text taken from it is labelled "via OpenJurist, current through YYYY". |
+
+`data/cocite_labels.json` (cluster and area names) was written by a language model.
