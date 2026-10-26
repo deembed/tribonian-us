@@ -681,6 +681,20 @@ def party(title):
     return t.strip(" ,") or "?"
 
 
+ORG_WORDS = re.compile(r"(?i)\b(department|state|states|county|city|board|school|district|inc|corp|llc|university|"
+                       r"commission|church|parish|association|united|america|council|office|agency|bureau)\b")
+
+
+def short_party(title):
+    """For a footer: the first part of a party's caption, a person by surname.
+    'St. Mary Catholic Parish, Littleton, Colorado' -> 'St. Mary Catholic Parish'; 'Lisa Roy, in Her ...' -> 'Roy'."""
+    first = party(title).split(",")[0].strip()
+    words = first.split()
+    if 2 <= len(words) <= 3 and not ORG_WORDS.search(first) and all(w[:1].isupper() for w in words):
+        return words[-1]
+    return first
+
+
 def short_filer(filer):
     t = re.sub(r"^(?:the)\s+", "", filer or "", flags=re.I)
     t = re.split(r",?\s+et al\b|,", t)[0]
@@ -941,19 +955,19 @@ def law_appendix_tex(lc, fs):
         return ""
     E = lambda t: c.esc(t, "tex")
     secs, repro = law_sources(fs)
-    out = ["\\clearpage\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
+    out = ["\\clearpage\\recordpath{The Law in Question}\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
            "{\\Large\\bfseries The Law in Question\\par}\\vspace{4pt}",
            "{\\scriptsize\\itshape Not part of the record. The provisions the questions presented and the parties' "
            "provisions-involved sections name: first as each party sets them out, then each provision's text where it is "
            "stored locally (the US Code from the Code's XML; the Constitution, C.F.R. and state law once their local copies "
            "are built). A cite of one of these provisions anywhere in this PDF links to its entry here.\\par}\\vspace{6pt}"]
     for n, (abbr, t) in enumerate(secs):
-        out.append("\\pdfbookmark[1]{%s: provisions involved}{lawq-src%d}\\noindent{\\large\\bfseries %s: provisions involved\\par}\\vspace{2pt}" % (E(abbr), n, E(abbr)))
+        out.append("\\headroom{6}\\pdfbookmark[1]{%s: provisions involved}{lawq-src%d}\\noindent{\\large\\bfseries %s: provisions involved\\par}\\vspace{2pt}" % (E(abbr), n, E(abbr)))
         out += ["{\\small %s\\par}\\vspace{2pt}" % E(p) for p in law_paras(t)]
         out.append("\\vspace{6pt}")
     for k in lc["liq"]:
         lab = lawcites.label(k)
-        out.append("\\par\\vspace{6pt}\\hypertarget{%s}{}\\pdfbookmark[1]{%s}{%s}\\noindent{\\large\\bfseries %s\\par}\\vspace{2pt}" % (
+        out.append("\\headroom{6}\\vspace{6pt}\\hypertarget{%s}{}\\pdfbookmark[1]{%s}{%s}\\noindent{\\large\\bfseries %s\\par}\\vspace{2pt}" % (
             law_anchor(k), E(lab), law_anchor(k), E(lab)))
         out.append("{\\footnotesize Cited by the petitioners %d times (%d filings) and their amici %d (%d); by the respondent %d (%d) "
                    "and its amici %d (%d).%s\\par}\\vspace{2pt}" % (
@@ -969,8 +983,8 @@ def law_appendix_tex(lc, fs):
         if head:
             out.append("{\\small\\bfseries %s\\par}" % head)
         for depth, label, heading, text in rows:
-            out.append("{\\small\\leftskip=%.1fem %s%s%s\\par}" % (
-                1.2 * depth, "\\textbf{%s} " % label if label else "", "\\emph{%s.} " % heading if heading else "", text))
+            out.append("%s{\\small\\leftskip=%.1fem %s%s%s\\par}" % (
+                "\\headroom{4}" if label and heading and not text else "", 1.2 * depth, "\\textbf{%s} " % label if label else "", "\\emph{%s.} " % heading if heading else "", text))
     return "\n".join(out) + "\n"
 
 
@@ -1592,6 +1606,7 @@ def build(args):
     feed = data["feed"]
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
     meta = {"title": title, "name": "%s v. %s" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle"))),
+            "foot": "%s v. %s, No. %s" % (short_party(feed.get("PetitionerTitle")), short_party(feed.get("RespondentTitle")), num),
             "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) +
                                    (status_tex(cols, names, gl, set(cp["amici_only"])) if gl else ""),
             "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs),

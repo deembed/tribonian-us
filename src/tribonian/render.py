@@ -106,6 +106,8 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 % coloured/boxed links. hyperfootnotes=false: marks and \footnotetext are paired
 % by hand here, and hyperref's footnote links assume \footnote.
 \usepackage[unicode,hidelinks,bookmarksopen,hyperfootnotes=false,pdftitle={__DOCTITLE__}]{hyperref}
+% \headroom{n}: start a new page unless n lines still fit, so a heading never sits alone at a page's foot
+\newcommand{\headroom}[1]{\par\ifdim\dimexpr\pagegoal-\pagetotal\relax<#1\baselineskip\newpage\fi}
 
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{0.0\baselineskip}
@@ -173,9 +175,12 @@ __RULES__
 % Footer: the citation and "page N of M". The LaTeX kernel (2021+) writes the
 % last page number to the .aux itself as \@abspage@last; "?" on the first pass.
 \newcommand{\lastpg}{\@ifundefined{@abspage@last}{?}{\@abspage@last}}
+% \docfoot: the footer's citation; a renderer with a long title sets a short one (scotus.py: "St. Mary
+% Catholic Parish v. Roy, No. 25-581").
+\newcommand{\docfoot}{__DOCTITLE__}
 \def\ps@pathhead{%
   \def\@oddhead{{\footnotesize\itshape\pathheader}\hfil}\let\@evenhead\@oddhead
-  \def\@oddfoot{\footnotesize __DOCTITLE__\hfil page \thepage\ of \lastpg}\let\@evenfoot\@oddfoot}
+  \def\@oddfoot{\footnotesize \docfoot\hfil page \thepage\ of \lastpg}\let\@evenfoot\@oddfoot}
 \makeatother
 \pagestyle{pathhead}
 

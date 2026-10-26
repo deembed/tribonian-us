@@ -5,6 +5,7 @@ data/state_law_sources.toml. Colorado so far:
     tribonian state fetch CO crs 26.5 00      C.R.S. titles (00 = the Colorado Constitution)
     tribonian state fetch CO crs 26.5 --force download again
     tribonian state fetch CO ccr 8-1404-1     a rule of the Code of Colorado Regulations (8 CCR 1404-1)
+    tribonian state fetch US const            the U.S. Constitution (govinfo, H. Doc. 110-50)
     tribonian state list                      what is stored here
 
 C.R.S.: the Office of Legislative Legal Services' per-title HTML (olls.info/crs/crs<edition>-title-NN.htm),
@@ -146,7 +147,34 @@ def fetch_co_ccr(series, force=False):
         print("  wrote %s (effective %s, %.1f MB)" % (path, effective or "?", n / 1e6))
 
 
-FETCHERS = {("CO", "crs"): fetch_co_crs, ("CO", "ccr"): fetch_co_ccr}
+# The U.S. Constitution: House Document 110-50 on govinfo ("The Constitution of the United States of America,
+# as amended", with the amendments' ratification notes). Its HTML rendition if govinfo has one, else the PDF.
+US_CONST = ["https://www.govinfo.gov/content/pkg/CDOC-110hdoc50/html/CDOC-110hdoc50.htm",
+            "https://www.govinfo.gov/content/pkg/CDOC-110hdoc50/pdf/CDOC-110hdoc50.pdf"]
+
+
+def fetch_us_const(items=None, force=False):
+    d = state_dir("US") / "const"
+    have = [p for p in (d / "constitution.htm", d / "constitution.pdf") if local_meta(p)]
+    if have and not force:
+        print("U.S. Constitution: local (%s, fetched %s); --force to replace" % (have[0].name, local_meta(have[0])["fetched"]))
+        return
+    for url in US_CONST:
+        path = d / ("constitution" + (".htm" if url.endswith(".htm") else ".pdf"))
+        print("U.S. Constitution (%s) ..." % url.rsplit("/", 2)[-2], flush=True)
+        try:
+            n = download(url, path)
+        except SystemExit as e:                # no HTML rendition: try the PDF
+            print("  %s" % e.code)
+            continue
+        path.with_suffix(".json").write_text(json.dumps(
+            {"edition": "H. Doc. 110-50", "fetched": date.today().isoformat(), "url": url, "bytes": n}, indent=1), encoding="utf-8")
+        print("  wrote %s (%.1f MB)" % (path, n / 1e6))
+        return
+    sys.exit("U.S. Constitution: neither govinfo rendition could be fetched")
+
+
+FETCHERS = {("CO", "crs"): fetch_co_crs, ("CO", "ccr"): fetch_co_ccr, ("US", "const"): fetch_us_const}
 
 
 def cmd_fetch(args):
@@ -175,7 +203,7 @@ def main():
     f = sub.add_parser("fetch", help="download a state's code, title by title, unless already local")
     f.add_argument("state", help="postal code, e.g. CO")
     f.add_argument("code", help="crs (Colorado Revised Statutes; title 00 is the constitution) or ccr (Code of Colorado Regulations)")
-    f.add_argument("items", nargs="+", help="crs: titles, e.g. 26.5 00; ccr: rules, e.g. 8-1404-1")
+    f.add_argument("items", nargs="*", help="crs: titles, e.g. 26.5 00; ccr: rules, e.g. 8-1404-1; US const: none")
     f.add_argument("--force", action="store_true", help="download again whatever is local")
     f.set_defaults(func=cmd_fetch)
     l = sub.add_parser("list", help="what is stored here")

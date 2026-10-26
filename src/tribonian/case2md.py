@@ -1822,7 +1822,8 @@ def render_tex(meta, ops, fontpkg, style):
            .replace("__DOCTITLE__", esc(meta["title"], "tex"))
            .replace("__DOCHEAD__", esc(meta["name"], "tex"))
            .replace("__SRCLINE__", src))
-    return pre + "".join(body) + meta.get("posttex", "") + "\n\\end{document}\n"
+    foot = "\\renewcommand{\\docfoot}{%s}\n" % esc(meta["foot"], "tex") if meta.get("foot") else ""
+    return pre + foot + "".join(body) + meta.get("posttex", "") + "\n\\end{document}\n"
 
 
 # ---------------------------------------------------------------- driver

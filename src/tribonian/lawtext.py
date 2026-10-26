@@ -3,7 +3,8 @@
 U.S.C. sections from the US Code XML in xml/ (usc2md.py's parser); C.F.R. sections and parts
 from eCFR's title XML in <law_dir>/cfr/ (cfr.py fetch); Colorado statutes and constitution from
 the OLLS title files in <law_dir>/co/crs/ (statelaw.py). Code of Colorado Regulations rules from
-the Secretary of State's Word files in <law_dir>/co/ccr/. The U.S. Constitution and other states come once their local copies exist (scope-scotus-law.md §3); until then text_of() returns None and
+the Secretary of State's Word files in <law_dir>/co/ccr/. The U.S. Constitution from govinfo's
+House Document 110-50 in <law_dir>/us/const/. Other states come once their local copies exist (scope-scotus-law.md §3); until then text_of() returns None and
 the caller says the text is not local.
 """
 import re
@@ -331,6 +332,72 @@ def _ccr_body(paras, k):
     return rows
 
 
+# ---------------------------------------------------------------- the U.S. Constitution (govinfo, H. Doc. 110-50)
+
+def _us_const():
+    """-> {("art"|"amend", n): [paragraphs]}, or None when not local. The House Document's text rendition:
+    a <pre> block; the original articles, then the amendments after "ARTICLES IN ADDITION TO ...". Footnote
+    blocks (between rules of dashes), "Proposal and Ratification" notes, footnote marks (\\12\\) and the
+    signers are left out."""
+    import html
+    if "uscon" not in _ROOTS:
+        from tribonian import statelaw
+        path, parts = statelaw.state_dir("US") / "const" / "constitution.htm", None
+        if path.exists():
+            t = html.unescape(re.sub(r"<[^>]+>", "", path.read_text(encoding="utf-8", errors="replace")))
+            t = t[t.find("We the People"):]
+            t = re.sub(r"\n-{20,}\n.*?\n-{20,}\n", "\n", t, flags=re.S)          # footnote blocks
+            t = re.sub(r"\\[0-9a-z]+\\", "", t)                                   # \12\ marks, W\m\ superscripts
+            amend_at = t.find("ARTICLES IN ADDITION TO")
+            parts = {}
+            heads = list(re.finditer(r"^\s+Article \[?([IVXL]+)\.?\]?\.?\s*$", t, re.M))
+            for i, m in enumerate(heads):
+                end = heads[i + 1].start() if i + 1 < len(heads) else len(t)
+                kind = "amend" if m.start() > amend_at > 0 else "art"
+                if kind == "art" and amend_at > 0:
+                    end = min(end, amend_at)
+                body = t[m.end():end]
+                for stop in ("Proposal and Ratification", "done in Convention", "ARTICLES IN ADDITION"):
+                    body = body.split(stop)[0]
+                paras, cur = [], []
+                for line in body.split("\n"):
+                    if not line.strip():
+                        continue
+                    if re.match(r"\s{4}\S", line) and cur:      # an indented line starts a paragraph
+                        paras.append(" ".join(" ".join(cur).split()))
+                        cur = []
+                    cur.append(line.strip())
+                if cur:
+                    paras.append(" ".join(" ".join(cur).split()))
+                from tribonian import lawcites
+                parts[(kind, lawcites.ROMAN.get(m.group(1)))] = paras
+            pre = t[:heads[0].start()] if heads else ""
+            parts[("preamble", 0)] = [" ".join(pre.split())]
+        _ROOTS["uscon"] = parts
+    return _ROOTS["uscon"]
+
+
+def us_const(kind, n, section=None):
+    """const:amend-1, const:art-3 (every section), const:art-3:2 -> (heading, rows), or None."""
+    from tribonian import statelaw
+    parts = _us_const()
+    if not parts or (kind, int(n)) not in parts:
+        return None
+    meta = statelaw.local_meta(statelaw.state_dir("US") / "const" / "constitution.htm") or {}
+    roman = {v: k for k, v in __import__("tribonian.lawcites", fromlist=["ROMAN"]).ROMAN.items()}[int(n)]
+    head = ("Amendment %s" if kind == "amend" else "Article %s") % roman
+    head += " {\\normalfont\\footnotesize (%s)}" % meta["edition"] if meta.get("edition") else ""
+    rows, cur = [], None
+    for p in parts[(kind, int(n))]:
+        m = re.match(r"Section (\d+)\.\s*(.*)", p)
+        if m:
+            cur = m.group(1)                     # a section's later clauses are paragraphs of their own
+        if section is not None and cur != str(section):
+            continue
+        rows.append((0, c.esc("§ %s" % m.group(1), "tex") if m else "", "", c.esc(m.group(2) if m else p, "tex")))
+    return (head, rows) if rows else None
+
+
 def text_of(key):
     """A provision's local text: (heading, rows) or None."""
     p = key.split(":")
@@ -345,6 +412,9 @@ def text_of(key):
             return co_const(p[1].split("-")[1], p[2] if len(p) > 2 else None)
         if p[0] == "co-ccr":
             return co_ccr(p[1], p[2] if len(p) > 2 else None)
+        if p[0] == "const":
+            kind, n = p[1].split("-")
+            return us_const(kind, n, p[2] if len(p) > 2 else None)
     except Exception:
         return None
     return None
@@ -361,6 +431,8 @@ def fetch_spec(key):
         return ("state", "CO", "crs", "00")
     if p[0] == "co-ccr":
         return ("state", "CO", "ccr", p[1])
+    if p[0] == "const":
+        return ("state", "US", "const", "")
     return None
 
 
@@ -370,7 +442,7 @@ def fetch_hint(key):
     if spec is None:
         p = key.split(":")
         return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1] if p[0] == "usc" else ""
-    return "tribonian cfr fetch %s" % spec[1] if spec[0] == "cfr" else "tribonian state fetch %s %s %s" % spec[1:]
+    return "tribonian cfr fetch %s" % spec[1] if spec[0] == "cfr" else ("tribonian state fetch %s %s %s" % spec[1:]).rstrip()
 
 
 def run_fetch(spec):
@@ -390,7 +462,7 @@ def run_fetch(spec):
             reader = statelaw.FETCHERS.get((spec[1], spec[2]))
             if reader is None:
                 return False, "no reader for %s %s yet" % (spec[1], spec[2])
-            reader([spec[3]])
+            reader([spec[3]] if spec[3] else [])
     except SystemExit as e:
         return False, str(e.code) if e.code not in (None, 0) else "stopped"
     except KeyboardInterrupt:
