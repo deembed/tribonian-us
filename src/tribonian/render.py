@@ -178,8 +178,30 @@ __RULES__
 % \docfoot: the footer's citation; a renderer with a long title sets a short one (scotus.py: "St. Mary
 % Catholic Parish v. Roy, No. 25-581").
 \newcommand{\docfoot}{__DOCTITLE__}
+% Cover band (scotus.py): the top strip of each page in the cover color of the filing in effect there
+% (Rule 33.1(g); covers.py). \recordcover{name} writes the color with its page to the .aux at shipout, as
+% \recordpath does; the band takes the last color recorded on this page or before ("none": no band).
+\newcommand{\covermark}[2]{\expandafter\gdef\csname cov@#1\endcsname{#2}}
+\newcommand{\recordcover}[1]{\protected@write\@auxout{}{\string\covermark{\thepage}{#1}}}
+\newcommand{\coverband}{%
+  \begingroup\count@=\value{page}\def\cov@now{none}%
+  \loop\ifnum\count@>0
+    \ifcsname cov@\number\count@\endcsname
+      \edef\cov@now{\csname cov@\number\count@\endcsname}\count@=0
+    \else\advance\count@ by -1\fi
+  \repeat
+  \def\cov@none{none}%
+  % drawn from the header's own origin (no remember picture: header pictures shift between passes): the page's
+  % top-left corner is 1in+\hoffset+\oddsidemargin to the left and 1in+\voffset+\topmargin+\headheight up
+  \ifx\cov@now\cov@none\else
+    \dimen@=\dimexpr 1in+\hoffset+\oddsidemargin\relax \dimen@ii=\dimexpr 1in+\voffset+\topmargin+\headheight\relax
+    \begin{tikzpicture}[overlay]
+      \fill[cover-\cov@now] (-\dimen@,\dimen@ii) rectangle (\paperwidth-\dimen@,\dimen@ii-21pt);
+      \draw[cover-\cov@now-edge, line width=0.6pt] (-\dimen@,\dimen@ii-21pt) -- (\paperwidth-\dimen@,\dimen@ii-21pt);
+    \end{tikzpicture}\fi
+  \endgroup}
 \def\ps@pathhead{%
-  \def\@oddhead{{\footnotesize\itshape\pathheader}\hfil}\let\@evenhead\@oddhead
+  \def\@oddhead{\coverband{\footnotesize\itshape\pathheader}\hfil}\let\@evenhead\@oddhead
   \def\@oddfoot{\footnotesize \docfoot\hfil page \thepage\ of \lastpg}\let\@evenfoot\@oddfoot}
 \makeatother
 \pagestyle{pathhead}

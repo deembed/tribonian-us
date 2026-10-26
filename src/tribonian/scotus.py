@@ -1043,7 +1043,7 @@ def law_appendix_tex(lc, fs):
         return ""
     E = lambda t: c.esc(t, "tex")
     secs, repro = law_sources(fs)
-    out = ["\\clearpage\\recordpath{The Law in Question}\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
+    out = ["\\clearpage\\recordcover{none}\\recordpath{The Law in Question}\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
            "{\\Large\\bfseries The Law in Question\\par}\\vspace{4pt}",
            "{\\scriptsize\\itshape Not part of the record. The provisions the questions presented and the parties' "
            "provisions-involved sections name: first as each party sets them out, then each provision's text where it is "
@@ -1327,6 +1327,102 @@ def usc_md(rows, missing, nall, statutes):
     return L + [""]
 
 
+# ---------------------------------------------------------------- a header per filing, in its cover color (scope §6)
+
+def covers_defs():
+    from tribonian import covers
+    return covers.tex_defs()
+
+
+def group_covers(fs, below=False):
+    """The cover color of each row of the grouped coupling table (group_sets' order)."""
+    from tribonian import covers
+    out = [covers.cover(f["kind"], f["stage"], f["side"]) for f in fs if f["kind"] != "amicus"]
+    for stage, _ in STAGES[1:]:
+        for side in ("petitioner", "respondent", "neither"):
+            if any(f["kind"] == "amicus" and f["stage"] == stage and (f["side"] or "neither") == side for f in fs):
+                out.append(covers.cover("amicus", stage, side))
+    return out + (["gray"] if below else [])
+
+
+def group_index(cp, f):
+    """The coupling-table row a filing belongs to: its own (a party filing) or its amici group."""
+    want = f["abbr"] if f["kind"] != "amicus" else "%s amici, %s" % (
+        dict(STAGES)[f["stage"]].replace(" Stage", "").replace("Certiorari", "Cert."),
+        {"petitioner": "pet.", "respondent": "resp.", "neither": "neither"}[f["side"] or "neither"])
+    return next((i for i, (lab, _, _) in enumerate(cp["groups"]) if lab == want), None)
+
+
+def filing_header(fs, i, cp, lc, ucr):
+    """The five parts of a filing's header (scope §6), as data both renderers read."""
+    f = fs[i]
+    mine = set(f["cites"])
+    others = set().union(*(set(g["cites"]) for j, g in enumerate(fs) if j != i)) if len(fs) > 1 else set()
+    own = set().union(*(set(g["cites"]) for j, g in enumerate(fs) if j != i and g["side"] == f["side"] and f["side"]), set())
+    other_side = set().union(*(set(g["cites"]) for g in fs if g["side"] and f["side"] and g["side"] != f["side"]), set())
+    parties = [j for j, g in enumerate(fs) if g["kind"] != "amicus" and j != i]
+    strip = [(fs[j]["abbr"], cp["matrix"][i][j]) for j in parties]
+    closest = max(strip, key=lambda x: x[1]) if strip else None
+    gi = group_index(cp, f)
+    laws = Counter()
+    for k, n in f["laws"]["cites"].items():
+        laws[lawcites.section_of(k)] += n
+    area = {r["key"]: r["areas"][0][0] for r in ucr if r["areas"]}
+    return {"letter": chr(65 + gi) if gi is not None else "", "group": cp["groups"][gi][0] if gi is not None else "",
+            "n": len(mine), "mentions": sum(f["cites"].values()), "miss": sum(f["miss"].values()),
+            "nlaws": len(laws), "strip": strip, "closest": closest, "alone": len(mine - others),
+            "own_only": len((mine & own) - other_side), "both": len(mine & other_side),
+            "laws": [(k, n, area.get(k)) for k, n in sorted(laws.items(), key=lambda kv: (-kv[1], lawcites.sort_key(kv[0])))[:8]],
+            "more_laws": max(0, len(laws) - 8), "liq": set(lc["liq"])}
+
+
+def header_lines(f, h, fmt, link=None):
+    """The header as lines of text in fmt ('tex' | 'md'); link(key) -> a provision's link (md)."""
+    E = lambda t: c.esc(t, fmt)
+    pct = "\\%" if fmt == "tex" else "%"
+    who = "%s · %s · %s" % (f["who"] if f["kind"] == "amicus" else short_party(f["who"]), f["title"], c.long_date(f["date"]))
+    if f["kind"] == "amicus" and f["side"] in SIDE_NAME:
+        who += " · supporting %ss" % f["side"]
+    elif f["kind"] != "amicus" and f["side"]:
+        who += " · %s" % f["side"]
+    L = [E(who) + (" — coupling row %s%s" % (h["letter"], " (%s)" % E(h["group"]) if f["kind"] == "amicus" else "") if h["letter"] else "")]
+    L.append("Cites %d cases (%d mentions)%s; %d statutes and provisions." % (
+        h["n"], h["mentions"], ", %d citations not resolved" % h["miss"] if h["miss"] else "", h["nlaws"]))
+    if h["strip"]:
+        L.append("Shares with " + " · ".join("%s %d%s" % (E(a), round(100 * v), pct) for a, v in h["strip"]) +
+                 ("; closest: %s" % E(h["closest"][0]) if h["closest"] and h["closest"][1] > 0 else ""))
+    L.append("Its own ground: %d cases no other filing cites; %d shared with its own side only, %d with the other side." % (
+        h["alone"], h["own_only"], h["both"]))
+    if h["laws"]:
+        def one(k, n, area):
+            lab = E(lawcites.label(k))
+            if fmt == "tex" and k in h["liq"]:
+                lab = "\\hyperlink{%s}{%s}" % (law_anchor(k), lab)
+            elif fmt == "md" and link:
+                lab = link(k)
+            return lab + (" ×%d" % n if n > 1 else "") + (" (%s)" % E(area) if area else "")
+        L.append("Statutes: " + "; ".join(one(*x) for x in h["laws"]) + ("; %d more" % h["more_laws"] if h["more_laws"] else "") + ".")
+    return L
+
+
+def header_tex(f, h):
+    from tribonian import covers
+    name = covers.cover(f["kind"], f["stage"], f["side"])
+    L = header_lines(f, h, "tex")
+    return ("\\begin{tcolorbox}[enhanced, breakable, colback=cover-%s, colframe=cover-%s-edge, boxrule=%s, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=3pt, bottom=3pt, fontupper=\\small]\n\\textbf{%s}\\par\n%s\n\\end{tcolorbox}\\vspace{4pt}\n") % (
+        name, name, "0.8pt" if name == "white" else "0.4pt", L[0], "\n".join("%s\\par" % x for x in L[1:]))
+
+
+def header_md(f, h, statutes):
+    from tribonian import covers
+    name = covers.cover(f["kind"], f["stage"], f["side"])
+    link = lambda k: "[[%s|%s]]" % (lawcites.note_name(k), c.esc(lawcites.label(k), "md")) \
+        if lawcites.note_name(k) in statutes else c.esc(lawcites.label(k), "md")
+    L = header_lines(f, h, "md", link)
+    return ["> [!cover-%s] %s" % (name, L[0])] + [">"] + ["> %s" % x for x in L[1:]] + [""]
+
+
 def area_profile(cp, names, db):
     """Mentions per cocite area, each side. -> [(area name, share P, share R, n P, n R)]."""
     if db is None:
@@ -1428,7 +1524,9 @@ def couple_rows(cp):
 
 def couple_table(cp, E, table):
     rows = couple_rows(cp)
-    body = [["%s %s" % (L, E(lab))] + [("$\\cdot$" if v == "·" else v) for v in cells] + ["%d" % n] for L, lab, n, cells in rows]
+    sw = ["\\coverswatch{%s}\\ " % x for x in cp.get("covers", [])] + [""] * len(rows)
+    body = [["%s%s %s" % (sw[r], L, E(lab))] + [("$\\cdot$" if v == "·" else v) for v in cells] + ["%d" % n]
+            for r, (L, lab, n, cells) in enumerate(rows)]
     return table(body, [""] + [L for L, _, _, _ in rows] + ["$n$"], "l" + "r" * len(rows) + "|r")
 
 
@@ -1790,11 +1888,19 @@ def build(args):
     uc = (ucr, ucm, sum(1 for k in set(lc["P"]) | set(lc["R"]) if k.startswith("usc:")))
     if ucm:
         warnings.append("U.S. Code in the case law: not built here: %s" % "; ".join("%s (%s)" % mw for mw in ucm))
+    for i, f in enumerate(fs):                     # the cover-colored header of each filing (§6)
+        f["header"] = filing_header(fs, i, cp, lc, ucr)
+        f["o"]["headbox_tex"] = header_tex(f, f["header"])
+        from tribonian import covers
+        f["o"]["cover"] = covers.cover(f["kind"], f["stage"], f["side"])
+    cp["covers"] = group_covers(fs, bool(cp["below"]))
+    lc["covers"] = group_covers(fs)
 
     # ---- one PDF
     ops = []
     for o in below_ops:
         o["stage"] = "below"
+        o["cover"] = "gray"                         # not a filing: the proposed neutral color, on the contents line only
         ops.append(o)
     for f in fs:
         if f["kind"] == "amicus" and not args.amici:
@@ -1819,9 +1925,9 @@ def build(args):
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
     meta = {"title": title, "name": "%s v. %s" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle"))),
             "foot": "%s v. %s, No. %s" % (short_party(feed.get("PetitionerTitle")), short_party(feed.get("RespondentTitle")), num),
-            "page": "1", "toc": True, "pretex": docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) + usc_tex(*uc) +
+            "page": "1", "toc": True, "pretex": covers_defs() + docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) + usc_tex(*uc) +
                                    (status_tex(cols, names, gl, set(cp["amici_only"])) if gl else ""),
-            "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs),
+            "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs), "doc_newpage": True,
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",
                         "decision below: CourtListener cluster %s" % cid if cid else "", "retrieved " + data.get("retrieved", "")]}
     (c.ROOT / "build").mkdir(exist_ok=True)
@@ -1843,8 +1949,10 @@ def build(args):
                             ("kind", c.Raw(f["kind"])), ("stage", c.Raw(f["stage"])), ("side", c.Raw(f["side"] or "none")),
                             ("filer", f["who"]), ("docket", num), ("docket_note", "[[%s]]" % slug), ("filed", c.Raw(f["date"])),
                             ("source", c.Raw(f["link"]["url"])), ("retrieved", c.Raw(data.get("retrieved", ""))),
-                            ("synthetic", False)]) + ["", "# %s" % c.esc(cite, "md"), "",
+                            ("cover", c.Raw(f["o"].get("cover", ""))), ("synthetic", False)]) + ["", "# %s" % c.esc(cite, "md"), "",
                 "Docket: [[%s|No. %s]] · %s · [PDF](%s)" % (slug, num, c.esc(f["text"], "md"), f["link"]["url"]), ""]
+        if f.get("header"):
+            head += header_md(f, f["header"], statutes)
         tail = ["## Authorities", "", "*Reporter citations in this filing, resolved through the local database; ×n = mentions.*", ""]
         for k, n in f["cites"].most_common():
             tail.append("- %s ×%d" % (link_md(names, index, k), n))
@@ -1961,6 +2069,29 @@ def crawl(args, data, fs, cid):
     kinds = Counter(c.write_note(k, index) for k, d in level.items() if d is not None and str(k) in index)
     print("wrote %d case notes in md-cases/: %s" % (sum(kinds.values()), ", ".join("%d %s" % (n, k) for k, n in kinds.items())))
     print("their PDFs: tribonian build   (then rerun tribonian scotus build %s so its notes link to them)" % data["number"])
+
+
+def swatches_cmd(args):
+    """The cover colors as the header boxes will show them, one box each, with black text, on the tablet's page size.
+    Copy to the reMarkable (tribonian sync-remarkable) and judge them there: the screen mutes color."""
+    from tribonian import covers
+    from tribonian.render import PREAMBLE, RULES
+    boxes = []
+    for name, role in covers.ROLES:
+        label, fill, edge = covers.COLORS[name]
+        boxes.append("\\begin{tcolorbox}[enhanced, colback=cover-%s, colframe=cover-%s-edge, boxrule=%s, arc=1.5pt, "
+                     "left=5pt, right=5pt, top=3pt, bottom=3pt]\n\\textbf{%s} \\hfill {\\footnotesize\\ttfamily %s / %s}\\par\n"
+                     "{\\small %s. Cites 30 cases (114 mentions); closest to Pet'rs Br. (35\\%%).}\n\\end{tcolorbox}\\vspace{2pt}\n"
+                     % (name, name, "0.8pt" if name == "white" else "0.4pt", c.esc(label.capitalize(), "tex"), fill, edge, c.esc(role, "tex")))
+    pre = (PREAMBLE.replace("__FONTPKG__", args.font).replace("__RULES__", RULES["boxes"])
+           .replace("__DOCTITLE__", "Cover colors").replace("__DOCHEAD__", "Cover colors (Rule 33.1(g)) on this screen")
+           .replace("__SRCLINE__", "tribonian scotus swatches; the table is src/tribonian/covers.py"))
+    tex = pre + covers.tex_defs() + "".join(boxes) + "\n\\end{document}\n"
+    (c.ROOT / "build").mkdir(exist_ok=True)
+    path = c.ROOT / "build" / "cover-swatches.tex"
+    path.write_text(tex, encoding="utf-8")
+    pdf = c.run_pdflatex(path, c.ROOT / "pdf")
+    print("wrote %s" % (pdf.relative_to(c.ROOT) if pdf else path.relative_to(c.ROOT)))
 
 
 def build_cmd(args):
@@ -2286,6 +2417,9 @@ def main():
     b.add_argument("--fetch", action="store_true", help="download the text of the law in question that is not local "
                    "(C.F.R. titles, Colorado law); a refusal or a dropped connection is reported and the build goes on")
     b.set_defaults(func=build_cmd)
+    sw = sub.add_parser("swatches", help="one page of the cover colors, to check the tints on the tablet -> pdf/cover-swatches.pdf")
+    sw.add_argument("--font", default="XCharter")
+    sw.set_defaults(func=swatches_cmd)
     r = sub.add_parser("recent", help="the Court's recent opinions, grants and orders -> cases/scotus/_recent.json")
     r.add_argument("--json", action="store_true", help="also print the result as JSON")
     r.add_argument("--days", type=int, default=RECENT_DAYS, help="how far back (default %d)" % RECENT_DAYS)

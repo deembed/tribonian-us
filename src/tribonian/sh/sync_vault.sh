@@ -79,6 +79,14 @@ if [[ -d md-state ]]; then
     echo "state law: $(find md-state -name '*.md' | wc -l) notes -> $VAULT/08-Reference/State"
 fi
 
+# The filing notes' cover-color callouts need a CSS snippet in the vault (written from covers.py; enable it once
+# under Settings > Appearance > CSS snippets).
+if [[ -z ${DRY:-} ]]; then
+    mkdir -p "$VAULT/.obsidian/snippets"
+    "${TRIBONIAN_PY:-python3}" -m tribonian.covers > "$VAULT/.obsidian/snippets/tribonian-covers.css" \
+        && echo "cover colors -> $VAULT/.obsidian/snippets/tribonian-covers.css"
+fi
+
 if [[ -z ${DRY:-} ]]; then
     echo "synced $(find "$DEST" -name '*.md' | wc -l) notes -> $DEST"
 else

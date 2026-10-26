@@ -1805,17 +1805,26 @@ def render_tex(meta, ops, fontpkg, style):
             name = (meta.get("stages") or {}).get(stage, stage)
             body.append("\\clearpage%s\\pdfbookmark[0]{%s}{stage%d}{\\Large\\bfseries %s\\par}\\vspace{8pt}\n" % (
                 "\\noindent\\tocback" + toc_entry("tocstage", name) if toc else "", esc(name, "tex"), n, esc(name, "tex")))
+        elif n and meta.get("doc_newpage"):
+            body.append("\\clearpage\n")         # scotus.py: every filing on its own page (one cover color per page)
         elif n:
             # new opinion: start a fresh page unless 8 lines still fit under its heading
             body.append("\\par\\ifdim\\dimexpr\\pagegoal-\\pagetotal\\relax<8\\baselineskip\\clearpage"
                         "\\else\\vspace{12pt}\\hrule\\vspace{6pt}\\fi\n")
         if toc:
-            body.append("\\noindent\\tocback" + toc_entry("tocdoc", "%s — %s" % (ctx.who, o["kindname"])))
+            entry = toc_entry("tocdoc", "%s — %s" % (ctx.who, o["kindname"]))
+            if o.get("cover"):                   # its cover color on the contents line (scotus.py)
+                entry = entry.replace("\\tocadd{tocdoc}{", "\\tocadd{tocdoc}{\\protect\\coverswatch{%s}\\ " % o["cover"], 1)
+            body.append("\\noindent\\tocback" + entry)
+        if o.get("cover"):                       # scotus.py: the page band takes this filing's cover color from here
+            body.append("\\recordcover{%s}" % o["cover"])
         body.append("\\recordpath{%s}\\pdfbookmark[%d]{%s}{o%d}{\\large\\bfseries %s}\\ {\\large %s}\\par\n" % (
             ctx.path(), base, esc("%s — %s · *%s" % (ctx.who, o["kindname"], ctx.page), "tex"), ctx.oi,
             esc(ctx.who, "tex"), esc(o["kindname"], "tex")))
         if o["byline_tex"]:
             body.append("{\\small\\itshape %s\\par}\n" % o["byline_tex"])
+        if o.get("headbox_tex"):                 # scotus.py: the filing's header in its cover color
+            body.append("\\vspace{3pt}" + o["headbox_tex"])
         body.append("\\vspace{2pt}\n")
 
         top = o["tree"]
