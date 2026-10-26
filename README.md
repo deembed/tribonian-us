@@ -6,6 +6,7 @@ Turns the US Code and court opinions into dense PDFs for the reMarkable, plus Ob
 
 > Not legal advice and not a citator. The good-law check and the co-citation map are reading aids built from
 > CourtListener data; read the opinions they point to.
+> What has been measured, and what hasn't: [VALIDATION.md](VALIDATION.md).
 
 ## How to support
 
