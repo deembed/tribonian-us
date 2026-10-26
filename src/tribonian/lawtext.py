@@ -186,12 +186,21 @@ def _co_depth(label, prev_cap):
     return 3
 
 
-def _co_rows(paras, start, stop):
+def _E(t, fmt):
+    return c.esc(t, fmt)
+
+
+def _small(t, fmt):
+    """A note line (Source:, Cross references): small type in TeX, italic in Markdown."""
+    return "{\\footnotesize %s}" % t if fmt == "tex" else "*%s*" % t
+
+
+def _co_rows(paras, start, stop, fmt="tex"):
     """Body paragraphs -> rows; the Source note in small type; annotations left out."""
     rows, depth, cap = [], 0, None
     for text, bold, centered in paras[start:stop]:
         if text.startswith("Source:") or text.startswith("Editor's note") or text.startswith("Cross references"):
-            rows.append((0, "", "", "{\\footnotesize %s}" % c.esc(text, "tex")))
+            rows.append((0, "", "", _small(_E(text, fmt), fmt)))
             continue
         labels = []
         rest = text
@@ -205,7 +214,7 @@ def _co_rows(paras, start, stop):
             depth = _co_depth(labels[-1], cap)
             if depth == 3:
                 cap = labels[-1].split(".")[0]
-        rows.append((depth if labels else 0, "", "", c.esc(text, "tex")))
+        rows.append((depth if labels else 0, "", "", _E(text, fmt)))
     return rows
 
 
@@ -223,7 +232,7 @@ def _co_end(paras, i, is_start):
 CRS_START = re.compile(r"^(\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?)\.\s+(.*)")
 
 
-def co_crs(section):
+def co_crs(section, fmt="tex"):
     """'26.5-4-205' -> (heading, rows) from the local OLLS title file, or None."""
     from tribonian import statelaw
     paras = _co_paras(section.split("-")[0])
@@ -233,29 +242,29 @@ def co_crs(section):
     i = next((k for k, p in enumerate(paras) if is_start(p) and CRS_START.match(p[0]).group(1) == section), None)
     if i is None:
         return None
-    head = c.esc(CRS_START.match(paras[i][0]).group(2), "tex")
+    head = _E(CRS_START.match(paras[i][0]).group(2), fmt)
     meta = statelaw.local_meta(statelaw.state_dir("CO") / "crs" / ("title-%s.htm" % statelaw.crs_title_name(section.split("-")[0]))) or {}
-    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") else ""
-    return head + when, _co_rows(paras, i + 1, _co_end(paras, i, is_start))
+    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") and fmt == "tex" else ""
+    return head + when, _co_rows(paras, i + 1, _co_end(paras, i, is_start), fmt)
 
 
 SEC_START = re.compile(r"^Section (\d+[a-z]?)\.\s+(.*)")
 
 
-def co_const(article, section=None):
+def co_const(article, section=None, fmt="tex"):
     """Colo. Const. art. IX, § 7 -> (heading, rows); the article alone lists its sections. From title 00."""
     from tribonian import lawcites, statelaw
     paras = _co_paras("0")
     if paras is None:
         return None
-    roman = {v: k for k, v in lawcites.ROMAN.items()}.get(int(article))
+    roman = c.to_roman(int(article))
     a = next((k for k, p in enumerate(paras) if p[0] == "ARTICLE %s" % roman and p[2]), None)
     if a is None:
         return None
     end = next((k for k in range(a + 1, len(paras)) if re.fullmatch(r"ARTICLE [IVXL]+", paras[k][0]) and paras[k][2]), len(paras))
     is_start = lambda p: SEC_START.match(p[0]) is not None
     meta = statelaw.local_meta(statelaw.state_dir("CO") / "crs" / "title-00.htm") or {}
-    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") else ""
+    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") and fmt == "tex" else ""
     if section is None:
         title = paras[a + 1][0] if a + 1 < end and paras[a + 1][2] else ""
         rows, seen = [], set()
@@ -263,12 +272,12 @@ def co_const(article, section=None):
             m = SEC_START.match(paras[k][0])
             if m and m.group(1) not in seen:
                 seen.add(m.group(1))
-                rows.append((0, c.esc("§ " + m.group(1), "tex"), c.esc(m.group(2).rstrip("."), "tex"), ""))
-        return c.esc(("Article %s. %s" % (roman, title.title())).strip(), "tex") + when, rows
+                rows.append((0, _E("§ " + m.group(1), fmt), _E(m.group(2).rstrip("."), fmt), ""))
+        return _E(("Article %s. %s" % (roman, title.title())).strip(), fmt) + when, rows
     i = next((k for k in range(a + 1, end) if is_start(paras[k]) and SEC_START.match(paras[k][0]).group(1) == section), None)
     if i is None:
         return None
-    return c.esc(SEC_START.match(paras[i][0]).group(2), "tex") + when, _co_rows(paras, i + 1, min(_co_end(paras, i, is_start), end))
+    return _E(SEC_START.match(paras[i][0]).group(2), fmt) + when, _co_rows(paras, i + 1, min(_co_end(paras, i, is_start), end), fmt)
 
 
 def _ccr_paras(series):
@@ -295,7 +304,7 @@ def _ccr_paras(series):
 CCR_SEC = re.compile(r"^(\d+\.\d+[A-Za-z]?)\s*(.*)")
 
 
-def co_ccr(series, section=None):
+def co_ccr(series, section=None, fmt="tex"):
     """8 CCR 1404-1 ('8-1404-1') -> the whole rule, section by section; with a section ('4.109') -> its text.
     From the rule's current Word version (statelaw.py). Paragraph depth from the SOS styles par1/par2/par3."""
     from tribonian import statelaw
@@ -303,7 +312,7 @@ def co_ccr(series, section=None):
     if paras is None:
         return None
     meta = statelaw.local_meta(statelaw.state_dir("CO") / "ccr" / ("%s.docx" % series)) or {}
-    when = " {\\normalfont\\footnotesize (effective %s)}" % c.long_date(meta["effective"]) if meta.get("effective") else ""
+    when = " {\\normalfont\\footnotesize (effective %s)}" % c.long_date(meta["effective"]) if meta.get("effective") and fmt == "tex" else ""
     heads = [(k, CCR_SEC.match(t)) for k, (st, t) in enumerate(paras) if st.startswith("Heading2")]
     if section is None:                  # the whole rule: every section, heading then text (a rule runs to tens of pages)
         title = next((t for st, t in paras if st == "Heading1"), "")
@@ -311,24 +320,24 @@ def co_ccr(series, section=None):
         for k, m in heads:
             if not m:
                 continue
-            rows.append((0, c.esc("§ " + m.group(1), "tex"), c.esc(c.titlecase(m.group(2)), "tex"), ""))
-            rows += _ccr_body(paras, k)
-        return c.esc(c.titlecase(title), "tex") + when, rows
+            rows.append((0, _E("§ " + m.group(1), fmt), _E(c.titlecase(m.group(2)), fmt), ""))
+            rows += _ccr_body(paras, k, fmt)
+        return _E(c.titlecase(title), fmt) + when, rows
     k = next((k for k, m in heads if m and m.group(1) == section), None)
     if k is None:
         return None
     m = CCR_SEC.match(paras[k][1])
-    return c.esc(c.titlecase(m.group(2)), "tex") + when, _ccr_body(paras, k)
+    return _E(c.titlecase(m.group(2)), fmt) + when, _ccr_body(paras, k, fmt)
 
 
-def _ccr_body(paras, k):
+def _ccr_body(paras, k, fmt="tex"):
     """The paragraphs after the section heading at k, to the next heading; depth from the style (par1 = 0)."""
     rows = []
     for st, t in paras[k + 1:]:
         if st.startswith("Heading"):
             break
         d = re.search(r"par(\d)", st)
-        rows.append((int(d.group(1)) - 1 if d else 0, "", "", c.esc(t, "tex")))
+        rows.append((int(d.group(1)) - 1 if d else 0, "", "", _E(t, fmt)))
     return rows
 
 
@@ -377,7 +386,7 @@ def _us_const():
     return _ROOTS["uscon"]
 
 
-def us_const(kind, n, section=None):
+def us_const(kind, n, section=None, fmt="tex"):
     """const:amend-1, const:art-3 (every section), const:art-3:2 -> (heading, rows), or None."""
     from tribonian import statelaw
     parts = _us_const()
@@ -386,7 +395,7 @@ def us_const(kind, n, section=None):
     meta = statelaw.local_meta(statelaw.state_dir("US") / "const" / "constitution.htm") or {}
     roman = {v: k for k, v in __import__("tribonian.lawcites", fromlist=["ROMAN"]).ROMAN.items()}[int(n)]
     head = ("Amendment %s" if kind == "amend" else "Article %s") % roman
-    head += " {\\normalfont\\footnotesize (%s)}" % meta["edition"] if meta.get("edition") else ""
+    head += " {\\normalfont\\footnotesize (%s)}" % meta["edition"] if meta.get("edition") and fmt == "tex" else ""
     rows, cur = [], None
     for p in parts[(kind, int(n))]:
         m = re.match(r"Section (\d+)\.\s*(.*)", p)
@@ -394,7 +403,7 @@ def us_const(kind, n, section=None):
             cur = m.group(1)                     # a section's later clauses are paragraphs of their own
         if section is not None and cur != str(section):
             continue
-        rows.append((0, c.esc("§ %s" % m.group(1), "tex") if m else "", "", c.esc(m.group(2) if m else p, "tex")))
+        rows.append((0, _E("§ %s" % m.group(1), fmt) if m else "", "", _E(m.group(2) if m else p, fmt)))
     return (head, rows) if rows else None
 
 

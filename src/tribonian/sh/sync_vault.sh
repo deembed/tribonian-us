@@ -69,6 +69,16 @@ if [[ -d md-cfr ]]; then
     echo "C.F.R.: $(find md-cfr -name '*.md' | wc -l) notes -> $VAULT/08-Reference/CFR"
 fi
 
+# State law and the U.S. Constitution (tribonian state notes writes md-state/<state>/) -> 08-Reference/State.
+if [[ -d md-state ]]; then
+    mkdir -p "$VAULT/08-Reference/State"
+    guard md-state "$VAULT/08-Reference/State"
+    rsync -a --delete ${DRY:+--dry-run} --itemize-changes \
+          --include='*/' --include='*.md' --exclude='*' \
+          md-state/ "$VAULT/08-Reference/State/" | tail -20
+    echo "state law: $(find md-state -name '*.md' | wc -l) notes -> $VAULT/08-Reference/State"
+fi
+
 if [[ -z ${DRY:-} ]]; then
     echo "synced $(find "$DEST" -name '*.md' | wc -l) notes -> $DEST"
 else

@@ -635,7 +635,7 @@ def statute_note(text):
 def statute_notes():
     """Names of the statute and regulation notes that exist: md/ (US Code), md-cfr/ (C.F.R., cfr.py notes)."""
     out = set()
-    for d, pat in ((ROOT / "md", "*-usc-*.md"), (ROOT / "md-cfr", "*-cfr-*.md")):
+    for d, pat in ((ROOT / "md", "*-usc-*.md"), (ROOT / "md-cfr", "*-cfr-*.md"), (ROOT / "md-state", "*.md")):
         if d.is_dir():
             out |= {p.stem for p in d.rglob(pat)}
     return out

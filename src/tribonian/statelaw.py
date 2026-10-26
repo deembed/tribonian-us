@@ -6,6 +6,7 @@ data/state_law_sources.toml. Colorado so far:
     tribonian state fetch CO crs 26.5 --force download again
     tribonian state fetch CO ccr 8-1404-1     a rule of the Code of Colorado Regulations (8 CCR 1404-1)
     tribonian state fetch US const            the U.S. Constitution (govinfo, H. Doc. 110-50)
+    tribonian state notes                     (re)write the Obsidian notes -> md-state/ (fetch does it too)
     tribonian state list                      what is stored here
 
 C.R.S.: the Office of Legislative Legal Services' per-title HTML (olls.info/crs/crs<edition>-title-NN.htm),
@@ -177,11 +178,108 @@ def fetch_us_const(items=None, force=False):
 FETCHERS = {("CO", "crs"): fetch_co_crs, ("CO", "ccr"): fetch_co_ccr, ("US", "const"): fetch_us_const}
 
 
+# ---------------------------------------------------------------- notes (Obsidian): md-state/<state>/...
+
+def notes_dir():
+    return tconfig.WORK / "md-state"
+
+
+def _md_rows(rows, known):
+    """lawtext rows (fmt="md") -> Markdown paragraphs: leading labels bold, cites of existing notes linked."""
+    import re
+    out = []
+    for depth, label, heading, text in rows:
+        if heading and not text:
+            out += ["", "## %s%s" % (label + " " if label else "", heading), ""]
+            continue
+        m = re.match(r"((?:\([A-Za-z0-9.]{1,6}\)\s*)+)(.*)", text)
+        t = "**%s** %s" % (m.group(1).strip(), m.group(2)) if m else text
+        out += ["%s%s" % ("**%s** " % label if label else "", cfr._link(t, known)), ""]
+    return out
+
+
+def _note(path, cite, heading, fields, body):
+    from tribonian import case2md as c
+    L = c.yaml_head([("title", cite), ("heading", heading or None), ("citation", cite)] + fields + [("synthetic", False), ("aliases", [cite])])
+    L += ["", "# %s%s" % (c.esc(cite, "md"), " — " + c.esc(heading, "md") if heading else ""), ""] + body
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(L).rstrip() + "\n", encoding="utf-8")
+
+
+def write_notes(quiet=False):
+    """Notes for every state text stored here: a C.R.S. section each (co-crs-26.5-4-205), the Colorado and U.S.
+    Constitutions an article or amendment each (co-const-art-9, us-const-amend-1), a Colorado rule each
+    (co-ccr-8-1404-1). Names match lawcites.note_name, so cites in the case and docket notes link to them."""
+    import re
+    from tribonian import case2md as c, lawcites, lawtext
+    known = c.statute_notes()
+    plans = []                                     # (path, cite, heading, fields, rows)
+    crs = state_dir("CO") / "crs"
+    for f in sorted(crs.glob("title-*.htm")) if crs.is_dir() else []:
+        meta, t = local_meta(f) or {}, f.stem.split("-", 1)[1]
+        fields = [("source", "olls.info (Colorado Office of Legislative Legal Services)"), ("edition", c.Raw(meta.get("edition", ""))),
+                  ("retrieved", c.Raw(meta.get("fetched", "")))]
+        paras = lawtext._co_paras(t if t != "00" else "0")
+        if t == "00":                              # the Colorado Constitution: one note per article
+            for text, bold, centered in paras:
+                m = re.fullmatch(r"ARTICLE ([IVXL]+)", text)
+                if not (m and centered):
+                    continue
+                n = c.from_roman(m.group(1))
+                head, rows = lawtext.co_const(str(n), None, "md") or ("", [])
+                body = []
+                for _, label, heading, _ in rows:
+                    sec = label.replace("§ ", "")
+                    got = lawtext.co_const(str(n), sec, "md")
+                    body += [(0, label, heading, "")] + (got[1] if got else [])
+                plans.append((notes_dir() / "co" / "const" / ("co-const-art-%d.md" % n), "Colo. Const. art. %s" % m.group(1),
+                              re.sub(r"^Article [IVXL]+\.\s*", "", head), fields, body))
+            continue
+        for text, bold, centered in paras:
+            m = lawtext.CRS_START.match(text)
+            if not (bold and m):
+                continue
+            got = lawtext.co_crs(m.group(1), "md")
+            if got:
+                plans.append((notes_dir() / "co" / "crs" / ("t" + t) / ("co-crs-%s.md" % m.group(1)),
+                              "Colo. Rev. Stat. § %s" % m.group(1), got[0].rstrip("."), fields, got[1]))
+    ccr = state_dir("CO") / "ccr"
+    for f in sorted(ccr.glob("*.docx")) if ccr.is_dir() else []:
+        meta = local_meta(f) or {}
+        got = lawtext.co_ccr(f.stem, None, "md")
+        if got:
+            vol, rule = f.stem.split("-", 1)
+            plans.append((notes_dir() / "co" / "ccr" / ("co-ccr-%s.md" % f.stem), "%s Colo. Code Regs. %s" % (vol, rule), got[0],
+                          [("source", "sos.state.co.us (Colorado Secretary of State)"), ("effective", c.Raw(meta.get("effective", ""))),
+                           ("retrieved", c.Raw(meta.get("fetched", "")))], got[1]))
+    us = state_dir("US") / "const" / "constitution.htm"
+    if us.exists():
+        meta = local_meta(us) or {}
+        fields = [("source", "govinfo.gov, H. Doc. 110-50"), ("retrieved", c.Raw(meta.get("fetched", "")))]
+        for kind, n in sorted(k for k in (lawtext._us_const() or {}) if k[0] != "preamble"):
+            got = lawtext.us_const(kind, str(n), None, "md")
+            if got:
+                roman = {v: k_ for k_, v in lawcites.ROMAN.items()}[n]
+                rows = [(0, label, "", text) for _, label, _, text in got[1]]
+                plans.append((notes_dir() / "us" / "const" / ("us-const-%s-%d.md" % (kind, n)),
+                              "U.S. Const. %s %s" % ("amend." if kind == "amend" else "art.", roman), "", fields, rows))
+    known |= {p.stem for p, *_ in plans}
+    for path, cite, heading, fields, rows in plans:
+        _note(path, cite, heading, fields, _md_rows(rows, known))
+    if not quiet:
+        print("%d state-law notes -> %s" % (len(plans), notes_dir()))
+
+
+def cmd_notes(args):
+    write_notes()
+
+
 def cmd_fetch(args):
     key = (args.state.upper(), args.code.lower())
     if key not in FETCHERS:
         sys.exit("no reader for %s %s yet (have: %s)" % (key[0], key[1], ", ".join("%s %s" % k for k in FETCHERS)))
     FETCHERS[key](args.items, args.force)
+    write_notes()
 
 
 def cmd_list(args):
@@ -206,6 +304,8 @@ def main():
     f.add_argument("items", nargs="*", help="crs: titles, e.g. 26.5 00; ccr: rules, e.g. 8-1404-1; US const: none")
     f.add_argument("--force", action="store_true", help="download again whatever is local")
     f.set_defaults(func=cmd_fetch)
+    nt = sub.add_parser("notes", help="(re)write the Obsidian notes of everything stored here -> md-state/ (fetch does it too)")
+    nt.set_defaults(func=cmd_notes)
     l = sub.add_parser("list", help="what is stored here")
     l.set_defaults(func=cmd_list)
     args = ap.parse_args()

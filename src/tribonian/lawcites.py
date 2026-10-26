@@ -179,6 +179,14 @@ def note_name(key):
         return "%s-usc-%s" % (p[1], p[2])
     if p[0] == "cfr":
         return "%s-cfr-%s" % (p[1], p[2])
+    # state law and the Constitution (statelaw.py notes): a C.R.S. section; a constitution's article or
+    # amendment and a Colorado rule as one note each, whatever section the cite pins
+    if p[0] == "co-crs":
+        return "co-crs-%s" % p[1]
+    if p[0] in ("co-const", "co-ccr"):
+        return "%s-%s" % (p[0], p[1])
+    if p[0] == "const":
+        return "us-const-%s" % p[1]
     return None
 
 
