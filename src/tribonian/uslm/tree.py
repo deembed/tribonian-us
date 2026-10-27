@@ -17,10 +17,11 @@ ROMAN = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100}
 
 
 class Node:
-    __slots__ = ("tag", "num_text", "num", "heading", "ident", "items", "rank")
+    __slots__ = ("tag", "num_text", "num", "heading", "ident", "items", "rank", "label")
 
-    def __init__(self, tag, num_text="", num="", heading="", ident="", rank=99):
+    def __init__(self, tag, num_text="", num="", heading="", ident="", rank=99, label=""):
         self.tag, self.num_text, self.num, self.heading, self.ident, self.rank = tag, num_text, num, heading, ident, rank
+        self.label = label or num          # as the ladder reads it: "a", "1.5", or "1." for a dotted label
         self.items = []
 
     def add(self, *item):
@@ -69,7 +70,15 @@ def _split_frac(label):
 
 def ordinal(kind, label):
     """A label's place in its sequence as (main, fraction), or None when it is not that kind.
-    num: (1.5) -> (1, 5), (0.5) -> (0, 5); lower/upper: a -> 1 ... z -> 26, aa -> 27, bb -> 28; roman: iv -> 4."""
+    num: (1.5) -> (1, 5), (0.5) -> (0, 5); lower/upper: a -> 1 ... z -> 26, aa -> 27, bb -> 28; roman: iv -> 4.
+    A kind ending in "." takes only dotted labels ("1.", "A." -- Maryland's deepest levels), and a plain kind
+    only parenthesized ones, so (1) and 1. are never the same level."""
+    if kind.endswith("."):
+        if not (label.endswith(".") and len(label) > 1):
+            return None
+        kind, label = kind[:-1], label[:-1]
+    elif label.endswith("."):
+        return None
     base, frac = _split_frac(label)
     if base is None or not base:
         return None
@@ -107,6 +116,7 @@ def follows(prev, o):
 
 
 LABEL = re.compile(r"\(([0-9]+(?:\.[0-9]+)?|[A-Za-z]{1,6}(?:\.[0-9]+)?)\)\s*")
+DOTTED = re.compile(r"([0-9]+\.|[A-Z]{1,2}\.)(?=\s)\s*")
 
 
 class Ladder:
@@ -122,9 +132,10 @@ class Ladder:
     def __init__(self, types):
         # one entry per level; an entry may list several types: ["roman_upper", "roman_lower"]
         self.types = [list(t) if isinstance(t, (list, tuple)) else [t] for t in types]
+        self.dotted = any(t.endswith(".") for ts in self.types for t in ts)
         self.ambiguous, self.anomalies, self.versions = [], [], []
 
-    def place(self, label, open_ords, prev_text, where=""):
+    def place(self, label, open_ords, prev_text, where="", hint=None):
         """open_ords: the ordinal of the open node at each depth, outermost first (None where no node is
         open: a section that starts at (a) has nothing at depth 0). -> depth, or None when the text in
         parentheses is not a label of any level."""
@@ -139,6 +150,13 @@ class Ladder:
             child = [(d, o) for d, o in cands if is_first(o)][:1]
         announce = prev_text.rstrip().endswith((":", "—", "--"))
         order = (child + sorted(sib, reverse=True)) if announce else (sorted(sib, reverse=True) + child)
+        if hint is not None and len(order) > 1 and any(d == hint for d, _ in order):
+            if order[0][0] != hint:
+                self.ambiguous.append("%s (%s): levels %s, indentation chose %d" % (where, label, [d for d, _ in order], hint))
+            return hint
+        if hint is not None and not order and any(d == hint for d, _ in cands):
+            self.anomalies.append("%s (%s): out of sequence; placed at depth %d by its indentation" % (where, label, hint))
+            return hint
         if order:
             if len(order) > 1:
                 self.ambiguous.append("%s (%s): levels %s, chose %d" % (where, label, [d for d, _ in order], order[0][0]))
@@ -149,11 +167,12 @@ class Ladder:
         return d
 
 
-def split_labels(text):
-    """'(3) (a) In appointing ...' -> (['3', 'a'], ['(3) ', '(a) '], 'In appointing ...')."""
+def split_labels(text, dotted=False):
+    """'(3) (a) In appointing ...' -> (['3', 'a'], ['(3) ', '(a) '], 'In appointing ...').
+    With dotted, '1. A. Text' -> (['1.', 'A.'], ...) as well."""
     labels, raws, rest = [], [], text
     while True:
-        m = LABEL.match(rest)
+        m = LABEL.match(rest) or (DOTTED.match(rest) if dotted else None)
         if not m:
             return labels, raws, rest
         labels.append(m.group(1))

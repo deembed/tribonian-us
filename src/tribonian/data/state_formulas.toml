@@ -145,3 +145,50 @@ note          = [{ class = "toc_catchln", topic = "toc" }, { class = "annotation
 sourceCredit  = { class = "source-first" }
 editorialNote = [{ class = "history-first", topic = "history" }, { class = "cross-ref-first", topic = "crossReference" },
                  { class = "front-note-first", topic = "frontNote" }]
+
+# ---------------------------------------------------------------- Maryland Code (and Constitution)
+# The legislature's statute selector (mgaleg.maryland.gov/mgawebsite/Laws/Statutes): one page per section,
+# listed by its JSON API. Items are the selector's article codes: gcr (Criminal Law), gcj, ... One USLM file
+# per article. Text is one div#StatuteText with lines split by <br>; depth shows as 4 non-breaking spaces
+# per level; no section headings (the official text has none). Ladder (a)(1)(i)1.A.
+[MD.code]
+name    = "Annotated Code of Maryland"
+doc     = "/us-md/code"                       # /us-md/code/gcr/s1-101/a/1
+fetch   = "list"
+list_url = "https://mgaleg.maryland.gov/mgawebsite/api/Laws/GetSections?articleCode={item}&enactments=false"
+list_field = "DisplayText"                   # the section number; "Value" is an internal sort key
+url     = "https://mgaleg.maryland.gov/mgawebsite/Laws/StatuteText?article={item}&section={entry}&enactments=false"
+file    = "{entry}.htm"                       # law/md/code/gcr/1-101.htm
+titles_url = "https://mgaleg.maryland.gov/mgawebsite/api/Laws/GetArticles?enactments=false"
+title_id = "{item}"                           # the article code is the identifier: /us-md/code/gcr
+dir     = "code"                              # the constitution (MD.const) shares the folder: law/md/code/c0/
+items_match = 'g[a-z]+'                       # --all: the statute articles (gag ... gtr), not c0 ... c20
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[MD.code.html]
+root     = "div#StatuteText"
+split_br = ["div#StatuteText"]
+blocks   = ["p"]
+headings = []
+opening  = []
+indent   = 4
+drop     = ["div.row", "div:centered"]        # the "Next" buttons; the "Article - Criminal Law" banner (the title heading)
+
+[MD.code.ladder]
+types = ["lower", "num", "roman_lower", "num.", "upper."]     # (a)(1)(i)1.A.
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[MD.code.sections]
+match = '^§\s*(?P<num>\d+[A-Z]?(?:\.\d+)?(?:[–-]\d+[A-Z]?(?:\.\d+)?)*)\.$'
+bold  = false
+scope = "title"
+
+[MD.code.notes]
+
+# The Maryland Constitution: the same selector, articles c0 (Declaration of Rights) to c20
+[MD.const]
+inherit = "MD.code"
+name    = "Constitution of Maryland"
+doc     = "/us-md/const"                      # /us-md/const/c0/s24
+items_match = 'c\d+[a-z]?'

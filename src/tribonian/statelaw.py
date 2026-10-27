@@ -11,6 +11,7 @@ data/state_law_sources.toml. Colorado so far:
     tribonian state build CO crs --all        every local title of that code
     tribonian state notes                     (re)write the Obsidian notes -> md-state/ (fetch does it too)
     tribonian state list                      what is stored here
+    tribonian state status                    the 51-jurisdiction tracker (docs/state-tracker.toml): who is on what
 
 Codes with a formula in data/state_formulas.toml (C.R.S., the Colorado Constitution) are fetched by the
 generic downloader and converted by a shared parser family (uslm/); the rest (8 CCR, the U.S. Constitution)
@@ -67,8 +68,14 @@ def crs_title_name(t):
     return "%02d" % int(whole) + ("." + frac if frac else "")
 
 
+def meta_path(path):
+    """Where a downloaded file's metadata goes: x.htm -> x.json; a JSON download keeps its own name, so
+    _list.json -> _list.meta.json."""
+    return path.with_name(path.stem + ".meta.json") if path.suffix == ".json" else path.with_suffix(".json")
+
+
 def local_meta(path):
-    meta = path.with_suffix(".json")
+    meta = meta_path(path)
     if not (path.exists() and meta.exists()):
         return None
     try:
@@ -182,8 +189,22 @@ def formulas():
             import tomli as tomllib
         with open(tconfig.PKG / "data" / "state_formulas.toml", "rb") as fh:
             raw = tomllib.load(fh)
-        _FORMULAS = {(st, code): f for st, codes in raw.items() for code, f in codes.items()}
+        flat = {(st, code): f for st, codes in raw.items() for code, f in codes.items()}
+        _FORMULAS = {k: _inherit(flat, k, f) for k, f in flat.items()}
     return _FORMULAS
+
+
+def _inherit(flat, key, f, depth=0):
+    """inherit = "MD.code": start from that formula, override with this one's keys (tables merged one level)."""
+    if "inherit" not in f or depth > 5:
+        return f
+    st, _, code = f["inherit"].partition(".")
+    base = _inherit(flat, (st, code), flat[(st, code)], depth + 1)
+    out = dict(base)
+    for k, v in f.items():
+        out[k] = dict(base[k], **v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    out.pop("inherit", None)
+    return out
 
 
 def item_name(fmt, item):
@@ -210,7 +231,7 @@ def _get_one(url, path, edition, force, label, missing_ok=False):
             print("  none (404): %s" % url)
             return False
         raise
-    path.with_suffix(".json").write_text(json.dumps(
+    meta_path(path).write_text(json.dumps(
         {"edition": edition, "fetched": date.today().isoformat(), "url": url, "bytes": n}, indent=1), encoding="utf-8")
     print("  wrote %s (%.2f MB)" % (path, n / 1e6))
     time.sleep(1)
@@ -234,6 +255,19 @@ def fetch_formula(st, code, items, force=False):
         if f["fetch"] == "template":
             _get_one(f["url"].format(edition=f.get("edition", ""), item=name), d / f["file"].format(item=name),
                      f.get("edition", ""), force, "%s %s %s" % (st, code, name))
+        elif f["fetch"] == "list":
+            # the section list (JSON) for the item, then one page per entry; the list is saved beside the pages
+            d_item = d / name
+            listing = d_item / "_list.json"
+            _get_one(f["list_url"].format(item=name), listing, date.today().isoformat() if force else "list", force,
+                     "%s %s %s section list" % (st, code, name))
+            entries = [e[f["list_field"]] for e in json.loads(listing.read_text(encoding="utf-8"))]
+            print("  %d entries" % len(entries))
+            if f.get("titles_url"):
+                _get_one(f["titles_url"], d / "_titles.json", "titles", False, "%s %s article names" % (st, code))
+            for e in entries:
+                _get_one(f["url"].format(item=name, entry=urllib.parse.quote(e)), d_item / f["file"].format(entry=e),
+                         f.get("edition", "current"), force, "  %s %s" % (name, e))
         elif f["fetch"] == "index":
             rx = re.compile(f["links"])
             for layer in f["layers"]:
@@ -315,12 +349,59 @@ def build_index(st, code, f, items, everything=False):
     return failed
 
 
+def build_list(st, code, f, items, everything=False):
+    """List codes (Maryland): per item (an article), its saved section list in order -> one USLM file."""
+    from tribonian.uslm import build, verify
+    d = formula_dir(st, code, f)
+    if everything:
+        names = sorted(p.parent.name for p in d.glob("*/_list.json")) if d.is_dir() else []
+        if f.get("items_match"):
+            names = [n for n in names if re.fullmatch(f["items_match"], n)]
+    else:
+        names = [item_name(f.get("item"), i) for i in items]
+    if not names:
+        sys.exit("%s %s: nothing to build (fetch first, or name the items)" % (st, code))
+    titles = {}
+    tf = d / "_titles.json"
+    if tf.exists():
+        for t in json.loads(tf.read_text(encoding="utf-8")):
+            titles[t["Value"]] = re.sub(r"\s*-\s*\([^)]*\)\s*$", "", t["DisplayText"])
+    failed = 0
+    for name in names:
+        listing = d / name / "_list.json"
+        if not listing.exists():
+            print("%s %s %s: not local (tribonian state fetch %s %s %s)" % (st, code, name, st, code, name))
+            failed += 1
+            continue
+        entries = [e[f["list_field"]] for e in json.loads(listing.read_text(encoding="utf-8"))]
+        pages, missing = [], []
+        for e in entries:
+            p = d / name / f["file"].format(entry=e)
+            (pages.append((e, p.read_bytes())) if p.exists() else missing.append(e))
+        if missing:
+            print("%s %s %s: %d of %d pages not local (%s ...); fetch again" % (st, code, name, len(missing), len(entries), ", ".join(missing[:3])))
+        ident = "%s/%s" % (f["doc"], f.get("title_id", "{item}").format(item=name))
+        meta = local_meta(listing) or {}
+        tree, report = build.convert_layers([("current", pages)], f, ident, "", titles.get(name, ""),
+                                            {"edition": "current", "retrieved": meta.get("fetched"), "formula": "%s.%s" % (st, code)},
+                                            title_num=name)
+        report["missing_pages"] = missing
+        out = state_dir(st) / "uslm" / code / ("%s.xml" % name)
+        build.write(tree, report, out)
+        print(verify.summary("%s %s %s (%s)" % (st, code, name, titles.get(name, "?")), report))
+        print("  -> %s" % out)
+        failed += not report["ok"] or bool(missing)
+    return failed
+
+
 def build_formula(st, code, items, everything=False):
     """Local source files -> USLM + <name>.verify.json beside it. Returns the number that failed."""
     from tribonian.uslm import build, verify
     f = formulas()[(st, code)]
     if f["fetch"] == "index":
         return build_index(st, code, f, items, everything)
+    if f["fetch"] == "list":
+        return build_list(st, code, f, items, everything)
     d = formula_dir(st, code, f)
     if everything:
         pat = f["file"].format(item="*")
@@ -350,6 +431,60 @@ def build_formula(st, code, items, everything=False):
         print("  -> %s" % out)
         failed += not report["ok"]
     return failed
+
+
+def cmd_probe(args):
+    """Save pages for working out a new state's formula: robots.txt verdict, the page, its links and the
+    URLs its scripts mention (AJAX endpoints of a selector form). Files go to build/probe/<host>/."""
+    out = tconfig.WORK / "build" / "probe"
+    for url in args.urls:
+        u = urllib.parse.urlsplit(url)
+        host = "%s://%s" % (u.scheme, u.netloc)
+        ok = allowed(url)
+        rp = _robots[host]
+        print("%s\n  robots.txt: %s" % (url, "allowed" if ok else getattr(rp, "reason", "disallowed")))
+        if not ok:
+            continue
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", (u.path + ("?" + u.query if u.query else "")).strip("/")) or "index"
+        path = out / u.netloc / (name[:150] + ".html")
+        n = download(url, path)
+        raw = path.read_bytes().decode("utf-8", "replace")
+        links = sorted(set(re.findall(r"""href=["']([^"'#]+)""", raw)))
+        js = sorted(set(re.findall(r"""["'](/[A-Za-z0-9_/.-]*(?:api|Api|Get|get|Statute|statute|Law|law)[A-Za-z0-9_/.?=&-]*)["']""", raw)))
+        (path.with_suffix(".links.txt")).write_text("\n".join(links + ["", "# script URLs"] + js) + "\n", encoding="utf-8")
+        print("  saved %s (%.1f KB), %d links, %d script URLs -> %s" % (path, n / 1e3, len(links), len(js), path.with_suffix(".links.txt").name))
+        time.sleep(1)
+
+
+def cmd_status(args):
+    """The tally from docs/state-tracker.toml: states by status, shared pieces, what is claimed, what can start."""
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+    path = (tconfig.REPO or tconfig.WORK) / "docs" / "state-tracker.toml"
+    if not path.exists():
+        sys.exit("no %s" % path)
+    with open(path, "rb") as fh:
+        t = tomllib.load(fh)
+    pieces = t.pop("pieces", {})
+    order = ["working", "fits", "unclear", "bulk", "pdf", "vendor"]
+    by = {}
+    for st, v in sorted(t.items()):
+        by.setdefault(v.get("status", "?"), []).append(st)
+    print("%d jurisdictions" % len(t))
+    for s in order + sorted(set(by) - set(order)):
+        if s in by:
+            print("  %-8s %2d  %s" % (s, len(by[s]), " ".join(by[s])))
+    print("shared pieces")
+    for k, p in pieces.items():
+        print("  %-11s %-8s %s%s" % (k, p.get("status", "?"), p.get("what", ""), ("  [claimed: %s]" % p["claimed"]) if p.get("claimed") else ""))
+    done = {k for k, p in pieces.items() if p.get("status") == "done"}
+    claimed = ["%s (%s%s)" % (st, v["claimed"], ", " + v["branch"] if v.get("branch") else "") for st, v in sorted(t.items()) if v.get("claimed")]
+    ready = [st for st, v in sorted(t.items()) if v.get("status") in ("fits", "unclear") and not v.get("claimed")
+             and set(v.get("needs", [])) <= done]
+    print("claimed       %s" % (", ".join(claimed) or "none"))
+    print("ready to take %s" % (" ".join(ready) or "none"))
 
 
 def cmd_build(args):
@@ -504,6 +639,11 @@ def main():
     b.add_argument("items", nargs="*", help="titles, e.g. 26.5 (const: none)")
     b.add_argument("--all", action="store_true", help="every local file of that code")
     b.set_defaults(func=cmd_build)
+    ss = sub.add_parser("status", help="the tally from docs/state-tracker.toml: by status, shared pieces, claimed, ready")
+    ss.set_defaults(func=cmd_status)
+    pr = sub.add_parser("probe", help="save a page (robots.txt obeyed) and its links, to work out a new state's formula")
+    pr.add_argument("urls", nargs="+")
+    pr.set_defaults(func=cmd_probe)
     nt = sub.add_parser("notes", help="(re)write the Obsidian notes of everything stored here -> md-state/ (fetch does it too)")
     nt.set_defaults(func=cmd_notes)
     l = sub.add_parser("list", help="what is stored here")

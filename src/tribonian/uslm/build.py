@@ -54,11 +54,11 @@ def _overlay(base_ch, sup_ch, log):
         log["added"].append(n.ident)
 
 
-def convert_layers(layers, formula, title_ident, title_num_text, title_heading, meta):
+def convert_layers(layers, formula, title_ident, title_num_text, title_heading, meta, title_num=None):
     """layers: [(layer name, [(file name, raw bytes), ...]), ...], base first.
     -> (USLM ElementTree, report with per-file results and the overlay log)."""
     fam = families.get(formula["family"])
-    title = Node("title", num_text=title_num_text, num=title_ident.rsplit("/t", 1)[-1], heading=title_heading,
+    title = Node("title", num_text=title_num_text, num=title_num or title_ident.rsplit("/t", 1)[-1], heading=title_heading,
                  ident=title_ident, rank=1)
     files, logs, versions, ambiguous, anomalies = [], {}, [], [], []
     chapters = {}

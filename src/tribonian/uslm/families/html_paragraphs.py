@@ -6,6 +6,12 @@ The formula's [html] table says which elements carry what (defaults are Colorado
     opening   the leading run that can open a section                  ["b", "strong"]
     verbatim  blocks taken whole, no label parsing (a statutory form    []
               set as a table): one text item, cells joined by spaces
+    root      the element holding the law; everything outside it is    (the page body)
+              site furniture and is not read or checked
+    split_br  elements whose lines are separated by <br> (Maryland):   []
+              each line becomes a block
+    indent    non-breaking spaces per level at a line's start: the     0 (not used)
+              ladder takes it as a hint between two plausible levels
     drop      site furniture removed before parsing (navigation bars)  []
 Selectors: "tag", "tag.class", ".class", ":centered" (align or style says center), ":noclass".
 
@@ -39,17 +45,21 @@ def norm(s):
     return " ".join("".join(ch for ch in s if unicodedata.category(ch) != "Cf").split())
 
 
-HTML_DEFAULTS = {"blocks": ["p"], "headings": ["p:centered"], "opening": ["b", "strong"], "verbatim": [], "drop": []}
+HTML_DEFAULTS = {"blocks": ["p"], "headings": ["p:centered"], "opening": ["b", "strong"], "verbatim": [], "drop": [],
+                 "root": None, "split_br": [], "indent": 0}
 
 
 def selector(sel):
-    """'tag', 'tag.class', '.class', 'tag:centered', 'tag:noclass' -> predicate on an lxml element."""
+    """'tag', 'tag.class', '.class', 'tag#id', 'tag:centered', 'tag:noclass' -> predicate on an lxml element."""
     sel, _, pseudo = sel.partition(":")
     centered, noclass = pseudo == "centered", pseudo == "noclass"
+    sel, _, ident = sel.partition("#")
     tag, _, cls = sel.partition(".")
 
     def match(el):
         if not isinstance(el.tag, str) or (tag and el.tag != tag):
+            return False
+        if ident and el.get("id") != ident:
             return False
         if cls and cls not in (el.get("class") or "").split():
             return False
@@ -74,6 +84,17 @@ def load(raw, formula):
     """-> (the parsed page with [html].drop removed, {selector: characters dropped})."""
     cfg = html_cfg(formula)
     doc = lhtml.fromstring(raw)
+    if cfg["root"]:
+        pred = selector(cfg["root"])
+        found = next((e for e in doc.iter() if pred(e)), None)
+        if found is None:
+            raise ValueError("no %s in the page" % cfg["root"])
+        found.tail = None
+        doc = found
+    for sel in cfg["split_br"]:
+        pred = selector(sel)
+        for el in [e for e in doc.iter() if pred(e)]:
+            _split_br(el)
     dropped = {}
     for sel in cfg["drop"]:
         pred = selector(sel)
@@ -81,6 +102,43 @@ def load(raw, formula):
             dropped[sel] = dropped.get(sel, 0) + len(re.sub(r"\s+", "", norm(el.text_content())))
             el.drop_tree()                 # the element and its text go; its tail stays with the parent
     return doc, dropped
+
+
+def _split_br(el):
+    """Regroup el's content into one <p class="br-line"> per run between <br> elements. Elements that are
+    blocks of their own (a <div>) are moved over whole, so text order is kept exactly."""
+    from lxml import etree
+    parts, cur = [], [el.text or ""]
+    el.text = None
+    for ch in list(el):
+        el.remove(ch)
+        if isinstance(ch.tag, str) and ch.tag == "br":
+            parts.append(cur)
+            cur = [ch.tail or ""]
+            continue
+        cur.append(ch)
+    parts.append(cur)
+    for run in parts:
+        p = etree.SubElement(el, "p")
+        p.set("class", "br-line")
+        last = None
+        for x in run:
+            if isinstance(x, str):
+                if last is None:
+                    p.text = (p.text or "") + x
+                else:
+                    last.tail = (last.tail or "") + x
+            else:
+                p.append(x)
+                last = x
+        if not (p.text or "").strip() and not len(p):
+            el.remove(p)
+
+
+def _indent(el):
+    """Leading non-breaking spaces of the block's text."""
+    t = el.text_content()
+    return len(t) - len(t.lstrip("\u00a0"))
 
 
 def _opening(el, is_open):
@@ -105,10 +163,12 @@ def _opening(el, is_open):
 
 
 def paragraphs(doc, formula):
-    """-> [(text, opening_run, is_heading, classes, verbatim)] in document order; a block inside a block
+    """-> [(text, opening_run, is_heading, classes, verbatim, indent depth)] in document order; a block inside a block
     (a <p> in a verbatim table) counts once, as part of the outer one."""
     cfg = html_cfg(formula)
     is_block, is_head, is_open, is_verb = _any(cfg["blocks"]), _any(cfg["headings"]), _any(cfg["opening"]), _any(cfg["verbatim"])
+    unit = cfg["indent"]
+    depth = lambda el: (round(_indent(el) / unit) - 1 if _indent(el) >= unit else None) if unit else None
     any_block = lambda e: is_block(e) or is_head(e) or is_verb(e)
     out = []
     for el in doc.iter():
@@ -118,11 +178,11 @@ def paragraphs(doc, formula):
             cells = el.xpath(".//td|.//th") or [el]
             text = norm(" ".join(c.text_content() for c in cells))
             if text:
-                out.append((text, "", False, set((el.get("class") or "").split()), True))
+                out.append((text, "", False, set((el.get("class") or "").split()), True, None))
             continue
         text = norm(el.text_content())
         if text:
-            out.append((text, _opening(el, is_open), is_head(el), set((el.get("class") or "").split()), False))
+            out.append((text, _opening(el, is_open), is_head(el), set((el.get("class") or "").split()), False, depth(el)))
     return out
 
 
@@ -218,8 +278,9 @@ class Builder:
             return False
         self.close_section()
         num = re.sub(r"\s+", "_", re.sub(r"\s*\.\s*", ".", m.group("num").strip()))   # "44. 1" -> 44.1; "1-2 to 1-5" -> 1-2_to_1-5
-        heading = m.group("heading").strip()
-        num_text = probe[:m.start("heading")].strip()
+        num = num.replace("\u2013", "-").replace("\u2014", "-")                       # Maryland's "1\u2013101" -> 1-101
+        heading = (m.groupdict().get("heading") or "").strip()
+        num_text = probe[:m.start("heading")].strip() if m.groupdict().get("heading") is not None else probe[:m.end()].strip()
         parent = self.stack[-1]
         title = next((n for n in self.stack if n.tag == "title"), self.root)
         base = parent.ident if self.scope == "container" else title.ident
@@ -238,18 +299,19 @@ class Builder:
 
     # ---------------------------------------------------------------- numbered paragraphs
 
-    def body(self, text):
-        labels, raws, rest = split_labels(text)
+    def body(self, text, indent=None):
+        labels, raws, rest = split_labels(text, self.ladder.dotted)
         placed = 0
         for label, raw in zip(labels, raws):
             open_ords = [None] * (self.levels[-1].rank + 1 if self.levels else 0)
             for n in self.levels:
                 open_ords[n.rank] = _ord(n, self.ladder.types, n.rank)
+            hint = indent if indent is not None and label is labels[0] else None   # a line's indent is its first label's
             where = "%s %s" % (self.section.num if self.section else "", "".join("(%s)" % n.num for n in self.levels))
             prev = self.here().last_text() if self.levels or self.section else ""
-            same = [n.rank for n in self.levels if n.num == label]
+            same = [n.rank for n in self.levels if n.label == label]
             is_version = bool(same and self.version_rx and self.version_rx.match(rest.lstrip()) and raw is raws[-1])
-            d = same[-1] if is_version else self.ladder.place(label, open_ords, prev, where.strip())
+            d = same[-1] if is_version else self.ladder.place(label, open_ords, prev, where.strip(), hint)
             if d is None:
                 break
             while self.levels and self.levels[-1].rank >= d:
@@ -258,8 +320,9 @@ class Builder:
                 self.ladder.anomalies.append("%s (%s): skips from depth %d to %d" % (where.strip(), label, self.levels[-1].rank, d))
             parent = self.levels[-1] if self.levels else self.section
             tag = self.f["ladder"]["tags"][d] if d < len(self.f["ladder"]["tags"]) else "level"
-            node = Node(tag, num_text=raw.strip(), num=label,
-                        ident=self.unique("%s/%s" % (parent.ident, label), parent.ident + "/" + label, version=is_version))
+            num = label.rstrip(".") if label.endswith(".") else label     # dotted "1." -> 1
+            node = Node(tag, num_text=raw.strip(), num=num, label=label,
+                        ident=self.unique("%s/%s" % (parent.ident, num), parent.ident + "/" + num, version=is_version))
             node.rank = d
             parent.add("node", node)
             self.levels.append(node)
@@ -284,7 +347,7 @@ class Builder:
         node.items.append(item)
         self.in_notes = item
 
-    def feed(self, text, bold, centered, classes=frozenset(), verbatim=False):
+    def feed(self, text, bold, centered, classes=frozenset(), verbatim=False, indent=None):
         if verbatim:                            # a form or table: one text item where it stands, labels not read
             target = self.in_notes[3] if self.in_notes is not None else None
             if target is not None:
@@ -329,12 +392,12 @@ class Builder:
         if centered:
             self.here().add("cross", text)
             return
-        self.body(text)
+        self.body(text, indent)
 
 
 def _ord(node, types, d):
     from tribonian.uslm.tree import level_ordinal
-    o = level_ordinal(types[d], node.num) if d < len(types) else None
+    o = level_ordinal(types[d], node.label) if d < len(types) else None
     return o or (0, 0)
 
 
@@ -343,8 +406,8 @@ def parse(raw, formula, item_name="", root_ident=None):
     ladder = Ladder(formula["ladder"]["types"])
     b = Builder(formula, ladder, item_name, root_ident)
     doc, dropped = load(raw, formula)
-    for text, opening, heading, classes, verbatim in paragraphs(doc, formula):
-        b.feed(text, opening, heading, classes, verbatim)
+    for text, opening, heading, classes, verbatim, indent in paragraphs(doc, formula):
+        b.feed(text, opening, heading, classes, verbatim, indent)
     ladder.versions = b.versions
     ladder.dropped = dropped
     return b.root, ladder
