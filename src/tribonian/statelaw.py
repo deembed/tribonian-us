@@ -257,12 +257,13 @@ def _get_one(url, path, edition, force, label, missing_ok=False):
 
 def url_fields(f, name):
     """Fields a template URL may use: {item} as named, {edition}, and for a numbered item {n} (its leading
-    number, format it as {n:04d}), {lo}/{hi} (its hundred-range: 768 -> 700, 799; Florida's
+    number, format it as {n:04d}), {id} (from the formula's ids table), {lo}/{hi} (its hundred-range: 768 -> 700, 799; Florida's
     0700-0799/0768/0768.html is "{lo:04d}-{hi:04d}/{n:04d}/{n:04d}.html") and {suffix} (4a -> a)."""
     m = re.match(r"0*(\d+)(.*)", name)
     n = int(m.group(1)) if m else 0
     return {"item": name, "edition": f.get("edition", ""), "n": n, "lo": n // 100 * 100, "hi": n // 100 * 100 + 99,
-            "suffix": m.group(2) if m else ""}
+            "suffix": m.group(2) if m else "",
+            "id": str(f.get("ids", {}).get(name, ""))}   # [ids] table: a chapter's label -> the site's id (New Mexico)
 
 
 def page_name(f, href):
@@ -315,6 +316,8 @@ def walk_index(f, idx, url, ld, fetch=False, force=False, label=""):
 
     if idx.exists():
         visit(idx, url, 0)
+        if not out and f.get("empty_index") == "page":   # a title that links no chapters is its own text
+            out.append((idx.name, url))                  # (New Hampshire's wholly repealed title IV)
     return list(dict.fromkeys(out))
 
 
@@ -430,6 +433,8 @@ def build_index(st, code, f, items, everything=False):
         doc = lhtml.fromstring((base / f["index_file"].format(item=name)).read_bytes())
         t = f.get("title", {})
         from tribonian.uslm.families.html_paragraphs import selector as _sel
+        for br in doc.iter("br"):                 # "TITLE IV<br>ELECTIONS" reads "TITLE IV ELECTIONS"
+            br.tail = " " + (br.tail or "")
         txt = lambda sel: next((" ".join(e.text_content().split()) for e in doc.iter() if _sel(sel)(e)), "") if sel else ""
         ident = _title_ident(f, name)
         incomplete = [L for L, pages in layers if not pages] if layers else ["(all)"]

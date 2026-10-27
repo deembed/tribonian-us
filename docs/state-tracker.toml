@@ -103,11 +103,12 @@ claimed = ""
 branch = ""
 
 [DE]
-status = "fits"
+status = "working"
 needs  = []
 source = "html index per title/chapter; authenticated PDF per title"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "code titles 1 6 11 16 31 PASS, const PASS (real builds); full list 1-31"
 
 [FL]
 status = "working"
@@ -212,12 +213,13 @@ branch = ""
 verified = "rs 1 PASS (85 sections, real build); const PASS on probe (239 sections)"
 
 [NH]
-status = "fits"
+status = "working"
 needs  = []
 source = "html: title index, whole chapter in one merged file"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 skipped = "constitution: www.nh.gov blocks every non-browser client (bot protection, even robots.txt); deferred by the user 2026-10-26 -- revisit when needed"
+verified = "rsa titles I IV XI XIX-A XXXIV-A LXIV PASS (real builds); constitution skipped"
 
 [NV]
 status = "working"
@@ -299,20 +301,23 @@ branch = ""
 verified = "code ch. 1 PASS, const PASS (203 sections) (real builds); per-section fetch, slow"
 
 [NM]
-status = "unclear"
+status = "working"
 needs  = []
 source = "NMOneSource document.do (nmsa-unanno); possibly a JavaScript app"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "nmsa ch. 11 PASS, const PASS via ePub (probe files); sample fetch pending"
 
 [PA]
-status = "unclear"
+status = "working"
 needs  = []
 source = "palegis.us (new site, format unverified); legacy html/pdf per title or act"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 # ---------------------------------------------------------------- bulk / API
+verified = "cs titles 1 18 40 42 75 79 PASS, const PASS (real builds); full list of 74 titles"
+
 [DC]
 status = "bulk"
 needs  = ["xml"]

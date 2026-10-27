@@ -40,7 +40,9 @@ opening  = ["strong"]
 verbatim = ["table"]                         # 28-105's felony-class penalty table (set inside a <p>): one text item
 
 [NE.rs.ladder]
-types = ["num", "lower", "roman_lower", "upper"]          # (1)(a)(i)(A)
+# (1)(a)(i)(A) almost everywhere; 28-405's schedules run (a)(1)(A)(i). Each level takes both orders' types;
+# on chapters 1, 2, 28, 47, 90 this changes only 28-405 (checked section by section against the strict ladder)
+types = [["num", "lower"], ["lower", "num"], ["roman_lower", "upper"], ["upper", "roman_lower"]]
 tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 
 [NE.rs.sections]
@@ -48,6 +50,11 @@ tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 match = '^(?P<num>\d+[A-Z]?-\d+(?:,\d+)?(?:\.\d+)?[A-Z]?)\.\s*(?P<heading>.*)$'
 bold  = true                                 # matched against the <strong> opening
 scope = "title"
+# 28-405 (controlled-substance schedules) is split by bare lines "Schedule I" .. "Schedule V"; each schedule
+# restarts its numbering (a)(1)(i): a group line opens a level inside the section
+comma    = "article"                         # order check: 28-3,100 is article 3 section 100, after 28-399 (art. 3 sec. 99)
+group    = '^Schedule (?P<num>[IVX]+)$'
+group_id = "sch{num}"                        # /us-ne/rs/s28-405/schI/a/1
 
 [NE.rs.notes]
 sourceCredit  = '^Source:'

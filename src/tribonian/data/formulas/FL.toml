@@ -33,7 +33,9 @@ terms   = "AALL: no copyright claimed in the statutes; only the print edition is
 root     = "div#statutes"                    # the statute; the rest is Online Sunshine site furniture
 nested   = true
 blocks   = ["span.SectionNumber", "span.Catchline", "span.SectionBody", "div.Subsection", "div.Paragraph",
-            "div.SubParagraph", "div.SubSubParagraph", "div.SubSubSubParagraph", "div.History", "div.Note", "p"]
+            "div.SubParagraph", "div.SubSubParagraph", "div.SubSubSubParagraph", "div.SubSubSubSubParagraph",
+            "div.History", "div.Note", "p"]
+verbatim = ["table"]                         # rate tables and forms (ch. 627): one text item each
 # the chapter's section index and part index (see top); "title": the embedded page's <title>CHAPTER 768</title>
 # (the chapter file is a whole XHTML document pasted inside div#statutes, head and all)
 # "sup": footnote markers (<sup><a href="#1">1</a></sup>) before a section number and in its Note; outside

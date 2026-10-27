@@ -32,8 +32,11 @@ family  = "html-paragraphs"
 [DE.code.html]
 root     = "div#content"                      # page header, menus and footer are outside it
 blocks   = ["p", "div.SectionHead"]
-loose    = ["div.Section", "div#CodeBody"]    # the history credit: bare text + links after the last <p>;
-                                              # div#CodeBody: a stray credit copy after a section's div (1 Del. C. § 801)
+loose    = ["div.Section", "div#CodeBody", "div#subchapterPart"]
+                                              # div.Section: the history credit, bare text + links after the last <p>;
+                                              # div#CodeBody: a stray credit copy after a section's div (1 Del. C. § 801);
+                                              # div#subchapterPart: a bare group heading before its sections
+                                              # ("A. In General", 6 Del. C. art. 2A part 5)
 headings = ["h1", "h2", "h3", "h4"]           # the div#TitleHead lines: TITLE / title name / PART / CHAPTER / SUBCHAPTER
 opening  = ["div.SectionHead"]                # the whole "§ 101. Designation and citation of Code." line
 # site furniture only: the breadcrumb row ("Title 1" link, "Authenticated PDF" link) and the
@@ -44,21 +47,29 @@ drop     = ["div.row", "ul.chaptersections"]
 
 [DE.code.ladder]
 # Delaware style (a)(1)a.1.A.I. (the sixth level, roman dotted, in 11 Del. C. § 1448(a)(5)c.1.A.I.)
-types = ["lower", "num", "lower.", "num.", "upper.", "roman_upper."]
+# Title 6's Uniform Commercial Code articles number in parentheses all the way down, two ways:
+#   (1)(a)(i)(A)(1)  older articles, starting one level lower (6 Del. C. § 2A-103(1)(g)(iii)(D)(1))
+#   (a)(1)(A)(i)(I)  revised articles 1, 7, 9 (§ 1-201(b)(10)(A), § 7-503(a)(1)(A))
+# so the deeper levels also take those types; the ladder places each label by sequence.
+types = ["lower", "num", ["lower.", "lower", "upper"], ["num.", "roman_lower"], ["upper.", "upper", "roman_upper"],
+         ["roman_upper.", "num"]]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
 
 [DE.code.containers]
-# The title's number and name repeat on every chapter page (h1 / first h4). They are kept as cross
-# headings at title level by the build; a title container here would nest each chapter page's chapter
-# under a duplicate title node.
-part       = { match = '^PART\s+(?P<num>[IVXL]+[A-Z]?)\b.*$', tag = "part", rank = 2, id = "pt{num}", heading = "next" }
+# div#TitleHead lines seen on titles 1, 6, 11, 16, 31: h1 "TITLE N", the title name, h2 "SUBTITLE I" + h3 name
+# (title 6) or a bare part name (title 11), h3 "CHAPTER 30F. Name" or "ARTICLE 2A. Leases" (title 6 UCC),
+# h4 "Subchapter II-A. Name" or "Part 5" + h4 name (UCC).
+# Title, subtitle and part-name lines stay cross headings: they repeat on every page, and as containers they
+# would nest the chapters one level down, where the build's join of a chapter's pages does not reach.
 chapter    = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)\..*$', tag = "chapter", rank = 3, id = "ch{num}", heading = "next" }
-subchapter = { match = '^Subchapter\s+(?P<num>[IVXL]+[A-Z]?)\b.*$', tag = "subchapter", rank = 4, id = "sch{num}", heading = "next" }
+article    = { match = '^ARTICLE\s+(?P<num>\d+[A-Z]?|[A-Z])\..*$', tag = "article", rank = 3, id = "art{num}", heading = "next" }
+subchapter = { match = '^Subchapter\s+(?P<num>[IVXL]+(?:-[A-Z])?)\..*$', tag = "subchapter", rank = 4, id = "sch{num}", heading = "next" }
+uccpart    = { match = '^Part\s+(?P<num>\d+)$', tag = "part", rank = 4, id = "pt{num}", heading = "next" }   # "Part 5" / "Default"
 
 [DE.code.sections]
 # "§ 101. Designation and citation of Code." / "§ 101A. ..." / "§ 1-101. ..." (UCC, title 6) /
-# "§§ 111-115. [Reserved.]"
-match = '^§§?\s*(?P<num>\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*(?:\s*(?:-|–|to|,)\s*\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*)?)\.\s*(?P<heading>.*)$'
+# "§§ 111-115. [Reserved.]" / "§§ 6-101 — 6-111. ..." (title 6 art. 6, repealed) / "§ A-101." (title 6 art. A)
+match = '^§§?\s*(?P<num>(?:[A-Z]-)?\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*(?:\s*(?:-|–|—|to|,)\s*(?:[A-Z]-)?\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*)?)\.\s*(?P<heading>.*)$'
 bold  = true                                  # matched against the opening run (div.SectionHead)
 scope = "title"                               # /us-de/code/t1/s101
 versions = '\[Effective'                      # "§ 2101. Purposes ... [Effective until Feb. 1, 2027]." then
@@ -66,7 +77,10 @@ versions = '\[Effective'                      # "§ 2101. Purposes ... [Effectiv
 
 [DE.code.notes]
 # the history credit ("1 Del. C. 1953, § 101; 49 Del. Laws, c. 220, § 1;"): the only loose text in a section
-sourceCredit = { class = "loose" }
+sourceCredit = { class = "loose", match = '^(?![A-Z]\. [A-Z])' }   # any loose run but a group heading
+# a loose "A. In General" / "B. Default by Lessor" is a group heading between sections: it ends the open
+# section (or its credit) and stands as a cross heading
+close = [{ class = "loose", match = '^[A-Z]\. [A-Z]' }]
 
 # ---------------------------------------------------------------- Delaware Constitution of 1897
 # constitution/index.shtml lists one page per article: constitution-01.shtml (preamble) ... -19.shtml.

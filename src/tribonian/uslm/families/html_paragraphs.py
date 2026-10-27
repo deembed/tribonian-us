@@ -17,6 +17,10 @@ The formula's [html] table says which elements carry what (defaults are Colorado
               between block children (Delaware's div.Section)
     indent    non-breaking spaces per level at a line's start: the     0 (not used)
               ladder takes it as a hint between two plausible levels
+    indent_closes  true: an unnumbered line at depth d closes open levels at d and deeper (it belongs to d - 1);
+              "deeper": it stays in the open level at depth d and closes only deeper ones (Pennsylvania)
+    indent_css  {unit, base, property = "margin-left" | "padding-left"}
+    indent_css  the same from the CSS left margin: {unit = pt per level, base = pt of depth 0}
     drop      site furniture removed before parsing (navigation bars)  []
 Selectors: "tag", "tag.class", ".class", ":centered" (align or style says center), ":noclass".
 
@@ -55,8 +59,12 @@ HTML_DEFAULTS = {"blocks": ["p"], "headings": ["p:centered"], "opening": ["b", "
 
 
 def selector(sel):
-    """'tag', 'tag.class', '.class', 'tag#id', 'tag[attr*=text]', 'tag:centered', 'tag:bold', 'tag:noclass' -> predicate on an
+    """'tag', 'tag.class', '.class', 'tag#id', 'tag[attr*=text]', 'tag:centered', 'tag:bold', 'tag:noclass',
+    'tag:matches(regex)' -> predicate on an
     lxml element. :centered and :bold also go by the page's CSS class rules."""
+    tm = re.search(r":matches\((.*)\)$", sel)                 # :matches(regex): the element's text matches
+    text_rx = re.compile(tm.group(1)) if tm else None          # (New Hampshire's title h2, not "Table of Contents")
+    sel = sel[:tm.start()] if tm else sel                      # (taken first: the regex may hold [ ])
     attr = re.search(r"\[([a-z-]+)\*=([^\]]+)\]", sel)       # [style*=margin-left]: attribute contains
     sel = re.sub(r"\[[^\]]*\]", "", sel)
     sel, _, pseudo = sel.partition(":")
@@ -68,6 +76,8 @@ def selector(sel):
         if not isinstance(el.tag, str) or (tag and el.tag != tag):
             return False
         if ident and el.get("id") != ident:
+            return False
+        if text_rx and not text_rx.search(" ".join(el.text_content().split())):
             return False
         if attr and attr.group(2).strip("'\"") not in (el.get(attr.group(1)) or ""):
             return False
@@ -96,7 +106,7 @@ def html_cfg(formula):
 
 
 _HTML_START = re.compile(r"<html[\s>]", re.I)
-_CSS = {"center": set(), "bold": set()}
+_CSS = {"center": set(), "bold": set(), "margin": {}}
 
 
 def parse_page(raw):
@@ -131,7 +141,7 @@ def parse_page(raw):
 def _css_classes(doc):
     """Class names that the page's own <style> rules make centered or bold (Word-made HTML puts it there,
     not in align= or <b>): read by the :centered and :bold selectors."""
-    _CSS["center"], _CSS["bold"] = set(), set()
+    _CSS["center"], _CSS["bold"], _CSS["margin"] = set(), set(), {}
     for st in doc.iter("style"):
         for sels, body in re.findall(r"([^{}]+)\{([^}]*)\}", st.text_content() or ""):
             body = body.lower().replace(" ", "")
@@ -143,6 +153,26 @@ def _css_classes(doc):
                     _CSS["center"].add(m.group(1))
                 if re.search(r"font-weight:(bold|[6-9]00)", body):
                     _CSS["bold"].add(m.group(1))
+                for prop in ("margin-left", "padding-left"):
+                    mm = re.search(prop + r":(-?[\d.]+)(pt|px|in|em|cm)?", body)
+                    if mm:
+                        _CSS["margin"][(prop, m.group(1))] = _to_pt(mm.group(1), mm.group(2))
+
+
+def _to_pt(v, u):
+    return float(v) * {"pt": 1, "px": 0.75, "in": 72, "em": 12, "cm": 28.35, None: 0.75}.get(u, 0.75)
+
+
+def _css_margin(el, prop="margin-left"):
+    """The block's left indent in points from a CSS property (margin-left, padding-left): its own style
+    attribute, else its class's rule in the page's <style>."""
+    m = re.search(prop + r":\s*(-?[\d.]+)\s*(pt|px|in|em|cm)?", (el.get("style") or "").lower())
+    if m:
+        return _to_pt(m.group(1), m.group(2))
+    for c in (el.get("class") or "").split():
+        if (prop, c) in _CSS["margin"]:
+            return _CSS["margin"][(prop, c)]
+    return None
 
 
 def parse_coverage(raw):
@@ -356,7 +386,13 @@ def paragraphs(doc, formula):
     cfg = html_cfg(formula)
     is_block, is_head, is_open, is_verb = _any(cfg["blocks"]), _any(cfg["headings"]), _any(cfg["opening"]), _any(cfg["verbatim"])
     unit = cfg["indent"]
-    depth = lambda el: (round(_indent(el) / unit) - 1 if _indent(el) >= unit else None) if unit else None
+    ic = cfg.get("indent_css")            # {unit = 36, base = 0}: depth from the CSS left margin, in points
+    if ic:                                # (Pennsylvania): depth = round((margin - base) / unit); a block with no
+        def depth(el):                    # margin at all has no depth
+            mg = _css_margin(el, ic.get("property", "margin-left"))
+            return None if mg is None else max(0, round((mg - ic.get("base", 0)) / ic["unit"]))
+    else:
+        depth = lambda el: (round(_indent(el) / unit) - 1 if _indent(el) >= unit else None) if unit else None
     any_block = lambda e: (is_block(e) or is_head(e) or is_verb(e)) and not e.get("data-container")
     out = []
     for el in doc.iter():
@@ -398,9 +434,12 @@ class Builder:
         self.moved = []                    # texts written in another place than the source's order (heading_before)
         self.cur_classes = frozenset()
         self.sec_cls = s.get("class")      # only blocks of this class can open a section (Nevada's constitution)
+        self.indent_closes = f.get("html", {}).get("indent_closes") or False   # opt-in: what an unnumbered line's
+                                                                             # depth means differs by publisher
         self.group = None
         self.group_rx = re.compile(s["group"]) if s.get("group") else None
         self.group_id = s.get("group_id", "g{num}")
+        self.group_text = s.get("group_text", "num")   # "text": the group's paragraph is content, not its number
         od = s.get("outdent") or []
         od = od if isinstance(od, list) else [od]
         self.outdent_rx = [re.compile(r) for r in od if isinstance(r, str)]
@@ -440,7 +479,8 @@ class Builder:
         self.in_notes = None               # the open note item while in a section's / container's notes
         self.ids = {}
         self.pending_heading = None        # container waiting for its heading paragraph
-        self.pending_any = False           # ... opened by an any = true rule: its name need not be a heading block
+        self.pending_any = False
+        self.scope_here = set()           # containers whose rule says sections = "here"           # ... opened by an any = true rule: its name need not be a heading block
 
     # ---------------------------------------------------------------- helpers
 
@@ -474,7 +514,8 @@ class Builder:
                 continue
             g = m.groupdict()
             num = g.get("num") or ""
-            fields = {"num": num, "num_arabic": roman_value(num) or num}
+            fields = {k: (v or "") for k, v in g.items()}      # every named group can go in the id template:
+            fields.update(num=num, num_arabic=roman_value(num) or num)   # id = "act{year}-{no}"
             self.close_section()
             while len(self.stack) > 1 and self.stack[-1].rank >= c["rank"]:
                 self.stack.pop()
@@ -491,6 +532,8 @@ class Builder:
             node = Node(c["tag"], num_text=num_text, num=num, heading=head, ident=ident, rank=c["rank"])
             parent.add("node", node)
             self.stack.append(node)
+            if c.get("sections") == "here":
+                self.scope_here.add(id(node))
             self.pending_heading = None if (heading_self or head) else node
             self.pending_any = bool(c.get("any"))
             return True
@@ -520,9 +563,14 @@ class Builder:
             heading_moved = False
         parent = self.stack[-1]
         title = next((n for n in self.stack if n.tag == "title"), self.root)
-        base = parent.ident if self.scope == "container" else title.ident
+        own = next((n for n in reversed(self.stack) if id(n) in self.scope_here), None)
+        # a container rule with sections = "here" scopes the sections inside it (Pennsylvania's appendix acts,
+        # whose sections 1, 2, 3 ... would collide with the title's own); otherwise [sections].scope decides
+        base = own.ident if own is not None else (parent.ident if self.scope == "container" else title.ident)
         is_version = bool(self.version_rx and (self.version_rx.match(text[len(probe):].strip())
-                                               or self.version_rx.search(heading)))    # marker in the heading (NC)
+                                               or self.version_rx.search(heading)    # marker in the heading (NC)
+                                               or self.version_next))                # or on the line before (NH)
+        self.version_next = False
         node = Node("section", num_text=num_text, num=num, heading=heading,
                     ident=self.unique("%s/s%s" % (base, num), num_text, version=is_version), rank=90)
         parent.add("node", node)
@@ -543,12 +591,21 @@ class Builder:
 
     def body(self, text, indent=None):
         labels, raws, rest = split_labels(text, self.ladder.dotted)
+        if self.section is not None and not labels and indent is not None and self.indent_closes and self.levels:
+            # an unnumbered paragraph indented at depth d belongs to the open level at depth d - 1 (0: the section)
+            keep = indent if self.indent_closes == "deeper" else indent - 1   # "deeper": the line stays in
+            while self.levels and self.levels[-1].rank > keep:                 # the open level at its own depth
+                self.levels.pop()
         if self.section is not None and not labels:
             g = self.group_rx.match(text) if self.group_rx else None
             if g:                          # [sections].group: "Schedule I" inside a section; numbering restarts
                 num = g.groupdict().get("num") or text
-                node = Node("level", num_text=text, num=num, rank=-1,
-                            ident=self.unique("%s/%s" % (self.section.ident, self.group_id.format(num=num)), text))
+                slug = re.sub(r"[^a-z0-9]+", "-", num.lower()).strip("-") or "g"
+                as_text = self.group_text == "text"          # a definition paragraph: its whole text is text,
+                node = Node("level", num_text="" if as_text else text, num=slug, rank=-1,   # its term names the level
+                            ident=self.unique("%s/%s" % (self.section.ident, self.group_id.format(num=slug)), text))
+                if as_text:
+                    node.add("text", text.strip())
                 self.section.add("node", node)
                 self.group, self.levels = node, []
                 return

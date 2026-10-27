@@ -1,0 +1,119 @@
+# NM.toml -- New Mexico: NMSA 1978 (NM.nmsa) and Constitution of New Mexico (NM.const).
+# Source: NMOneSource.com (NM Compilation Commission; Lexum Norma/Decisia + Qweri viewer).
+# Uses two shared features: container = "epub" (spine XHTML joined in order) and ids = {...} (template {id} from the item).
+# Tested offline on the probe EPUBs joined in spine order by hand (build/dispatch/NM.work/*.joined.html): PASS.
+# The chapter HTML pages (item/<id>/index.do) are empty shells filled by script; document.do is the PDF.
+# The EPUB at /w/nmos/n-<id>-en.epub holds the whole chapter (Word HTML via JTidy, split in chunk-N.html).
+
+# ---------------------------------------------------------------- NMSA 1978 (unannotated collection)
+# Unannotated: the annotated collection (nmsa) puts an ANNOTATIONS block under every section.
+# Chapter page structure (EPUB chunk): div p.Title1 "UNANNOTATED" / "CHAPTER 11<br>name";
+# h1 "ARTICLE 1<br>Joint Powers Agreements"; h5 "11-1-1. Short title."; p.text / p.indent0-4 / p.hang0-3 body;
+# p.history "History: ..."; compacts and forms inside a section: p.sectextc / p.formc (centered captions),
+# p.pstablenormal in table.MsoNormalTable.
+[NM.nmsa]
+name    = "New Mexico Statutes Annotated 1978 (unannotated)"
+doc     = "/us-nm/nmsa"                        # /us-nm/nmsa/ch11/a1 ; sections /us-nm/nmsa/ch11/s11-1-1
+fetch   = "template"
+# ids: the URL takes the platform's opaque item id; items stay chapters ("11", "22A").
+# Chapter list: /nmos/nmsa-unanno/en/nav_alpha.do?iframe=true (&page=2..4), "Chapter 22A - Name" -> item/<id>/index.do.
+# The ids are near-sequential but not computable (5 = 18447, 24A = 18974), hence the table (read 2026-10-27).
+# No chapters 32, 59 (only 32A, 59A): the list itself skips them.
+url     = "https://nmonesource.com/w/nmos/n-{id}-en.epub"
+ids = {
+  "1" = "18502", "2" = "18503", "3" = "18504", "4" = "18505", "5" = "18447", "6" = "18506", "7" = "18507",
+  "8" = "18508", "9" = "18509", "10" = "18510", "11" = "18511", "12" = "18512", "13" = "18513", "14" = "18514",
+  "15" = "18515", "16" = "18516", "17" = "18517", "18" = "18518", "19" = "18519", "20" = "18520",
+  "21" = "18521", "22" = "18522", "23" = "18523", "24" = "18524", "24A" = "18974", "25" = "18525",
+  "26" = "18526", "27" = "18527", "28" = "18528", "29" = "18529", "30" = "18530", "31" = "18531",
+  "32A" = "18532", "33" = "18533", "34" = "18534", "35" = "18535", "36" = "18536", "37" = "18537",
+  "38" = "18538", "39" = "18539", "40" = "18540", "41" = "18541", "42" = "18542", "42A" = "18543",
+  "43" = "18544", "44" = "18545", "45" = "18546", "46" = "18547", "46A" = "18548", "46B" = "18549",
+  "47" = "18550", "48" = "18551", "49" = "18552", "50" = "18553", "51" = "18554", "52" = "18555",
+  "53" = "18556", "54" = "18557", "55" = "18558", "56" = "18559", "57" = "18560", "58" = "18561",
+  "59A" = "18562", "60" = "18563", "61" = "18564", "62" = "18565", "63" = "18566", "64" = "18567",
+  "65" = "18568", "66" = "18569", "67" = "18570", "68" = "18571", "69" = "18572", "70" = "18573",
+  "71" = "18574", "72" = "18575", "73" = "18576", "74" = "18577", "75" = "18578", "76" = "18579",
+  "77" = "18580" }
+file    = "n-{item}-en.epub"                   # saved under the chapter, not the id
+title_id = "ch{item}"
+container = "epub"                             # the fetched file is unzipped; its XHTML joined in spine order before parsing
+edition = "current"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "Copyright NM Compilation Commission; no scraping terms seen; robots.txt allows /w/ and /nmos/"
+
+[NM.nmsa.html]
+blocks   = ["p", "h1", "h5"]
+headings = ["h1", "p.Title1"]                  # ARTICLE n<br>name ; the chapter title block
+opening  = ["h5"]                              # the whole "11-1-1. Short title." line
+verbatim = ["table"]                           # forms and checklists in compacts (Form A of the gaming compact)
+# p.Title1 "UNANNOTATED" (red) and "CHAPTER 11 <name>": the EPUB's own title lines, kept as crossHeadings of the
+# title element (not dropped: they are the source's text, and conservation keeps them countable).
+
+[NM.nmsa.ladder]
+# A. (1) (a) (i): indent1 A., indent2 (1), indent3 (a), indent4 a) or (i). "1)"/"a)" (close paren only) occur in
+# a few deep levels and in compacts: not a label type yet, they stay text (see status: feature 4).
+types = ["upper.", "num", "lower", "roman_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NM.nmsa.containers]
+# The <br> in these headings sits inside an <a>, so split_br leaves one line: "ARTICLE 1 Joint Powers Agreements".
+# Number and name in one line: the heading group splits them. The chapter itself is the file's title element
+# (title_id ch{item}); its banner block p.Title1 ("UNANNOTATED" / "CHAPTER 11 name") stays a crossHeading.
+article = { match = '^ARTICLE\s+(?P<num>\d+[A-Z]?)\s+(?P<heading>\S.*)$', tag = "article", rank = 2, id = "a{num}" }
+
+[NM.nmsa.sections]
+# "11-1-1. Short title." | "11-3-1 to 11-3-8. Repealed." ("Appendix to Article 13": see [notes].close)
+match = '^(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?(?:\s+(?:to|through|and)\s+\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?)?)\.\s*(?P<heading>.*)$'
+bold  = true                                   # matched on the opening block (h5) only
+scope = "title"
+
+[NM.nmsa.notes]
+sourceCredit = { class = "history" }           # "History: 1953 Comp., § 4-22-1, enacted by Laws 1961, ch. 135, § 1."
+editorialNote = [{ class = "annotations", topic = "annotation" }]   # empty end-of-chunk placeholder (&nbsp;)
+# "Appendix to Article 13" is an unnumbered h5 after the article's last section, followed by the superseded
+# compact's text: it ends the open section and stands as a cross heading (the appendix text follows it).
+close = ['^Appendix to Article \w+$']
+
+# ---------------------------------------------------------------- Constitution of New Mexico
+# Collection c, item 5916 -> /w/nmos/n-5916-en.epub (one EPUB, 215 chunks, ANNOTATED: no unannotated edition).
+# h1 "PREAMBLE" / "ARTICLE II Bill of Rights"; h4 "Section 1. [Supreme law of the land.]" / "Sec. 2. [...]";
+# p.text / p.indent1-3 body; p.history; then h5 "ANNOTATIONS" + p.annotations / h6 topic heads / p.MsoHeading7:
+# all notes to the next section. h3 "ADDENDA JUDICIAL NOMINATING COMMISSION" at the end.
+[NM.const]
+inherit = "NM.nmsa"
+replace = ["html", "containers", "sections", "ladder", "notes"]
+name    = "Constitution of New Mexico"
+doc     = "/us-nm/const"                       # /us-nm/const/a2/s1
+fetch   = "template"
+url     = "https://nmonesource.com/w/nmos/n-{item}-en.epub"
+items   = ["5916"]                             # always the one document
+file    = "n-{item}-en.epub"
+container = "epub"                             # stated again for clarity (also inherited)
+title_id = ""
+
+[NM.const.html]
+blocks   = ["p", "h1", "h3", "h4", "h5", "h6"]
+headings = ["h1", "h3", "p.Titre1", "p.titledate"]   # + the title lines "Constitution of the State of New Mexico" / "ADOPTED JANUARY 21, 1911"
+opening  = ["h4"]
+verbatim = ["table"]
+
+[NM.const.ladder]
+types = ["upper.", "num", "lower"]             # A. (1) (a)
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[NM.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 1, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)\s+(?P<heading>\S.*)$', tag = "article", rank = 1, id = "a{num_arabic}" }
+addenda  = { match = '^(?P<heading>ADDENDA\b.*)$', tag = "level", rank = 1, id = "addenda", heading = "self" }
+
+[NM.const.sections]
+match = '^(?:Section|Sec\.)\s+(?P<num>\d+[A-Za-z]?)\.\s*(?P<heading>.*)$'
+bold  = true                                   # the h4 opening only
+scope = "container"                            # numbers restart per article
+# a proposed amendment follows the section it would replace: "Sec. 10. (Proposed.) [Compensation of members.]"
+versions = '^\(Proposed\.\)'
+
+[NM.const.notes]
+editorialNote = [{ match = '^ANNOTATIONS$', topic = "annotation" }]   # history lines sit inside the annotations here

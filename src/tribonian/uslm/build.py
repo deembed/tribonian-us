@@ -27,7 +27,26 @@ import codecs
 codecs.register_error("cp1252fallback", _cp1252_fallback)
 
 
+def epub_join(raw_bytes):
+    """An ePub (a zip) -> its XHTML documents in reading order, back to back (META-INF/container.xml names the
+    package file; its <spine> gives the order -- the zip's own order is not it). The HTML family parses
+    documents back to back as one page. New Mexico's NMSA chapters."""
+    import io, posixpath, zipfile
+    from lxml import etree
+    z = zipfile.ZipFile(io.BytesIO(raw_bytes))
+    cont = etree.fromstring(z.read("META-INF/container.xml"))
+    opf_path = cont.find(".//{*}rootfile").get("full-path")
+    opf = etree.fromstring(z.read(opf_path))
+    base = posixpath.dirname(opf_path)
+    items = {i.get("id"): i.get("href") for i in opf.iter("{*}item")}
+    parts = [z.read(posixpath.normpath(posixpath.join(base, items[r.get("idref")])))
+             for r in opf.iter("{*}itemref") if r.get("idref") in items]
+    return b"\n".join(parts)
+
+
 def _decode(raw_bytes, formula):
+    if formula.get("container") == "epub":
+        raw_bytes = epub_join(raw_bytes)
     enc = formula.get("encoding", "utf-8")
     return raw_bytes.decode(enc, errors="cp1252fallback" if enc.lower().replace("-", "") == "utf8" else "replace")
 

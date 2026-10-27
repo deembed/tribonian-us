@@ -131,7 +131,10 @@ def follows(prev, o):
 
 
 LABEL = re.compile(r"\(([0-9]+(?:\.[0-9]+|[a-z])?|[A-Za-z]{1,6}(?:\.[0-9]+|[0-9]{1,2})?)\)\s*")
-DOTTED = re.compile(r"([0-9]+(?:-[a-z])?\.|[IVXLC]{1,6}(?:-[a-z])?\.|[A-Z]{1,2}\.|[a-z]{1,2}\.)(?=\s|$)\s*")   # 1. A. a. IV. (MD, DE, NH)
+# A dotted label ends at a space, the line's end, or a chained label: Florida's "1.a." / "2.a.(I)" open a level
+# and its first item together. Only a lowercase or numeric dotted label, or "(", may follow (not "U.S.").
+DOTTED = re.compile(r"([0-9]+(?:-[a-z])?\.|[IVXLC]{1,6}(?:-[a-z])?\.|[A-Z]{1,2}\.|[a-z]{1,2}\.)"
+                    r"(?=\s|$|\(|[a-z]{1,2}\.(?:\s|\(|$)|[0-9]{1,3}\.(?:\s|\(|$))\s*")   # 1. A. a. IV. (MD, DE, NH)
 
 
 class Ladder:

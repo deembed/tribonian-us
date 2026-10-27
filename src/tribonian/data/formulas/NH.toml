@@ -22,11 +22,17 @@ index_file = "NHTOC-{item}.htm"
 links   = 'href="(NHTOC-[IVXLC]+(?:-[A-Z]+)?-\d[^"/]*\.htm)"'
 rewrite = ['NHTOC/NHTOC-([IVXLC]+(?:-[A-Z]+)?)-(\d+(?:-[A-Z]+)?)\.htm$', '\1/\2/\2-mrg.htm']
 layers  = [ { name = "current", url = "https://gc.nh.gov/rsa/html/NHTOC/NHTOC-{item}.htm" } ]
+empty_index = "page"                          # a wholly repealed title (IV): its index page links no chapters and
+                                              # is itself the title's text ("Title IV Repealed ...")
 encoding = "cp1252"                           # &#150; (en dash) and Windows quotes; pages carry no charset
 family  = "html-paragraphs"
 terms   = "unverified (public records; no reuse terms stated)"
-# title name: the index page's <h2>I: THE STATE AND ITS GOVERNMENT</h2> has no class, and `title` selectors
-# need one (feature request in NH.status.md), so the title heading is left empty for now.
+# title name from the index page: the h2 after "Table of Contents", "XI: HOSPITALS AND SANITARIA"; a wholly
+# repealed title's page (IV) has the chapter-page banner <h1>TITLE IV<br>ELECTIONS</h1>
+# instead. One tag-less selector takes either (first match in document order; the <center> around the h2
+# has the same text; the $ keeps <body>, whose text also starts "TITLE IV", from matching).
+title   = { name = ":matches(^(?:[IVXLC]+(?:-[A-Z])?:|TITLE [IVXLC]+(?:-[A-Z])?[A-Z ]+$))" }
+
 
 [NH.rsa.html]
 # The section's catchline <b> and a repealed chapter's "[Repealed by ...]" line sit as bare text/inline runs
@@ -35,6 +41,9 @@ terms   = "unverified (public records; no reuse terms stated)"
 blocks   = ["p"]
 loose    = ["body"]
 block_tags = ["center", "codesect", "sourcenote"]
+# Tables inside <codesect>: statutory forms (5-C:? Certificate of Stillbirth) and UCC definition indexes
+# (382-A:2-103 "Acceptance". Section 2-606. ...): one text item each, cells joined by spaces.
+verbatim = ["table"]
 # <center> is the heading block: it holds the h2 chapter / group headings, and also bare bracketed notes
 # ("[RSA 21-P:46-a repealed by ... ]" before a section; "<center><p>[Paragraph V effective January 1,
 # 2027.]</p></center>" inside a section's text). Blocks inside it count as part of it.
@@ -48,7 +57,10 @@ drop     = ["h1", "h3"]
 
 [NH.rsa.ladder]
 # RSA numbering: I. (a) (1) (A) (i); roman paragraph numbers dotted, often alone on their <br> line
-types = ["roman_upper.", "lower", "num", "upper", "roman_lower"]
+# UCC chapter 382-A (title XXXIV-A) keeps the UCC's own numbering: (1)(a)(i)(A) in the older articles,
+# (a)(1)(i) / (a)(1)(A)(i) in the revised ones, (1)(A) in article 9 transition sections. So level 0 also
+# takes (1), level 1 also (A), levels 2 and 3 also (i).
+types = [["roman_upper.", "num"], ["lower", "upper"], ["num", "roman_lower"], ["upper", "roman_lower"], ["roman_lower", "upper"]]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
 [NH.rsa.containers]
@@ -58,13 +70,20 @@ chapter = { match = '^(?P<heading>Chapter\s+(?P<num>\d+(?:-[A-Z]+)?)(?:\s.*)?)$'
 
 [NH.rsa.sections]
 # the bold catchline: "1:14 Extent. –" / "21-P:7-a Repealed by 2000, 35:2, I, eff. Jan. 1, 2001. –"
-match = '^(?P<num>\d+(?:-[A-Z]+)?:\d+(?:-[a-z]+)?)\s+(?P<heading>.*)$'
+# UCC chapter 382-A keeps the article in the number: "382-A:2A-507 Lessee's Damages ..."
+match = '^(?P<num>\d+(?:-[A-Z]+)?:(?:\d+[A-Z]?-)?\d+(?:-[a-z]+)?)\s+(?P<heading>.*)$'
 bold  = true
 scope = "title"                               # section numbers carry the chapter: /us-nh/rsa/tI/s1:14
+# effective-date variants: "[RSA 5-C:41 effective until Sept. 8, 2026; see also RSA 5-C:41 set out below.]",
+# "[Paragraph V effective January 1, 2027.]" on their own line before the repeated section / paragraph
+versions = '(?i)\[[^\]]*\beffective\b'
 
 [NH.rsa.notes]
 sourceCredit  = '^Source\.'
-editorialNote = ['^Revision note\.', "^Editor's note", '^Effective Date note', '^Contingent', '^Applicability']
+editorialNote = ['^Revision note\.', "^Editor's note", '^Effective Date note', '^Contingent', '^Applicability',
+                 # a wholly repealed chapter / title page: "Chapter 150 Repealed – Entire Chapter was repealed",
+                 # "[Repealed by 1957, ...]"; for title IV the note sits on the title itself (no chapter)
+                 { match = '^(?:Title|Chapter)\s+\S+\s+Repealed\b', topic = "repeal" }]
 # Unnumbered group headings inside a chapter ("Seaward Limits of Jurisdiction", "Part Statewide Threat
 # Notification System for Schools Statewide ...") end the previous section and its source note and stand
 # as cross headings (they have no number to make a container id from).

@@ -70,7 +70,7 @@ def _local(el):
     return etree.QName(el).localname
 
 
-def numbering(tree, ladder_types, ladder_tags, decimal=False):
+def numbering(tree, ladder_types, ladder_tags, decimal=False, comma=False):
     """Out-of-order siblings: numbered paragraphs by the ladder type of their tag; sections by the
     numbers in their number (26.5-1-101 -> (26, 5, 1, 101))."""
     by_tag = dict(zip(ladder_tags, ladder_types))
@@ -93,7 +93,7 @@ def numbering(tree, ladder_types, ladder_tags, decimal=False):
                 p_ = prev.get(tag)                  # a level of several types: the reading that continues
                 o = next((x for x in os_ if p_ is not None and x > p_ and x[0] <= p_[0] + 2), os_[0] if os_ else None)
             elif tag == "section":
-                o = section_key(value, decimal)
+                o = section_key(value, decimal, comma)
             else:
                 continue
             if o is None:
@@ -110,12 +110,17 @@ def numbering(tree, ladder_types, ladder_tags, decimal=False):
     return out
 
 
-def section_key(num, decimal=False):
+def section_key(num, decimal=False, comma=False):
     """Section numbers in order: 1-1 < 1-1a < 1-1z < 1-1aa < 1-2 < 1-10; 26.5-1-101; "1-2d_to_1-2y" by its first
     number. Each run of digits with its letter suffix is (number, letters as base 26). With decimal
     ([sections].decimal, Nevada's NRS), digits after a point are a decimal fraction: 1.4253 < 1.426."""
     first = re.sub(r"\(([A-Za-z0-9]+)\)", r"\1", num.split("_")[0])     # 18(a) -> 18a (Missouri's constitution)
-    first = first.replace(",", "-")                    # Nebraska's 28-3,100: article 3, section 100
+    if comma and "," in first:                         # [sections].comma = "article" (Nebraska): 28-3,100 is
+        first = first.replace(",", "-")                # article 3, section 100; 28-399 is article 3, section 99
+    elif comma:
+        first = re.sub(r"-(\d+?)(\d{2})(?=$|[.A-Za-z_])", r"-\1-\2", first)   # also before ".01" / a suffix
+    else:
+        first = first.replace(",", "-")
     m = re.match(r"([IVXLC]+)(?=[-.])", first)       # a roman prefix (Nebraska's constitution: II-1) counts as its number
     if m:
         from tribonian.uslm.tree import roman_value
@@ -161,7 +166,8 @@ def verify(source_text, tree, ladder, formula):
         "schema": {"ok": valid, "errors": [str(e) for e in list(s.error_log)[:20]]},
         "unmapped": {"count": len(um), "first": um[:10]},
         "numbering": numbering(tree, formula["ladder"]["types"], formula["ladder"]["tags"],
-                               formula.get("sections", {}).get("decimal", False)),
+                               formula.get("sections", {}).get("decimal", False),
+                               formula.get("sections", {}).get("comma") == "article"),
         "parse_coverage": getattr(ladder, "coverage", None),
         "duplicate_identifiers": identifiers(tree),
         "ambiguous_labels": ladder.ambiguous,
