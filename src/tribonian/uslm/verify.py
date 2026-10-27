@@ -72,7 +72,7 @@ def numbering(tree, ladder_types, ladder_tags):
             if tag in by_tag:
                 o = level_ordinal(by_tag[tag], value)
             elif tag == "section":
-                o = tuple(int(x) for x in re.findall(r"\d+", value)) + (value[-1:].isalpha() and ord(value[-1]) or 0,)
+                o = section_key(value)
             else:
                 continue
             if o is None:
@@ -87,6 +87,19 @@ def numbering(tree, ladder_types, ladder_tags):
                 out.append("%s: jumps from %s to %s" % (ch.get("identifier"), p, value))
             prev[tag] = o
     return out
+
+
+def section_key(num):
+    """Section numbers in order: 1-1 < 1-1a < 1-1z < 1-1aa < 1-2 < 1-10; 26.5-1-101; "1-2d_to_1-2y" by its first
+    number. Each run of digits with its letter suffix is (number, letters as base 26)."""
+    first = num.split("_")[0].lower()
+    key = []
+    for d, letters in re.findall(r"(\d+)([a-z]*)", first):
+        n = 0
+        for ch in letters:
+            n = n * 26 + ord(ch) - 96
+        key.append((int(d), n))
+    return tuple(key)
 
 
 def identifiers(tree):
@@ -111,7 +124,8 @@ def verify(source_text, tree, ladder, formula):
     valid = s.validate(tree)
     um = unmapped(tree)
     r = {
-        "conservation": conservation(source_text, tree),
+        "conservation": conservation(source_text, tree) if source_text is not None else {"ok": None},
+        "dropped": getattr(ladder, "dropped", {}),
         "schema": {"ok": valid, "errors": [str(e) for e in list(s.error_log)[:20]]},
         "unmapped": {"count": len(um), "first": um[:10]},
         "numbering": numbering(tree, formula["ladder"]["types"], formula["ladder"]["tags"]),
@@ -128,10 +142,13 @@ def verify(source_text, tree, ladder, formula):
 
 def summary(name, r):
     c = r["conservation"]
+    files = " in %d files" % c["files"] if c.get("files") else ""
     lines = ["%s: %s" % (name, "PASS" if r["ok"] else "FAIL"),
-             "  conservation  %s" % ("ok, %d characters" % c["chars"] if c["ok"] else
-                                     "FAILED at %d (source %d chars, USLM %d)\n    source: %s\n    uslm:   %s" %
-                                     (c["first_difference"], c["source_chars"], c["uslm_chars"], c["source_at"], c["uslm_at"])),
+             "  conservation  %s" % ("ok, %d characters%s" % (c["chars"], files) if c["ok"] else
+                                     ("FAILED%s at %d (source %d chars, USLM %d)\n    source: %s\n    uslm:   %s" %
+                                     ((" in " + ", ".join(c["failed"][:5])) if c.get("failed") else "", c["first_difference"],
+                                      c["source_chars"], c["uslm_chars"], c["source_at"], c["uslm_at"]))),
+             "  dropped       %s" % (", ".join("%s %d chars" % kv for kv in r.get("dropped", {}).items()) or "nothing"),
              "  schema        %s" % ("ok" if r["schema"]["ok"] else "FAILED\n    " + "\n    ".join(r["schema"]["errors"][:5])),
              "  unmapped      %d" % r["unmapped"]["count"] + "".join("\n    " + u for u in r["unmapped"]["first"][:3]),
              "  numbering     %d to look at" % len(r["numbering"]) + "".join("\n    " + u for u in r["numbering"][:5]),

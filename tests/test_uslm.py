@@ -91,9 +91,9 @@ class Family(unittest.TestCase):
     def test_conservation_catches_a_drop(self):
         feed = html_paragraphs.Builder.feed
 
-        def lossy(self, text, bold, centered):
+        def lossy(self, text, *rest):
             if text != "(d) four;":
-                feed(self, text, bold, centered)
+                feed(self, text, *rest)
         html_paragraphs.Builder.feed = lossy
         try:
             _, r = build.convert(SAMPLE, FORMULA, "t7", {})
@@ -106,6 +106,52 @@ class Family(unittest.TestCase):
         bad = SAMPLE.replace(b"(e) five;", b"(c) five again;")
         _, r = build.convert(bad, FORMULA, "t7", {})
         self.assertTrue(r["anomalies"] or r["numbering"])
+
+
+CT = {
+    "name": "Test CT", "doc": "/us-xx/ct", "family": "html-paragraphs",
+    "html": {"blocks": ["p"], "headings": ["h2", "h3"], "opening": ["span.catchln"], "verbatim": ["table"],
+             "drop": ["table.nav_tbl", "h4:noclass"]},
+    "ladder": {"types": ["lower", "num", "upper"], "tags": ["subsection", "paragraph", "subparagraph"]},
+    "containers": {"chapter": {"match": r"^CHAPTER\s+(?P<num>\d+)\*?$", "tag": "chapter", "rank": 2, "id": "ch{num}"}},
+    "sections": {"match": r"^Secs?\.\s+(?P<num>\d+-\d+[a-z]*(?:\s+to\s+\d+-\d+[a-z]*)?)\.\s*(?P<heading>.*)$",
+                 "bold": True, "scope": "title"},
+    "notes": {"sourceCredit": {"class": "source-first"}, "note": [{"class": "toc_catchln", "topic": "toc"}]},
+}
+NAV = '<table class="nav_tbl"><tr><td>(Return to List of Titles)</td></tr></table>'
+
+
+def ct_page(*body):
+    return page('<h2 class="chap-no">CHAPTER 9*</h2>', '<h2 class="chap-name">TESTS</h2>', "<h4>Note: see supplement</h4>",
+                '<p class="toc_catchln">Sec. 9-1. One.</p>', *body, NAV)
+
+
+class Layers(unittest.TestCase):
+    def test_overlay_and_drops(self):
+        base = ct_page('<p><span class="catchln">Sec. 9-1. One.</span> (a) Old text.</p>', '<p>(b) More.</p>',
+                       '<p class="source-first">(P.A. 1.)</p>',
+                       '<p><span class="catchln">Secs. 9-2 to 9-4.</span> Reserved.</p>',
+                       '<p><span class="catchln">Sec. 9-5. Five.</span> A form follows.</p>',
+                       '<table><tr><td>(1)</td><td>Name: ____</td></tr></table>')
+        sup = ct_page('<p><span class="catchln">Sec. 9-1. One.</span> (a) New text.</p>',
+                      '<p><span class="catchln">Sec. 9-4a. Added.</span> Brand new.</p>')
+        tree, r = build.convert_layers([("base", [("c9", base)]), ("sup", [("c9", sup)])], CT, "/us-xx/ct/t9", "TITLE 9", "TESTS", {})
+        self.assertTrue(r["ok"], (r["conservation"], r["schema"]["errors"]))
+        self.assertEqual(r["layers"]["sup"]["replaced"], ["/us-xx/ct/t9/s9-1"])
+        self.assertEqual(r["layers"]["sup"]["added"], ["/us-xx/ct/t9/s9-4a"])
+        nums = [el.findtext("{*}num") for el in tree.getroot().iter("{*}section")]
+        self.assertEqual(nums, ["Sec. 9-1.", "Secs. 9-2 to 9-4.", "Sec. 9-4a.", "Sec. 9-5."])
+        text = " ".join(tree.getroot().itertext())
+        self.assertIn("New text", text)
+        self.assertNotIn("Old text", text)
+        self.assertNotIn("Return to", text)
+        self.assertGreater(r["dropped"]["table.nav_tbl"], 0)
+        self.assertEqual(r["anomalies"], [])            # the (1) in the form table is not read as a label
+
+    def test_unlisted_markup_fails_conservation(self):
+        bad = ct_page('<p><span class="catchln">Sec. 9-1. One.</span> Text.</p>', "<div>Loose text in a div.</div>")
+        _, r = build.convert_layers([("base", [("c9", bad)])], CT, "/us-xx/ct/t9", "", "", {})
+        self.assertFalse(r["conservation"]["ok"])
 
 
 if __name__ == "__main__":

@@ -96,3 +96,52 @@ toc   = ['^Sec\.\s+\d']                            # numbers restart per article
 annotation = '^ANNOTATION$'
 sourceCredit  = '^Source:'
 editorialNote = ["^Editor's note", "^Cross references:", "^Law reviews"]
+
+# ---------------------------------------------------------------- General Statutes of Connecticut
+# Published as a revision (every section, revised to January 1, 2025) plus a supplement (only the
+# sections amended since, revised to January 1, 2026). Current law = the supplement's version of a
+# section where it has one, else the revision's (uslm/build.py convert_layers). Pages: title_NN.htm
+# lists chapters; chap_NNN.htm holds the text. Markup is by class: span.catchln opens a section,
+# p.source-first / history-first / annotation-first / cross-ref-first open notes.
+[CT.cgs]
+name    = "General Statutes of Connecticut"
+doc     = "/us-ct/cgs"                       # /us-ct/cgs/t1/ch1, /us-ct/cgs/t1/s1-1/a/1
+fetch   = "index"
+item    = "%02d"                             # title 1 -> "01", 4a -> "04a"
+index_file = "title_{item}.htm"
+links   = 'href="(chap_[0-9a-z]+\.htm)"'
+layers  = [
+  { name = "2025", url = "https://www.cga.ct.gov/2025/pub/title_{item}.htm" },
+  { name = "2026sup", url = "https://www.cga.ct.gov/2026/sup/title_{item}.htm", optional = true },
+]
+encoding = "utf-8"
+family  = "html-paragraphs"
+title   = { number = "h1.title-no", name = "h1.title-name" }   # read from the base layer's index page
+
+[CT.cgs.html]
+blocks   = ["p"]
+headings = ["h2", "h3", "h4.subpart-no", "h4.subpart-name"]   # CHAPTER 1 / its name; PART I / name; SUBPART (A) / name
+verbatim = ["table"]                         # statutory forms (sec. 1-352's power of attorney) are tables
+opening  = ["span.catchln"]                  # "Sec. 1-1. Words and phrases. ..."
+drop     = ["table.nav_tbl", "h4.chap_toc_hd", "h4:noclass"]   # "Return to ..." links; "Table of Contents"; the supplement notice
+
+[CT.cgs.ladder]
+types = ["lower", "num", "upper", "roman_lower", "roman_upper"]   # (a)(1)(A)(i)(I), as the US Code
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[CT.cgs.containers]
+# a trailing * points at a footnote (an annotation on the whole chapter or part): kept in the num text
+chapter = { match = '^CHAPTER\s+(?P<num>\d+[a-z]*)\*?$', tag = "chapter", rank = 2, id = "ch{num}" }
+part    = { match = '^PART\s+(?P<num>[IVXL]+[A-Z]?)\*?$', tag = "part", rank = 3, id = "pt{num}" }
+subpart = { match = '^\((?P<num>[A-Z]+)\)\*?$', tag = "subpart", rank = 4, id = "spt{num}" }
+
+[CT.cgs.sections]
+match = '^Secs?\.\s+(?P<num>\d+[a-z]*-\d+[a-z]*(?:\s+(?:to|and)\s+\d+[a-z]*-\d+[a-z]*)?)\.\s*(?P<heading>.*)$'
+bold  = true                                 # matched against the opening run (span.catchln)
+scope = "title"
+
+[CT.cgs.notes]
+note          = [{ class = "toc_catchln", topic = "toc" }, { class = "annotation-first", topic = "annotation" }]
+sourceCredit  = { class = "source-first" }
+editorialNote = [{ class = "history-first", topic = "history" }, { class = "cross-ref-first", topic = "crossReference" },
+                 { class = "front-note-first", topic = "frontNote" }]

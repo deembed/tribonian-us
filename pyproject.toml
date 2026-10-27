@@ -24,4 +24,4 @@ tribonian = "tribonian.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tribonian = ["data/*.json", "data/*.toml", "sh/*.sh"]
+tribonian = ["data/*.json", "data/*.toml", "data/uslm/*", "data/certs/*.pem", "sh/*.sh"]

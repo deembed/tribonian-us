@@ -1,15 +1,26 @@
-"""html_paragraphs.py -- parser family for Word-style HTML, where every line of the code is a <p>.
+"""html_paragraphs.py -- parser family for HTML where each line of the code is its own block element.
 
-Structure comes from three things the publisher's formatting carries, all named in the state's formula:
-    centered paragraphs   container headings (TITLE 26.5, ARTICLE 1, PART 2) via [containers] regexes;
-                          the next centered paragraph is the heading unless heading = "self"
-    a bold opening run    a section start, via [sections].match on the bold text
+The formula's [html] table says which elements carry what (defaults are Colorado's Word-filtered HTML):
+    blocks    the elements that are lines of text                       ["p"]
+    headings  blocks that are headings (containers, cross headings)    ["p:centered"]
+    opening   the leading run that can open a section                  ["b", "strong"]
+    verbatim  blocks taken whole, no label parsing (a statutory form    []
+              set as a table): one text item, cells joined by spaces
+    drop      site furniture removed before parsing (navigation bars)  []
+Selectors: "tag", "tag.class", ".class", ":centered" (align or style says center), ":noclass".
+
+Structure from there, all named in the formula:
+    headings              container headings (TITLE 26.5, ARTICLE 1, CHAPTER 1) via [containers] regexes;
+                          the next heading is the container's name unless heading = "self"
+    an opening run        a section start, via [sections].match on that run
     a leading (label)     a numbered paragraph, placed on a level by the shared Ladder (tree.py)
-Notes start at a paragraph matching [notes]; from there to the next section or container, everything is
-notes (Source:, Editor's note, the case ANNOTATION). Centered lines inside notes stay in the notes.
+Notes start at a block matching [notes] (by text regex, or by class); from there to the next section or
+container, everything is notes. Headings inside notes stay in the notes.
 
-Nothing is dropped: a paragraph that fits nowhere becomes ("unmapped", text) on the node in hand.
-Used by: Colorado (C.R.S. and the Colorado Constitution).
+Nothing is dropped silently: a block that fits nowhere becomes ("unmapped", text); what [html].drop removes
+is counted per selector in the verify report, and the conservation check reads the source with the same
+elements removed -- so any other text the parser misses fails the build.
+Used by: Colorado (C.R.S., Colorado Constitution), Connecticut (General Statutes).
 """
 import re
 import unicodedata
@@ -28,30 +39,90 @@ def norm(s):
     return " ".join("".join(ch for ch in s if unicodedata.category(ch) != "Cf").split())
 
 
-def paragraphs(raw):
-    """HTML -> [(text, bold_run, centered)]: text normalised, bold_run the paragraph's bold opening text."""
+HTML_DEFAULTS = {"blocks": ["p"], "headings": ["p:centered"], "opening": ["b", "strong"], "verbatim": [], "drop": []}
+
+
+def selector(sel):
+    """'tag', 'tag.class', '.class', 'tag:centered', 'tag:noclass' -> predicate on an lxml element."""
+    sel, _, pseudo = sel.partition(":")
+    centered, noclass = pseudo == "centered", pseudo == "noclass"
+    tag, _, cls = sel.partition(".")
+
+    def match(el):
+        if not isinstance(el.tag, str) or (tag and el.tag != tag):
+            return False
+        if cls and cls not in (el.get("class") or "").split():
+            return False
+        if noclass and (el.get("class") or "").strip():
+            return False
+        if centered and "center" not in ((el.get("align") or "") + (el.get("style") or "")).lower():
+            return False
+        return True
+    return match
+
+
+def _any(sels):
+    preds = [selector(s) for s in sels]
+    return lambda el: any(p(el) for p in preds)
+
+
+def html_cfg(formula):
+    return dict(HTML_DEFAULTS, **formula.get("html", {}))
+
+
+def load(raw, formula):
+    """-> (the parsed page with [html].drop removed, {selector: characters dropped})."""
+    cfg = html_cfg(formula)
     doc = lhtml.fromstring(raw)
-    out = []
-    for p in doc.iter("p"):
-        text = norm(p.text_content())
-        if not text:
+    dropped = {}
+    for sel in cfg["drop"]:
+        pred = selector(sel)
+        for el in [e for e in doc.iter() if pred(e)]:
+            dropped[sel] = dropped.get(sel, 0) + len(re.sub(r"\s+", "", norm(el.text_content())))
+            el.drop_tree()                 # the element and its text go; its tail stays with the parent
+    return doc, dropped
+
+
+def _opening(el, is_open):
+    """The block's leading run of text inside elements matching is_open (whitespace may sit between)."""
+    run = []
+    for t in el.xpath(".//text()"):
+        owner = t.getparent()
+        if t.is_tail:
+            owner = owner.getparent()
+        inside, a = False, owner
+        while a is not None and not inside:
+            inside = is_open(a)
+            a = None if a is el else a.getparent()
+        if not norm(t):
+            if run:
+                run.append(" ")
             continue
-        style = (p.get("align") or "") + (p.get("style") or "")
-        centered = "center" in style.lower()
-        bold, done = [], False
-        for t in p.xpath(".//text()"):
-            owner = t.getparent()
-            if t.is_tail:
-                owner = owner.getparent()
-            is_b = any(a.tag in ("b", "strong") for a in [owner] + list(owner.iterancestors()) if isinstance(a.tag, str))
-            if not norm(t):
-                if bold:
-                    bold.append(" ")
-                continue
-            if not is_b:
-                break
-            bold.append(t)
-        out.append((text, norm("".join(bold)), centered))
+        if not inside:
+            break
+        run.append(t)
+    return norm("".join(run))
+
+
+def paragraphs(doc, formula):
+    """-> [(text, opening_run, is_heading, classes, verbatim)] in document order; a block inside a block
+    (a <p> in a verbatim table) counts once, as part of the outer one."""
+    cfg = html_cfg(formula)
+    is_block, is_head, is_open, is_verb = _any(cfg["blocks"]), _any(cfg["headings"]), _any(cfg["opening"]), _any(cfg["verbatim"])
+    any_block = lambda e: is_block(e) or is_head(e) or is_verb(e)
+    out = []
+    for el in doc.iter():
+        if not any_block(el) or any(any_block(a) for a in el.iterancestors()):
+            continue
+        if is_verb(el):
+            cells = el.xpath(".//td|.//th") or [el]
+            text = norm(" ".join(c.text_content() for c in cells))
+            if text:
+                out.append((text, "", False, set((el.get("class") or "").split()), True))
+            continue
+        text = norm(el.text_content())
+        if text:
+            out.append((text, _opening(el, is_open), is_head(el), set((el.get("class") or "").split()), False))
     return out
 
 
@@ -60,7 +131,7 @@ def _regex_list(v):
 
 
 class Builder:
-    def __init__(self, f, ladder, item_name):
+    def __init__(self, f, ladder, item_name, root_ident=None):
         self.f = f
         self.doc = f["doc"]
         self.ladder = ladder
@@ -76,8 +147,17 @@ class Builder:
         self.versions = []                 # labels that repeat as another version (effective-date variants)
         n = f.get("notes", {})
         self.annot_rx = re.compile(n["annotation"]) if n.get("annotation") else None
-        self.note_rx = [(tag, rx) for tag, v in n.items() if tag != "annotation" for rx in _regex_list(v)]
-        self.root = Node("lawDoc", ident=self.doc, rank=0)
+        self.note_rules = []               # (element, topic, regex or None, class or None)
+        for tag, v in n.items():
+            if tag == "annotation":
+                continue
+            for r in (v if isinstance(v, list) else [v]):
+                if isinstance(r, str):
+                    self.note_rules.append((tag, tag, re.compile(r), None))
+                else:
+                    self.note_rules.append((r.get("tag", tag), r.get("topic", tag),
+                                            re.compile(r["match"]) if r.get("match") else None, r.get("class")))
+        self.root = Node("lawDoc", ident=root_ident or self.doc, rank=0)
         self.stack = [self.root]           # open containers, root first
         self.section = None                # open section
         self.levels = []                   # open numbered paragraphs inside the section
@@ -137,11 +217,12 @@ class Builder:
         if not m or (self.sec_alone and text != probe):
             return False
         self.close_section()
-        num = re.sub(r"\s+", "", m.group("num"))          # "44. 1" -> "44.1"
+        num = re.sub(r"\s+", "_", re.sub(r"\s*\.\s*", ".", m.group("num").strip()))   # "44. 1" -> 44.1; "1-2 to 1-5" -> 1-2_to_1-5
         heading = m.group("heading").strip()
         num_text = probe[:m.start("heading")].strip()
         parent = self.stack[-1]
-        base = parent.ident if self.scope == "container" else self.stack[min(1, len(self.stack) - 1)].ident
+        title = next((n for n in self.stack if n.tag == "title"), self.root)
+        base = parent.ident if self.scope == "container" else title.ident
         is_version = bool(self.version_rx and self.version_rx.match(text[len(probe):].strip()))
         node = Node("section", num_text=num_text, num=num, heading=heading,
                     ident=self.unique("%s/s%s" % (base, num), num_text, version=is_version), rank=90)
@@ -191,10 +272,10 @@ class Builder:
 
     # ---------------------------------------------------------------- driver
 
-    def note_tag(self, text):
-        for tag, rx in self.note_rx:
-            if rx.match(text):
-                return tag
+    def note_rule(self, text, classes):
+        for tag, topic, rx, cls in self.note_rules:
+            if (rx is None or rx.match(text)) and (cls is None or cls in classes):
+                return tag, topic
         return None
 
     def start_note(self, tag, topic, text):
@@ -203,7 +284,14 @@ class Builder:
         node.items.append(item)
         self.in_notes = item
 
-    def feed(self, text, bold, centered):
+    def feed(self, text, bold, centered, classes=frozenset(), verbatim=False):
+        if verbatim:                            # a form or table: one text item where it stands, labels not read
+            target = self.in_notes[3] if self.in_notes is not None else None
+            if target is not None:
+                target.append(text)
+            else:
+                self.here().add("text", text)
+            return
         if centered and self.container(text):
             return
         if centered and self.pending_heading is not None and not self.pending_heading.heading:
@@ -216,9 +304,9 @@ class Builder:
         if centered and self.annot_rx is not None and self.annot_rx.match(text):
             self.start_note("note", "annotation", text)
             return
-        tag = self.note_tag(text)
-        if tag and not (self.in_notes and self.in_notes[2] == "annotation"):
-            self.start_note(tag, tag, text)
+        rule = self.note_rule(text, classes)
+        if rule and not (self.in_notes and self.in_notes[2] == "annotation" and rule[1] != "annotation"):
+            self.start_note(rule[0], rule[1], text)
             return
         if self.in_notes is not None:           # everything to the next section/container is notes
             self.in_notes[3].append(text)
@@ -250,18 +338,21 @@ def _ord(node, types, d):
     return o or (0, 0)
 
 
-def parse(raw, formula, item_name=""):
-    """raw HTML -> (root Node, Ladder with the ambiguity / anomaly log)."""
+def parse(raw, formula, item_name="", root_ident=None):
+    """raw HTML -> (root Node, Ladder with the ambiguity / anomaly log; .dropped: characters [html].drop removed)."""
     ladder = Ladder(formula["ladder"]["types"])
-    b = Builder(formula, ladder, item_name)
-    for text, bold, centered in paragraphs(raw):
-        b.feed(text, bold, centered)
+    b = Builder(formula, ladder, item_name, root_ident)
+    doc, dropped = load(raw, formula)
+    for text, opening, heading, classes, verbatim in paragraphs(doc, formula):
+        b.feed(text, opening, heading, classes, verbatim)
     ladder.versions = b.versions
+    ladder.dropped = dropped
     return b.root, ladder
 
 
-def source_text(raw):
-    """Every character of the page body, straight from the HTML: the conservation check's reference."""
-    doc = lhtml.fromstring(raw)
+def source_text(raw, formula):
+    """Every character of the page body, straight from the HTML (less [html].drop): the conservation check's
+    reference. Read from the element tree as a whole, not from paragraphs(), so text outside every block fails."""
+    doc, _ = load(raw, formula)
     body = doc.find("body") if doc.tag != "body" else doc
     return norm((body if body is not None else doc).text_content())

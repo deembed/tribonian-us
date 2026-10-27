@@ -21,7 +21,7 @@ the edition current through the latest regular session. Personal use; republishi
 the Committee on Legal Services (C.R.S. 2-5-118). Files: <law_dir>/co/crs/title-26.5.htm + .json.
 robots.txt is obeyed: a disallowed URL is reported, not fetched.
 """
-import argparse, json, os, sys, time, urllib.error, urllib.parse, urllib.request, urllib.robotparser
+import argparse, json, os, re, sys, time, urllib.error, urllib.parse, urllib.request, urllib.robotparser
 from datetime import date
 
 from tribonian import cfr, tconfig
@@ -44,10 +44,11 @@ def allowed(url):
 def download(url, path):
     """url -> path (via a .part file). Returns bytes written, or exits with the reason."""
     if not allowed(url):
-        sys.exit("robots.txt disallows %s; not fetched" % url)
+        rp = _robots["{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(url))]
+        sys.exit("%s; not fetched: %s" % (getattr(rp, "reason", "robots.txt disallows it"), url))
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     try:
-        with urllib.request.urlopen(req, timeout=120) as r:
+        with cfr.urlopen(req, timeout=120) as r:
             body = r.read()
     except urllib.error.HTTPError as e:
         sys.exit("%s: HTTP %d %s" % (url, e.code, e.reason))
@@ -86,7 +87,7 @@ def get_text(url):
     time.sleep(1)
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with cfr.urlopen(req, timeout=60) as r:
             return r.read().decode("utf-8", "replace")
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
         sys.exit("%s: %s" % (url, e))
@@ -186,48 +187,140 @@ def formulas():
 
 
 def item_name(fmt, item):
-    """'%02d' applied to the whole-number part: '1' -> '01', '26.5' -> '26.5', '00' -> '00'."""
-    whole, dot, frac = str(item).partition(".")
-    return (fmt % int(whole) if fmt and whole.isdigit() else whole) + (dot + frac if dot else "")
+    """'%02d' applied to the leading whole number: '1' -> '01', '26.5' -> '26.5', '4a' -> '04a', '00' -> '00'."""
+    m = re.match(r"(\d+)(.*)", str(item))
+    return fmt % int(m.group(1)) + m.group(2) if fmt and m else str(item)
 
 
 def formula_dir(st, code, f):
     return state_dir(st) / f.get("dir", code)
 
 
+def _get_one(url, path, edition, force, label, missing_ok=False):
+    """One file, unless the same edition is already local. -> True when the file is local afterwards."""
+    have = local_meta(path)
+    if have and str(have.get("edition")) == str(edition) and not force:
+        print("%s: local, %s (fetched %s); --force to replace" % (label, edition, have["fetched"]))
+        return True
+    print("%s (%s) ..." % (label, edition), flush=True)
+    try:
+        n = download(url, path)
+    except SystemExit as e:
+        if missing_ok and "HTTP 404" in str(e.code):
+            print("  none (404): %s" % url)
+            return False
+        raise
+    path.with_suffix(".json").write_text(json.dumps(
+        {"edition": edition, "fetched": date.today().isoformat(), "url": url, "bytes": n}, indent=1), encoding="utf-8")
+    print("  wrote %s (%.2f MB)" % (path, n / 1e6))
+    time.sleep(1)
+    return True
+
+
 def fetch_formula(st, code, items, force=False):
-    """The generic downloader. Strategies: "template" (one URL per item). robots.txt obeyed, a second apart."""
+    """The generic downloader; robots.txt obeyed, a second between requests. Strategies:
+        template  url with {edition} and {item}: one file per item (Colorado: one HTML file per title)
+        index     per layer, an index page per item, then every page it links to that matches `links`
+                  (Connecticut: title_01.htm lists chap_001.htm ...). Layers stack editions: the
+                  revision, then a supplement whose sections replace the revision's (build does that).
+    """
     f = formulas()[(st, code)]
     items = items or f.get("items") or []
     if not items:
         sys.exit("%s %s: name what to fetch (e.g. a title number)" % (st, code))
-    if f["fetch"] != "template":
-        sys.exit("%s %s: fetch strategy %r not written yet" % (st, code, f["fetch"]))
-    edition = f.get("edition", "")
+    d = formula_dir(st, code, f)
     for it in items:
         name = item_name(f.get("item"), it)
-        path = formula_dir(st, code, f) / f["file"].format(item=name)
-        have = local_meta(path)
-        if have and str(have.get("edition")) == str(edition) and not force:
-            print("%s %s %s: local, %s edition (fetched %s); --force to replace" % (st, code, name, edition, have["fetched"]))
-            continue
-        url = f["url"].format(edition=edition, item=name)
-        print("%s %s %s (%s edition) ..." % (st, code, name, edition), flush=True)
-        n = download(url, path)
-        path.with_suffix(".json").write_text(json.dumps(
-            {"edition": edition, "fetched": date.today().isoformat(), "url": url, "bytes": n}, indent=1), encoding="utf-8")
-        print("  wrote %s (%.1f MB)" % (path, n / 1e6))
-        time.sleep(1)
+        if f["fetch"] == "template":
+            _get_one(f["url"].format(edition=f.get("edition", ""), item=name), d / f["file"].format(item=name),
+                     f.get("edition", ""), force, "%s %s %s" % (st, code, name))
+        elif f["fetch"] == "index":
+            rx = re.compile(f["links"])
+            for layer in f["layers"]:
+                url = layer["url"].format(item=name)
+                ld = d / layer["name"]
+                idx = ld / f["index_file"].format(item=name)
+                if not _get_one(url, idx, layer["name"], force, "%s %s %s %s index" % (st, code, layer["name"], name),
+                                missing_ok=layer.get("optional", False)):
+                    continue
+                raw = idx.read_bytes().decode(f.get("encoding", "utf-8"), errors="replace")
+                seen = []
+                for m in rx.finditer(raw):
+                    if m.group(1) not in seen:
+                        seen.append(m.group(1))
+                if not seen:
+                    print("  no pages matching %s in %s" % (f["links"], idx.name))
+                for page in seen:
+                    _get_one(urllib.parse.urljoin(url, page), ld / page.rsplit("/", 1)[-1], layer["name"], force,
+                             "  %s %s" % (layer["name"], page))
+        else:
+            sys.exit("%s %s: fetch strategy %r not written yet" % (st, code, f["fetch"]))
 
 
 def uslm_path(st, code, src):
     return state_dir(st) / "uslm" / code / (src.stem + ".xml")
 
 
+def _title_ident(f, name):
+    m = re.match(r"0*(\d+)(.*)", name)
+    return "%s/t%s" % (f["doc"], (m.group(1) + m.group(2)) if m else name)
+
+
+def build_index(st, code, f, items, everything=False):
+    """Index codes (Connecticut): per title, every chapter page of every layer -> one USLM title."""
+    from lxml import html as lhtml
+    from tribonian.uslm import build, verify
+    d = formula_dir(st, code, f)
+    base = d / f["layers"][0]["name"]
+    if everything:
+        rx = re.compile("^" + re.escape(f["index_file"]).replace(re.escape("{item}"), "(.+)") + "$")
+        names = sorted(m.group(1) for m in (rx.match(p.name) for p in base.glob("*")) if m) if base.is_dir() else []
+    else:
+        names = [item_name(f.get("item"), i) for i in items]
+    if not names:
+        sys.exit("%s %s: nothing to build (fetch first, or name the titles)" % (st, code))
+    failed = 0
+    links = re.compile(f["links"])
+    for name in names:
+        layers, metas = [], []
+        for L in f["layers"]:
+            idx = d / L["name"] / f["index_file"].format(item=name)
+            if not idx.exists():
+                if L is f["layers"][0]:
+                    print("%s %s title %s: not local (tribonian state fetch %s %s %s)" % (st, code, name, st, code, name))
+                continue
+            pages = list(dict.fromkeys(links.findall(idx.read_bytes().decode(f.get("encoding", "utf-8"), "replace"))))
+            missing = [p for p in pages if not (d / L["name"] / p).exists()]
+            if missing:
+                print("%s %s title %s: %s pages not local (%s ...); fetch again" % (st, code, name, L["name"], ", ".join(missing[:3])))
+            layers.append((L["name"], [(p, (d / L["name"] / p).read_bytes()) for p in pages if p not in missing]))
+            metas.append("%s fetched %s" % (L["name"], (local_meta(idx) or {}).get("fetched", "?")))
+        if not layers:
+            failed += 1
+            continue
+        doc = lhtml.fromstring((base / f["index_file"].format(item=name)).read_bytes())
+        t = f.get("title", {})
+        txt = lambda sel: " ".join(doc.xpath("string(//%s[@class='%s'])" % tuple(sel.split(".", 1))).split()) if sel else ""
+        ident = _title_ident(f, name)
+        tree, report = build.convert_layers(layers, f, ident, txt(t.get("number")), txt(t.get("name")),
+                                            {"edition": " + ".join(L[0] for L in layers), "retrieved": "; ".join(metas),
+                                             "formula": "%s.%s" % (st, code)})
+        out = state_dir(st) / "uslm" / code / ("title-%s.xml" % name)
+        build.write(tree, report, out)
+        print(verify.summary("%s %s title %s" % (st, code, name), report))
+        for layer, log in list(report["layers"].items())[1:]:
+            print("  %-13s replaced %d sections, added %d, new chapters %d" % (layer, len(log["replaced"]), len(log["added"]), len(log["chapters_added"])))
+        print("  -> %s" % out)
+        failed += not report["ok"]
+    return failed
+
+
 def build_formula(st, code, items, everything=False):
     """Local source files -> USLM + <name>.verify.json beside it. Returns the number that failed."""
     from tribonian.uslm import build, verify
     f = formulas()[(st, code)]
+    if f["fetch"] == "index":
+        return build_index(st, code, f, items, everything)
     d = formula_dir(st, code, f)
     if everything:
         pat = f["file"].format(item="*")
@@ -407,7 +500,7 @@ def main():
     f.set_defaults(func=cmd_fetch)
     b = sub.add_parser("build", help="local source files -> USLM XML, each with a verify report (conservation, schema, numbering)")
     b.add_argument("state", help="postal code, e.g. CO")
-    b.add_argument("code", help="a code with a formula in data/state_formulas.toml: crs, const")
+    b.add_argument("code", help="a code with a formula in data/state_formulas.toml: CO crs, CO const, CT cgs")
     b.add_argument("items", nargs="*", help="titles, e.g. 26.5 (const: none)")
     b.add_argument("--all", action="store_true", help="every local file of that code")
     b.set_defaults(func=cmd_build)

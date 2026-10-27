@@ -47,17 +47,46 @@ def local(title):
         return None
 
 
+def tls_context():
+    """The system's trusted roots, plus the intermediate certificates in data/certs/*.pem: some publishers'
+    servers (Connecticut's General Assembly) send their certificate without the intermediate, which browsers
+    fetch on their own and Python does not. An intermediate added here only helps build the chain; it must
+    still end at a root the system trusts. Put only CA intermediates in that folder, never a root."""
+    global _TLS
+    if _TLS is None:
+        import ssl
+        _TLS = ssl.create_default_context()
+        for pem in sorted((tconfig.PKG / "data" / "certs").glob("*.pem")):
+            _TLS.load_verify_locations(cafile=str(pem))
+    return _TLS
+
+
+_TLS = None
+
+
+def urlopen(req, timeout):
+    return urllib.request.urlopen(req, timeout=timeout, context=tls_context())
+
+
 def read_robots(host, ua):
-    """host's robots.txt, read with our own user agent. RobotFileParser.read() sends Python's default agent,
-    which some servers (the Colorado Secretary of State's) answer with 403, and it then treats the whole site
-    as disallowed. A missing or unreadable file means no rules."""
+    """host's robots.txt, read with our own user agent (RobotFileParser.read() sends Python's default agent,
+    which some servers, the Colorado Secretary of State's, answer with 403). As RFC 9309: a 4xx answer means
+    no rules; a 5xx answer or no answer at all (network, TLS) means the whole site is off limits until it can
+    be read -- an unreadable robots.txt is never taken as permission."""
     rp = urllib.robotparser.RobotFileParser(host + "/robots.txt")
     try:
         req = urllib.request.Request(host + "/robots.txt", headers={"User-Agent": ua})
-        with urllib.request.urlopen(req, timeout=30) as r:
+        with urlopen(req, timeout=30) as r:
             rp.parse(r.read().decode("utf-8", "replace").splitlines())
-    except Exception:
-        rp.parse([])
+    except urllib.error.HTTPError as e:
+        if 400 <= e.code < 500:
+            rp.parse([])
+        else:
+            rp.disallow_all = True
+            rp.reason = "robots.txt answered HTTP %d" % e.code
+    except Exception as e:
+        rp.disallow_all = True
+        rp.reason = "robots.txt unreadable: %s" % getattr(e, "reason", e)
     return rp
 
 
@@ -74,7 +103,7 @@ def get(url, accept="application/json"):
     # the full-title endpoint refuses an uncompressed response (HTTP 406): ask for gzip, inflate in fetch_one
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": accept, "Accept-Encoding": "gzip"})
     try:
-        return urllib.request.urlopen(req, timeout=120)
+        return urlopen(req, timeout=120)
     except urllib.error.HTTPError as e:
         body = e.read(500).decode("utf-8", "replace").strip()
         sys.exit("%s: HTTP %d %s%s" % (url, e.code, e.reason, "\n  " + body if body else ""))
