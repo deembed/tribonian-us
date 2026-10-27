@@ -181,11 +181,12 @@ claimed = ""
 branch = ""
 
 [MO]
-status = "fits"
+status = "working"
 needs  = []
 source = "html OneChapter.aspx?chapter=N (whole chapter)"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "rsmo ch. 1 PASS, const art. I PASS (real builds); full list of 468 chapters ready"
 
 [MT]
 status = "fits"
@@ -256,11 +257,12 @@ branch = ""
 verified = "code title 1 PASS (481 sections, real build); constitution has no HTML (PDF/Word only)"
 
 [SD]
-status = "fits"
+status = "working"
 needs  = []
 source = "JavaScript app, but static HTML via /api/Statutes/{cite}.html (?all=true for a chapter; unverified)"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "sdcl title 1 PASS (2,031 sections), const PASS (real builds)"
 
 [VT]
 status = "working"
@@ -271,11 +273,12 @@ branch = ""
 verified = "const PASS (98 sections, real build); vsa PASS on probes"
 
 [WA]
-status = "fits"
+status = "working"
 needs  = []
 source = "html per section; archive one HTML per title"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "const PASS (273 sections), rcw 9A.04 PASS (real builds); fetch by title"
 
 [WI]
 status = "fits"
@@ -285,13 +288,15 @@ claimed = ""
 branch = ""
 
 [WV]
-status = "fits"
+status = "working"
 needs  = []
 source = "html per article /{ch}-{art}/"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 # ---------------------------------------------------------------- unclear (probe first)
+verified = "code ch. 1 PASS, const PASS (203 sections) (real builds); per-section fetch, slow"
+
 [NM]
 status = "unclear"
 needs  = []

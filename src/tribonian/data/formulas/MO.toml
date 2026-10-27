@@ -42,6 +42,10 @@ root     = "div.lr-fl-l-all"                 # the first one is the content colu
 blocks   = ["p"]                             # p.norm law text and notes, the divider p, the effective-date p
 headings = []                                # no container headings on the page
 opening  = ["span.bold"]                     # "1.010.  Heading. — "
+# A flush-left run after numbered paragraphs ("shall be subject to a civil penalty ...", 1.470) is set as
+# <p class="tiny">&shy;<p>&shy;</p>text</p>: the nested <p> closes the outer one, leaving the text bare in
+# div.norm. loose makes that bare run a block of its own.
+loose    = ["div.norm"]
 
 [MO.rsmo.ladder]
 # RSMo: 1. subsection, (1) subdivision, (a) paragraph, a. subparagraph
@@ -53,7 +57,8 @@ tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 match = '^(?P<num>\d+\.\d+[A-Z]?)\.\s*(?P<heading>.*)$'
 bold  = true
 scope = "title"
-decimal = true                               # 1.1001 sorts after 1.100 and before 1.120: digits after the point are a fraction
+decimal = false                              # the chapter view lists 1.1001..1.1010 after 1.901 (whole-number order),
+                                             # though the chapter TOC lists them after 1.100 (decimal order)
 
 [MO.rsmo.notes]
 # Everything after the divider is notes to the next section. Rule order matters (first match wins).
@@ -70,7 +75,7 @@ editorialNote = [{ match = '^Prior revisions:', topic = "priorRevisions" },
 inherit = "MO.rsmo"
 name    = "Constitution of Missouri"
 doc     = "/us-mo/const"
-wrap    = { tag = "article", id = "a{item}" }  # /us-mo/const/aI ; the article page has no article heading
+wrap    = { tag = "article", id = "a{item}", rebase = true }  # /us-mo/const/aI/s1: section numbers restart per article
 url     = "https://revisor.mo.gov/main/ViewChapter.aspx?chapter={item}&constit=y"
 item    = ""                                 # roman article numbers, used as given
 items   = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV"]
@@ -85,5 +90,5 @@ tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 # "I Section 1.  Source of political power — ... — " ; numbers may carry a letter: "Section 8(a)", "Section 39(b)"
 match = '^(?P<art>[IVXL]+)\s+Section\s+(?P<num>\d+(?:\(?[a-z]\)?)?)\.\s*(?P<heading>.*)$'
 bold  = true
-scope = "title"                              # see MO.status.md: identifiers do not yet carry the article (wrap)
+scope = "title"                              # section ids move under the article via wrap.rebase
 decimal = false

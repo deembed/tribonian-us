@@ -35,6 +35,7 @@ terms   = "Copyright Nebraska Legislature; the online text is not the official p
 blocks   = ["strong", "p", "div.source", "span:noclass", "div:noclass"]
 headings = []                                # the print page has no chapter/article headings
 opening  = ["strong"]
+verbatim = ["table"]                         # 28-105's felony-class penalty table (set inside a <p>): one text item
 
 [NE.rs.ladder]
 types = ["num", "lower", "roman_lower", "upper"]          # (1)(a)(i)(A)

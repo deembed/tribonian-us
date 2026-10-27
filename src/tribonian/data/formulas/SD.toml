@@ -105,14 +105,16 @@ tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 
 [SD.const.containers]
 title    = { match = '^(?P<heading>SOUTH DAKOTA CONSTITUTION)$', tag = "title", rank = 1, id = "", heading = "self" }
-article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+# any = true: ARTICLE XXI and PREAMBLE are the only headings not centered (their CSS says justify)
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self", any = true }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}", any = true }
 
 [SD.const.sections]
 # heading = up to the catchline's period; the rest of the block is the section's first text
 match = '^§§?\s*(?P<num>\d+[A-Z]?(?:\s+(?:to|and)\s+\d+[A-Z]?)?)\.\s+(?P<heading>[^.]*\.?)'
 bold  = false
 scope = "container"
-toc   = ['^\d+\.\s', '^PREAMBLE$', '^Article(?:\s+[IVXL]+)?$', '^Preamble\.$']   # article lists; the page's own TOC heads
+toc   = ['^\d+\.\s', '^Article(?:\s+[IVXL]+)?$', '^Preamble\.$']   # article lists; the page's own TOC heads
 
 [SD.const.notes]
 sourceCredit  = '^History:'

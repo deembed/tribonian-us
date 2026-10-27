@@ -27,6 +27,9 @@ blocks   = ["p"]
 # head read the same, and toc matching runs before the heading test.)
 headings = ["p.MsoTitle", "p.Chapter", "p.COHead2", "p.COHead4", "p.DocHeading", "p.DocHeading2"]
 opening  = ["span.Empty", "span.Section", "span.Leadline"]   # "NRS 1.010  Courts of justice."
+# Statutory forms (NRS 162A.620 ...) are p.SectBody set off only by an inline left margin; their own
+# numbering (1. 2. ... A. B.) restarts, so they are taken whole, labels not read. Law text has no margin style.
+verbatim = ["p.SectBody[style*=margin-left]"]
 drop     = ["p.MsoNormal"]                   # the revision stamp "[Rev. 9/9/2026 ...--2026R1]", set in white (invisible)
 
 [NV.nrs.ladder]
@@ -81,10 +84,6 @@ family  = "html-paragraphs"
 [NV.const.html]
 blocks   = ["p"]
 headings = ["p.MsoTitle", "p.DocHeading", "p.ConstConLeadline", "p.ConstH2csc"]
-# Each article's section list (p.ConstSecTOC) reads like section openings ("Sec. 1. Inalienable rights."),
-# and sections are matched on plain text: taking these lines verbatim keeps them from opening sections
-# (they stay as text at article level, ahead of the first section). See NV.status.md, feature A.
-verbatim = ["p.ConstSecTOC"]
 opening  = []
 drop     = ["p.MsoNormal"]                   # the white revision stamp, as in the NRS
 
@@ -115,7 +114,13 @@ el_ord    = { match = '^(?P<heading>ORDINANCE\.)$', tag = "level", rank = 3, id 
 # number ("Section Ten.", art. 11) are allowed; "37[A]" and "Ten" stay as written in the identifier for now.
 match = '^\[?(?:Section|Sec)[.:]?\s*\[?(?P<num>\d+(?:\[[A-Z]\]|[A-Z])?|Ten)\]?\.\]?\s+(?P<heading>[^\[]*?\.(?:\s*\[[^\]]*\])?)(?=\s|$)'
 bold  = false
+class = "SectBody"                           # the article TOC lines (p.ConstSecTOC) read the same: never sections
 scope = "container"                          # numbers restart per article: /us-nv/const/a1/s1
+# each article's section list (p.ConstSecTOC: "Sec. 1. Inalienable rights.", "2. Purpose of ..."), one toc note
+# (numbers as the sections spell them: "[36.]", "37[A].") and the front list of articles (p.ConstPrefTOC:
+# "Article. 1. Declaration of Rights.", "XVIII. [Right of Suffrage.] Repealed in 1992.", "[Election Ordinance.]")
+toc   = ['^(?:Sec\.\s+)?\[?\d+(?:\[?[A-Z]\]?)?\.?\]?\.?\s', '^(?:Article\.\s+)?(?:[IVXL]+|\d+)\.\s', '^\[[A-Z][A-Za-z ]+\.\]$',
+         '^(?:Ordinance|Preamble)\.$']
 versions = '\[Effective '                    # the Ordinance and some sections come in two versions
 
 [NV.const.notes]

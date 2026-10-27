@@ -10,8 +10,9 @@
 # h4 subchapter (empty when none). div#CodeBody holds one div.Section per section: div.SectionHead
 # "§ 101. Heading.", then p.subsection / p.indent-N lines, then the history credit as bare text and <a>
 # links directly inside div.Section ([html].loose makes it a block, class "loose").
-# Big chapters (title 11 ch. 5) are not text pages but lists of subchapter pages
-# (c005/sc01/index.html ...): a mixed-depth walk the index strategy cannot do yet (DE.status.md).
+# Big chapters (title 1 ch. 2 and 8, title 11 ch. 5) are not text pages but lists of subchapter pages
+# (c005/sc01/index.html ...): the second `links` level; each subchapter page repeats the chapter heading
+# and the build joins them into one chapter.
 
 [DE.code]
 name    = "Delaware Code"
@@ -20,7 +21,9 @@ fetch   = "index"
 item    = "%d"                                # title 1 -> "1" (URLs are title1, not title01)
 index_file = "title{item}.html"               # the title's chapter list, saved per title
 # chapter links in the title index: href="../title1/c001/index.html"; chapter folders also c002a, c012_1
-links   = 'href="(\.\./title\d+/c[0-9a-z_]+/index\.html)"'
+links   = ['href="(\.\./title\d+/c[0-9a-z_]+/index\.html)"',          # title index -> chapter pages
+           'href="(\.\./\.\./title\d+/c[0-9a-z_]+/sc[0-9a-z_]+/index\.html)"']   # big chapter -> subchapter pages
+# mixed depth: a chapter page with no subchapter links is itself the text (kept as _idx/<name>)
 save_as = "path"                              # every chapter page is named index.html: keep the path
 layers  = [ { name = "current", url = "https://delcode.delaware.gov/title{item}/index.html" } ]
 encoding = "utf-8"
@@ -29,7 +32,8 @@ family  = "html-paragraphs"
 [DE.code.html]
 root     = "div#content"                      # page header, menus and footer are outside it
 blocks   = ["p", "div.SectionHead"]
-loose    = ["div.Section"]                    # the history credit: bare text + links after the last <p>
+loose    = ["div.Section", "div#CodeBody"]    # the history credit: bare text + links after the last <p>;
+                                              # div#CodeBody: a stray credit copy after a section's div (1 Del. C. § 801)
 headings = ["h1", "h2", "h3", "h4"]           # the div#TitleHead lines: TITLE / title name / PART / CHAPTER / SUBCHAPTER
 opening  = ["div.SectionHead"]                # the whole "§ 101. Designation and citation of Code." line
 # site furniture only: the breadcrumb row ("Title 1" link, "Authenticated PDF" link) and the
@@ -85,7 +89,8 @@ root     = "div#content"
 blocks   = ["p"]
 headings = ["h2"]
 opening  = ["p.section-label"]                 # the whole "§ 1. Freedom of religion." line
-loose    = ["div#content", "div.col-xs-24"]   # history credits: bare links between the <p>s
+loose    = ["div#content", "div.col-xs-24", "div.indent-2"]   # history credits: bare links between the <p>s
+                                               # (div.indent-2 wraps a few multi-paragraph sections, credit inside)
 drop     = ["span.breadcrumb"]                 # "The Delaware Constitution" back link
 
 [DE.const.ladder]
@@ -93,9 +98,11 @@ types = ["lower", "num", "lower.", "num.", "upper."]   # unconfirmed beyond (a)(
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
 [DE.const.containers]
+schedule = { match = '^(?P<heading>SCHEDULE)$', tag = "level", rank = 2, id = "schedule", heading = "self" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
 article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\.\s*.*$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "next" }
 
 [DE.const.sections]
-match = '^§\s*(?P<num>\d+[A-Z]?)\.\s*(?P<heading>.*)$'
+match = '^§\s*(?P<num>\d+[A-Z]?)(?:\.\s*|\s+)(?P<heading>.*)$'   # art. III "§ 18 Approval ..." lacks its period
 bold  = true                                   # matched against the opening run (p.section-label)
 scope = "container"                            # numbers restart per article

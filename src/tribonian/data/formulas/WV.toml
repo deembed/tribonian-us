@@ -35,6 +35,7 @@ root     = "div#results-box"                  # chapter selector, search form, s
 blocks   = ["p", "h4"]
 headings = ["div.art-head"]                   # the article line, repeated on every section page
 opening  = ["h4"]                             # the whole "§1-1-5. Heading." line
+verbatim = ["table"]                          # districting tables (§1-2-1, 1-2-2: county/tract/block populations)
 # site furniture only: "Article 2 / All Articles / Article 3A" links above, and the
 # "Previous §1-1-4 ... / §1-1-5 ... / Next §1-1-6 ..." strip below (repeats the section's own h4)
 drop     = ["div.art-prev-next-box", "div.secdiv"]
@@ -54,6 +55,8 @@ bold  = true                                  # matched on the opening run (the 
 scope = "title"                               # /us-wv/code/t29A/s29A-3-19
 
 [WV.code.notes]
+# the site carries no history lines, except on repealed sections: "Repealed." then "Acts, 1971 2nd Ex. Sess., Ch. 60."
+sourceCredit = '^Acts,\s+\d{4}\b'
 
 # ---------------------------------------------------------------- Constitution of West Virginia
 # One page. Inside div.entry-content:
@@ -73,10 +76,9 @@ scope = "title"                               # /us-wv/code/t29A/s29A-3-19
 name    = "Constitution of West Virginia"
 doc     = "/us-wv/const"                     # /us-wv/const/a3/s7
 fetch   = "template"
-url     = "https://code.wvlegislature.gov/west-virginia-constitution"
-item    = ""
-items   = ["const"]                          # always the one page
-file    = "west-virginia-constitution.html"
+url     = "https://code.wvlegislature.gov/{item}"
+items   = ["west-virginia-constitution"]     # always the one page (as the item, so the file name carries {item})
+file    = "{item}.html"
 encoding = "utf-8"
 family  = "html-paragraphs"
 
@@ -112,3 +114,6 @@ toc   = ['^Article I\. Relations to', '^Judicial Amendment\.']   # the two link-
 
 [WV.const.notes]
 editorialNote = ['^\[Editor’s note', "^\\[Editor's note"]
+# an h3 catchline NOT followed by "§N." (the unnumbered bond amendments, the ballot-history years) ends the
+# editor's note before it and stands as a cross heading in the container
+close = [{ class = "wvc-section" }]

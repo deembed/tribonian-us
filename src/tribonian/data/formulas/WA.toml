@@ -13,18 +13,29 @@
 #
 [WA.rcw]
 name    = "Revised Code of Washington"
-doc     = "/us-wa/rcw"                       # /us-wa/rcw/ch1.04, /us-wa/rcw/s9A.04.110/1/a
-fetch   = "template"                         # one item = one chapter ("1.04", "9A.04", "28B.10")
-url     = "https://app.leg.wa.gov/RCW/default.aspx?cite={item}&full=true"
-file    = "{item}.htm"                       # law/wa/rcw/1.04.htm
+doc     = "/us-wa/rcw"                       # /us-wa/rcw/t9A/ch9A.04, /us-wa/rcw/t9A/s9A.04.110/4/a
+# One item = one title. The title page (default.aspx?cite=9A) lists its chapters; each chapter is fetched
+# whole with &full=true (rewrite). One USLM file per title: law/wa/uslm/rcw/title-9A.xml
+fetch   = "index"
+layers  = [{ name = "current", url = "https://app.leg.wa.gov/RCW/default.aspx?cite={item}" }]
+index_file = "title-{item}.htm"
+# Only the chapter-list table cells: the title page's notes also link other titles' chapters
+# ("Explosives: Chapter 70.74 RCW"), which must not be pulled into this title.
+links   = '''nowrap;width:1px;vertical-align:top;"> <a href='(http://app\.leg\.wa\.gov/RCW/default\.aspx\?cite=[0-9A-Z]+\.[0-9A-Z]+)'''
+rewrite = ['^http://app\.leg\.wa\.gov/RCW/default\.aspx\?cite=([0-9A-Z.]+)$', 'https://app.leg.wa.gov/RCW/default.aspx?cite=\1&full=true']
+save_as = "path"                             # every page is default.aspx?...: the query names the file
+title   = { number = "h1", name = "h2" }     # "Title 9A RCW" / "WASHINGTON CRIMINAL CODE", from the title page
 encoding = "utf-8"
 family  = "html-paragraphs"
 terms   = "Statute Law Committee claims copyright in the RCW; live HTML is unofficial (certified archive is official)"
 
 [WA.rcw.html]
 root     = "div.main-page-content"           # skips the site header, breadcrumbs, footer
-blocks   = ["h1", "h2", "h3", "div", "tr"]  # tr = one table-of-contents row
-nested   = true                              # paragraph divs sit inside a wrapper div: the wrapper is a container
+blocks   = ["h1", "h2", "h3", "div[style*=:]", "tr"]   # div[style*=:] = a div with a style: paragraphs (text-indent),
+                                             # history (margin-top), notes (font-style); the plain wrapper divs
+                                             # and the plain <div> inside the h2 chapter name are not blocks
+nested   = true                              # notes: div[style=margin-bottom] > div[style=font-style] -- the outer is a container
+                                             # tr = one table-of-contents row
 headings = ["h1", "h2"]                      # chapter number line and chapter name
 opening  = []                                # no bold run: sections are matched on the whole block text
 drop     = ["a.btn", "div.gray-box", "h3.list-heading"]   # "PDF"/"HTML" buttons; "Chapter listing HTML" box;
@@ -45,7 +56,7 @@ heading = "next"                             # the block after "RCW 1.04.010" is
 decimal = true                               # 9.41.0975 sorts before 9.41.098 (section part is a decimal)
 versions = '\(Effective '                   # "Definitions. (Effective until June 30, 2027.)" then "(Effective June 30, 2027.)":
                                              # the second is another version of the same section (_v2), not an error
-scope   = "title"                            # RCW numbers are unique code-wide: /us-wa/rcw/s1.04.010
+scope   = "title"                            # /us-wa/rcw/t9A/s9A.04.110
 # Table-of-contents rows: "1.04.010" + heading, cells run together ("1.04.010Revised Code ...")
 toc     = ['^\d+[A-Z]?\.\d+[A-Z]?\.\d+(?![\d.])']
 

@@ -68,10 +68,11 @@ editorialNote = [{ match = '^Note(?:\s+\d+)?:', topic = "note" }]
 #   all caps, no lowercase, 3+ capitals: "COURT FACILITIES", "JUDGES PRO TEMPORE"
 #   a title-case line in parentheses (ORS 90's sub-groups): "(General Provisions)", "(Landlord and Tenant
 #   Relations)" -- every word capitalized except short joiners, so form captions like "(Signature of tenant)" stay text.
-# CAVEAT: close cannot tell centered from uncentered blocks, so a centered all-caps line inside a section
-# (ORS 90's statutory notice forms: "THIS IS AN IMPORTANT NOTICE") also closes it -- see OR.status.md.
-close = ['^(?=[^a-z]*[A-Z]{3})[^a-z]+$',
-         '^\((?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with)(?:\s+(?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with))*\)$']
+# heading = false: never a centered block -- statutory forms inside sections have centered all-caps titles
+# ("THIS IS AN IMPORTANT NOTICE", ORS 90.155) that must stay in the section.
+# (?!PART N.): a form's own part captions, uncentered ("PART 1. STATEMENT BY TENANT", ORS 90.453), stay in it.
+close = [{ match = '^(?!PART\s+\d)(?=[^a-z]*[A-Z]{3})[^a-z]+$', heading = false },
+         { match = '^\((?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with)(?:\s+(?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with))*\)$', heading = false }]
 
 # ---------------------------------------------------------------- Oregon Constitution
 # One SharePoint page holds the whole text, split over two rich-text web parts (Preamble to Art. VIII in

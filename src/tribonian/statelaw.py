@@ -331,7 +331,19 @@ def fetch_formula(st, code, items, force=False):
     if not items:
         sys.exit("%s %s: name what to fetch (e.g. a title number)" % (st, code))
     d = formula_dir(st, code, f)
+    failures = []
     for it in items:
+        try:
+            _fetch_item(st, code, f, d, it, force)
+        except SystemExit as e:          # one missing title (a 404, an unassigned number) must not stop the rest
+            print("  %s %s %s: %s" % (st, code, it, e.code))
+            failures.append(str(it))
+    if failures:
+        sys.exit("%s %s: %d of %d items not fetched: %s" % (st, code, len(failures), len(items), " ".join(failures[:20])))
+
+
+def _fetch_item(st, code, f, d, it, force):
+    if True:
         name = item_name(f.get("item"), it)
         if f["fetch"] == "template":
             _get_one(f["url"].format(**url_fields(f, name)), d / f["file"].format(item=name),
@@ -360,8 +372,15 @@ def fetch_formula(st, code, items, force=False):
                 leaves = walk_index(f, idx, url, ld, fetch=True, force=force, label=layer["name"])
                 if not leaves:
                     print("  no pages matching %s under %s" % (f["links"], idx.name))
+                bad = []
                 for page, page_url in leaves:
-                    _get_one(page_url, ld / page, layer["name"], force, "  %s %s" % (layer["name"], page))
+                    try:
+                        _get_one(page_url, ld / page, layer["name"], force, "  %s %s" % (layer["name"], page))
+                    except SystemExit as e:              # one page missing must not stop the title; the
+                        print("    %s" % e.code)          # build will report it and fail until it is fetched
+                        bad.append(page)
+                if bad:
+                    sys.exit("%d of %d pages not fetched (%s ...)" % (len(bad), len(leaves), ", ".join(bad[:3])))
         else:
             sys.exit("%s %s: fetch strategy %r not written yet" % (st, code, f["fetch"]))
 
@@ -390,7 +409,7 @@ def build_index(st, code, f, items, everything=False):
         sys.exit("%s %s: nothing to build (fetch first, or name the titles)" % (st, code))
     failed = 0
     for name in names:
-        layers, metas = [], []
+        layers, metas, all_missing = [], [], []
         for L in f["layers"]:
             idx = d / L["name"] / f["index_file"].format(item=name)
             if not idx.exists():
@@ -400,6 +419,7 @@ def build_index(st, code, f, items, everything=False):
             url = L["url"].format(item=name)
             pages = [p for p, _ in walk_index(f, idx, url, d / L["name"])]
             missing = [p for p in pages if not (d / L["name"] / p).exists()]
+            all_missing += ["%s/%s" % (L["name"], p) for p in missing]
             if missing:
                 print("%s %s title %s: %s pages not local (%s ...); fetch again" % (st, code, name, L["name"], ", ".join(missing[:3])))
             layers.append((L["name"], [(p, (d / L["name"] / p).read_bytes()) for p in pages if p not in missing]))
@@ -412,9 +432,17 @@ def build_index(st, code, f, items, everything=False):
         from tribonian.uslm.families.html_paragraphs import selector as _sel
         txt = lambda sel: next((" ".join(e.text_content().split()) for e in doc.iter() if _sel(sel)(e)), "") if sel else ""
         ident = _title_ident(f, name)
+        incomplete = [L for L, pages in layers if not pages] if layers else ["(all)"]
+        if not layers or not layers[0][1]:
+            print("%s %s title %s: FAIL -- no pages of the base layer are local (fetch again)" % (st, code, name))
+            failed += 1
+            continue
         tree, report = build.convert_layers(layers, f, ident, txt(t.get("number")), txt(t.get("name")),
                                             {"edition": " + ".join(L[0] for L in layers), "retrieved": "; ".join(metas),
                                              "formula": "%s.%s" % (st, code)})
+        report["missing_pages"] = all_missing
+        if all_missing:                   # a build from a partial download must not pass
+            report["ok"] = False
         out = state_dir(st) / "uslm" / code / ("title-%s.xml" % name)
         build.write(tree, report, out)
         print(verify.summary("%s %s title %s" % (st, code, name), report))

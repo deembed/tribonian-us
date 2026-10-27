@@ -183,6 +183,8 @@ def load(raw, formula):
             raise ValueError("no %s in the page" % cfg["root"])
         found.tail = None
         doc = found
+    _BLOCK["pred"] = _any(cfg["blocks"] + cfg["headings"] + cfg["verbatim"])   # the formula's own blocks
+    _BLOCK["tags"] = set(cfg.get("block_tags", []))                             # + [html].block_tags
     for sel in cfg["split_br"]:
         pred = selector(sel)
         for el in [e for e in doc.iter() if pred(e)]:
@@ -208,6 +210,15 @@ def load(raw, formula):
     return doc, dropped
 
 
+_BLOCK = {"pred": lambda e: False, "tags": set()}
+
+
+def _is_block(ch):
+    """A child that stays a block of its own when runs are regrouped: an HTML block tag, one of the formula's
+    block/heading/verbatim selectors, or a tag in [html].block_tags (New Hampshire's <center>, <codesect>)."""
+    return isinstance(ch.tag, str) and (ch.tag in BLOCK_TAGS or ch.tag in _BLOCK["tags"] or _BLOCK["pred"](ch))
+
+
 def _split_br(el):
     """Regroup el's content into one <p class="br-line"> per run between <br> elements. Block-level children
     (a <div>, a <table>) stay blocks of their own between the runs. Text order is kept exactly."""
@@ -220,7 +231,7 @@ def _split_br(el):
             parts.append(cur)
             cur = [ch.tail or ""]
             continue
-        if isinstance(ch.tag, str) and ch.tag in BLOCK_TAGS:
+        if _is_block(ch):
             parts.append(cur)
             tail, ch.tail = ch.tail, None
             parts.append(ch)
@@ -284,7 +295,7 @@ def _wrap_loose(el):
     for ch in kids:
         el.remove(ch)
         tail, ch.tail = ch.tail, None
-        if isinstance(ch.tag, str) and ch.tag in BLOCK_TAGS:
+        if _is_block(ch):
             flush()
             out.append(ch)
         else:
@@ -387,6 +398,13 @@ class Builder:
         self.moved = []                    # texts written in another place than the source's order (heading_before)
         self.cur_classes = frozenset()
         self.sec_cls = s.get("class")      # only blocks of this class can open a section (Nevada's constitution)
+        self.group = None
+        self.group_rx = re.compile(s["group"]) if s.get("group") else None
+        self.group_id = s.get("group_id", "g{num}")
+        od = s.get("outdent") or []
+        od = od if isinstance(od, list) else [od]
+        self.outdent_rx = [re.compile(r) for r in od if isinstance(r, str)]
+        self.outdent_cls = {r["class"] for r in od if isinstance(r, dict) and r.get("class")}
         self.heading_next = s.get("heading") == "next"   # the block after "§ 1.04.010." is its heading (Washington)
         self.awaiting_heading = None
         self.toc_rx = _regex_list(s.get("toc"))
@@ -421,6 +439,7 @@ class Builder:
         self.in_notes = None               # the open note item while in a section's / container's notes
         self.ids = {}
         self.pending_heading = None        # container waiting for its heading paragraph
+        self.pending_any = False           # ... opened by an any = true rule: its name need not be a heading block
 
     # ---------------------------------------------------------------- helpers
 
@@ -439,7 +458,7 @@ class Builder:
         return "%s_v%d" % (ident, n)
 
     def close_section(self):
-        self.section, self.levels, self.in_notes = None, [], None
+        self.section, self.levels, self.in_notes, self.group = None, [], None, None
 
     # ---------------------------------------------------------------- containers
 
@@ -462,11 +481,17 @@ class Builder:
             local = c.get("id", "").format(**fields)
             ident = self.unique(parent.ident + ("/" + local if local else ""), text)
             heading_self = c.get("heading") == "self"
-            node = Node(c["tag"], num_text="" if heading_self else text, num=num,
-                        heading=g.get("heading", "") if heading_self else "", ident=ident, rank=c["rank"])
+            if heading_self:
+                num_text, head = "", g.get("heading", "")
+            elif g.get("heading"):             # "ARTICLE 1. NAME." in one line: number, then its heading
+                num_text, head = text[:m.start("heading")].strip(), g["heading"].strip()
+            else:
+                num_text, head = text, ""
+            node = Node(c["tag"], num_text=num_text, num=num, heading=head, ident=ident, rank=c["rank"])
             parent.add("node", node)
             self.stack.append(node)
-            self.pending_heading = None if heading_self else node
+            self.pending_heading = None if (heading_self or head) else node
+            self.pending_any = bool(c.get("any"))
             return True
         return False
 
@@ -517,6 +542,19 @@ class Builder:
 
     def body(self, text, indent=None):
         labels, raws, rest = split_labels(text, self.ladder.dotted)
+        if self.section is not None and not labels:
+            g = self.group_rx.match(text) if self.group_rx else None
+            if g:                          # [sections].group: "Schedule I" inside a section; numbering restarts
+                num = g.groupdict().get("num") or text
+                node = Node("level", num_text=text, num=num, rank=-1,
+                            ident=self.unique("%s/%s" % (self.section.ident, self.group_id.format(num=num)), text))
+                self.section.add("node", node)
+                self.group, self.levels = node, []
+                return
+            if any(rx.match(text) for rx in self.outdent_rx) or (self.outdent_cls and self.outdent_cls & self.cur_classes):
+                self.levels = []           # [sections].outdent: a closing paragraph after a list -- back to the
+                (self.group or self.section).add("text", text.strip())   # section (or its group), not the last item
+                return
         placed = 0
         for label, raw in zip(labels, raws):
             open_labels = [None] * (self.levels[-1].rank + 1 if self.levels else 0)
@@ -534,7 +572,7 @@ class Builder:
                 self.levels.pop()
             if self.levels and self.levels[-1].rank < d - 1:   # skipped a level: say so, keep going under the deepest open one
                 self.ladder.anomalies.append("%s (%s): skips from depth %d to %d" % (where.strip(), label, self.levels[-1].rank, d))
-            parent = self.levels[-1] if self.levels else self.section
+            parent = self.levels[-1] if self.levels else (self.group or self.section)
             tag = self.f["ladder"]["tags"][d] if d < len(self.f["ladder"]["tags"]) else "level"
             num = label.rstrip(".") if label.endswith(".") else label     # dotted "1." -> 1
             node = Node(tag, num_text=raw.strip(), num=num, label=label,
@@ -608,7 +646,7 @@ class Builder:
             return
         if self.container(text, centered):
             return
-        if centered and self.pending_heading is not None and not self.pending_heading.heading:
+        if (centered or self.pending_any) and self.pending_heading is not None and not self.pending_heading.heading:
             self.pending_heading.heading = text
             self.pending_heading = None
             return

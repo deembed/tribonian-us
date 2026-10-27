@@ -16,7 +16,7 @@ from pathlib import Path
 
 from lxml import etree
 
-from tribonian.uslm.tree import level_ordinal
+from tribonian.uslm.tree import level_ordinal, ordinal
 from tribonian.uslm.writer import NS
 
 SCHEMA = Path(__file__).resolve().parent.parent / "data" / "uslm" / "USLM-1.0.15.xsd"
@@ -88,9 +88,10 @@ def numbering(tree, ladder_types, ladder_tags, decimal=False):
             if not value:
                 continue
             if tag in by_tag:
-                o = level_ordinal(by_tag[tag], value)
-                if o is None:                       # a dotted level stores "1" for the label "1."
-                    o = level_ordinal(by_tag[tag], value + ".")
+                ts = by_tag[tag] if isinstance(by_tag[tag], list) else [by_tag[tag]]
+                os_ = [x for x in (ordinal(t, v) for t in ts for v in (value, value + ".")) if x is not None]
+                p_ = prev.get(tag)                  # a level of several types: the reading that continues
+                o = next((x for x in os_ if p_ is not None and x > p_ and x[0] <= p_[0] + 2), os_[0] if os_ else None)
             elif tag == "section":
                 o = section_key(value, decimal)
             else:
@@ -114,6 +115,7 @@ def section_key(num, decimal=False):
     number. Each run of digits with its letter suffix is (number, letters as base 26). With decimal
     ([sections].decimal, Nevada's NRS), digits after a point are a decimal fraction: 1.4253 < 1.426."""
     first = re.sub(r"\(([A-Za-z0-9]+)\)", r"\1", num.split("_")[0])     # 18(a) -> 18a (Missouri's constitution)
+    first = first.replace(",", "-")                    # Nebraska's 28-3,100: article 3, section 100
     m = re.match(r"([IVXLC]+)(?=[-.])", first)       # a roman prefix (Nebraska's constitution: II-1) counts as its number
     if m:
         from tribonian.uslm.tree import roman_value

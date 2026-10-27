@@ -26,9 +26,10 @@ opening  = []                                 # not used: sections are matched o
 
 [SC.code.ladder]
 # (A)(1)(a)(i)(A) is the house style for newer text; older sections (1-13-30, definitions lists) use
-# (a)(1)(A)... at the top, so level 0 takes upper or lower (case keeps them apart). A roman directly under a
-# number ((7)(i), 1-13-80) still logs as out of sequence: see the status file.
-types = [["upper", "lower"], "num", "lower", "roman_lower", "upper"]
+# (a)(1)(i)(A)... at the top, so level 0 takes upper or lower (case keeps them apart). Level 2 takes letters
+# or romans ((7)(i) in 1-13-80: a roman directly under a number); level 4 takes (A) or (I) (12-8-580).
+# Widening level 3 to capitals as well (for 12-43-220's (a)(1)(i)(A)(a)) made other sections worse: left out.
+types = [["upper", "lower"], "num", ["lower", "roman_lower"], "roman_lower", ["upper", "roman_upper"]]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
 [SC.code.containers]
