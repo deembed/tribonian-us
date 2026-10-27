@@ -9,7 +9,7 @@
 # top two levels (1. and (a) both sit at 5 nbsp), so [html].indent is not used.
 [NV.nrs]
 name    = "Nevada Revised Statutes"
-doc     = "/us-nv/nrs"                       # /us-nv/nrs/t1/ch1, /us-nv/nrs/t1/s1.010/2/a
+doc     = "/us-nv/nrs"                       # /us-nv/nrs/ch1, /us-nv/nrs/s1.010/2/a
 fetch   = "template"                         # one page per chapter, so one request per chapter
 url     = "https://www.leg.state.nv.us/NRS/NRS-{item}.html"
 edition = "2026R1"                           # the page stamp: "[Rev. 9/9/2026 ...--2026R1]"
@@ -34,26 +34,30 @@ types = ["num.", "lower", "num", "roman_upper", "upper"]     # 1. (a) (1) (I) (A
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
 [NV.nrs.containers]
-# Heading on the same line: "TITLE 1 - STATE JUDICIAL DEPARTMENT", "CHAPTER 1 - JUDICIAL DEPARTMENT GENERALLY".
-# heading = "self" with the heading group spanning the whole line: the line is the heading, num is caught
-# inside it, the num text is empty. (A num-text/heading split of one line is not in the shared code; and with
-# heading = "next" the TOC's first group head would be taken as the chapter's name.)
-title   = { match = '^(?P<heading>TITLE\s+(?P<num>\d+[A-Z]?)\s+[-–—]\s+.*)$', tag = "title", rank = 1, id = "t{num}", heading = "self" }
+# "CHAPTER 1 - JUDICIAL DEPARTMENT GENERALLY": heading = "self" with the heading group spanning the whole
+# line (the line is the heading, num is caught inside it, the num text is empty). With heading = "next" the
+# TOC's first group head would be taken as the chapter's name.
+# The TITLE line (p.MsoTitle) is NOT a container: only a title's first chapter page carries it (NRS-001 has
+# "TITLE 1 - ...", NRS-162A has none), so a title container would give the same section two different
+# identifiers depending on its chapter. It stays as a cross heading ahead of the chapter; sections hang off
+# the code root, as cited: /us-nv/nrs/s1.010.
 chapter = { match = '^(?P<heading>CHAPTER\s+(?P<num>\d+[A-Z]?)\s+[-–—]\s+.*)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
 
 [NV.nrs.sections]
 match = '^NRS\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\s+(?P<heading>.*)$'
 bold  = true                                 # matched against the opening run (the three spans)
-scope = "title"                              # /us-nv/nrs/t1/s1.010 (section numbers are unique code-wide)
+scope = "title"                              # no title container, so /us-nv/nrs/s1.010 (numbers are unique code-wide)
 # table of contents lines (p.COLeadline) and the p.J-Dash rule after them; container level only
 toc   = ['^NRS\s+\d+[A-Z]?\.\d', '^_+$']
-# A future version repeats the section number with "[Effective ...]" at the end of the bold leadline (NRS
-# 1.510). The shared code tests `versions` only on the text after the opening run, so for now the second
-# copy is logged as a repeated identifier (kept as _v2); see build/dispatch/NV.status.md.
-versions = '\[Effective '
+# A future version repeats the section number with "[Effective ...]" at the end of the bold leadline (NRS 1.510)
+versions = '\[Effective '                 # searched in the heading too: NRS 1.510's second copy is a version
+decimal  = true                              # 1.4253 < 1.426 < 1.43: the part after the point is a decimal fraction
 
 [NV.nrs.notes]
 sourceCredit = { class = "SourceNote" }      # "[1:19:1865; ...]—(NRS A 2013, 1709)" / "(Added to NRS by ...)"
+# a group heading after a section's history line ends the section and its note; it stands as a cross heading
+close = [{ class = "DocHeading" }, { class = "DocHeading2" }]
+editorialNote = { class = "TocNote" }        # "NOTE: Sections 2 to 18 ... have been codified as NRS 162C.010 ..." (after the TOC)
 
 # ---------------------------------------------------------------- Constitution of the State of Nevada
 # One page, Const/NVConst.html (same Word template as the NRS). Order: an editor's preface, a list of
@@ -76,8 +80,12 @@ family  = "html-paragraphs"
 
 [NV.const.html]
 blocks   = ["p"]
-headings = ["p.MsoTitle", "p.DocHeading", "p.ConstConLeadline", "p.ConstH2csc", "p.ConstConH2"]
-opening  = ["span.Section", "span.Empty", "span.Leadline"]
+headings = ["p.MsoTitle", "p.DocHeading", "p.ConstConLeadline", "p.ConstH2csc"]
+# Each article's section list (p.ConstSecTOC) reads like section openings ("Sec. 1. Inalienable rights."),
+# and sections are matched on plain text: taking these lines verbatim keeps them from opening sections
+# (they stay as text at article level, ahead of the first section). See NV.status.md, feature A.
+verbatim = ["p.ConstSecTOC"]
+opening  = []
 drop     = ["p.MsoNormal"]                   # the white revision stamp, as in the NRS
 
 [NV.const.ladder]
@@ -99,13 +107,17 @@ election  = { match = '^(?P<heading>\[ELECTION ORDINANCE\.\])$', tag = "level", 
 el_ord    = { match = '^(?P<heading>ORDINANCE\.)$', tag = "level", rank = 3, id = "ordinance", heading = "self" }
 
 [NV.const.sections]
-# Needs the shared-code feature in build/dispatch/NV.status.md: a section number read from plain text
-# (bold = false) that keeps the rest of the paragraph, and that is not read from TOC lines (p.ConstSecTOC
-# says "Sec. 1. Inalienable rights." too).
-match = '^(?:Section|Sec)[.:]?\s*(?P<num>\d+[A-Z]?)\.\s+(?P<heading>.*)$'
-bold  = true                                 # for now: only the span.Section sections (art. 4 sec. 39) match
+# The number is plain text, spelled "Section. 1.", "Sec: 2.", "Sec. 7.", "Section 1." (art. 4 sec. 39 wraps
+# it in span.Section; same text). The heading is the leadline: up to the first ". " -- with one bracketed
+# note allowed after it ("Rights of foreigners. [Repealed in 1924.]", "[Effective ...]"). No "$": the rest
+# of the paragraph is the section's body (bold = false keeps it).
+# Editorial brackets around supplied numbers ("[Sec. 36.]", "Sec. [3].", "Sec. 37[A].") and one spelled-out
+# number ("Section Ten.", art. 11) are allowed; "37[A]" and "Ten" stay as written in the identifier for now.
+match = '^\[?(?:Section|Sec)[.:]?\s*\[?(?P<num>\d+(?:\[[A-Z]\]|[A-Z])?|Ten)\]?\.\]?\s+(?P<heading>[^\[]*?\.(?:\s*\[[^\]]*\])?)(?=\s|$)'
+bold  = false
 scope = "container"                          # numbers restart per article: /us-nv/const/a1/s1
-versions = '\[Effective '
+versions = '\[Effective '                    # the Ordinance and some sections come in two versions
 
 [NV.const.notes]
-sourceCredit = { class = "ConstSourceNote" } # "[Amended in 1956. Proposed and passed by ...]"
+sourceCredit = [{ class = "ConstSourceNote" },   # "[Amended in 1956. Proposed and passed by ...]"
+                { class = "ConstConH2" }]        # the term-limits initiative's "[Added in 1998. ...]"

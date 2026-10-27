@@ -35,6 +35,8 @@ def _note(item):
 
 def level(node):
     el = E(node.tag, identifier=node.ident)
+    if node.tag == "section" and node.label == "heading-before":
+        el.set("class", "heading-before")     # the source prints this heading before the number
     if node.num_text or node.num:
         el.append(E("num", node.num_text, value=node.num))
     if node.heading:

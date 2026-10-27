@@ -15,11 +15,12 @@ doc     = "/us-vt/vsa"                         # /us-vt/vsa/t1/ch1/sch2 ; sectio
 fetch   = "index"
 item    = "%02d"                               # title 1 -> "01"; "09A", "03APPENDIX" kept as written
 index_file = "title_{item}.html"
-# The title page links /statutes/chapter/TT/CCC (section list). We want /statutes/fullchapter/TT/CCC.
-# NEEDS FEATURE (see build/dispatch/VT.status.md): the index strategy cannot yet rewrite a link to another
-# URL, and saves a linked page under its last path segment while the build reads it under the full link.
-# Until then this pattern is the intent; it has not been checked against a downloaded title page.
+# The title page (h2.statute-header "Title 1: General Provisions") links each chapter's section list,
+# /statutes/chapter/TT/CCC; the rewrite fetches the whole-chapter page /statutes/fullchapter/TT/CCC instead.
 links   = 'href="(/statutes/chapter/\d+[A-Z]*/\d+[A-Z]*)"'
+rewrite = ['/statutes/chapter/', '/statutes/fullchapter/']
+save_as = "path"                               # statutes_fullchapter_01_001: chapter numbers repeat across titles
+title   = { name = "h2.statute-header" }       # read from the title page
 layers  = [ { name = "2026", url = "https://legislature.vermont.gov/statutes/title/{item}" } ]
 encoding = "utf-8"
 family  = "html-paragraphs"
@@ -40,20 +41,22 @@ drop     = ["div.print-top",                   # "Print" button
                                                # the title is named once by the build (as Maryland's banner)
 
 [VT.vsa.ladder]
-# (a)(1)(A)(i)(I), then (aa)(bb) at a sixth level -- the doubled-letter level is not expressible yet (see status)
-types = ["lower", "num", "upper", "roman_lower", "roman_upper"]
-tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+# (a)(1)(A)(i)(I)(aa), as the US Code
+types = ["lower", "num", "upper", "roman_lower", "roman_upper", "double_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
 
 [VT.vsa.containers]
 # "Chapter 001: Vermont Statutes Annotated" -- leading zeros outside the num group: id ch1, the text keeps "001"
 chapter    = { match = '^Chapter\s+0*(?P<num>\d+[A-Z]?)\s*:', tag = "chapter", rank = 2, id = "ch{num}" }
+# 9A V.S.A. (the UCC) calls its chapters "Article 001: General Provisions"
+article    = { match = '^Article\s+0*(?P<num>\d+[A-Z]?)\s*:', tag = "article", rank = 2, id = "a{num}" }
 subchapter = { match = '^Subchapter\s+0*(?P<num>\d+[A-Z]?)\s*:', tag = "subchapter", rank = 3, id = "sch{num}" }
 
 [VT.vsa.sections]
-# "§ 51. Heading", "§ 2201a. ...", 9A V.S.A. "§ 1-101. ...", spans "§§ 1-9. Repealed. ..." / "§§ 53, 54. Repealed. ..."
+# "§ 51. Heading", "§ 2201a. ...", 9A V.S.A. "§ 1—101. ..." (em dash; the id gets "-": s1-101), spans "§§ 1-9. Repealed. ..." / "§§ 53, 54. Repealed. ..."
 # The identifier takes the first number (or range) only: s53 for "§§ 53, 54" (a comma has no place in an id);
 # the full "§§ 53, 54." stays in the num text.
-match = '^§§?\s*(?P<num>\d+[a-zA-Z]*(?:-\d+[a-zA-Z]*)*)(?:(?:,\s*|\s+(?:to|and)\s+)\d+[a-zA-Z]*(?:-\d+[a-zA-Z]*)*)*\.\s*(?P<heading>.*)$'
+match = '^§§?\s*(?P<num>\d+[a-zA-Z]*(?:[-–—]\d+[a-zA-Z]*)*)(?:(?:,\s*|\s+(?:to|and)\s+)\d+[a-zA-Z]*(?:[-–—]\d+[a-zA-Z]*)*)*\.\s*(?P<heading>.*)$'
 bold  = true
 scope = "title"
 
@@ -94,6 +97,8 @@ bold  = true
 scope = "container"                            # numbering restarts in each chapter
 
 [VT.const.notes]
+# department headings (LEGISLATIVE DEPARTMENT ...) close the section before them and stand between sections
+close = [{ heading = true }]
 # the page's sign-off after the <hr> ("The Vermont General Assembly / Montpelier, Vermont") is not law:
 # kept as a note, not dropped (it has no selector of its own)
 note = { match = '^The Vermont General Assembly Montpelier, Vermont$', topic = "colophon" }

@@ -5,11 +5,55 @@
 #   /{ch}/          chapter page: links to its articles /{ch}-{art}/ (no law text)
 #   /{ch}-{art}/    article page: links to its sections /{ch}-{art}-{sec}/ (no law text); a
 #                   "Display all Article N Sections" button loads the whole article by AJAX
-#                   (wp-admin/admin-ajax.php; action not yet seen -- needs the theme's javascript.js)
-#   /{ch}-{art}-{sec}/  one section -- NOT YET PROBED; WV.code below waits on it
+#                   (POST wp-admin/admin-ajax.php, action=get_all_sections)
+#   /{ch}-{art}-{sec}/  one section: h4 "§N. Heading." + <p> paragraphs
 #   /west-virginia-constitution  the whole constitution on one page (WV.const, below)
 #
-# WV.code is not written yet: no section-text page has been probed (see build/dispatch/WV.txt).
+# ---------------------------------------------------------------- Code of West Virginia
+# Item = a chapter ("1", "29A"). Walk: /{ch}/ (articles) -> /{ch}-{art}/ (sections) -> /{ch}-{art}-{sec}/.
+# One request per section (~1 s each with the fetcher's pause): slow for the whole Code. The site can also return
+# a whole article in one request -- POST wp-admin/admin-ajax.php action=get_all_sections&chp=1&art=1, JSON
+# {"html": ...} (theme javascript.js, get_all_sections) -- which the fetcher cannot do yet (WV.status.md).
+# Section page: inside div#results-box, div.art-head "ARTICLE 1. LIMITS AND JURISDICTION." then
+# div.sectiontext: h4 "§1-1-5. West Virginia coordinate systems; ..." and one <p> per paragraph. The site
+# carries no history/source lines.
+[WV.code]
+name    = "Code of West Virginia"
+doc     = "/us-wv/code"                       # /us-wv/code/t1/s1-1-5/a/1 (t = chapter)
+fetch   = "index"
+item    = ""                                  # chapter as written: 1, 5A, 29A
+index_file = "{item}.html"                    # the chapter's article list
+links   = ["href='(/\\d+[A-Za-z]*-\\d+[A-Za-z]*/)'",               # chapter page -> article pages (list level, _idx/)
+           "href='(/\\d+[A-Za-z]*-\\d+[A-Za-z]*-\\d+[A-Za-z]*/)'"]  # article page -> section pages
+save_as = "path"                              # hrefs end in "/": the last path part would be empty
+layers  = [ { name = "current", url = "https://code.wvlegislature.gov/{item}/" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[WV.code.html]
+root     = "div#results-box"                  # chapter selector, search form, sidebar and footer are outside it
+blocks   = ["p", "h4"]
+headings = ["div.art-head"]                   # the article line, repeated on every section page
+opening  = ["h4"]                             # the whole "§1-1-5. Heading." line
+# site furniture only: "Article 2 / All Articles / Article 3A" links above, and the
+# "Previous §1-1-4 ... / §1-1-5 ... / Next §1-1-6 ..." strip below (repeats the section's own h4)
+drop     = ["div.art-prev-next-box", "div.secdiv"]
+
+[WV.code.ladder]
+types = ["lower", "num", "upper", "roman_lower", "roman_upper"]   # (a)(1)(A)(i)(I), as the US Code
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[WV.code.containers]
+# "ARTICLE 1. LIMITS AND JURISDICTION." / "ARTICLE 3A. ..." -- name on the same line, so the whole line is the
+# num text (no heading = "next": the next block is the section's h4)
+article = { match = '^ARTICLE\s+(?P<num>\d+[A-Za-z]*)\.', tag = "article", rank = 2, id = "a{num}" }
+
+[WV.code.sections]
+match = '^§\s*(?P<num>\d+[A-Za-z]*-\d+[A-Za-z]*-\d+[A-Za-z]*)\.\s*(?P<heading>.*)$'
+bold  = true                                  # matched on the opening run (the h4)
+scope = "title"                               # /us-wv/code/t29A/s29A-3-19
+
+[WV.code.notes]
 
 # ---------------------------------------------------------------- Constitution of West Virginia
 # One page. Inside div.entry-content:
@@ -61,7 +105,8 @@ submitted = { match = '^(?P<heading>CONSTITUTIONAL AMENDMENTS SUBMITTED)$', tag 
 [WV.const.sections]
 # "§1. The State ..." / "§1a. Notwithstanding ..." / "§6. Repealed." -- not bold, so matched on the paragraph text.
 match = '^§\s*(?P<num>\d+[a-z]?(?:-[a-z])?)\.'
-bold  = false
+bold  = false                                # the rest of the paragraph after the match is the section's body
+heading_before = { class = "wvc-section" }   # the h3 catchline before "§N." is that section's heading
 scope = "container"                          # numbers restart per article: /us-wv/const/a3/s7
 toc   = ['^Article I\. Relations to', '^Judicial Amendment\.']   # the two link-list paragraphs at the top
 

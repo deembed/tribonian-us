@@ -110,11 +110,12 @@ claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [FL]
-status = "fits"
+status = "working"
 needs  = []
 source = "html browse by title/chapter; a 'Statutes Download' mode (format unverified)"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "const PASS (real build, 213 sections); statutes FL.fs PASS on ch. 1 and 768 probes"
 
 [HI]
 status = "fits"
@@ -194,18 +195,20 @@ claimed = ""
 branch = ""
 
 [NC]
-status = "fits"
+status = "working"
 needs  = []
 source = "html per chapter /EnactedLegislation/Statutes/HTML/ByChapter/Chapter_1.html"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "gs 1A PASS (72 sections), const PASS (real builds)"
 
 [NE]
-status = "fits"
+status = "working"
 needs  = []
 source = "html whole chapter /laws/display-chapters.php?chapter=N"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "rs 1 PASS (85 sections, real build); const PASS on probe (239 sections)"
 
 [NH]
 status = "fits"
@@ -215,11 +218,12 @@ claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [NV]
-status = "fits"
+status = "working"
 needs  = []
 source = "html one file per chapter: leg.state.nv.us/NRS/NRS-XXX.html"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "nrs 1 PASS, const PASS (246 sections) (real builds)"
 
 [OH]
 status = "fits"
@@ -229,11 +233,12 @@ claimed = ""
 branch = ""
 
 [OR]
-status = "fits"
+status = "working"
 needs  = []
 source = "html per chapter (static, /bills_laws/ors/); file name pattern unverified"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "const PASS (real build); ors PASS on ch. 1, 2, 72A, 90 probes"
 
 [RI]
 status = "fits"
@@ -243,11 +248,12 @@ claimed = ""
 branch = ""
 
 [SC]
-status = "fits"
+status = "working"
 needs  = []
 source = "html one .php page per chapter (/code/t01c023.php)"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "code title 1 PASS (481 sections, real build); constitution has no HTML (PDF/Word only)"
 
 [SD]
 status = "fits"
@@ -257,11 +263,12 @@ claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [VT]
-status = "fits"
+status = "working"
 needs  = []
 source = "html full chapter /statutes/fullchapter/{title}/{chapter}"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+verified = "const PASS (98 sections, real build); vsa PASS on probes"
 
 [WA]
 status = "fits"

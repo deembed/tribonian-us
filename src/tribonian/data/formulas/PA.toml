@@ -6,11 +6,14 @@
 # page. Revise once build/probe/www.palegis.us/ holds a view-statute?txtType=HTM page.
 #
 # Source: palegis.us (the General Assembly's site; legis.state.pa.us retired Jan 2026 and 302s here).
-# The index lists, per title, one whole-title file in three formats:
-#   /statutes/consolidated/view-statute?txtType=HTM&ttl=NN   (also PDF, DOC)
-# ttl is two digits ("01" ... "79", gaps at 19, 21, 41, 55, 56); ttl=0 is the Constitution.
+# The index lists, per title, view-statute?txtType=HTM&ttl=NN -- but that page is only a SHELL (site chrome,
+# ~22 KB, identical for every title): the text is loaded by script into iframe#IFrame_StatuteText from
+#   /statutes/consolidated/view-statute?<n>&iFrame=true&txtType=HTM&ttl=0054.
+# (round-3 probes of ttl=0, 01, 54; the "?<n>" is a per-render counter -- 2, 35, 84 seen -- and ttl is the
+# title zero-padded to 4 digits plus a trailing dot, the legacy LI "title.chapter.section" form).
+# The fetch URL below is that iframe URL; it is not yet probed, so the parser side is still unverified.
 # Chapter- and section-level views exist only behind a POST form (/statutes/consolidated/by-section),
-# so the whole-title GET is the fetch unit: one request per title.
+# so the whole-title page is the fetch unit: one request per title.
 #
 # The Unconsolidated Statutes (Purdon's "P.S.", by act) are a separate code, not started: their index is
 # browse-by-name?letter=A..Z, one page per act -- a later "index" formula (PA.ps).
@@ -20,7 +23,8 @@
 name    = "Pennsylvania Consolidated Statutes"
 doc     = "/us-pa/cs"                         # /us-pa/cs/t1/s1921/a  (section numbers are unique within a title)
 fetch   = "template"
-url     = "https://www.palegis.us/statutes/consolidated/view-statute?txtType=HTM&ttl={item}"
+url     = "https://www.palegis.us/statutes/consolidated/view-statute?1&iFrame=true&txtType=HTM&ttl={n:04d}."
+                                              # the iframe document (see header); "?1&" mirrors the shell's counter param
 item    = "%02d"                              # title 1 -> "01", as the index links it
 file    = "title-{item}.htm"
 edition = "current"                           # the site publishes only the current text; no edition in the URL
@@ -68,8 +72,9 @@ editorialNote = ['^Cross References\.', '^References in Text\.', '^Effective Dat
 inherit = "PA.cs"
 name    = "Constitution of Pennsylvania"
 doc     = "/us-pa/const"                      # /us-pa/const/a1/s7
-item    = ""                                  # ttl=0 exactly (the index links "ttl=0", not "00")
+item    = ""                                  # item "0" -> {n:04d} = "0000." in the URL
 items   = ["0"]
+replace = ["containers", "sections"]          # the Constitution's structure, not the code's (taken whole)
 file    = "constitution.htm"
 dir     = "cs"                                # shares the folder: law/pa/cs/constitution.htm
 

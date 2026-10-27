@@ -33,10 +33,15 @@ family  = "html-paragraphs"
 terms   = "none stated; the printed SDCL volumes are official (SDCL 2-16-13), this online text is not"
 
 [SD.sdcl.html]
+# Two generators share one page. Current sections: PowerTools (<p class="<prefix>Normal">, centering and bold
+# only in CSS class rules -- read by :centered). Chapter tables of contents and repealed / transferred
+# sections: Wp2Html 4.0 (WordPerfect): bare text in <Div align="full">, headings in <Div align="center">,
+# lines separated by <br>, an unclosed <p> holding the TOC lines.
 blocks   = ["p"]
-headings = ["p:centered"]                     # CHAPTER 1-1 and its name: centered by CSS class rule (feature 2)
-opening  = ["b", "strong"]                    # unused: sections are matched on the whole paragraph (bold = false)
-drop     = ["style", "title", "meta"]         # per-document <head> furniture, should a document's head land in the body
+headings = ["p:centered", "div:centered"]     # TITLE 1 / CHAPTER 1-1 and their names (both generators)
+split_br = ["div", "p:noclass"]               # Wp2Html: bare text runs between <br> become lines; PowerTools <p>
+                                              # all carry a class and its <div> wrapper holds only <p>s
+opening  = ["b", "strong"]                    # unused: sections are matched on the whole block (bold = false)
 
 [SD.sdcl.ladder]
 # SDCL numbers subdivisions (1), then (a), then (i), then (A)
@@ -51,46 +56,63 @@ chapter = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?-\d+[A-Z]?)$', tag = "chapter",
 # The section's first paragraph is only "1-1-1.1. Retrocession of jurisdiction ... authorized." (number and
 # catchline bold; the text starts in the next paragraph). Matched on the whole paragraph, not the bold run,
 # so it works with or without CSS bold. A repealed section reads "1-1-11. Repealed by SL 2006, ch 130, § 1."
+# Ranges and lists: "1-2-3 to 1-2-7.", "1-4-2.1, 1-4-3." (id s1-4-2.1,_1-4-3). A chapter TOC (Wp2Html) lists a repealed RANGE as "1-13A-1 to 1-13A-3. Repealed." -- section-shaped -- while
+# the range's own document reads "... Repealed by SL 2006, ch 2, §§ 4 to 6.": a range with a bare status word is
+# TOC (the leading lookahead). A single section CAN be bare: "1-16E-1. Repealed." + its Source line.
+# A third markup variant is pretty-printed: "1-16B-56 . Value Added ..." (space before the period).
 # Number: title 1-62 with letter suffixes (32A?), chapter with letters (10-45D), section with dotted parts (1-1-2.1).
-match = '^(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:\s+to\s+\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*)?)\.\s+(?P<heading>.*)$'
+match = '^(?!\S+(?:\s+to|\s*,)\s+\S+\s*\.\s+(?:Repealed|Transferred|Superseded|Omitted|Reserved|Executed|Obsolete|Expired)\.$)(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:(?:\s+to\s+|\s*,\s*)\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*)*)\s*\.\s+(?P<heading>.*)$'
 bold  = false
 scope = "title"                               # section numbers are unique within a title: /us-sd/sdcl/t1/s1-1-1
-# Table-of-contents lines (chapter list on a title page, section list on a chapter page) are the number,
-# four non-breaking spaces and the catchline -- no period after the number, unlike a section's opening.
-toc   = ['^\d+[A-Z]?-\d+[A-Z]?(?:-\d+[A-Z]?(?:\.\d+[A-Z]?)*)?\s']
+# Tables of contents, at container level only. Title page: the word "Chapter", then "01 State Sovereignty
+# And Jurisdiction" (chapter number without the title). Chapter page: "1-1-1<4 nbsp>Catchline" -- no period
+# after the number, unlike a section's opening -- and grouped repeals "1-4-2.1 , 1-4-3. Repealed.".
+toc   = ['^Chapter$', '^\d+[A-Z]?\s', '^\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:\s|\s?,)']
 
 [SD.sdcl.notes]
 sourceCredit  = '^Source:'
+# A bare-status range ("1-42-18 to 1-42-20. Obsolete.") is a section document in one markup and a chapter-TOC
+# line in the other, with identical text, so the section match leaves it out (lookahead above). After a
+# section it is a section document: end the open section and keep it as a cross heading where it stands.
+# In a TOC (no section open) it stays in the toc note.
+close = ['^\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:\s+to|\s*,)\s+\S+\s*\.\s+(?:Repealed|Transferred|Superseded|Omitted|Reserved|Executed|Obsolete|Expired)\.$']
 editorialNote = ['^(?:Code )?Commission Note:', '^Cross-References?:', "^Editor's note", '^Note:']
 
 # ---------------------------------------------------------------- South Dakota Constitution
-# Published as pseudo-title 0N: one ?all=true page. Articles head "ARTICLE III" / "LEGISLATIVE DEPARTMENT";
-# sections open "0N-3-1 Legislative power--Initiative and referendum. § 1." (seen only through a web reader,
-# so the punctuation is unconfirmed: needs the probe in SD.txt); notes open "History:"; some sections are
-# a range marked "Superseded" (0N-4-10 §§ 10 to 13.).
+# Published as pseudo-title 0N: one ?all=true page (probe api_Statutes_0N.html_all_true.html), mostly Wp2Html
+# documents. Articles head "ARTICLE III" / "LEGISLATIVE DEPARTMENT" (centered), then the article's section list
+# ("1. Name of state. 2. Boundaries of state." -- a TOC); a section is one block "§ 1. Catchline. Text ..."
+# whose text continues in later blocks; notes open "History:". Some sections are ranges
+# ("§§ 10 to 13. Superseded."). Article II has no sections: its text sits at article level.
 [SD.const]
 inherit = "SD.sdcl"
+replace = ["containers", "sections", "notes", "html"]
 name    = "Constitution of the State of South Dakota"
 doc     = "/us-sd/const"                      # /us-sd/const/a3/s1
 items   = ["0N"]
 skip    = []
 file    = "constitution-{item}.html"
 
+[SD.const.html]
+blocks   = ["p"]
+headings = ["p:centered", "div:centered"]
+split_br = ["body", "div", "p:noclass"]       # Wp2Html section documents put their text straight in <body>
+opening  = ["b", "strong"]
+
 [SD.const.ladder]
 types = ["num", "lower", "roman_lower", "upper"]
 tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 
 [SD.const.containers]
-preamble = { match = '^(?P<heading>PREAMBLE|Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+title    = { match = '^(?P<heading>SOUTH DAKOTA CONSTITUTION)$', tag = "title", rank = 1, id = "", heading = "self" }
 article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }
 
 [SD.const.sections]
-# "0N-3-1 <catchline> § 1." -> s1 under the article; "0N-4-10 §§ 10 to 13." -> s10_to_13 (range, no catchline)
-match = '^0N-\d+-(?P<num>\d+[A-Z]?(?:\.\d+)?)\.?\s+(?P<heading>.*)$'
+# heading = up to the catchline's period; the rest of the block is the section's first text
+match = '^§§?\s*(?P<num>\d+[A-Z]?(?:\s+(?:to|and)\s+\d+[A-Z]?)?)\.\s+(?P<heading>[^.]*\.?)'
 bold  = false
 scope = "container"
-toc   = ['^ARTICLE\s+[IVXL]+$']
+toc   = ['^\d+\.\s', '^PREAMBLE$', '^Article(?:\s+[IVXL]+)?$', '^Preamble\.$']   # article lists; the page's own TOC heads
 
 [SD.const.notes]
 sourceCredit  = '^History:'
-editorialNote = ['^(?:Code )?Commission Note:', '^Cross-References?:']

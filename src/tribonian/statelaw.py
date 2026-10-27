@@ -269,40 +269,53 @@ def page_name(f, href):
     """Local file name for a linked page: its last path part (Connecticut's chap_001.htm), or with
     save_as = "path" the whole link made file-safe, for sites whose pages share names across folders."""
     if f.get("save_as") == "path":
-        return re.sub(r"[^A-Za-z0-9._-]+", "_", href).strip("_")
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", href).strip("._")   # "../title1/c001/index.html" must not be a dot file
     return href.rsplit("/", 1)[-1]
 
 
 def walk_index(f, idx, url, ld, fetch=False, force=False, label=""):
-    """The pages an index leads to, in order: [(file name, url)]. `links` is one regex (index -> pages) or a
-    list, one per level (title -> chapters -> sections): every level but the last is a list page, kept in
-    <layer>/_idx/. With fetch, missing list pages are downloaded on the way; without, the walk uses what is
-    local (build) and skips what is not."""
-    levels = f["links"] if isinstance(f["links"], list) else [f["links"]]
+    """The pages an index leads to, in reading order: [(file name, url)]. `links` is one regex (index -> pages)
+    or a list, one per level (title -> chapters -> sections): every level but the last is a list page, kept in
+    <layer>/_idx/. A list page with no links of the next level is itself a text page (mixed depth: Delaware's
+    small chapters are text, big ones list subchapters) and is returned as "_idx/<name>". With fetch, missing
+    list pages are downloaded on the way; without (build), the walk uses what is local and skips the rest."""
+    levels = [re.compile(x) for x in (f["links"] if isinstance(f["links"], list) else [f["links"]])]
     enc = f.get("encoding", "utf-8")
-    current = [(idx, url)] if idx.exists() else []
-    for i, pat in enumerate(levels):
-        rx = re.compile(pat)
-        found = []
-        for path, base in current:
-            for href in dict.fromkeys(rx.findall(path.read_bytes().decode(enc, errors="replace"))):
-                href = href if isinstance(href, str) else href[0]
-                found.append((page_name(f, href), urllib.parse.urljoin(base, href)))
-        found = list(dict.fromkeys(found))
-        if i == len(levels) - 1:
-            if f.get("rewrite"):          # rewrite = [regex, replacement]: a listed page -> the page to fetch
-                rx_, rep_ = f["rewrite"]  # (Vermont: /statutes/chapter/... -> /statutes/fullchapter/...)
-                found = [(page_name(f, urllib.parse.urlsplit(re.sub(rx_, rep_, u_)).path), re.sub(rx_, rep_, u_))
-                         for n_, u_ in found]       # applied to the full URL; the file name follows the new URL
-            return found
-        current = []
-        for name, u in found:
-            path = ld / "_idx" / name
+    out = []
+
+    def hrefs(path, i):
+        seen = []
+        for h in levels[i].findall(path.read_bytes().decode(enc, errors="replace")):
+            h = h if isinstance(h, str) else h[0]
+            if h not in seen:
+                seen.append(h)
+        return seen
+
+    def visit(path, base, i):
+        for href in hrefs(path, i):
+            u = urllib.parse.urljoin(base, href)
+            if i == len(levels) - 1:
+                if f.get("rewrite"):      # rewrite = [regex, replacement]: a listed page -> the page to fetch
+                    u = re.sub(f["rewrite"][0], f["rewrite"][1], u)     # (Vermont: chapter -> fullchapter)
+                    sp = urllib.parse.urlsplit(u)       # the query names the page too (default.aspx?cite=1.04)
+                    out.append((page_name(f, sp.path + ("?" + sp.query if sp.query else "")), u))
+                else:
+                    out.append((page_name(f, href), u))
+                continue
+            name = page_name(f, href)
+            p = ld / "_idx" / name
             if fetch:
-                _get_one(u, path, label, force, "  %s list %s" % (label, name))
-            if path.exists():
-                current.append((path, u))
-    return []
+                _get_one(u, p, label, force, "  %s list %s" % (label, name))
+            if not p.exists():
+                continue
+            if hrefs(p, i + 1):
+                visit(p, u, i + 1)
+            else:
+                out.append(("_idx/" + name, u))
+
+    if idx.exists():
+        visit(idx, url, 0)
+    return list(dict.fromkeys(out))
 
 
 def fetch_formula(st, code, items, force=False):
@@ -396,7 +409,8 @@ def build_index(st, code, f, items, everything=False):
             continue
         doc = lhtml.fromstring((base / f["index_file"].format(item=name)).read_bytes())
         t = f.get("title", {})
-        txt = lambda sel: " ".join(doc.xpath("string(//%s[@class='%s'])" % tuple(sel.split(".", 1))).split()) if sel else ""
+        from tribonian.uslm.families.html_paragraphs import selector as _sel
+        txt = lambda sel: next((" ".join(e.text_content().split()) for e in doc.iter() if _sel(sel)(e)), "") if sel else ""
         ident = _title_ident(f, name)
         tree, report = build.convert_layers(layers, f, ident, txt(t.get("number")), txt(t.get("name")),
                                             {"edition": " + ".join(L[0] for L in layers), "retrieved": "; ".join(metas),

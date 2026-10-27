@@ -14,43 +14,44 @@
 name    = "New Hampshire Revised Statutes Annotated"
 doc     = "/us-nh/rsa"                        # /us-nh/rsa/tI/s1:14/I/a
 fetch   = "index"
-item    = ""                                  # titles are roman numerals with suffixes: I, XIX-A, XXXIV-A
+item    = ""                                  # titles are roman numerals, some suffixed: I, XIX-A, XXXIV-A
 index_file = "NHTOC-{item}.htm"
-# title page -> chapter list page -> the chapter's merged file. UNVERIFIED: the NHTOC pages were not
-# probed yet (see build/dispatch/NH.txt); the second level assumes each chapter's TOC page links its
-# "{CH}-mrg.htm" whole-chapter file. Adjust after the probe.
-links   = ['href="([^"]*NHTOC-[^"/]+\.htm)"', 'href="([^"]*-mrg\.htm)"']
+# The title page NHTOC-I.htm links one chapter TOC page per chapter (NHTOC-I-1.htm, NHTOC-I-1-A.htm,
+# NHTOC-X-126-AA.htm); that page links the merged chapter file ../I/1/1-mrg.htm. The rewrite goes straight
+# from the chapter TOC link to the merged file, so the chapter TOC pages are never fetched.
+links   = 'href="(NHTOC-[IVXLC]+(?:-[A-Z]+)?-\d[^"/]*\.htm)"'
+rewrite = ['NHTOC/NHTOC-([IVXLC]+(?:-[A-Z]+)?)-(\d+(?:-[A-Z]+)?)\.htm$', '\1/\2/\2-mrg.htm']
 layers  = [ { name = "current", url = "https://gc.nh.gov/rsa/html/NHTOC/NHTOC-{item}.htm" } ]
 encoding = "cp1252"                           # &#150; (en dash) and Windows quotes; pages carry no charset
 family  = "html-paragraphs"
 terms   = "unverified (public records; no reuse terms stated)"
+# title name: the index page's <h2>I: THE STATE AND ITS GOVERNMENT</h2> has no class, and `title` selectors
+# need one (feature request in NH.status.md), so the title heading is left empty for now.
 
 [NH.rsa.html]
 # The section's catchline <b> sits directly in <body>, not inside any block element, so <b> is itself a
-# block (a <b> inside codesect/sourcenote <p> is nested in a block and counts as part of that block).
+# block (a <b> inside a sourcenote <p> is nested in that block and counts as part of it).
 blocks   = ["b", "p"]
-headings = ["h2"]                             # chapter headings and unnumbered subdivision headings
+# <center> is the heading block: it holds the h2 chapter / group headings, and also bare bracketed notes
+# ("[RSA 21-P:46-a repealed by ... ]" before a section; "<center><p>[Paragraph V effective January 1,
+# 2027.]</p></center>" inside a section's text). Blocks inside it count as part of it.
+headings = ["center"]
 opening  = ["b"]
 split_br = ["codesect"]                       # each <br>-separated line of the law text is its own block
-# h1: the title banner repeated at the top of every chapter page (the title heading comes from the index);
+# h1: the title banner repeated at the top of every chapter page;
 # h3: "Section 1:1" anchor lines that only repeat the number in the bold catchline that follows.
 # Neither is law text; both are counted in the verify report.
 drop     = ["h1", "h3"]
 
 [NH.rsa.ladder]
-# RSA numbering: I. (a) (1) (A) (i), roman paragraph numbers dotted, often alone on their <br> line
+# RSA numbering: I. (a) (1) (A) (i); roman paragraph numbers dotted, often alone on their <br> line
 types = ["roman_upper.", "lower", "num", "upper", "roman_lower"]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
 [NH.rsa.containers]
-# The h2 reads "Chapter 21-P<br>DEPARTMENT OF SAFETY", and a block's text joins across <br> with no space:
-# "Chapter 21-PDEPARTMENT OF SAFETY". So the number takes at most ONE suffix letter, then the name must
-# start (an uppercase letter). A chapter with a doubled suffix (126-AA, if any) would be misread as 126-A:
-# shared-code fix requested in NH.status.md (<br> inside a block read as a space). heading = "self": the
-# whole line is the heading. Any other h2 is an unnumbered subdivision of the chapter ("Seaward Limits of Jurisdiction");
-# it has no number, so its id comes from its first word (see status: a sequence id would be better).
-chapter     = { match = '^(?P<heading>Chapter\s+(?P<num>\d+(?:-[A-Z])?)(?=[A-Z\s]|$).*)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
-subdivision = { match = '^(?P<heading>(?!Chapter\s)(?P<num>[A-Za-z]+).*)$', tag = "subchapter", rank = 3, id = "sd-{num}", heading = "self" }
+# "Chapter 21-P<br>DEPARTMENT OF SAFETY" reads "Chapter 21-P DEPARTMENT OF SAFETY"; suffixes may double
+# (126-AA). heading = "self": the whole line is the heading.
+chapter = { match = '^(?P<heading>Chapter\s+(?P<num>\d+(?:-[A-Z]+)?)(?:\s.*)?)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
 
 [NH.rsa.sections]
 # the bold catchline: "1:14 Extent. –" / "21-P:7-a Repealed by 2000, 35:2, I, eff. Jan. 1, 2001. –"
@@ -61,3 +62,10 @@ scope = "title"                               # section numbers carry the chapte
 [NH.rsa.notes]
 sourceCredit  = '^Source\.'
 editorialNote = ['^Revision note\.', "^Editor's note", '^Effective Date note', '^Contingent', '^Applicability']
+# Unnumbered group headings inside a chapter ("Seaward Limits of Jurisdiction", "Part Statewide Threat
+# Notification System for Schools Statewide ...") end the previous section and its source note and stand
+# as cross headings (they have no number to make a container id from).
+# A centered "[Paragraph ... effective ...]" line inside the text is not a group heading: it stays in the
+# section as a cross heading over the paragraph version it introduces. "[RSA ...]" lines (about the next
+# section) do close the previous section.
+close = [{ heading = true, match = '^(?:[^\[]|\[RSA)' }]

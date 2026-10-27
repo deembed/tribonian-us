@@ -38,12 +38,27 @@ def squash(s):
 
 
 def main_text(tree):
+    """The USLM's text in source order: a section marked class="heading-before" has its heading read before
+    its number, as the source printed it (USLM itself requires num, then heading)."""
+    import copy
     main = tree.getroot().find("{%s}main" % NS)
-    return " ".join(main.itertext()) if main is not None else ""
+    if main is None:
+        return ""
+    if main.find(".//*[@class='heading-before']") is not None:
+        main = copy.deepcopy(main)
+        for sec in main.iterfind(".//*[@class='heading-before']"):
+            num, head = sec.find("{%s}num" % NS), sec.find("{%s}heading" % NS)
+            if num is not None and head is not None:
+                sec.remove(head)
+                num.addprevious(head)
+    return " ".join(main.itertext())
 
 
-def conservation(source_text, tree):
-    a, b = squash(source_text), squash(main_text(tree))
+def conservation(source_text, tree, moved=()):
+    """moved: texts the family deliberately wrote somewhere else than the source's order (a heading printed
+    before its section number, written after it as USLM requires). Each is taken out of both sides once
+    and must have been there on both; everything else must match exactly, in order."""
+    a, b = squash(source_text), squash(main_text(tree))       # moved headings are read back in place by main_text
     if a == b:
         return {"ok": True, "chars": len(a)}
     i = next((k for k in range(min(len(a), len(b))) if a[k] != b[k]), min(len(a), len(b)))
@@ -98,15 +113,22 @@ def section_key(num, decimal=False):
     """Section numbers in order: 1-1 < 1-1a < 1-1z < 1-1aa < 1-2 < 1-10; 26.5-1-101; "1-2d_to_1-2y" by its first
     number. Each run of digits with its letter suffix is (number, letters as base 26). With decimal
     ([sections].decimal, Nevada's NRS), digits after a point are a decimal fraction: 1.4253 < 1.426."""
-    first = num.split("_")[0].lower()
+    first = re.sub(r"\(([A-Za-z0-9]+)\)", r"\1", num.split("_")[0])     # 18(a) -> 18a (Missouri's constitution)
+    m = re.match(r"([IVXLC]+)(?=[-.])", first)       # a roman prefix (Nebraska's constitution: II-1) counts as its number
+    if m:
+        from tribonian.uslm.tree import roman_value
+        v = roman_value(m.group(1))
+        if v:
+            first = str(v) + first[m.end():]
+    first = first.lower()
     if decimal:
         first = re.sub(r"\.(\d+)", lambda m: "." + m.group(1).ljust(8, "0"), first)   # fixed width: compare as fractions
     key = []
-    for d, letters in re.findall(r"(\d+)([a-z]*)", first):
+    for d, letters, lone in re.findall(r"(\d+)([a-z]*)|[-:]([a-z]+)\b", first):
         n = 0
-        for ch in letters:
+        for ch in letters or lone:
             n = n * 26 + ord(ch) - 96
-        key.append((int(d), n))
+        key.append((int(d), n) if d else (0, n))   # a lone letter part ("21-P:5-a") sorts after its base
     return tuple(key)
 
 
@@ -132,7 +154,7 @@ def verify(source_text, tree, ladder, formula):
     valid = s.validate(tree)
     um = unmapped(tree)
     r = {
-        "conservation": conservation(source_text, tree) if source_text is not None else {"ok": None},
+        "conservation": conservation(source_text, tree, getattr(ladder, "moved", ())) if source_text is not None else {"ok": None},
         "dropped": getattr(ladder, "dropped", {}),
         "schema": {"ok": valid, "errors": [str(e) for e in list(s.error_log)[:20]]},
         "unmapped": {"count": len(um), "first": um[:10]},

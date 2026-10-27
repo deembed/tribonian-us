@@ -8,19 +8,20 @@
 #   title{N}/Title{N}.pdf       the authenticated (UELMA) PDF, not used here
 # Chapter page markup: div#TitleHead holds h1 "TITLE 1", h4 title name, h2 part, h3 "CHAPTER 1. Name",
 # h4 subchapter (empty when none). div#CodeBody holds one div.Section per section: div.SectionHead
-# "§ 101. Heading.", then p.subsection / p.indent-N lines, then the history credit as LOOSE text and <a>
-# links directly inside div.Section (no element of its own) -- see build/dispatch/DE.status.md: the
-# parser needs a way to make such loose runs a block before this formula can pass conservation.
+# "§ 101. Heading.", then p.subsection / p.indent-N lines, then the history credit as bare text and <a>
+# links directly inside div.Section ([html].loose makes it a block, class "loose").
+# Big chapters (title 11 ch. 5) are not text pages but lists of subchapter pages
+# (c005/sc01/index.html ...): a mixed-depth walk the index strategy cannot do yet (DE.status.md).
 
 [DE.code]
 name    = "Delaware Code"
 doc     = "/us-de/code"                       # /us-de/code/t1/s101/a
 fetch   = "index"
-item    = "%d"                                # title 1 -> "1" (URLs are title1, not title01); 7A? none known
+item    = "%d"                                # title 1 -> "1" (URLs are title1, not title01)
 index_file = "title{item}.html"               # the title's chapter list, saved per title
-# chapter links in the title index; the "&#xA;" padding inside href is skipped by the pattern.
-# UNVERIFIED until title{N}/index.html is probed.
-links   = 'href="(?:&#xA;)?\s*(c\d+[A-Z]?/index\.html)'
+# chapter links in the title index: href="../title1/c001/index.html"; chapter folders also c002a, c012_1
+links   = 'href="(\.\./title\d+/c[0-9a-z_]+/index\.html)"'
+save_as = "path"                              # every chapter page is named index.html: keep the path
 layers  = [ { name = "current", url = "https://delcode.delaware.gov/title{item}/index.html" } ]
 encoding = "utf-8"
 family  = "html-paragraphs"
@@ -28,6 +29,7 @@ family  = "html-paragraphs"
 [DE.code.html]
 root     = "div#content"                      # page header, menus and footer are outside it
 blocks   = ["p", "div.SectionHead"]
+loose    = ["div.Section"]                    # the history credit: bare text + links after the last <p>
 headings = ["h1", "h2", "h3", "h4"]           # the div#TitleHead lines: TITLE / title name / PART / CHAPTER / SUBCHAPTER
 opening  = ["div.SectionHead"]                # the whole "§ 101. Designation and citation of Code." line
 # site furniture only: the breadcrumb row ("Title 1" link, "Authenticated PDF" link) and the
@@ -56,6 +58,44 @@ bold  = true                                  # matched against the opening run 
 scope = "title"                               # /us-de/code/t1/s101
 
 [DE.code.notes]
-# the history credit: "1 Del. C. 1953, § 101; 49 Del. Laws, c. 220, § 1;" or one starting at a Laws cite.
-# Needs the loose-run feature (status file): today this text sits in no block.
-sourceCredit = '^(?:\d+ Del\. C\. \d{4},|Code \d{4},|\d+ Del\. Laws,|\d+ Laws, c\.)'
+# the history credit ("1 Del. C. 1953, § 101; 49 Del. Laws, c. 220, § 1;"): the only loose text in a section
+sourceCredit = { class = "loose" }
+
+# ---------------------------------------------------------------- Delaware Constitution of 1897
+# constitution/index.shtml lists one page per article: constitution-01.shtml (preamble) ... -19.shtml.
+# (Two index links point at .html twins -- constitution-03.html, -04.html; the pattern takes .shtml only.)
+# Article page: div.row holds the breadcrumb and h2 "ARTICLE I. BILL OF RIGHTS" (+ empty prev/next buttons);
+# each section is p.section-label "§ 1. Freedom of religion." then <p> text, then the history credit as bare
+# <a>/<span> runs directly in div#content (loose). Ids: /us-de/const/t1897/a1/s1.
+[DE.const]
+inherit = "DE.code"
+replace = ["containers", "html", "sections", "ladder"]
+name    = "Delaware Constitution of 1897"
+doc     = "/us-de/const"
+item    = ""
+items   = ["1897"]                             # one document; the item only names the files and the id
+index_file = "constitution-{item}.html"
+links   = 'href="(constitution-\d+\.shtml)#'      # 01 (preamble) is linked at #P6_47, the rest at #TopOfPage
+save_as = "name"                               # flat folder, unique names: plain file names (overrides DE.code's "path")
+layers  = [ { name = "current", url = "https://delcode.delaware.gov/constitution/index.shtml" } ]
+dir     = "const"
+
+[DE.const.html]
+root     = "div#content"
+blocks   = ["p"]
+headings = ["h2"]
+opening  = ["p.section-label"]                 # the whole "§ 1. Freedom of religion." line
+loose    = ["div#content", "div.col-xs-24"]   # history credits: bare links between the <p>s
+drop     = ["span.breadcrumb"]                 # "The Delaware Constitution" back link
+
+[DE.const.ladder]
+types = ["lower", "num", "lower.", "num.", "upper."]   # unconfirmed beyond (a)(1): article I has no labels
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[DE.const.containers]
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\.\s*.*$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "next" }
+
+[DE.const.sections]
+match = '^§\s*(?P<num>\d+[A-Z]?)\.\s*(?P<heading>.*)$'
+bold  = true                                   # matched against the opening run (p.section-label)
+scope = "container"                            # numbers restart per article

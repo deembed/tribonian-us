@@ -1,10 +1,9 @@
-# NE.toml -- Nebraska: Revised Statutes of Nebraska (NE.rs). Constitution (NE.const) waits on a probe of
-# /laws/display-fullconst.php?print=false (see build/dispatch/NE.status.md).
+# NE.toml -- Nebraska: Revised Statutes of Nebraska (NE.rs) and the Nebraska Constitution (NE.const).
 #
 # Source: nebraskalegislature.gov (Revisor of Statutes). Each chapter 1..90 has a whole-chapter print page,
 # /laws/display-chapters.php?chapter=N: one request per chapter (the site has answered "Too many
 # connections", so per-section pages are out). The page is bare HTML: no site navigation, no chapter
-# heading. One div.printwidth per section:
+# heading (nor article headings: chapter 3, which has articles, shows none). One div.printwidth per section:
 #   <strong>1-105. Act, how cited.</strong><br>             section number + catchline (the opening run)
 #   <p style="text-indent: 1.5em;">(1) ...</p>               law text, one <p> per numbered paragraph
 #   <div class="source"><span><strong>Source:</strong></span>Laws ...<br><strong>Effective Date: ...</strong></div>
@@ -50,4 +49,48 @@ scope = "title"
 [NE.rs.notes]
 sourceCredit  = '^Source:'
 note          = [{ match = '^Annotations$', topic = "annotation" }]
+editorialNote = [{ match = '^Cross References$', topic = "crossReference" }]
+
+# ---------------------------------------------------------------- Nebraska Constitution
+# The whole constitution on one page, /laws/display-fullconst.php?print=false (about 1 MB). Inside the site
+# frame (div.col-md-11 holds the law), one div.statute per section:
+#   <h2>I-1.</h2><h3>Statement of rights.</h3>        section number (article-section), then its heading
+#   <p class="text-justify">...</p>                    text
+#   <div class="statute_source"><h2>Source</h2><ul><li>Neb. Const. art. I, sec. 1 (1875);</li>...</ul></div>
+#   <div class="statute_source"><h2>Annotations</h2><h3>1. Personal rights</h3>...<p>case note</p>...</div>
+# No article headings on the page: sections sit directly under the document (/us-ne/const/sI-1).
+# Not inherited from NE.rs: the chapter wrap and the strong-based blocks do not apply.
+[NE.const]
+name    = "Constitution of Nebraska"
+doc     = "/us-ne/const"                     # /us-ne/const/sI-1, /us-ne/const/sPreamble
+fetch   = "template"
+url     = "https://nebraskalegislature.gov/laws/display-fullconst.php?print=false"
+edition = "current"
+items   = ["full"]                           # always the one page
+file    = "constitution-{item}.htm"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "Copyright Nebraska Legislature"
+
+[NE.const.html]
+root     = "div.col-md-11"                   # the law; the site header, navigation and "Back to Browse" row are outside
+blocks   = ["h2", "h3", "p", "li"]           # li: one source line or note ("Note: In Hunt v. Roth ...")
+headings = []
+opening  = []
+
+[NE.const.ladder]
+# art. XII, sec. 8 (Initiative 300, the corporate-farming ban) numbers its exemptions (A)..(N) at the top
+# level; nowhere else in the constitution uses capitals, so the first level takes either type
+types = [["num", "upper"], "lower", "roman_lower", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NE.const.sections]
+match   = '^(?P<num>[IVX]+-\d+[A-Z]?|Preamble)\.$'   # the h2 alone: "I-1.", "XV-14A.", "Preamble."
+bold    = false
+heading = "next"                             # the h3 after the number is the catchline
+scope   = "title"
+
+[NE.const.notes]
+sourceCredit  = '^Source$'
+note          = [{ match = '^Annotations$', topic = "annotation" }]   # its h3 group headings stay in the note
 editorialNote = [{ match = '^Cross References$', topic = "crossReference" }]

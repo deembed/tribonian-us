@@ -23,19 +23,15 @@ terms   = "none stated"
 
 [NC.gs.html]
 blocks   = ["p"]
-# The centered paragraph class is a CSS-content hash (.cs2E44D3A6{text-align:center...}); the parser's
-# :centered only sees inline align/style, so it is named here. h1 = centered captions in forms.
-headings = ["h1", "h3", "h4", "h6", "p.cs2E44D3A6"]
-opening  = []                                 # sections are matched on the whole paragraph (sections.bold = false)
+# Centering is in hashed CSS classes (.cs2E44D3A6{text-align:center...}); :centered reads the class rules.
+# h1 = centered captions in forms.
+headings = ["h1", "h3", "h4", "h6", "p:centered"]
+opening  = ["span:bold"]                      # section lines are one bold span (bold by CSS class, read by :bold)
 
 [NC.gs.ladder]
-# The source ladder is (a)(1)a.1. -- target: ["lower", "num", "lower.", "num."]. Two shared-code gaps keep the
-# dotted levels out for now (see build/dispatch/NC.status.md): split_labels' DOTTED pattern does not read
-# lowercase "a.", and verify's numbering check reads a dotted level's stored num ("1") as not a "num." label.
-# Until then "a." and "1." lines stay text inside their (1) paragraph -- nothing lost, only flatter.
-# Inserted labels (a1) (1a) are not label types yet either: they stay text in the preceding sibling.
-types = ["lower", "num"]
-tags  = ["subsection", "paragraph"]
+# (a)(1)a.1., with insertions (a1) (1a) between siblings
+types = ["lower", "num", "lower.", "num."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 
 [NC.gs.containers]
 chapter    = { match = '^Chapter\s+(?P<num>\d+[A-Z]*)\.$', tag = "chapter", rank = 1, id = "ch{num}" }   # name: next h3
@@ -46,9 +42,19 @@ part       = { match = '^(?P<heading>Part\s+(?P<num>\d+[A-Z]*)\.\s.*)$', tag = "
 
 [NC.gs.sections]
 # "§ 1-1.  Remedies." | "§ 1-440.57: Repealed by ..." | "§§ 1-441 through 1-471: Superseded by ..."
-match = '^§§?\s*(?P<num>\d+[A-Z]*-\d+(?:\.\d+)*[A-Z]*(?:\s+(?:through|to|and)\s+\d+[A-Z]*-\d+(?:\.\d+)*[A-Z]*)?)[.:]\s*(?P<heading>.*)$'
-bold  = false                                 # the heading line is its own paragraph; matched on its whole text
+# Court-rule chapters (1A Rules of Civil Procedure; likely 8C Evidence) hold one section, § 1A-1, followed by
+# bold "Rule 4. Process." lines under Article headings: each rule is taken as a section; its num is the rule
+# number (num text "Rule 4." kept) -> /us-nc/gs/s4. GS section numbers always carry a hyphen, so no collision
+# within the GS; a rule-specific id ("r4") needs a shared feature (see NC.status.md).
+match = '^(?:§§?\s*|Rule\s+)(?P<num>\d+(?:\.\d+)?(?=\.\s)|\d+[A-Z]*-\d+(?:\.\d+)*[A-Z]*(?:\s+(?:through|to|and)\s+\d+[A-Z]*-\d+(?:\.\d+)*[A-Z]*)?)(?:[.:](?!\d)|(?=\s))\s*(?P<heading>.*)$'
+# the number's closing period is missing once ("§ 20-123.2 Speedometer."): a space ends it too, and a period
+# followed by a digit is part of the number, not its end
+bold  = true                                  # matched on the bold opening run only ("Rule 4." in body text is not a start)
 scope = "title"
+# Not decimal: 1-75.9 < 1-75.10 (whole numbers after the point), yet 20-7.01 < 20-7.1 (a leading zero is an
+# insertion before .1). Neither section_key mode orders both; the integer mode flags only the ".0N -> .1" steps.
+# alternate texts by effective date: "§ 20-4.01. (Effective until July 1, 2027) Definitions." -- searched in the heading
+versions = '^\((?:Effective|Expires)\b'
 
 [NC.gs.notes]
 editorialNote = ['^Note:', "^Editor's note"]
@@ -75,7 +81,7 @@ headings = ["p:centered"]
 opening  = ["b", "strong", "p.aSection"]   # p.aSection is bold by its Word style, no <b> (art. I sec. 24, art. VI sec. 3)
 
 [NC.const.ladder]
-types = ["num", "lower"]                      # (1)(a)
+types = ["num", "lower"]                      # (1)(a), with insertions (1a) (a1)
 tags  = ["subsection", "paragraph"]
 
 [NC.const.containers]

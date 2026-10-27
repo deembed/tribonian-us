@@ -3,8 +3,7 @@
 # /code/t01c001.php holds one chapter. Chapter pages are one div#contentsection: the text is bare lines
 # separated by <br />, with centered <div>s for headings (TITLE line, CHAPTER n / name, ARTICLE n / name),
 # a bold <span> for most section openings, and the odd <table> (salary schedules).
-# NEEDS the shared split_br change described in build/dispatch/SC.status.md: block-level children
-# (div, table) of a split_br element must stay blocks of their own, not be glued into the line around them.
+# split_br keeps the heading <div>s and <table>s as blocks of their own (shared feature, round 4).
 [SC.code]
 name    = "Code of Laws of South Carolina, 1976"
 doc     = "/us-sc/code"                       # /us-sc/code/t1/ch1/a1, /us-sc/code/t1/s1-1-10/A/1
@@ -26,9 +25,10 @@ verbatim = ["table"]                          # salary schedules (sec. 1-1-1210)
 opening  = []                                 # not used: sections are matched on the line's text (bold = false)
 
 [SC.code.ladder]
-# (A)(1)(a)(i)(A) is the house style for newer text; older sections open with (1) or (a). The ladder places
-# a first label on the outermost level its type fits, so mixed styles show up as ambiguity, not loss.
-types = ["upper", "num", "lower", "roman_lower", "upper"]
+# (A)(1)(a)(i)(A) is the house style for newer text; older sections (1-13-30, definitions lists) use
+# (a)(1)(A)... at the top, so level 0 takes upper or lower (case keeps them apart). A roman directly under a
+# number ((7)(i), 1-13-80) still logs as out of sequence: see the status file.
+types = [["upper", "lower"], "num", "lower", "roman_lower", "upper"]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
 [SC.code.containers]

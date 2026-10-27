@@ -1,67 +1,89 @@
-# MO.toml -- Missouri: Revised Statutes (RSMo) and Constitution, from the Revisor of Statutes (revisor.mo.gov).
+# MO.toml -- Missouri: Revised Statutes (MO.rsmo) and Constitution (MO.const), from the Revisor of Statutes
+# (revisor.mo.gov).
 #
-# STATUS: DRAFT -- fetch settings only. The probes the user has so far are a chapter's table of contents
-# (OneChapter.aspx?chapter=1: a <table> of section links + headnotes) and the constitution's article list;
-# neither holds law text, so the [html] / ladder / sections / notes settings below are placeholders until
-# the whole-chapter page (see build/dispatch/MO.txt) has been probed. Do NOT fetch at scale yet.
+# Site layout (from the probes, round 4):
+#   Home.aspx                         links OneChapter.aspx?chapter=N for all 468 chapters (plain numbers)
+#   OneChapter.aspx?chapter=N         the chapter's table of contents only
+#   OneChapter.aspx?chapter=N&idx=v   "View entire chapter": a 2-second meta-refresh "Loading..." stub that
+#                                     redirects to ViewChapter.aspx?chapter=N -- so fetch ViewChapter directly
+#   ViewChapter.aspx?chapter=I&constit=y   the whole constitution article (probed: 39 sections, all text)
+#   PageSelect.aspx?section=1.010&bid=42   one section (same markup as the chapter view; not used)
 #
-# Site layout (from the probes):
-#   Home.aspx                                 -> links OneChapter.aspx?chapter=N for every chapter (Titles I-XLII
-#                                                group them; the chapter page header says "Title I LAWS AND STATUTES")
-#   OneChapter.aspx?chapter=N                 -> table of contents only (PageSelect.aspx?section=1.010&bid=42 per section)
-#   OneChapter.aspx?chapter=N&idx=v           -> "View entire chapter": every section's text on one page (preferred:
-#                                                one request per chapter instead of one per section)
-#   Home.aspx?constit=y                       -> ViewChapter.aspx?chapter=I&constit=y per article (I .. XIV)
-# Section numbers are chapter.NNN[N] ("1.010", "1.1001"); Home.aspx links 468 chapters, all plain numbers.
+# Markup (identical for statutes and constitution). The page embeds a second <body lang="EN-US"> inside the
+# content div; everything outside div.lr-fl-l-all (the first one) is site furniture. Per section:
+#   <div class="norm">
+#     <p class="norm"><span class="bold">1.010.  Heading — more heading. — </span>1.  Text ...</p>
+#     <p class="norm">  2.  Text ...</p>                         law text, one <p> per numbered paragraph
+#     <div class="foot">                                          the footnotes
+#       <p class="" title="Footnotes follow">--------</p>         a divider (soft hyphens + dashes)
+#       <p class="norm">(RSMo 1939 § 645, A.L. 1957 p. 587)</p>  history (statutes) / "Source: ..." (constitution)
+#       <p class="norm">Prior revisions: 1929 § 645 ...</p>
+#       <p class="norm">(1953) Case note ...</p>                  annotations, one per case
+#     </div>
+#   </div>
+#   <p style="...darkgreen...">----------------- I Section 1 2/27/1945 -----------------</p>   effective-date line
+# There are no title/chapter/article headings in the content: each file is wrapped in one level (wrap).
 
 [MO.rsmo]
 name    = "Revised Statutes of Missouri"
-doc     = "/us-mo/rsmo"                      # /us-mo/rsmo/t1/s1.010/1/a  (title id = the chapter number, as the item)
+doc     = "/us-mo/rsmo"                      # /us-mo/rsmo/s1.010/1  (section numbers are unique statewide)
+wrap    = { tag = "chapter", id = "ch{item}" }   # the chapter view has no chapter heading of its own
 fetch   = "template"
-url     = "https://revisor.mo.gov/main/OneChapter.aspx?chapter={item}&idx=v"   # the whole-chapter view
-edition = "current"                          # the site shows one current text (sections effective 8/28/2026 included)
-item    = "%d"                               # chapters are not zero-padded in the URL: chapter=1, chapter=143
+url     = "https://revisor.mo.gov/main/ViewChapter.aspx?chapter={item}"
+edition = "current"                          # the site shows the text in force (sections effective 8/28/2026 included)
+item    = "%d"                               # chapter=1, chapter=143 (no padding)
 file    = "chapter-{item}.htm"               # law/mo/rsmo/chapter-1.htm
 encoding = "utf-8"
 family  = "html-paragraphs"
 terms   = "(c) Missouri Legislature, all rights reserved; Terms of Use 'TBD' (state_law_sources.toml)"
 
 [MO.rsmo.html]
-# PLACEHOLDER: set once the idx=v page is probed. Expect: root = the main content div (site search form,
-# header and left nav outside it), drop = the per-chapter TOC table and the "View entire chapter" link.
-blocks   = ["p"]
-headings = []
-opening  = ["b", "strong"]
+root     = "div.lr-fl-l-all"                 # the first one is the content column (later ones are page footers)
+blocks   = ["p"]                             # p.norm law text and notes, the divider p, the effective-date p
+headings = []                                # no container headings on the page
+opening  = ["span.bold"]                     # "1.010.  Heading. — "
 
 [MO.rsmo.ladder]
-# RSMo numbering as printed: "1." subsections, "(1)" subdivisions, "(a)" paragraphs, "a." subparagraphs.
-# PLACEHOLDER pending the probe (confirm the dotted forms split_labels expects: "num." and "lower."?)
-types = ["num.", "num", "lower"]
-tags  = ["subsection", "paragraph", "subparagraph"]
+# RSMo: 1. subsection, (1) subdivision, (a) paragraph, a. subparagraph
+types = ["num.", "num", "lower", "lower."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 
 [MO.rsmo.sections]
-# Opening run "1.010. Common law in force ..." -- PLACEHOLDER pending the probe
-match = '^(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\.\s*(?P<heading>.*)$'
+# The heading keeps its trailing " —" (the dash separating it from the text is part of the bold run)
+match = '^(?P<num>\d+\.\d+[A-Z]?)\.\s*(?P<heading>.*)$'
 bold  = true
 scope = "title"
+decimal = true                               # 1.1001 sorts after 1.100 and before 1.120: digits after the point are a fraction
 
 [MO.rsmo.notes]
-# History line "(RSMo 1939 § 645, A.L. 1993 S.B. 180)" closes each section -- PLACEHOLDER pending the probe
-sourceCredit = '^\((?:RSMo|L\.\s|A\.L\.|Amended)'
+# Everything after the divider is notes to the next section. Rule order matters (first match wins).
+note          = [{ match = '^-{4,}$', topic = "footnotes" },                    # the "--------" divider opening div.foot
+                 { match = '^\(\d{4}\)', topic = "annotation" }]                # "(1953) Case ..." one per case
+# "(RSMo 1939 § 645, ...)", "(Adopted November 3, 1992)" / "Source: Const. of 1875" -- a parenthesis whose
+# content is not a short label: law text "(1) The right ..." / "(a)" / "(iv)" and case notes "(1953)" are excluded
+sourceCredit  = ['^\((?![^)\s]{1,4}\))', '^Source:']
+editorialNote = [{ match = '^Prior revisions:', topic = "priorRevisions" },
+                 { match = '^-{5,}\s.*\s-{5,}$', topic = "effectiveDate" }]    # "----- 1.010 8/28/2015 -----" after each section
 
 # ---------------------------------------------------------------- Constitution of Missouri (1945)
 [MO.const]
 inherit = "MO.rsmo"
 name    = "Constitution of Missouri"
-doc     = "/us-mo/const"                     # /us-mo/const/aI/s1 -- PLACEHOLDER pending the probe
-url     = "https://revisor.mo.gov/main/ViewChapter.aspx?chapter={item}&constit=y"   # whether this page holds the text
-                                             # or only a TOC is unknown: probe it (MO.txt)
-item    = ""                                 # article numbers are roman: I .. XIV, used as given
+doc     = "/us-mo/const"
+wrap    = { tag = "article", id = "a{item}" }  # /us-mo/const/aI ; the article page has no article heading
+url     = "https://revisor.mo.gov/main/ViewChapter.aspx?chapter={item}&constit=y"
+item    = ""                                 # roman article numbers, used as given
 items   = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV"]
 file    = "article-{item}.htm"
 dir     = "const"
 
+[MO.const.ladder]
+types = ["num.", "num", "lower", "lower."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
 [MO.const.sections]
-match = '^Section\s+(?P<num>\d+(?:\(?[a-z]\)?)?)\.\s*(?P<heading>.*)$'   # PLACEHOLDER pending the probe
+# "I Section 1.  Source of political power — ... — " ; numbers may carry a letter: "Section 8(a)", "Section 39(b)"
+match = '^(?P<art>[IVXL]+)\s+Section\s+(?P<num>\d+(?:\(?[a-z]\)?)?)\.\s*(?P<heading>.*)$'
 bold  = true
-scope = "container"
+scope = "title"                              # see MO.status.md: identifiers do not yet carry the article (wrap)
+decimal = false

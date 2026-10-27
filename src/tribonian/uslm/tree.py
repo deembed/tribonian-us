@@ -66,6 +66,9 @@ def _split_frac(label):
     base, dot, frac = label.partition(".")
     if dot:
         return (base, int(frac)) if frac.isdigit() else (None, None)
+    m = re.fullmatch(r"([A-Za-z0-9]+)-([a-z])", label)        # New Hampshire's II-a. between II. and III.
+    if m:
+        return m.group(1), ord(m.group(2)) - 96
     m = re.fullmatch(r"([A-Za-z]+)(\d{1,2})", label)
     if m:
         return m.group(1), int(m.group(2))
@@ -128,7 +131,7 @@ def follows(prev, o):
 
 
 LABEL = re.compile(r"\(([0-9]+(?:\.[0-9]+|[a-z])?|[A-Za-z]{1,6}(?:\.[0-9]+|[0-9]{1,2})?)\)\s*")
-DOTTED = re.compile(r"([0-9]+\.|[IVXLC]{1,6}\.|[A-Z]{1,2}\.|[a-z]{1,2}\.)(?=\s|$)\s*")   # 1. A. a. IV. (MD, DE, NH)
+DOTTED = re.compile(r"([0-9]+(?:-[a-z])?\.|[IVXLC]{1,6}(?:-[a-z])?\.|[A-Z]{1,2}\.|[a-z]{1,2}\.)(?=\s|$)\s*")   # 1. A. a. IV. (MD, DE, NH)
 
 
 class Ladder:
@@ -147,34 +150,41 @@ class Ladder:
         self.dotted = any(t.endswith(".") for ts in self.types for t in ts)
         self.ambiguous, self.anomalies, self.versions = [], [], []
 
-    def place(self, label, open_ords, prev_text, where="", hint=None):
-        """open_ords: the ordinal of the open node at each depth, outermost first (None where no node is
-        open: a section that starts at (a) has nothing at depth 0). -> depth, or None when the text in
-        parentheses is not a label of any level."""
-        cands = [(d, level_ordinal(ts, label)) for d, ts in enumerate(self.types)]
-        cands = [(d, o) for d, o in cands if o is not None]
+    def place(self, label, open_labels, prev_text, where="", hint=None):
+        """open_labels: the label of the open node at each depth, outermost first (None where nothing is open:
+        a section that starts at (a) has nothing at depth 0). Every type a level allows is tried, each against
+        the open label read as that same type -- so a level of [letters, romans] can open with roman (i).
+        -> depth, or None when the text in parentheses is not a label of any level."""
+        cands = []                             # (depth, ordinal, type)
+        for d, ts in enumerate(self.types):
+            for t in ts:
+                o = ordinal(t, label)
+                if o is not None:
+                    cands.append((d, o, t))
         if not cands:
             return None
-        k = len(open_ords) - 1                 # current depth (-1: none open)
-        sib = [(d, o) for d, o in cands if d <= k and open_ords[d] is not None and follows(open_ords[d], o)]
-        child = [(d, o) for d, o in cands if d == k + 1 and is_first(o)]
+        k = len(open_labels) - 1               # current depth (-1: none open)
+        prev = lambda d, t: ordinal(t, open_labels[d]) if d <= k and open_labels[d] is not None else None
+        sib = sorted({(d, o) for d, o, t in cands if prev(d, t) is not None and follows(prev(d, t), o)}, reverse=True)
+        child = sorted({(d, o) for d, o, t in cands if d == k + 1 and is_first(o)})
         if k < 0 and not child:            # nothing open: a section may start lower on the ladder, e.g. at (a)
-            child = [(d, o) for d, o in cands if is_first(o)][:1]
-        announce = prev_text.rstrip().endswith((":", "—", "--"))
-        order = (child + sorted(sib, reverse=True)) if announce else (sorted(sib, reverse=True) + child)
-        if hint is not None and len(order) > 1 and any(d == hint for d, _ in order):
-            if order[0][0] != hint:
-                self.ambiguous.append("%s (%s): levels %s, indentation chose %d" % (where, label, [d for d, _ in order], hint))
+            child = sorted({(d, o) for d, o, t in cands if is_first(o)})[:1]
+        announce = prev_text.rstrip().endswith((":", "\u2014", "--"))
+        order = (child + sib) if announce else (sib + child)
+        depths = list(dict.fromkeys(d for d, _ in order))
+        if hint is not None and len(depths) > 1 and hint in depths:
+            if depths[0] != hint:
+                self.ambiguous.append("%s (%s): levels %s, indentation chose %d" % (where, label, depths, hint))
             return hint
-        if hint is not None and not order and any(d == hint for d, _ in cands):
+        if hint is not None and not depths and any(d == hint for d, _, _ in cands):
             self.anomalies.append("%s (%s): out of sequence; placed at depth %d by its indentation" % (where, label, hint))
             return hint
-        if order:
-            if len(order) > 1:
-                self.ambiguous.append("%s (%s): levels %s, chose %d" % (where, label, [d for d, _ in order], order[0][0]))
-            return order[0][0]
-        same = [c for c in cands if c[0] <= k and open_ords[c[0]] == c[1]]     # a label repeated: keep it a sibling
-        d = (same or [min(cands, key=lambda c: abs(c[0] - (k + 1)))])[-1][0]
+        if depths:
+            if len(depths) > 1:
+                self.ambiguous.append("%s (%s): levels %s, chose %d" % (where, label, depths, depths[0]))
+            return depths[0]
+        same = [d for d, o, t in cands if prev(d, t) == o]       # a label repeated: keep it a sibling
+        d = same[-1] if same else min(cands, key=lambda c: abs(c[0] - (k + 1)))[0]
         self.anomalies.append("%s (%s): out of sequence at depth %d" % (where, label, d))
         return d
 

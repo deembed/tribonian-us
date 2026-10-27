@@ -11,11 +11,6 @@
 #     <div><h3>NOTES:</h3></div><div><div style="font-style:italic">...  notes
 # Paragraphs carry no depth markup (all text-indent:0.5in): the ladder places (1)(a)(i)(A) by sequence.
 #
-# NEEDS SHARED-CODE FEATURES (see build/dispatch/WA.status.md); with them emulated
-# (WA_EMULATE=1 build/dispatch/WA.test.py) the 1.04 probe passes. Today it builds nothing:
-#   - "div:leaf"              paragraphs are divs nested in a wrapper div; only the innermost are lines
-#   - root's outer divs       blocks' ancestors must be looked for only inside [html].root
-#   - [sections].heading      the section heading is the block after the number block
 [WA.rcw]
 name    = "Revised Code of Washington"
 doc     = "/us-wa/rcw"                       # /us-wa/rcw/ch1.04, /us-wa/rcw/s9A.04.110/1/a
@@ -28,16 +23,16 @@ terms   = "Statute Law Committee claims copyright in the RCW; live HTML is unoff
 
 [WA.rcw.html]
 root     = "div.main-page-content"           # skips the site header, breadcrumbs, footer
-blocks   = ["h1", "h2", "h3", "div:leaf", "tr"]   # div:leaf = a div with no div/p/h*/table inside (proposed);
-                                             # tr = one table-of-contents row
+blocks   = ["h1", "h2", "h3", "div", "tr"]  # tr = one table-of-contents row
+nested   = true                              # paragraph divs sit inside a wrapper div: the wrapper is a container
 headings = ["h1", "h2"]                      # chapter number line and chapter name
 opening  = []                                # no bold run: sections are matched on the whole block text
 drop     = ["a.btn", "div.gray-box", "h3.list-heading"]   # "PDF"/"HTML" buttons; "Chapter listing HTML" box;
                                              # the "Sections" label over the table of contents
 
 [WA.rcw.ladder]
-types = ["num", "lower", "roman_lower", "upper"]          # (1)(a)(i)(A)
-tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+types = ["num", "lower", "roman_lower", "upper", "roman_upper"]   # (1)(a)(i)(A)(I) -- 9.41.040(2)(a)(ii)(C)(I)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
 [WA.rcw.containers]
 # The h1; its name is the next heading (the h2). Chapter numbers carry letters: 9A.04, 28B.10, 43.21C
@@ -46,7 +41,10 @@ chapter = { match = '^Chapter\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\s+RCW$', tag = "ch
 [WA.rcw.sections]
 match   = '^RCW\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?\.\d+)$'   # the number block alone: "RCW 1.04.010"
 bold    = false
-heading = "next"                             # proposed: the following block is the section heading
+heading = "next"                             # the block after "RCW 1.04.010" is the section heading
+decimal = true                               # 9.41.0975 sorts before 9.41.098 (section part is a decimal)
+versions = '\(Effective '                   # "Definitions. (Effective until June 30, 2027.)" then "(Effective June 30, 2027.)":
+                                             # the second is another version of the same section (_v2), not an error
 scope   = "title"                            # RCW numbers are unique code-wide: /us-wa/rcw/s1.04.010
 # Table-of-contents rows: "1.04.010" + heading, cells run together ("1.04.010Revised Code ...")
 toc     = ['^\d+[A-Z]?\.\d+[A-Z]?\.\d+(?![\d.])']
@@ -56,36 +54,51 @@ sourceCredit  = '^\['                        # "[ 1951 c 5 s 2; 1950 ex.s. c 16 
 editorialNote = ['^NOTES:$', '^Notes:$']     # section notes / chapter notes (cross references, findings)
 
 # ---------------------------------------------------------------- Washington State Constitution
-# leg.wa.gov (Blazor site). The plain page shows only the preamble; ?showall=true is the full text.
-# Markup seen: div.main-chapter-content > h3.title (span.section-number, span.section-title) + <p>.
-# PROVISIONAL: checked only on the preamble (the probe page); articles/sections/amendment notes unseen.
+# leg.wa.gov (Blazor site); ?showall=true is the whole text on one page (the plain page holds only the preamble).
+# div.main-chapter-content holds, in order:
+#     <h3 class="title">PREAMBLE. / ARTICLE I. DECLARATION OF RIGHTS / CERTIFICATE. / CONSTITUTIONAL
+#        AMENDMENTS. / INDEX TO THE STATE CONSTITUTION.</h3>
+#     <div class="chapter"><h4 class="title">SECTION 1. POLITICAL POWER</h4><p class="chapter-body">
+#        <p>...</p> or <div>...</div> per paragraph -- amendment history "[AMENDMENT 84, 1989 ...]" usually
+#        closes the last paragraph (inline, same block)
+# The index at the end is a set of tables (topic / article / section).
 [WA.const]
 name    = "Constitution of the State of Washington"
 doc     = "/us-wa/const"                     # /us-wa/const/a1/s7
 fetch   = "template"
 url     = "https://leg.wa.gov/state-laws-and-rules/washington-state-constitution?showall=true"
 items   = ["const"]                          # always the one page
-file    = "{item}.htm"
+file    = "{item}.htm"                       # law/wa/const/const.htm
 encoding = "utf-8"
 family  = "html-paragraphs"
 
 [WA.const.html]
-root     = "div.main-chapter-content"        # guess for showall: may be one per article (root takes the first)
-blocks   = ["p", "h2", "h3"]
-headings = ["h2", "h3.title"]                # article lines; PREAMBLE / SECTION n. TITLE lines
-opening  = ["span.section-number"]           # "SECTION 1" -> section start
+root     = "div.main-chapter-content"
+blocks   = ["p", "div", "h3", "h4"]
+nested   = true                              # paragraph divs inside div.chapter / p.chapter-body
+headings = ["h3"]                            # article-level lines
+opening  = []
+verbatim = ["table"]                         # the index tables (and any tabular amendment text): one item each
 
 [WA.const.ladder]
-types = ["lower", "num", "roman_lower", "upper"]
+types = ["lower", ["num", "roman_lower"], "upper"]   # Art. II sec. 1 (a)(b); art. VII sec. 12 (d)(i)(ii)(iii)
 tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 
 [WA.const.containers]
+# heading = "self" would drop the "ARTICLE I." text; the whole line stays the num text instead
 preamble = { match = '^(?P<heading>PREAMBLE\.?)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
-article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\b', tag = "article", rank = 2, id = "a{num_arabic}" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\.', tag = "article", rank = 2, id = "a{num_arabic}" }
+certificate = { match = '^(?P<heading>CERTIFICATE\.?)$', tag = "level", rank = 2, id = "certificate", heading = "self" }
+amendments  = { match = '^(?P<heading>CONSTITUTIONAL AMENDMENTS\.?)$', tag = "level", rank = 2, id = "amendments", heading = "self" }
+index       = { match = '^(?P<heading>INDEX TO THE STATE CONSTITUTION\.?)$', tag = "level", rank = 2, id = "index", heading = "self" }
 
 [WA.const.sections]
-match = '^SECTION\s+(?P<num>\d+[A-Z]?)\.?$'  # matched on span.section-number
-bold  = true
+match = '^SECTION\s+(?P<num>\d+(?:\([a-z]\)|[A-Za-z])?)\s*\.?\s*(?P<heading>.*)$'   # the h4: "SECTION 1. POLITICAL POWER";
+                                             # "SECTION 1(a) INITIATIVE AND ..." (art. II, stricken) has no period
+bold  = false
 scope = "container"                          # numbers restart per article
 
 [WA.const.notes]
+sourceCredit = '^\[\s*(?:AMENDMENT|Amendment|Repealed|Stricken)'   # a history line standing alone
+editorialNote = '^NOTES:$'                   # superseded texts ("Amendment 7 (1911) -- ...", "Original text -- ...")
+                                             # follow: their (a)(b) labels stay note text, not law

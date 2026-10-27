@@ -31,9 +31,19 @@ def convert(raw_bytes, formula, item, meta):
         num = str(item).lstrip("0") or "0"
         node = Node(w.get("tag", "chapter"), num=num, ident="%s/%s" % (root.ident, w.get("id", "ch{item}").format(item=num)), rank=1)
         node.items, root.items = root.items, [("node", node)]
-        # sections scoped to the title hang off the document root; keep their identifiers as they are
+        if w.get("rebase"):     # identifiers move under the wrapper (/us-mo/const/s1 -> /us-mo/const/a1/s1),
+            _rebase(node, root.ident, node.ident)   # for codes whose section numbers restart in every file
     tree = writer.document(root, dict(meta, family=formula["family"], title=formula.get("name")))
     return tree, verify.verify(fam.source_text(raw, formula), tree, ladder, formula)
+
+
+def _rebase(node, old, new):
+    for it in node.items:
+        if it[0] == "node":
+            n = it[1]
+            if n.ident.startswith(old + "/") and not n.ident.startswith(new + "/"):
+                n.ident = new + n.ident[len(old):]
+            _rebase(n, old, new)
 
 
 def _sort_key(num, decimal=False):
@@ -73,11 +83,12 @@ def convert_layers(layers, formula, title_ident, title_num_text, title_heading, 
     chapters = {}
     for li, (layer, pages) in enumerate(layers):
         log = logs.setdefault(layer, {"replaced": [], "added": [], "chapters_added": []})
+        seen_here = set()
         for name, raw_bytes in pages:
             raw = _decode(raw_bytes, formula)
             root, ladder = fam.parse(raw, formula, name, root_ident=title_ident)
             part = writer.document(root, {})
-            r = verify.conservation(fam.source_text(raw, formula), part)
+            r = verify.conservation(fam.source_text(raw, formula), part, getattr(ladder, "moved", ()))
             cov = fam.parse_coverage(raw) if hasattr(fam, "parse_coverage") else None
             files.append({"layer": layer, "file": name, "conservation": r, "dropped": getattr(ladder, "dropped", {}),
                           "parse_coverage": cov})
@@ -90,14 +101,21 @@ def convert_layers(layers, formula, title_ident, title_num_text, title_heading, 
                         title.items.append(it)
                     continue
                 ch = it[1]
-                if ch.ident in chapters:
+                if ch.ident in chapters and ch.ident in seen_here:
+                    # the same chapter again in the SAME layer (Delaware's subchapter pages repeat the chapter
+                    # heading): everything it holds joins the chapter, in page order -- nothing is replaced
+                    chapters[ch.ident].items.extend(x for x in ch.items)
+                    log.setdefault("joined", []).append("%s <- %s" % (ch.ident, name))
+                elif ch.ident in chapters:
                     _overlay(chapters[ch.ident], ch, log)
                 elif li == 0:
                     chapters[ch.ident] = ch
                     title.add("node", ch)
+                    seen_here.add(ch.ident)
                 else:                                           # a chapter only the supplement has
                     chapters[ch.ident] = ch
                     title.add("node", ch)
+                    seen_here.add(ch.ident)
                     log["chapters_added"].append(ch.ident)
     root = Node("lawDoc", ident=title_ident, rank=0)
     root.add("node", title)

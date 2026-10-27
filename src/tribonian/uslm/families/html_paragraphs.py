@@ -55,8 +55,10 @@ HTML_DEFAULTS = {"blocks": ["p"], "headings": ["p:centered"], "opening": ["b", "
 
 
 def selector(sel):
-    """'tag', 'tag.class', '.class', 'tag#id', 'tag:centered', 'tag:bold', 'tag:noclass' -> predicate on an
+    """'tag', 'tag.class', '.class', 'tag#id', 'tag[attr*=text]', 'tag:centered', 'tag:bold', 'tag:noclass' -> predicate on an
     lxml element. :centered and :bold also go by the page's CSS class rules."""
+    attr = re.search(r"\[([a-z-]+)\*=([^\]]+)\]", sel)       # [style*=margin-left]: attribute contains
+    sel = re.sub(r"\[[^\]]*\]", "", sel)
     sel, _, pseudo = sel.partition(":")
     centered, noclass, bold = pseudo == "centered", pseudo == "noclass", pseudo == "bold"
     sel, _, ident = sel.partition("#")
@@ -66,6 +68,8 @@ def selector(sel):
         if not isinstance(el.tag, str) or (tag and el.tag != tag):
             return False
         if ident and el.get("id") != ident:
+            return False
+        if attr and attr.group(2).strip("'\"") not in (el.get(attr.group(1)) or ""):
             return False
         if cls and cls not in (el.get("class") or "").split():
             return False
@@ -379,6 +383,10 @@ class Builder:
         self.hb_rx = re.compile(hb["match"] if isinstance(hb, dict) else hb) if hb and (not isinstance(hb, dict) or hb.get("match")) else None
         self.hb_cls = hb.get("class") if isinstance(hb, dict) else None
         self.held_heading = None
+        self.held_args = None
+        self.moved = []                    # texts written in another place than the source's order (heading_before)
+        self.cur_classes = frozenset()
+        self.sec_cls = s.get("class")      # only blocks of this class can open a section (Nevada's constitution)
         self.heading_next = s.get("heading") == "next"   # the block after "§ 1.04.010." is its heading (Washington)
         self.awaiting_heading = None
         self.toc_rx = _regex_list(s.get("toc"))
@@ -399,13 +407,14 @@ class Builder:
         self.root = Node("lawDoc", ident=root_ident or self.doc, rank=0)
         # [notes].close: blocks that end the open section or its notes and stand as a cross heading in the
         # container (a group heading between sections: Nevada after a history line, Oregon's "COURT FACILITIES"
-        # with no markup of its own) -- a regex, {class = ...}, {heading = true} (any heading block), or both
+        # with no markup of its own) -- a regex, {class = ...}, {heading = true} (only heading blocks) or
+        # {heading = false} (never a heading block: a form's centered title inside a section), combined freely
         self.close_rules = []
         for r in (n.get("close") or []) if isinstance(n.get("close"), list) else ([n["close"]] if n.get("close") else []):
             if isinstance(r, str):
-                self.close_rules.append((re.compile(r), None, False))
+                self.close_rules.append((re.compile(r), None, None))
             else:
-                self.close_rules.append((re.compile(r["match"]) if r.get("match") else None, r.get("class"), r.get("heading", False)))
+                self.close_rules.append((re.compile(r["match"]) if r.get("match") else None, r.get("class"), r.get("heading")))
         self.stack = [self.root]           # open containers, root first
         self.section = None                # open section
         self.levels = []                   # open numbered paragraphs inside the section
@@ -434,8 +443,12 @@ class Builder:
 
     # ---------------------------------------------------------------- containers
 
-    def container(self, text):
+    def container(self, text, heading=True):
+        """A heading block matching a [containers] regex opens that container; with any = true in the rule,
+        a non-heading block does too (South Dakota's ARTICLE XXI, the one article heading not centered)."""
         for c in self.containers:
+            if not heading and not c.get("any"):
+                continue
             m = c["rx"].match(text)
             if not m:
                 continue
@@ -460,6 +473,8 @@ class Builder:
     # ---------------------------------------------------------------- sections
 
     def section_start(self, text, bold):
+        if self.sec_cls and self.sec_cls not in self.cur_classes:
+            return False
         probe = bold if self.sec_bold else text
         m = self.sec_rx.match(probe) if probe else None
         if not m or (self.sec_alone and text != probe):
@@ -473,6 +488,10 @@ class Builder:
             probe = text[:m.end()]
         if not heading and self.held_heading is not None:   # [sections].heading_before: the block before was its heading
             heading, self.held_heading = self.held_heading, None
+            self.moved.append(heading)
+            heading_moved = True           # written after the number (USLM order); marked, so verify reads it back
+        else:                              # in source order before comparing
+            heading_moved = False
         parent = self.stack[-1]
         title = next((n for n in self.stack if n.tag == "title"), self.root)
         base = parent.ident if self.scope == "container" else title.ident
@@ -482,6 +501,8 @@ class Builder:
                     ident=self.unique("%s/s%s" % (base, num), num_text, version=is_version), rank=90)
         parent.add("node", node)
         self.section = node
+        if heading_moved:
+            node.label = "heading-before"
         if self.heading_next and not heading:
             self.awaiting_heading = node
         rest = text[len(probe):].strip() if text.startswith(probe) else text[len(num_text):].strip()
@@ -498,15 +519,15 @@ class Builder:
         labels, raws, rest = split_labels(text, self.ladder.dotted)
         placed = 0
         for label, raw in zip(labels, raws):
-            open_ords = [None] * (self.levels[-1].rank + 1 if self.levels else 0)
+            open_labels = [None] * (self.levels[-1].rank + 1 if self.levels else 0)
             for n in self.levels:
-                open_ords[n.rank] = _ord(n, self.ladder.types, n.rank)
+                open_labels[n.rank] = n.label
             hint = indent if indent is not None and label is labels[0] else None   # a line's indent is its first label's
             where = "%s %s" % (self.section.num if self.section else "", "".join("(%s)" % n.num for n in self.levels))
             prev = self.here().last_text() if self.levels or self.section else ""
             same = [n.rank for n in self.levels if n.label == label]
             is_version = bool(same and self.version_rx and self.version_rx.match(rest.lstrip()) and raw is raws[-1])
-            d = same[-1] if is_version else self.ladder.place(label, open_ords, prev, where.strip(), hint)
+            d = same[-1] if is_version else self.ladder.place(label, open_labels, prev, where.strip(), hint)
             if d is None:
                 break
             while self.levels and self.levels[-1].rank >= d:
@@ -532,7 +553,7 @@ class Builder:
 
     def closes_notes(self, text, classes, heading):
         for rx, cls, head in self.close_rules:
-            if (rx is None or rx.match(text)) and (cls is None or cls in classes) and (not head or heading):
+            if (rx is None or rx.match(text)) and (cls is None or cls in classes) and (head is None or head == bool(heading)):
                 return True
         return False
 
@@ -549,16 +570,20 @@ class Builder:
         self.in_notes = item
 
     def feed(self, text, bold, centered, classes=frozenset(), verbatim=False, indent=None):
+        self.cur_classes = classes
         if self.held_heading is not None and not self.section_start_probe(text, bold):
-            held, self.held_heading = self.held_heading, None          # not followed by a section: keep it where it stood
-            (self.section or self.stack[-1]).add("cross", held) if self.in_notes is None else self.in_notes[3].append(held)
+            held, self.held_heading = self.held_heading, None          # not followed by a section: it goes the
+            self._feed(*self.held_args)                                # normal way (notes.close, cross heading)
         if (self.hb_rx or self.hb_cls) and not verbatim and (self.hb_rx is None or self.hb_rx.match(text)) \
                 and (self.hb_cls is None or self.hb_cls in classes) and not self.section_start_probe(text, bold):
             self.held_heading = text
+            self.held_args = (text, bold, centered, classes, verbatim, indent)
             return
         self._feed(text, bold, centered, classes, verbatim, indent)
 
     def section_start_probe(self, text, bold):
+        if self.sec_cls and self.sec_cls not in self.cur_classes:
+            return False
         probe = bold if self.sec_bold else text
         m = self.sec_rx.match(probe) if probe else None
         return bool(m) and not (self.sec_alone and text != probe)
@@ -568,6 +593,11 @@ class Builder:
             node, self.awaiting_heading = self.awaiting_heading, None
             if not verbatim and not self.section_start_probe(text, bold) and not split_labels(text, self.ladder.dotted)[0]:
                 node.heading = text
+                if self.version_rx and self.version_rx.search(text) and re.search(r"_v\d+$", node.ident):
+                    stale = [a for a in self.ladder.anomalies if node.ident in a]   # a repeat that is a version after all
+                    for a in stale:
+                        self.ladder.anomalies.remove(a)
+                        self.versions.append(a.replace("repeats", "is another version"))
                 return
         if verbatim:                            # a form or table: one text item where it stands, labels not read
             target = self.in_notes[3] if self.in_notes is not None else None
@@ -576,7 +606,7 @@ class Builder:
             else:
                 self.here().add("text", text)
             return
-        if centered and self.container(text):
+        if self.container(text, centered):
             return
         if centered and self.pending_heading is not None and not self.pending_heading.heading:
             self.pending_heading.heading = text
@@ -592,8 +622,8 @@ class Builder:
         if rule and not (self.in_notes and self.in_notes[2] == "annotation" and rule[1] != "annotation"):
             self.start_note(rule[0], rule[1], text)
             return
-        if (self.in_notes is not None or self.section is not None) and self.closes_notes(text, classes, centered) \
-                and not self.section_start_probe(text, bold):
+        if self.closes_notes(text, classes, centered) and not self.section_start_probe(text, bold):
+            # also with nothing open: a group heading between the table of contents and the first section
             self.in_notes = None                # [notes].close: this block ends the notes (a group heading after a
             node = self.section or self.stack[-1]   # history line, Nevada); it stands as a cross heading
             if self.section is not None:
@@ -638,7 +668,8 @@ def parse(raw, formula, item_name="", root_ident=None):
     for text, opening, heading, classes, verbatim, indent in paragraphs(doc, formula):
         b.feed(text, opening, heading, classes, verbatim, indent)
     if b.held_heading is not None:           # a heading at the very end with no section after it
-        (b.section or b.stack[-1]).add("cross", b.held_heading)
+        b._feed(*b.held_args)
+    ladder.moved = b.moved
     ladder.versions = b.versions
     ladder.dropped = dropped
     return b.root, ladder
