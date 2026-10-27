@@ -6,8 +6,15 @@ data/state_law_sources.toml. Colorado so far:
     tribonian state fetch CO crs 26.5 --force download again
     tribonian state fetch CO ccr 8-1404-1     a rule of the Code of Colorado Regulations (8 CCR 1404-1)
     tribonian state fetch US const            the U.S. Constitution (govinfo, H. Doc. 110-50)
+    tribonian state fetch CO const            the Colorado Constitution (C.R.S. title 00)
+    tribonian state build CO crs 26.5         source file -> USLM XML + verify report (law/co/uslm/crs/)
+    tribonian state build CO crs --all        every local title of that code
     tribonian state notes                     (re)write the Obsidian notes -> md-state/ (fetch does it too)
     tribonian state list                      what is stored here
+
+Codes with a formula in data/state_formulas.toml (C.R.S., the Colorado Constitution) are fetched by the
+generic downloader and converted by a shared parser family (uslm/); the rest (8 CCR, the U.S. Constitution)
+still have their own readers below.
 
 C.R.S.: the Office of Legislative Legal Services' per-title HTML (olls.info/crs/crs<edition>-title-NN.htm),
 the edition current through the latest regular session. Personal use; republishing needs a statement to
@@ -20,8 +27,6 @@ from datetime import date
 from tribonian import cfr, tconfig
 
 UA = cfr.UA
-CRS_EDITION = 2026                    # the OLLS set current through the 2026 regular session
-CRS_URL = "https://olls.info/crs/crs{edition}-title-{title}.htm"
 _robots = {}
 
 
@@ -69,23 +74,6 @@ def local_meta(path):
         return json.loads(meta.read_text(encoding="utf-8"))
     except ValueError:
         return None
-
-
-def fetch_co_crs(titles, force=False, edition=CRS_EDITION):
-    for t in titles:
-        name = crs_title_name(t)
-        path = state_dir("CO") / "crs" / ("title-%s.htm" % name)
-        have = local_meta(path)
-        if have and have.get("edition") == edition and not force:
-            print("C.R.S. title %s: local, %s edition (fetched %s); --force to replace" % (name, edition, have["fetched"]))
-            continue
-        url = CRS_URL.format(edition=edition, title=name)
-        print("C.R.S. title %s (%d edition) ..." % (name, edition), flush=True)
-        n = download(url, path)
-        path.with_suffix(".json").write_text(json.dumps(
-            {"edition": edition, "fetched": date.today().isoformat(), "url": url, "bytes": n}, indent=1), encoding="utf-8")
-        print("  wrote %s (%.1f MB)" % (path, n / 1e6))
-        time.sleep(1)
 
 
 SOS = "https://www.sos.state.co.us/CCR/"
@@ -175,7 +163,116 @@ def fetch_us_const(items=None, force=False):
     sys.exit("U.S. Constitution: neither govinfo rendition could be fetched")
 
 
-FETCHERS = {("CO", "crs"): fetch_co_crs, ("CO", "ccr"): fetch_co_ccr, ("US", "const"): fetch_us_const}
+FETCHERS = {("CO", "ccr"): fetch_co_ccr, ("US", "const"): fetch_us_const}
+
+
+# ---------------------------------------------------------------- formulas (data/state_formulas.toml)
+
+_FORMULAS = None
+
+
+def formulas():
+    """{(STATE, code): formula}. Needs Python 3.11+ (tomllib) or the tomli package."""
+    global _FORMULAS
+    if _FORMULAS is None:
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib
+        with open(tconfig.PKG / "data" / "state_formulas.toml", "rb") as fh:
+            raw = tomllib.load(fh)
+        _FORMULAS = {(st, code): f for st, codes in raw.items() for code, f in codes.items()}
+    return _FORMULAS
+
+
+def item_name(fmt, item):
+    """'%02d' applied to the whole-number part: '1' -> '01', '26.5' -> '26.5', '00' -> '00'."""
+    whole, dot, frac = str(item).partition(".")
+    return (fmt % int(whole) if fmt and whole.isdigit() else whole) + (dot + frac if dot else "")
+
+
+def formula_dir(st, code, f):
+    return state_dir(st) / f.get("dir", code)
+
+
+def fetch_formula(st, code, items, force=False):
+    """The generic downloader. Strategies: "template" (one URL per item). robots.txt obeyed, a second apart."""
+    f = formulas()[(st, code)]
+    items = items or f.get("items") or []
+    if not items:
+        sys.exit("%s %s: name what to fetch (e.g. a title number)" % (st, code))
+    if f["fetch"] != "template":
+        sys.exit("%s %s: fetch strategy %r not written yet" % (st, code, f["fetch"]))
+    edition = f.get("edition", "")
+    for it in items:
+        name = item_name(f.get("item"), it)
+        path = formula_dir(st, code, f) / f["file"].format(item=name)
+        have = local_meta(path)
+        if have and str(have.get("edition")) == str(edition) and not force:
+            print("%s %s %s: local, %s edition (fetched %s); --force to replace" % (st, code, name, edition, have["fetched"]))
+            continue
+        url = f["url"].format(edition=edition, item=name)
+        print("%s %s %s (%s edition) ..." % (st, code, name, edition), flush=True)
+        n = download(url, path)
+        path.with_suffix(".json").write_text(json.dumps(
+            {"edition": edition, "fetched": date.today().isoformat(), "url": url, "bytes": n}, indent=1), encoding="utf-8")
+        print("  wrote %s (%.1f MB)" % (path, n / 1e6))
+        time.sleep(1)
+
+
+def uslm_path(st, code, src):
+    return state_dir(st) / "uslm" / code / (src.stem + ".xml")
+
+
+def build_formula(st, code, items, everything=False):
+    """Local source files -> USLM + <name>.verify.json beside it. Returns the number that failed."""
+    from tribonian.uslm import build, verify
+    f = formulas()[(st, code)]
+    d = formula_dir(st, code, f)
+    if everything:
+        pat = f["file"].format(item="*")
+        srcs = sorted(p for p in d.glob(pat)) if d.is_dir() else []
+        names = lambda xs: {f["file"].format(item=item_name(f.get("item"), i)) for i in xs}
+        if f.get("items"):
+            srcs = [p for p in srcs if p.name in names(f["items"])]
+        srcs = [p for p in srcs if p.name not in names(f.get("skip", []))]   # C.R.S. title 00 is the constitution
+    else:
+        items = items or f.get("items") or []
+        srcs = [d / f["file"].format(item=item_name(f.get("item"), i)) for i in items]
+    if not srcs:
+        sys.exit("%s %s: nothing to build (fetch first, or name the items)" % (st, code))
+    failed = 0
+    for src in srcs:
+        if not src.exists():
+            print("%s: not local (tribonian state fetch %s %s ...)" % (src.name, st, code))
+            failed += 1
+            continue
+        meta = local_meta(src) or {}
+        tree, report = build.convert(src.read_bytes(), f, src.stem,
+                                     {"edition": meta.get("edition"), "retrieved": meta.get("fetched"), "url": meta.get("url"),
+                                      "formula": "%s.%s" % (st, code)})
+        out = uslm_path(st, code, src)
+        build.write(tree, report, out)
+        print(verify.summary("%s %s %s" % (st, code, src.stem), report))
+        print("  -> %s" % out)
+        failed += not report["ok"]
+    return failed
+
+
+def cmd_build(args):
+    key = (args.state.upper(), args.code.lower())
+    if key not in formulas():
+        sys.exit("no formula for %s %s in data/state_formulas.toml (have: %s)" % (key + (", ".join("%s %s" % k for k in formulas()),)))
+    if build_formula(*key, args.items, args.all):
+        sys.exit(1)
+
+
+# lawtext.run_fetch looks readers up here: formula codes go through the generic downloader
+try:
+    for _st, _code in list(formulas()):
+        FETCHERS.setdefault((_st, _code), lambda items, force=False, _k=(_st, _code): fetch_formula(*_k, items, force))
+except ImportError:                    # Python 3.10 without tomli: the hand-written readers still work
+    pass
 
 
 # ---------------------------------------------------------------- notes (Obsidian): md-state/<state>/...
@@ -276,9 +373,13 @@ def cmd_notes(args):
 
 def cmd_fetch(args):
     key = (args.state.upper(), args.code.lower())
-    if key not in FETCHERS:
-        sys.exit("no reader for %s %s yet (have: %s)" % (key[0], key[1], ", ".join("%s %s" % k for k in FETCHERS)))
-    FETCHERS[key](args.items, args.force)
+    if key in formulas():
+        fetch_formula(*key, args.items, args.force)
+    elif key in FETCHERS:
+        FETCHERS[key](args.items, args.force)
+    else:
+        have = sorted(set(formulas()) | set(FETCHERS))
+        sys.exit("no reader for %s %s yet (have: %s)" % (key[0], key[1], ", ".join("%s %s" % k for k in have)))
     write_notes()
 
 
@@ -300,10 +401,16 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch", help="download a state's code, title by title, unless already local")
     f.add_argument("state", help="postal code, e.g. CO")
-    f.add_argument("code", help="crs (Colorado Revised Statutes; title 00 is the constitution) or ccr (Code of Colorado Regulations)")
+    f.add_argument("code", help="crs (Colorado Revised Statutes), const (Colorado Constitution), ccr (Code of Colorado Regulations)")
     f.add_argument("items", nargs="*", help="crs: titles, e.g. 26.5 00; ccr: rules, e.g. 8-1404-1; US const: none")
     f.add_argument("--force", action="store_true", help="download again whatever is local")
     f.set_defaults(func=cmd_fetch)
+    b = sub.add_parser("build", help="local source files -> USLM XML, each with a verify report (conservation, schema, numbering)")
+    b.add_argument("state", help="postal code, e.g. CO")
+    b.add_argument("code", help="a code with a formula in data/state_formulas.toml: crs, const")
+    b.add_argument("items", nargs="*", help="titles, e.g. 26.5 (const: none)")
+    b.add_argument("--all", action="store_true", help="every local file of that code")
+    b.set_defaults(func=cmd_build)
     nt = sub.add_parser("notes", help="(re)write the Obsidian notes of everything stored here -> md-state/ (fetch does it too)")
     nt.set_defaults(func=cmd_notes)
     l = sub.add_parser("list", help="what is stored here")

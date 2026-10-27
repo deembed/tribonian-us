@@ -1,0 +1,98 @@
+# state_formulas.toml -- how to fetch and read each state's law (statelaw.py / uslm/).
+#
+# One table per state and code: [<STATE>.<code>]. Three parts, each picked by name:
+#
+#   fetch   how the files arrive. Strategies (statelaw.py):
+#             "template"  url with {edition} and {item}; one file per item (a title, a chapter)
+#   family  which shared parser reads them (uslm/families/). Families:
+#             "html-paragraphs"  Word-style HTML: every line a <p>; structure from text, bold and centering
+#   [*.ladder]     the paragraph numbering, outermost first: label types and the USLM element for each level
+#   [*.containers] centered headings that open a title / article / part ... (regex, element, rank)
+#   [*.sections]   what starts a section, and how its number becomes an identifier
+#   [*.notes]      paragraphs that start a note (Source:, Editor's note ...) and the note element
+#
+# Every build is checked (tribonian state verify): text conservation (every source character lands
+# in the USLM, in order), no silent drops (unplaced text is kept and marked role="unmapped"),
+# the USLM 1.0.15 schema, sibling numbering, unique identifiers.
+#
+# Label types: num (1) (1.5) (0.5) | lower (a) (aa) (a.5) | upper (A) (A.5) | roman_upper (IV) | roman_lower (iv)
+# A level may take several types: ["roman_upper", "roman_lower"].
+# A label that fits two types, as (I) or (i), is placed by the numbering around it (uslm/tree.py).
+
+# ---------------------------------------------------------------- Colorado Revised Statutes
+[CO.crs]
+name    = "Colorado Revised Statutes"
+doc     = "/us-co/crs"                       # identifier root: /us-co/crs/t26.5/s26.5-1-101/1/a
+fetch   = "template"
+url     = "https://olls.info/crs/crs{edition}-title-{item}.htm"
+edition = 2026                               # the OLLS set current through the 2026 regular session
+item    = "%02d"                             # title 1 -> "01"; 26.5 -> "26.5" (fraction kept)
+file    = "title-{item}.htm"
+skip    = ["00"]                             # title 00 is the constitution: its own formula, CO.const
+encoding = "cp1252"
+family  = "html-paragraphs"
+terms   = "personal use; republishing needs a statement to the Committee on Legal Services (C.R.S. 2-5-118)"
+
+[CO.crs.ladder]
+types = ["num", "lower", "roman_upper", "upper"]          # (1)(a)(I)(A)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[CO.crs.containers]
+# regex on the centered paragraph's text; num = the number group. heading = "next": the next centered
+# paragraph is the heading. rank: a container closes every open container of the same or lower rank.
+title   = { match = '^TITLE\s+(?P<num>\d+(?:\.\d+)?)$', tag = "title",   rank = 1, id = "t{num}" }
+article = { match = '^ARTICLE\s+(?P<num>\d+(?:\.\d+)?)$', tag = "article", rank = 2, id = "a{num}" }
+part    = { match = '^PART\s+(?P<num>\d+(?:\.\d+)?)$', tag = "part",    rank = 3, id = "p{num}" }
+subpart = { match = '^SUBPART\s+(?P<num>\d+(?:\.\d+)?)$', tag = "subpart", rank = 4, id = "sp{num}" }
+
+[CO.crs.sections]
+# The section's opening run is bold: "26.5-1-303.  Early childhood leadership commission - duties."
+match = '^(?P<num>\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?)\.\s*(?P<heading>.*)$'
+bold  = true                                   # matched against the paragraph's bold opening run
+versions = "^\\[Editor's note: This version"   # a repeated label opening like this is another version, not an error
+scope = "title"                                # section ids hang off the title: /us-co/crs/t26.5/s26.5-1-303
+# Lines of a container's table of contents (not law text): kept in a <toc> note
+toc   = ['^Art\.\s', '^PART\s+\d', '^\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?\.\s']
+
+[CO.crs.notes]
+annotation = '^ANNOTATION$'                    # centered: case annotations follow, to the next section
+sourceCredit  = '^Source:'
+editorialNote = ["^Editor's note", "^Cross references:", "^Law reviews"]
+
+# ---------------------------------------------------------------- Colorado Constitution (C.R.S. title 00)
+[CO.const]
+name    = "Constitution of the State of Colorado"
+doc     = "/us-co/const"                     # /us-co/const/a2/s7
+fetch   = "template"
+url     = "https://olls.info/crs/crs{edition}-title-{item}.htm"
+edition = 2026
+item    = "%02d"
+items   = ["00"]                              # always the one file
+file    = "title-{item}.htm"
+dir     = "crs"                              # shares the C.R.S. folder: law/co/crs/title-00.htm
+encoding = "cp1252"
+family  = "html-paragraphs"
+
+[CO.const.ladder]
+types = ["num", "lower", ["roman_upper", "roman_lower"], "upper"]   # TABOR (art. X, sec. 20(3)(b)) uses (i) (ii)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[CO.const.containers]
+title    = { match = '^(?P<heading>CONSTITUTION OF THE STATE OF COLORADO)$', tag = "title", rank = 1, id = "", heading = "self" }
+preamble = { match = '^(?P<heading>Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+(?:-?[a-z])?)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+schedule = { match = '^(?P<heading>Schedule)$', tag = "level", rank = 2, id = "schedule", heading = "self" }
+
+[CO.const.sections]
+match = '^Section\s+(?P<num>\d+(?:\.\s?\d+)?[a-z]?)\.\s*(?P<heading>.*)$'   # "44. 1." is 44.1 (a span break in the source)
+bold  = true
+alone = true                                   # a real section's opening paragraph is only "Section N. Heading.";
+                                               # "Section 45. Census. The general ..." is quoted history in a note
+versions = "^\\[Editor's note: This version"
+scope = "container"
+toc   = ['^Sec\.\s+\d']                            # numbers restart per article: /us-co/const/a2/s7
+
+[CO.const.notes]
+annotation = '^ANNOTATION$'
+sourceCredit  = '^Source:'
+editorialNote = ["^Editor's note", "^Cross references:", "^Law reviews"]

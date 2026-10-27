@@ -1,0 +1,141 @@
+"""verify.py -- prove a USLM conversion lost nothing, instead of trusting the parser.
+
+Checks, in order of weight:
+    conservation   the source's text and the USLM's text, all whitespace removed, are the same string.
+                   The source side is read straight from the raw file (not from the family's paragraphs),
+                   so a paragraph the family skipped, duplicated or reordered fails here.
+    schema         valid against USLM 1.0.15 (data/uslm/), the schema the US Code XML declares
+    unmapped       text kept but not placed (role="unmapped"): counted, first few shown
+    numbering      siblings in order: (1) (1.5) (2) ..., at most one whole number skipped
+    identifiers    every identifier unique
+plus the ladder's log: labels placed by choosing between two plausible levels, and labels out of sequence.
+A build passes when conservation and schema pass; the rest is a list of places to look.
+"""
+import re
+from pathlib import Path
+
+from lxml import etree
+
+from tribonian.uslm.tree import level_ordinal
+from tribonian.uslm.writer import NS
+
+SCHEMA = Path(__file__).resolve().parent.parent / "data" / "uslm" / "USLM-1.0.15.xsd"
+_schema = None
+
+
+def schema():
+    global _schema
+    if _schema is None:
+        _schema = etree.XMLSchema(etree.parse(str(SCHEMA)))
+    return _schema
+
+
+def squash(s):
+    return re.sub(r"\s+", "", s)
+
+
+def main_text(tree):
+    main = tree.getroot().find("{%s}main" % NS)
+    return " ".join(main.itertext()) if main is not None else ""
+
+
+def conservation(source_text, tree):
+    a, b = squash(source_text), squash(main_text(tree))
+    if a == b:
+        return {"ok": True, "chars": len(a)}
+    i = next((k for k in range(min(len(a), len(b))) if a[k] != b[k]), min(len(a), len(b)))
+    return {"ok": False, "source_chars": len(a), "uslm_chars": len(b), "first_difference": i,
+            "source_at": a[max(0, i - 80):i + 80], "uslm_at": b[max(0, i - 80):i + 80]}
+
+
+def _local(el):
+    return etree.QName(el).localname
+
+
+def numbering(tree, ladder_types, ladder_tags):
+    """Out-of-order siblings: numbered paragraphs by the ladder type of their tag; sections by the
+    numbers in their number (26.5-1-101 -> (26, 5, 1, 101))."""
+    by_tag = dict(zip(ladder_tags, ladder_types))
+    out = []
+    for parent in tree.getroot().iter():
+        if not isinstance(parent.tag, str):
+            continue
+        prev = {}
+        for ch in parent:
+            if not isinstance(ch.tag, str):
+                continue
+            tag = _local(ch)
+            num = ch.find("{%s}num" % NS)
+            value = num.get("value") if num is not None else None
+            if not value:
+                continue
+            if tag in by_tag:
+                o = level_ordinal(by_tag[tag], value)
+            elif tag == "section":
+                o = tuple(int(x) for x in re.findall(r"\d+", value)) + (value[-1:].isalpha() and ord(value[-1]) or 0,)
+            else:
+                continue
+            if o is None:
+                out.append("%s: (%s) is not a %s label" % (ch.get("identifier"), value, by_tag.get(tag)))
+                continue
+            p = prev.get(tag)
+            if (ch.get("identifier") or "").rsplit("_v", 1)[-1].isdigit() and p is not None and o == p:
+                continue               # another version of the same paragraph (effective-date variants)
+            if p is not None and not o > p:
+                out.append("%s: %s comes after %s" % (ch.get("identifier"), value, p))
+            elif p is not None and tag in by_tag and o[0] > p[0] + 2:
+                out.append("%s: jumps from %s to %s" % (ch.get("identifier"), p, value))
+            prev[tag] = o
+    return out
+
+
+def identifiers(tree):
+    seen, dup = set(), []
+    for el in tree.getroot().iter("{%s}*" % NS):
+        if el is tree.getroot():
+            continue                   # the document shares its identifier with its title, as in the US Code
+        i = el.get("identifier") if isinstance(el.tag, str) else None
+        if i:
+            if i in seen:
+                dup.append(i)
+            seen.add(i)
+    return dup
+
+
+def unmapped(tree):
+    return [" ".join(" ".join(el.itertext()).split())[:160] for el in tree.getroot().iter("{%s}note" % NS) if el.get("role") == "unmapped"]
+
+
+def verify(source_text, tree, ladder, formula):
+    s = schema()
+    valid = s.validate(tree)
+    um = unmapped(tree)
+    r = {
+        "conservation": conservation(source_text, tree),
+        "schema": {"ok": valid, "errors": [str(e) for e in list(s.error_log)[:20]]},
+        "unmapped": {"count": len(um), "first": um[:10]},
+        "numbering": numbering(tree, formula["ladder"]["types"], formula["ladder"]["tags"]),
+        "duplicate_identifiers": identifiers(tree),
+        "ambiguous_labels": ladder.ambiguous,
+        "anomalies": ladder.anomalies,
+        "versions": ladder.versions,
+        "counts": {t: sum(1 for _ in tree.getroot().iter("{%s}%s" % (NS, t)))
+                   for t in ["section"] + list(formula["ladder"]["tags"]) + ["sourceCredit", "editorialNote", "note"]},
+    }
+    r["ok"] = r["conservation"]["ok"] and valid
+    return r
+
+
+def summary(name, r):
+    c = r["conservation"]
+    lines = ["%s: %s" % (name, "PASS" if r["ok"] else "FAIL"),
+             "  conservation  %s" % ("ok, %d characters" % c["chars"] if c["ok"] else
+                                     "FAILED at %d (source %d chars, USLM %d)\n    source: %s\n    uslm:   %s" %
+                                     (c["first_difference"], c["source_chars"], c["uslm_chars"], c["source_at"], c["uslm_at"])),
+             "  schema        %s" % ("ok" if r["schema"]["ok"] else "FAILED\n    " + "\n    ".join(r["schema"]["errors"][:5])),
+             "  unmapped      %d" % r["unmapped"]["count"] + "".join("\n    " + u for u in r["unmapped"]["first"][:3]),
+             "  numbering     %d to look at" % len(r["numbering"]) + "".join("\n    " + u for u in r["numbering"][:5]),
+             "  identifiers   %d repeated" % len(r["duplicate_identifiers"]),
+             "  ladder        %d ambiguous (resolved), %d anomalies, %d versions" % (len(r["ambiguous_labels"]), len(r["anomalies"]), len(r["versions"])),
+             "  counts        " + ", ".join("%s %d" % kv for kv in r["counts"].items())]
+    return "\n".join(lines)
