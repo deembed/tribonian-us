@@ -1,0 +1,91 @@
+# WA.toml -- Washington: Revised Code of Washington (RCW) and the State Constitution.
+#
+# RCW: app.leg.wa.gov serves a whole chapter on one page with default.aspx?cite=<chapter>&full=true
+# (fewer requests than per-section pages). The page is ASP.NET with Bootstrap; the law sits in
+# div.main-page-content: h1 "Chapter 1.04 RCW", h2 chapter name, a table of contents (one <tr> per
+# section), chapter notes, then per section:
+#     <div><h3><a class="btn">PDF</a>RCW <a>1.04.010</a></h3></div>     section number
+#     <div><h3>Revised Code of Washington enacted.</h3></div>            section heading (its own block)
+#     <div><div style="text-indent:0.5in">...</div> ...</div>             one inner div per paragraph
+#     <div style="margin-top:15pt">[ 1951 c 5 s 2; ...]</div>             history (session-law cites)
+#     <div><h3>NOTES:</h3></div><div><div style="font-style:italic">...  notes
+# Paragraphs carry no depth markup (all text-indent:0.5in): the ladder places (1)(a)(i)(A) by sequence.
+#
+# NEEDS SHARED-CODE FEATURES (see build/dispatch/WA.status.md); with them emulated
+# (WA_EMULATE=1 build/dispatch/WA.test.py) the 1.04 probe passes. Today it builds nothing:
+#   - "div:leaf"              paragraphs are divs nested in a wrapper div; only the innermost are lines
+#   - root's outer divs       blocks' ancestors must be looked for only inside [html].root
+#   - [sections].heading      the section heading is the block after the number block
+[WA.rcw]
+name    = "Revised Code of Washington"
+doc     = "/us-wa/rcw"                       # /us-wa/rcw/ch1.04, /us-wa/rcw/s9A.04.110/1/a
+fetch   = "template"                         # one item = one chapter ("1.04", "9A.04", "28B.10")
+url     = "https://app.leg.wa.gov/RCW/default.aspx?cite={item}&full=true"
+file    = "{item}.htm"                       # law/wa/rcw/1.04.htm
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "Statute Law Committee claims copyright in the RCW; live HTML is unofficial (certified archive is official)"
+
+[WA.rcw.html]
+root     = "div.main-page-content"           # skips the site header, breadcrumbs, footer
+blocks   = ["h1", "h2", "h3", "div:leaf", "tr"]   # div:leaf = a div with no div/p/h*/table inside (proposed);
+                                             # tr = one table-of-contents row
+headings = ["h1", "h2"]                      # chapter number line and chapter name
+opening  = []                                # no bold run: sections are matched on the whole block text
+drop     = ["a.btn", "div.gray-box", "h3.list-heading"]   # "PDF"/"HTML" buttons; "Chapter listing HTML" box;
+                                             # the "Sections" label over the table of contents
+
+[WA.rcw.ladder]
+types = ["num", "lower", "roman_lower", "upper"]          # (1)(a)(i)(A)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[WA.rcw.containers]
+# The h1; its name is the next heading (the h2). Chapter numbers carry letters: 9A.04, 28B.10, 43.21C
+chapter = { match = '^Chapter\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\s+RCW$', tag = "chapter", rank = 2, id = "ch{num}" }
+
+[WA.rcw.sections]
+match   = '^RCW\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?\.\d+)$'   # the number block alone: "RCW 1.04.010"
+bold    = false
+heading = "next"                             # proposed: the following block is the section heading
+scope   = "title"                            # RCW numbers are unique code-wide: /us-wa/rcw/s1.04.010
+# Table-of-contents rows: "1.04.010" + heading, cells run together ("1.04.010Revised Code ...")
+toc     = ['^\d+[A-Z]?\.\d+[A-Z]?\.\d+(?![\d.])']
+
+[WA.rcw.notes]
+sourceCredit  = '^\['                        # "[ 1951 c 5 s 2; 1950 ex.s. c 16 s 1.]"
+editorialNote = ['^NOTES:$', '^Notes:$']     # section notes / chapter notes (cross references, findings)
+
+# ---------------------------------------------------------------- Washington State Constitution
+# leg.wa.gov (Blazor site). The plain page shows only the preamble; ?showall=true is the full text.
+# Markup seen: div.main-chapter-content > h3.title (span.section-number, span.section-title) + <p>.
+# PROVISIONAL: checked only on the preamble (the probe page); articles/sections/amendment notes unseen.
+[WA.const]
+name    = "Constitution of the State of Washington"
+doc     = "/us-wa/const"                     # /us-wa/const/a1/s7
+fetch   = "template"
+url     = "https://leg.wa.gov/state-laws-and-rules/washington-state-constitution?showall=true"
+items   = ["const"]                          # always the one page
+file    = "{item}.htm"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[WA.const.html]
+root     = "div.main-chapter-content"        # guess for showall: may be one per article (root takes the first)
+blocks   = ["p", "h2", "h3"]
+headings = ["h2", "h3.title"]                # article lines; PREAMBLE / SECTION n. TITLE lines
+opening  = ["span.section-number"]           # "SECTION 1" -> section start
+
+[WA.const.ladder]
+types = ["lower", "num", "roman_lower", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[WA.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE\.?)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\b', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[WA.const.sections]
+match = '^SECTION\s+(?P<num>\d+[A-Z]?)\.?$'  # matched on span.section-number
+bold  = true
+scope = "container"                          # numbers restart per article
+
+[WA.const.notes]

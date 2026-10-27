@@ -61,11 +61,18 @@ def to_roman(n):
 
 
 def _split_frac(label):
-    """'1.5' -> ('1', 5); 'a' -> ('a', 0)."""
+    """'1.5' -> ('1', 5); 'a' -> ('a', 0). Insertion labels count as fractions too: 'a1' -> ('a', 1) (North
+    Carolina's (a1) between (a) and (b)), '1a' -> ('1', 1) ((1a) between (1) and (2))."""
     base, dot, frac = label.partition(".")
-    if dot and not frac.isdigit():
-        return None, None
-    return base, int(frac) if dot else 0
+    if dot:
+        return (base, int(frac)) if frac.isdigit() else (None, None)
+    m = re.fullmatch(r"([A-Za-z]+)(\d{1,2})", label)
+    if m:
+        return m.group(1), int(m.group(2))
+    m = re.fullmatch(r"(\d+)([a-z])", label)
+    if m:
+        return m.group(1), ord(m.group(2)) - 96
+    return label, 0
 
 
 def ordinal(kind, label):
@@ -84,6 +91,11 @@ def ordinal(kind, label):
         return None
     if kind == "num":
         return (int(base), frac) if base.isdigit() else None
+    if kind in ("double_lower", "double_upper"):        # (aa) (bb) ... as a level of its own: aa -> 1, bb -> 2
+        ok = base.islower() if kind == "double_lower" else base.isupper()
+        if not (ok and base.isalpha() and len(base) == 2 and base[0] == base[1]):
+            return None
+        return (ord(base[0].lower()) - 96, frac)
     if kind in ("lower", "upper"):
         ok = base.islower() if kind == "lower" else base.isupper()
         if not (ok and base.isalpha() and len(set(base)) == 1 and len(base) <= 3):
@@ -115,8 +127,8 @@ def follows(prev, o):
     return o > prev and o[0] <= prev[0] + 2
 
 
-LABEL = re.compile(r"\(([0-9]+(?:\.[0-9]+)?|[A-Za-z]{1,6}(?:\.[0-9]+)?)\)\s*")
-DOTTED = re.compile(r"([0-9]+\.|[A-Z]{1,2}\.)(?=\s)\s*")
+LABEL = re.compile(r"\(([0-9]+(?:\.[0-9]+|[a-z])?|[A-Za-z]{1,6}(?:\.[0-9]+|[0-9]{1,2})?)\)\s*")
+DOTTED = re.compile(r"([0-9]+\.|[IVXLC]{1,6}\.|[A-Z]{1,2}\.|[a-z]{1,2}\.)(?=\s|$)\s*")   # 1. A. a. IV. (MD, DE, NH)
 
 
 class Ladder:

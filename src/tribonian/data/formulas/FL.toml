@@ -1,0 +1,74 @@
+# FL.toml -- Florida: the Florida Statutes (Online Sunshine, leg.state.fl.us) and the Florida Constitution
+# (flsenate.gov). Both sites publish the same XML-derived markup: nested divs by level
+#   div.Section > span.SectionNumber, span.Catchline, span.SectionBody > span.Text, div.Subsection >
+#   span.Id "(a)", span.Text, div.Paragraph > span.Id "(1)" ... ; div.History, div.Note after the body.
+# html-paragraphs reads non-nested blocks only, so for now the blocks are the leaf spans (label, text,
+# section number, catchline) -- see build/dispatch/FL.status.md for the shared-code features that would let
+# the nested divs themselves be the lines.
+
+# ---------------------------------------------------------------- Florida Constitution
+# One page, the whole constitution: https://www.flsenate.gov/Laws/Constitution (div.Constitution).
+[FL.const]
+name    = "Constitution of the State of Florida"
+doc     = "/us-fl/const"                     # /us-fl/const/a5/s20/c/5
+fetch   = "template"
+url     = "https://www.flsenate.gov/Laws/Constitution"
+edition = 2026
+item    = ""
+items   = ["const"]                          # always the one file
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "AALL: no copyright claimed"
+
+[FL.const.html]
+root     = "div.Constitution"                # everything outside is flsenate.gov site furniture
+# Leaf elements as lines (none nests inside another, except what History/Note swallow on purpose):
+#   p                  ConstitutionTitle / Preamble lines, and a few extra paragraphs inside subsections
+#   div.IndexItem      the article and section indexes (editorial tables of contents)
+#   span.Reference     a footnote marker ("1") in front of a section or label, pointing at a div.Note
+#   span.SectionNumber "SECTION 20."      span.Catchline "Schedule to Article V.—"
+#   span.Id            "(a)" "(1)" "a." "1."   span.Text  the text after the label
+#   div.History / div.Note  whole notes (their spans and p are inside them, so count once)
+blocks   = ["p", "div.IndexItem", "span.Reference", "span.SectionNumber", "span.Catchline", "span.Id",
+            "span.Text", "div.History", "div.Note"]
+headings = ["div.ArticleNumber", "div.ArticleName", "p.AlignCenter"]
+opening  = []
+
+[FL.const.ladder]
+types = ["lower", "num", "lower.", "num."]   # (a)(1)a.1. -- div Subsection/Paragraph/SubParagraph/SubSubParagraph
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[FL.const.containers]
+title    = { match = '^(?P<heading>CONSTITUTION)$', tag = "title", rank = 1, id = "", heading = "self" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }   # div.ArticleName follows
+
+[FL.const.sections]
+match = '^SECTION\s+(?P<num>\d+[a-z]?)\.$'   # span.SectionNumber alone; the catchline is the next block
+bold  = false
+scope = "container"                          # numbers restart per article: /us-fl/const/a1/s2
+toc   = ['^ARTICLE\s+[IVXL]+\s', '^SECTION\s+\d+[a-z]?\.\s']   # div.IndexItem lines
+
+[FL.const.notes]
+sourceCredit  = { class = "History" }        # "History.—S.J.R. 917, 1974; adopted 1974; ..."
+editorialNote = { class = "Note" }           # "Note.—This section, originally designated ..."
+
+# ---------------------------------------------------------------- Florida Statutes (DRAFT, not active)
+# Not live yet: no whole-chapter page has been probed. What the probes show (2026 edition):
+#   - "Statutes Download" mode (index.cfm?Mode=Statutes%20Download) renders the same title list as the
+#     browse page: no bulk file offered, so a crawl it is.
+#   - Each chapter has a whole-chapter page ("View Entire Chapter"):
+#       https://www.leg.state.fl.us/Statutes/index.cfm?App_mode=Display_Statute&URL=0000-0099/0001/0001.html
+#     The path carries the hundred-range of the chapter number (0700-0799/0768/0768.html), so a plain
+#     {item} template cannot build it; the title index (App_mode=Display_Index&Title_Request=I) presumably
+#     links each chapter's ContentsIndex page, which would need rewriting to the whole-chapter URL.
+#   - Statute text sits in div#statutes inside the site page; the chapter markup is the same family as the
+#     constitution's (div.Chapter > div.Title/TitleNumber, div.ChapterTitle/ChapterNumber/ChapterName).
+# Expected shape once probed:
+# [FL.statutes]
+# name = "Florida Statutes"; doc = "/us-fl/fs"; family = "html-paragraphs"; encoding = "utf-8"
+# [FL.statutes.html]   root = "div#statutes"; blocks/headings as FL.const plus div.TitleNumber, div.ChapterNumber,
+#                      div.ChapterName, div.PartTitle ...
+# [FL.statutes.ladder] types = ["num", "lower", "num.", "lower.", "roman_upper", "upper"]   # (1)(a)1.a.(I)(A)
+# [FL.statutes.sections] match = '^(?P<num>\d+\.\d+)$' (span.SectionNumber "1.01"); scope = "title"

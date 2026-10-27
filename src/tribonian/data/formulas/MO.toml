@@ -1,0 +1,67 @@
+# MO.toml -- Missouri: Revised Statutes (RSMo) and Constitution, from the Revisor of Statutes (revisor.mo.gov).
+#
+# STATUS: DRAFT -- fetch settings only. The probes the user has so far are a chapter's table of contents
+# (OneChapter.aspx?chapter=1: a <table> of section links + headnotes) and the constitution's article list;
+# neither holds law text, so the [html] / ladder / sections / notes settings below are placeholders until
+# the whole-chapter page (see build/dispatch/MO.txt) has been probed. Do NOT fetch at scale yet.
+#
+# Site layout (from the probes):
+#   Home.aspx                                 -> links OneChapter.aspx?chapter=N for every chapter (Titles I-XLII
+#                                                group them; the chapter page header says "Title I LAWS AND STATUTES")
+#   OneChapter.aspx?chapter=N                 -> table of contents only (PageSelect.aspx?section=1.010&bid=42 per section)
+#   OneChapter.aspx?chapter=N&idx=v           -> "View entire chapter": every section's text on one page (preferred:
+#                                                one request per chapter instead of one per section)
+#   Home.aspx?constit=y                       -> ViewChapter.aspx?chapter=I&constit=y per article (I .. XIV)
+# Section numbers are chapter.NNN[N] ("1.010", "1.1001"); Home.aspx links 468 chapters, all plain numbers.
+
+[MO.rsmo]
+name    = "Revised Statutes of Missouri"
+doc     = "/us-mo/rsmo"                      # /us-mo/rsmo/t1/s1.010/1/a  (title id = the chapter number, as the item)
+fetch   = "template"
+url     = "https://revisor.mo.gov/main/OneChapter.aspx?chapter={item}&idx=v"   # the whole-chapter view
+edition = "current"                          # the site shows one current text (sections effective 8/28/2026 included)
+item    = "%d"                               # chapters are not zero-padded in the URL: chapter=1, chapter=143
+file    = "chapter-{item}.htm"               # law/mo/rsmo/chapter-1.htm
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "(c) Missouri Legislature, all rights reserved; Terms of Use 'TBD' (state_law_sources.toml)"
+
+[MO.rsmo.html]
+# PLACEHOLDER: set once the idx=v page is probed. Expect: root = the main content div (site search form,
+# header and left nav outside it), drop = the per-chapter TOC table and the "View entire chapter" link.
+blocks   = ["p"]
+headings = []
+opening  = ["b", "strong"]
+
+[MO.rsmo.ladder]
+# RSMo numbering as printed: "1." subsections, "(1)" subdivisions, "(a)" paragraphs, "a." subparagraphs.
+# PLACEHOLDER pending the probe (confirm the dotted forms split_labels expects: "num." and "lower."?)
+types = ["num.", "num", "lower"]
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[MO.rsmo.sections]
+# Opening run "1.010. Common law in force ..." -- PLACEHOLDER pending the probe
+match = '^(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+
+[MO.rsmo.notes]
+# History line "(RSMo 1939 § 645, A.L. 1993 S.B. 180)" closes each section -- PLACEHOLDER pending the probe
+sourceCredit = '^\((?:RSMo|L\.\s|A\.L\.|Amended)'
+
+# ---------------------------------------------------------------- Constitution of Missouri (1945)
+[MO.const]
+inherit = "MO.rsmo"
+name    = "Constitution of Missouri"
+doc     = "/us-mo/const"                     # /us-mo/const/aI/s1 -- PLACEHOLDER pending the probe
+url     = "https://revisor.mo.gov/main/ViewChapter.aspx?chapter={item}&constit=y"   # whether this page holds the text
+                                             # or only a TOC is unknown: probe it (MO.txt)
+item    = ""                                 # article numbers are roman: I .. XIV, used as given
+items   = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV"]
+file    = "article-{item}.htm"
+dir     = "const"
+
+[MO.const.sections]
+match = '^Section\s+(?P<num>\d+(?:\(?[a-z]\)?)?)\.\s*(?P<heading>.*)$'   # PLACEHOLDER pending the probe
+bold  = true
+scope = "container"

@@ -1,0 +1,99 @@
+# VT.toml -- Vermont Statutes Annotated and the Vermont Constitution (legislature.vermont.gov).
+#
+# The legislature's "Vermont Statutes Online" (unofficial copy of V.S.A., current through the 2026 session).
+# Pages: /statutes/title/TT lists chapters; /statutes/chapter/TT/CCC lists sections; /statutes/fullchapter/TT/CCC
+# is a whole chapter on one page (preferred: one request per chapter). Section text is
+#   <li><div><p style="margin-left:0px"><b>§ 51. Heading</b></p><p style="text-indent:19.2px">text ...</p></div></li>
+# Subchapter headings are <li><i><strong>Subchapter 001: Name</strong></i></li>. The session-law history is
+# inline at the end of the last paragraph "(Added 1959, No. 262, § 1, eff. ...)", not a separate block, so it
+# stays in the text (no sourceCredit split is possible without a feature to cut a trailing parenthetical).
+
+# ---------------------------------------------------------------- Vermont Statutes Annotated
+[VT.vsa]
+name    = "Vermont Statutes Annotated"
+doc     = "/us-vt/vsa"                         # /us-vt/vsa/t1/ch1/sch2 ; sections /us-vt/vsa/t1/s51/a/1
+fetch   = "index"
+item    = "%02d"                               # title 1 -> "01"; "09A", "03APPENDIX" kept as written
+index_file = "title_{item}.html"
+# The title page links /statutes/chapter/TT/CCC (section list). We want /statutes/fullchapter/TT/CCC.
+# NEEDS FEATURE (see build/dispatch/VT.status.md): the index strategy cannot yet rewrite a link to another
+# URL, and saves a linked page under its last path segment while the build reads it under the full link.
+# Until then this pattern is the intent; it has not been checked against a downloaded title page.
+links   = 'href="(/statutes/chapter/\d+[A-Z]*/\d+[A-Z]*)"'
+layers  = [ { name = "2026", url = "https://legislature.vermont.gov/statutes/title/{item}" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "unofficial copy provided as a convenience (site notice); the official V.S.A. is published by LexisNexis"
+
+[VT.vsa.html]
+root     = "div#main-content"
+blocks   = ["p"]
+# h3.statute-chapter "Chapter 001: Name"; the subchapter line is a bare <i> inside an <li> (an <i> inside a
+# <p> is not read as a heading: blocks nested in blocks count once, as part of the outer one)
+headings = ["h3.statute-chapter", "i"]
+opening  = ["b"]                               # the section line "§ 51. Heading" is bold
+drop     = ["div.print-top",                   # "Print" button
+            "h2:noclass",                      # "The Vermont Statutes Online" banner
+            "div.alert",                       # "include the actions of the 2026 session ... unofficial copy" notice
+            "div.breadcrumb",                  # Statutes > Title 1 > Chapter 001 > Full Text
+            "h2.statute-title"]                # "Title 1: General Provisions": repeated on every chapter page;
+                                               # the title is named once by the build (as Maryland's banner)
+
+[VT.vsa.ladder]
+# (a)(1)(A)(i)(I), then (aa)(bb) at a sixth level -- the doubled-letter level is not expressible yet (see status)
+types = ["lower", "num", "upper", "roman_lower", "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[VT.vsa.containers]
+# "Chapter 001: Vermont Statutes Annotated" -- leading zeros outside the num group: id ch1, the text keeps "001"
+chapter    = { match = '^Chapter\s+0*(?P<num>\d+[A-Z]?)\s*:', tag = "chapter", rank = 2, id = "ch{num}" }
+subchapter = { match = '^Subchapter\s+0*(?P<num>\d+[A-Z]?)\s*:', tag = "subchapter", rank = 3, id = "sch{num}" }
+
+[VT.vsa.sections]
+# "§ 51. Heading", "§ 2201a. ...", 9A V.S.A. "§ 1-101. ...", spans "§§ 1-9. Repealed. ..." / "§§ 53, 54. Repealed. ..."
+# The identifier takes the first number (or range) only: s53 for "§§ 53, 54" (a comma has no place in an id);
+# the full "§§ 53, 54." stays in the num text.
+match = '^§§?\s*(?P<num>\d+[a-zA-Z]*(?:-\d+[a-zA-Z]*)*)(?:(?:,\s*|\s+(?:to|and)\s+)\d+[a-zA-Z]*(?:-\d+[a-zA-Z]*)*)*\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+
+[VT.vsa.notes]
+# none as separate blocks: history is inline at the end of the text
+
+# ---------------------------------------------------------------- Constitution of the State of Vermont
+# One page, /statutes/constitution-of-the-state-of-vermont. Plain <p> with <strong> openings: "Article 1. [Heading]"
+# in Chapter I (Declaration of Rights), "§ 1. [Heading]" in Chapter II. Chapters are centered h4 pairs
+# ("CHAPTER I." then its name); department headings are p.text-center (cross headings).
+[VT.const]
+name    = "Constitution of the State of Vermont"
+doc     = "/us-vt/const"                       # /us-vt/const/ch1/s10 (Article 10), /us-vt/const/ch2/s73
+fetch   = "template"
+url     = "https://legislature.vermont.gov/statutes/{item}"
+items   = ["constitution-of-the-state-of-vermont"]
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[VT.const.html]
+root     = "div#main-content"
+blocks   = ["p"]
+headings = ["h1", "h4", "h5", "p.text-center"]
+opening  = ["strong"]
+
+[VT.const.ladder]
+types = ["num", "lower", "upper"]              # Ch. I art. 11's (1)(2)(3); deeper levels not seen
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[VT.const.containers]
+title   = { match = '^(?P<heading>CONSTITUTION OF THE STATE OF VERMONT)$', tag = "title", rank = 1, id = "", heading = "self" }
+chapter = { match = '^CHAPTER\s+(?P<num>[IVX]+)\.$', tag = "chapter", rank = 2, id = "ch{num_arabic}" }
+
+[VT.const.sections]
+match = '^(?:Article|§)\s*(?P<num>\d+[a-z]?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "container"                            # numbering restarts in each chapter
+
+[VT.const.notes]
+# the page's sign-off after the <hr> ("The Vermont General Assembly / Montpelier, Vermont") is not law:
+# kept as a note, not dropped (it has no selector of its own)
+note = { match = '^The Vermont General Assembly Montpelier, Vermont$', topic = "colophon" }

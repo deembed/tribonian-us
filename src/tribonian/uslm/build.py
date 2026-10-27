@@ -1,6 +1,8 @@
 """build.py -- source files -> USLM file + verify report, by the state's formula.
 
-convert(): one file is one document (Colorado: a C.R.S. title per file).
+convert(): one file is one document (Colorado: a C.R.S. title per file). With wrap = {tag, id} in the formula,
+the file's contents go inside one level of that tag (a chapter page that carries no chapter heading); the level
+gets a number from the item and no text, so the conservation check is unaffected.
 convert_layers(): a title assembled from per-chapter files, in layers (Connecticut: the 2025 revision, then
 the 2026 supplement, whose sections replace the revision's). Every file is converted and checked for
 conservation on its own; the assembled document is then checked for schema, numbering and identifiers,
@@ -23,12 +25,19 @@ def convert(raw_bytes, formula, item, meta):
     fam = families.get(formula["family"])
     raw = _decode(raw_bytes, formula)
     root, ladder = fam.parse(raw, formula, item)
+    ladder.coverage = fam.parse_coverage(raw) if hasattr(fam, "parse_coverage") else None
+    w = formula.get("wrap")
+    if w:            # the page has no heading for its own unit (Nebraska's chapter pages): wrap what it holds in one
+        num = str(item).lstrip("0") or "0"
+        node = Node(w.get("tag", "chapter"), num=num, ident="%s/%s" % (root.ident, w.get("id", "ch{item}").format(item=num)), rank=1)
+        node.items, root.items = root.items, [("node", node)]
+        # sections scoped to the title hang off the document root; keep their identifiers as they are
     tree = writer.document(root, dict(meta, family=formula["family"], title=formula.get("name")))
     return tree, verify.verify(fam.source_text(raw, formula), tree, ladder, formula)
 
 
-def _sort_key(num):
-    return verify.section_key(num)
+def _sort_key(num, decimal=False):
+    return verify.section_key(num, decimal)
 
 
 def _sections(node):
@@ -69,7 +78,9 @@ def convert_layers(layers, formula, title_ident, title_num_text, title_heading, 
             root, ladder = fam.parse(raw, formula, name, root_ident=title_ident)
             part = writer.document(root, {})
             r = verify.conservation(fam.source_text(raw, formula), part)
-            files.append({"layer": layer, "file": name, "conservation": r, "dropped": getattr(ladder, "dropped", {})})
+            cov = fam.parse_coverage(raw) if hasattr(fam, "parse_coverage") else None
+            files.append({"layer": layer, "file": name, "conservation": r, "dropped": getattr(ladder, "dropped", {}),
+                          "parse_coverage": cov})
             ambiguous += ["%s/%s: %s" % (layer, name, a) for a in ladder.ambiguous]
             anomalies += ["%s/%s: %s" % (layer, name, a) for a in ladder.anomalies]
             versions += ladder.versions
@@ -96,6 +107,8 @@ def convert_layers(layers, formula, title_ident, title_num_text, title_heading, 
         pass
     lad = L()
     lad.ambiguous, lad.anomalies, lad.versions, lad.dropped = ambiguous, anomalies, versions, {}
+    covs = [f["parse_coverage"] for f in files if f.get("parse_coverage")]
+    lad.coverage = min(covs, key=lambda c: c["ratio"]) if covs else None     # the worst file decides
     for f in files:
         for k, v in f["dropped"].items():
             lad.dropped[k] = lad.dropped.get(k, 0) + v
@@ -108,7 +121,8 @@ def convert_layers(layers, formula, title_ident, title_num_text, title_heading, 
     if bad:
         report["conservation"].update({k: bad[0]["conservation"][k] for k in
                                        ("first_difference", "source_chars", "uslm_chars", "source_at", "uslm_at")})
-    report["ok"] = report["conservation"]["ok"] and report["schema"]["ok"]
+    report["ok"] = report["conservation"]["ok"] and report["schema"]["ok"] and \
+        (lad.coverage is None or lad.coverage["ratio"] >= verify.COVERAGE_MIN)
     return tree, report
 
 

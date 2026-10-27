@@ -1,0 +1,111 @@
+# ---------------------------------------------------------------- Nevada Revised Statutes
+# Legislative Counsel Bureau, www.leg.state.nv.us/NRS/. One Word-filtered HTML page per chapter:
+# NRS-001.html, NRS-001A.html ... (list of chapters: NRS/Index.html; there is no per-title page). Each page
+# repeats its TITLE heading, then the CHAPTER heading, a table of contents (p.COLeadline lines under p.COHead2
+# / p.COHead4 group heads), a rule (p.J-Dash), then the law: unnumbered group heads (p.DocHeading caps,
+# p.DocHeading2 title case) and sections. Markup is by class: a section's first paragraph is p.SectBody
+# opening with span.Empty "NRS " + span.Section "1.010" + span.Leadline "Courts of justice."; p.SourceNote
+# is the history line. Ladder 1. (a) (1) (I) (A), read from the labels: indentation does not separate the
+# top two levels (1. and (a) both sit at 5 nbsp), so [html].indent is not used.
+[NV.nrs]
+name    = "Nevada Revised Statutes"
+doc     = "/us-nv/nrs"                       # /us-nv/nrs/t1/ch1, /us-nv/nrs/t1/s1.010/2/a
+fetch   = "template"                         # one page per chapter, so one request per chapter
+url     = "https://www.leg.state.nv.us/NRS/NRS-{item}.html"
+edition = "2026R1"                           # the page stamp: "[Rev. 9/9/2026 ...--2026R1]"
+item    = "%03d"                             # chapter 1 -> "001", 1A -> "001A", 0 -> "000" (preliminary chapter)
+file    = "NRS-{item}.html"
+encoding = "cp1252"                          # meta charset=windows-1252 (Word filtered)
+family  = "html-paragraphs"
+terms   = "copyright claimed by the State (NRS 344.070)"
+
+[NV.nrs.html]
+blocks   = ["p"]
+# p.COHead2 / p.COHead4 head groups of the table of contents; p.DocHeading / p.DocHeading2 are the same
+# words heading the law. All four are headings: before the first section each becomes a cross heading at
+# chapter level between the toc notes. (They cannot be put in the toc by text: the TOC head and the law
+# head read the same, and toc matching runs before the heading test.)
+headings = ["p.MsoTitle", "p.Chapter", "p.COHead2", "p.COHead4", "p.DocHeading", "p.DocHeading2"]
+opening  = ["span.Empty", "span.Section", "span.Leadline"]   # "NRS 1.010  Courts of justice."
+drop     = ["p.MsoNormal"]                   # the revision stamp "[Rev. 9/9/2026 ...--2026R1]", set in white (invisible)
+
+[NV.nrs.ladder]
+types = ["num.", "lower", "num", "roman_upper", "upper"]     # 1. (a) (1) (I) (A)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[NV.nrs.containers]
+# Heading on the same line: "TITLE 1 - STATE JUDICIAL DEPARTMENT", "CHAPTER 1 - JUDICIAL DEPARTMENT GENERALLY".
+# heading = "self" with the heading group spanning the whole line: the line is the heading, num is caught
+# inside it, the num text is empty. (A num-text/heading split of one line is not in the shared code; and with
+# heading = "next" the TOC's first group head would be taken as the chapter's name.)
+title   = { match = '^(?P<heading>TITLE\s+(?P<num>\d+[A-Z]?)\s+[-–—]\s+.*)$', tag = "title", rank = 1, id = "t{num}", heading = "self" }
+chapter = { match = '^(?P<heading>CHAPTER\s+(?P<num>\d+[A-Z]?)\s+[-–—]\s+.*)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
+
+[NV.nrs.sections]
+match = '^NRS\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\s+(?P<heading>.*)$'
+bold  = true                                 # matched against the opening run (the three spans)
+scope = "title"                              # /us-nv/nrs/t1/s1.010 (section numbers are unique code-wide)
+# table of contents lines (p.COLeadline) and the p.J-Dash rule after them; container level only
+toc   = ['^NRS\s+\d+[A-Z]?\.\d', '^_+$']
+# A future version repeats the section number with "[Effective ...]" at the end of the bold leadline (NRS
+# 1.510). The shared code tests `versions` only on the text after the opening run, so for now the second
+# copy is logged as a repeated identifier (kept as _v2); see build/dispatch/NV.status.md.
+versions = '\[Effective '
+
+[NV.nrs.notes]
+sourceCredit = { class = "SourceNote" }      # "[1:19:1865; ...]—(NRS A 2013, 1709)" / "(Added to NRS by ...)"
+
+# ---------------------------------------------------------------- Constitution of the State of Nevada
+# One page, Const/NVConst.html (same Word template as the NRS). Order: an editor's preface, a list of
+# articles (p.ConstPrefTOC), then p.DocHeading blocks for [PRELIMINARY ACTION.], ORDINANCE, PREAMBLE.,
+# "ARTICLE. 1. - Declaration of Rights." ... "ARTICLE XVIII - [Right of Suffrage]", the [CONGRESSIONAL TERM
+# LIMITS ACT OF 1996.] (SECTION A. ... I., p.ConstConLeadline), and the [ELECTION ORDINANCE.] with its own
+# ORDINANCE. Each article opens with its section list (p.ConstSecTOC). Unlike the NRS, a section number is
+# plain text, spelled three ways: "Section. 1.", "Sec: 2.", "Sec. 7." -- only the leadline is marked
+# (span.Leadline), and a few sections (art. 4 sec. 39) wrap the number in span.Section.
+[NV.const]
+name    = "Constitution of the State of Nevada"
+doc     = "/us-nv/const"                     # /us-nv/const/a1/s8A, /us-nv/const/a4/s39/1
+fetch   = "template"
+url     = "https://www.leg.state.nv.us/Const/{item}.html"
+edition = "2026-04-15"                       # the page stamp: "[Rev. 4/15/2026 ...--2025]"
+items   = ["NVConst"]                        # always the one page
+file    = "{item}.html"
+encoding = "cp1252"
+family  = "html-paragraphs"
+
+[NV.const.html]
+blocks   = ["p"]
+headings = ["p.MsoTitle", "p.DocHeading", "p.ConstConLeadline", "p.ConstH2csc", "p.ConstConH2"]
+opening  = ["span.Section", "span.Empty", "span.Leadline"]
+drop     = ["p.MsoNormal"]                   # the white revision stamp, as in the NRS
+
+[NV.const.ladder]
+types = ["num.", "lower", "num", "roman_upper"]              # 1. (a) (1) (I), as the NRS (art. 4 sec. 39)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NV.const.containers]
+# Article numbers are arabic except XVIII (repealed): a{num_arabic} -> a18. Unnumbered parts get fixed ids.
+# "ORDINANCE" (1864, slavery and public lands) and the election ordinance's own "ORDINANCE." differ by the
+# period; the second sits inside [ELECTION ORDINANCE.] at a lower rank.
+title     = { match = '^(?P<heading>THE CONSTITUTION OF THE STATE OF NEVADA)$', tag = "title", rank = 1, id = "", heading = "self" }
+prelim    = { match = '^(?P<heading>\[PRELIMINARY ACTION\.\])$', tag = "level", rank = 2, id = "preliminary", heading = "self" }
+ordinance = { match = '^(?P<heading>ORDINANCE)$', tag = "level", rank = 2, id = "ordinance", heading = "self" }
+preamble  = { match = '^(?P<heading>PREAMBLE\.)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article   = { match = '^(?P<heading>ARTICLE\.?\s+(?P<num>\d+|[IVXL]+)\.?\s+-\s+.*)$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "self" }
+termlim   = { match = '^(?P<heading>\[CONGRESSIONAL TERM LIMITS ACT OF 1996\.\])$', tag = "level", rank = 2, id = "termlimits", heading = "self" }
+tl_sec    = { match = '^(?P<heading>SECTION\s+(?P<num>[A-Z])\.\s+.*)$', tag = "level", rank = 3, id = "s{num}", heading = "self" }
+election  = { match = '^(?P<heading>\[ELECTION ORDINANCE\.\])$', tag = "level", rank = 2, id = "election", heading = "self" }
+el_ord    = { match = '^(?P<heading>ORDINANCE\.)$', tag = "level", rank = 3, id = "ordinance", heading = "self" }
+
+[NV.const.sections]
+# Needs the shared-code feature in build/dispatch/NV.status.md: a section number read from plain text
+# (bold = false) that keeps the rest of the paragraph, and that is not read from TOC lines (p.ConstSecTOC
+# says "Sec. 1. Inalienable rights." too).
+match = '^(?:Section|Sec)[.:]?\s*(?P<num>\d+[A-Z]?)\.\s+(?P<heading>.*)$'
+bold  = true                                 # for now: only the span.Section sections (art. 4 sec. 39) match
+scope = "container"                          # numbers restart per article: /us-nv/const/a1/s1
+versions = '\[Effective '
+
+[NV.const.notes]
+sourceCredit = { class = "ConstSourceNote" } # "[Amended in 1956. Proposed and passed by ...]"

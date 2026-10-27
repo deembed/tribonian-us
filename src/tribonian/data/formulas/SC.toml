@@ -1,0 +1,52 @@
+# ---------------------------------------------------------------- Code of Laws of South Carolina, 1976 (unannotated)
+# scstatehouse.gov (Legislative Services Agency). No whole-title page: /code/title1.php lists the chapters,
+# /code/t01c001.php holds one chapter. Chapter pages are one div#contentsection: the text is bare lines
+# separated by <br />, with centered <div>s for headings (TITLE line, CHAPTER n / name, ARTICLE n / name),
+# a bold <span> for most section openings, and the odd <table> (salary schedules).
+# NEEDS the shared split_br change described in build/dispatch/SC.status.md: block-level children
+# (div, table) of a split_br element must stay blocks of their own, not be glued into the line around them.
+[SC.code]
+name    = "Code of Laws of South Carolina, 1976"
+doc     = "/us-sc/code"                       # /us-sc/code/t1/ch1/a1, /us-sc/code/t1/s1-1-10/A/1
+fetch   = "index"
+item    = "%d"                                # title 1 -> "1" (title1.php is not zero-padded; the chapter files are)
+index_file = "title{item}.php"
+links   = 'href="[^"]*?(t\d+c\d+[A-Za-z]*\.php)"'   # /code/t01c001.php; letter suffixes allowed in case of t12c036A-style chapters
+layers  = [ { name = "current", url = "https://www.scstatehouse.gov/code/title{item}.php" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "personal, not commercial, use (scstatehouse.gov/disclaimer.php)"
+
+[SC.code.html]
+root     = "div#contentsection"               # everything outside it is site navigation
+split_br = ["div#contentsection"]             # one line per <br />-separated run
+blocks   = ["p"]                              # the br-lines split_br makes
+headings = ["div:centered"]                   # "Title 1 - ...", "CHAPTER 1", its name, "ARTICLE 1", its name
+verbatim = ["table"]                          # salary schedules (sec. 1-1-1210) set as tables
+opening  = []                                 # not used: sections are matched on the line's text (bold = false)
+
+[SC.code.ladder]
+# (A)(1)(a)(i)(A) is the house style for newer text; older sections open with (1) or (a). The ladder places
+# a first label on the outermost level its type fits, so mixed styles show up as ambiguity, not loss.
+types = ["upper", "num", "lower", "roman_lower", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[SC.code.containers]
+# The "Title 1 - NAME" line repeats on every chapter page; it is kept as a cross heading (see status file).
+chapter    = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)$', tag = "chapter", rank = 2, id = "ch{num}" }
+article    = { match = '^ARTICLE\s+(?P<num>\d+[A-Z]?)$', tag = "article", rank = 3, id = "a{num}" }
+part       = { match = '^PART\s+(?P<num>\d+[A-Z]?)$', tag = "part", rank = 4, id = "p{num}" }
+subarticle = { match = '^SUBARTICLE\s+(?P<num>\d+[A-Z]?)$', tag = "subpart", rank = 4, id = "sa{num}" }
+
+[SC.code.sections]
+# "SECTION 1-1-10. Jurisdiction and boundaries of the State." -- usually a bold span, but sections added in
+# 2026 (1-1-1565, 1-1-1575) come as plain indented text, so the whole line is matched (bold = false).
+# Quoted act text in notes ("SECTION 3. This part ...") starts with a quote mark and has no title-chapter
+# number, so it does not match.
+match = '^SECTION\s+(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+)?)\.\s*(?P<heading>.*)$'
+bold  = false
+scope = "title"
+
+[SC.code.notes]
+sourceCredit  = '^HISTORY:'
+editorialNote = ["^Editor's Note$", "^Code Commissioner's Note$", "^Effect of Amendment$", "^CROSS REFERENCES?$"]

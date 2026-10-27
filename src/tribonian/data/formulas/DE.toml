@@ -1,0 +1,61 @@
+# DE.toml -- Delaware Code (delcode.delaware.gov), and the Delaware Constitution of 1897.
+#
+# Site layout (from the probes, build/probe/delcode.delaware.gov/):
+#   index.html                  lists titles: title{N}/index.html (hrefs padded with "&#xA;" + spaces)
+#   title{N}/index.html         lists chapters (NOT YET PROBED; big chapters reportedly split further into
+#                               subchapter pages c{NNN}/sc{NN}/index.html -- unconfirmed)
+#   title{N}/c{NNN}/index.html  a whole chapter, every section's text: one request per chapter
+#   title{N}/Title{N}.pdf       the authenticated (UELMA) PDF, not used here
+# Chapter page markup: div#TitleHead holds h1 "TITLE 1", h4 title name, h2 part, h3 "CHAPTER 1. Name",
+# h4 subchapter (empty when none). div#CodeBody holds one div.Section per section: div.SectionHead
+# "§ 101. Heading.", then p.subsection / p.indent-N lines, then the history credit as LOOSE text and <a>
+# links directly inside div.Section (no element of its own) -- see build/dispatch/DE.status.md: the
+# parser needs a way to make such loose runs a block before this formula can pass conservation.
+
+[DE.code]
+name    = "Delaware Code"
+doc     = "/us-de/code"                       # /us-de/code/t1/s101/a
+fetch   = "index"
+item    = "%d"                                # title 1 -> "1" (URLs are title1, not title01); 7A? none known
+index_file = "title{item}.html"               # the title's chapter list, saved per title
+# chapter links in the title index; the "&#xA;" padding inside href is skipped by the pattern.
+# UNVERIFIED until title{N}/index.html is probed.
+links   = 'href="(?:&#xA;)?\s*(c\d+[A-Z]?/index\.html)'
+layers  = [ { name = "current", url = "https://delcode.delaware.gov/title{item}/index.html" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[DE.code.html]
+root     = "div#content"                      # page header, menus and footer are outside it
+blocks   = ["p", "div.SectionHead"]
+headings = ["h1", "h2", "h3", "h4"]           # the div#TitleHead lines: TITLE / title name / PART / CHAPTER / SUBCHAPTER
+opening  = ["div.SectionHead"]                # the whole "§ 101. Designation and citation of Code." line
+# site furniture only: the breadcrumb row ("Title 1" link, "Authenticated PDF" link) and the
+# in-page jump list of section numbers (ul.chaptersections: "§ 101", "§ 101A" ... anchors, repeated
+# verbatim by each section's own heading)
+drop     = ["div.row", "ul.chaptersections"]
+
+[DE.code.ladder]
+# Delaware style (a)(1)a.1.A. -- deeper levels unconfirmed on the probe (title 1 ch. 1 only reaches (d)(3))
+types = ["lower", "num", "lower.", "num.", "upper."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[DE.code.containers]
+# The title's number and name repeat on every chapter page (h1 / first h4). They are kept as cross
+# headings at title level by the build; a title container here would nest each chapter page's chapter
+# under a duplicate title node.
+part       = { match = '^PART\s+(?P<num>[IVXL]+[A-Z]?)\b.*$', tag = "part", rank = 2, id = "pt{num}", heading = "next" }
+chapter    = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)\..*$', tag = "chapter", rank = 3, id = "ch{num}", heading = "next" }
+subchapter = { match = '^Subchapter\s+(?P<num>[IVXL]+[A-Z]?)\b.*$', tag = "subchapter", rank = 4, id = "sch{num}", heading = "next" }
+
+[DE.code.sections]
+# "§ 101. Designation and citation of Code." / "§ 101A. ..." / "§ 1-101. ..." (UCC, title 6) /
+# "§§ 111-115. [Reserved.]"
+match = '^§§?\s*(?P<num>\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*(?:\s*(?:-|–|to|,)\s*\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*)?)\.\s*(?P<heading>.*)$'
+bold  = true                                  # matched against the opening run (div.SectionHead)
+scope = "title"                               # /us-de/code/t1/s101
+
+[DE.code.notes]
+# the history credit: "1 Del. C. 1953, § 101; 49 Del. Laws, c. 220, § 1;" or one starting at a Laws cite.
+# Needs the loose-run feature (status file): today this text sits in no block.
+sourceCredit = '^(?:\d+ Del\. C\. \d{4},|Code \d{4},|\d+ Del\. Laws,|\d+ Laws, c\.)'

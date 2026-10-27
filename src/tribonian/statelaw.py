@@ -187,23 +187,40 @@ def formulas():
             import tomllib
         except ImportError:
             import tomli as tomllib
-        with open(tconfig.PKG / "data" / "state_formulas.toml", "rb") as fh:
-            raw = tomllib.load(fh)
-        flat = {(st, code): f for st, codes in raw.items() for code, f in codes.items()}
+        # data/state_formulas.toml, plus one file per state in data/formulas/ (XX.toml), so agents working on
+        # different states never edit the same file. A state's tables live in one place or the other.
+        flat = {}
+        for path in [tconfig.PKG / "data" / "state_formulas.toml"] + sorted((tconfig.PKG / "data" / "formulas").glob("*.toml")):
+            try:
+                with open(path, "rb") as fh:
+                    raw = tomllib.load(fh)
+            except tomllib.TOMLDecodeError as e:
+                if path.parent.name != "formulas":
+                    raise
+                print("formulas/%s skipped: %s" % (path.name, e), file=sys.stderr)   # one state's broken file
+                continue                                                              # must not stop the rest
+            for st, codes in raw.items():
+                for code, f in codes.items():
+                    if (st, code) in flat:
+                        sys.exit("formula %s.%s is defined twice (second in %s)" % (st, code, path.name))
+                    flat[(st, code)] = f
         _FORMULAS = {k: _inherit(flat, k, f) for k, f in flat.items()}
     return _FORMULAS
 
 
 def _inherit(flat, key, f, depth=0):
-    """inherit = "MD.code": start from that formula, override with this one's keys (tables merged one level)."""
+    """inherit = "MD.code": start from that formula, override with this one's keys (tables merged one level;
+    replace = ["containers", ...] names tables taken whole from this formula instead of merged)."""
     if "inherit" not in f or depth > 5:
         return f
     st, _, code = f["inherit"].partition(".")
     base = _inherit(flat, (st, code), flat[(st, code)], depth + 1)
     out = dict(base)
     for k, v in f.items():
-        out[k] = dict(base[k], **v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+        merge = isinstance(v, dict) and isinstance(base.get(k), dict) and k not in f.get("replace", [])
+        out[k] = dict(base[k], **v) if merge else v
     out.pop("inherit", None)
+    out.pop("replace", None)
     return out
 
 
@@ -238,11 +255,62 @@ def _get_one(url, path, edition, force, label, missing_ok=False):
     return True
 
 
+def url_fields(f, name):
+    """Fields a template URL may use: {item} as named, {edition}, and for a numbered item {n} (its leading
+    number, format it as {n:04d}), {lo}/{hi} (its hundred-range: 768 -> 700, 799; Florida's
+    0700-0799/0768/0768.html is "{lo:04d}-{hi:04d}/{n:04d}/{n:04d}.html") and {suffix} (4a -> a)."""
+    m = re.match(r"0*(\d+)(.*)", name)
+    n = int(m.group(1)) if m else 0
+    return {"item": name, "edition": f.get("edition", ""), "n": n, "lo": n // 100 * 100, "hi": n // 100 * 100 + 99,
+            "suffix": m.group(2) if m else ""}
+
+
+def page_name(f, href):
+    """Local file name for a linked page: its last path part (Connecticut's chap_001.htm), or with
+    save_as = "path" the whole link made file-safe, for sites whose pages share names across folders."""
+    if f.get("save_as") == "path":
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", href).strip("_")
+    return href.rsplit("/", 1)[-1]
+
+
+def walk_index(f, idx, url, ld, fetch=False, force=False, label=""):
+    """The pages an index leads to, in order: [(file name, url)]. `links` is one regex (index -> pages) or a
+    list, one per level (title -> chapters -> sections): every level but the last is a list page, kept in
+    <layer>/_idx/. With fetch, missing list pages are downloaded on the way; without, the walk uses what is
+    local (build) and skips what is not."""
+    levels = f["links"] if isinstance(f["links"], list) else [f["links"]]
+    enc = f.get("encoding", "utf-8")
+    current = [(idx, url)] if idx.exists() else []
+    for i, pat in enumerate(levels):
+        rx = re.compile(pat)
+        found = []
+        for path, base in current:
+            for href in dict.fromkeys(rx.findall(path.read_bytes().decode(enc, errors="replace"))):
+                href = href if isinstance(href, str) else href[0]
+                found.append((page_name(f, href), urllib.parse.urljoin(base, href)))
+        found = list(dict.fromkeys(found))
+        if i == len(levels) - 1:
+            if f.get("rewrite"):          # rewrite = [regex, replacement]: a listed page -> the page to fetch
+                rx_, rep_ = f["rewrite"]  # (Vermont: /statutes/chapter/... -> /statutes/fullchapter/...)
+                found = [(page_name(f, urllib.parse.urlsplit(re.sub(rx_, rep_, u_)).path), re.sub(rx_, rep_, u_))
+                         for n_, u_ in found]       # applied to the full URL; the file name follows the new URL
+            return found
+        current = []
+        for name, u in found:
+            path = ld / "_idx" / name
+            if fetch:
+                _get_one(u, path, label, force, "  %s list %s" % (label, name))
+            if path.exists():
+                current.append((path, u))
+    return []
+
+
 def fetch_formula(st, code, items, force=False):
     """The generic downloader; robots.txt obeyed, a second between requests. Strategies:
-        template  url with {edition} and {item}: one file per item (Colorado: one HTML file per title)
+        template  url with {edition} and {item} (and {n} {lo} {hi} {suffix}: url_fields): one file per item
         index     per layer, an index page per item, then every page it links to that matches `links`
-                  (Connecticut: title_01.htm lists chap_001.htm ...). Layers stack editions: the
+                  (Connecticut: title_01.htm lists chap_001.htm ...); `links` as a list walks several
+                  levels (title page -> chapter pages -> section pages). Layers stack editions: the
                   revision, then a supplement whose sections replace the revision's (build does that).
     """
     f = formulas()[(st, code)]
@@ -253,7 +321,7 @@ def fetch_formula(st, code, items, force=False):
     for it in items:
         name = item_name(f.get("item"), it)
         if f["fetch"] == "template":
-            _get_one(f["url"].format(edition=f.get("edition", ""), item=name), d / f["file"].format(item=name),
+            _get_one(f["url"].format(**url_fields(f, name)), d / f["file"].format(item=name),
                      f.get("edition", ""), force, "%s %s %s" % (st, code, name))
         elif f["fetch"] == "list":
             # the section list (JSON) for the item, then one page per entry; the list is saved beside the pages
@@ -269,7 +337,6 @@ def fetch_formula(st, code, items, force=False):
                 _get_one(f["url"].format(item=name, entry=urllib.parse.quote(e)), d_item / f["file"].format(entry=e),
                          f.get("edition", "current"), force, "  %s %s" % (name, e))
         elif f["fetch"] == "index":
-            rx = re.compile(f["links"])
             for layer in f["layers"]:
                 url = layer["url"].format(item=name)
                 ld = d / layer["name"]
@@ -277,16 +344,11 @@ def fetch_formula(st, code, items, force=False):
                 if not _get_one(url, idx, layer["name"], force, "%s %s %s %s index" % (st, code, layer["name"], name),
                                 missing_ok=layer.get("optional", False)):
                     continue
-                raw = idx.read_bytes().decode(f.get("encoding", "utf-8"), errors="replace")
-                seen = []
-                for m in rx.finditer(raw):
-                    if m.group(1) not in seen:
-                        seen.append(m.group(1))
-                if not seen:
-                    print("  no pages matching %s in %s" % (f["links"], idx.name))
-                for page in seen:
-                    _get_one(urllib.parse.urljoin(url, page), ld / page.rsplit("/", 1)[-1], layer["name"], force,
-                             "  %s %s" % (layer["name"], page))
+                leaves = walk_index(f, idx, url, ld, fetch=True, force=force, label=layer["name"])
+                if not leaves:
+                    print("  no pages matching %s under %s" % (f["links"], idx.name))
+                for page, page_url in leaves:
+                    _get_one(page_url, ld / page, layer["name"], force, "  %s %s" % (layer["name"], page))
         else:
             sys.exit("%s %s: fetch strategy %r not written yet" % (st, code, f["fetch"]))
 
@@ -314,7 +376,6 @@ def build_index(st, code, f, items, everything=False):
     if not names:
         sys.exit("%s %s: nothing to build (fetch first, or name the titles)" % (st, code))
     failed = 0
-    links = re.compile(f["links"])
     for name in names:
         layers, metas = [], []
         for L in f["layers"]:
@@ -323,7 +384,8 @@ def build_index(st, code, f, items, everything=False):
                 if L is f["layers"][0]:
                     print("%s %s title %s: not local (tribonian state fetch %s %s %s)" % (st, code, name, st, code, name))
                 continue
-            pages = list(dict.fromkeys(links.findall(idx.read_bytes().decode(f.get("encoding", "utf-8"), "replace"))))
+            url = L["url"].format(item=name)
+            pages = [p for p, _ in walk_index(f, idx, url, d / L["name"])]
             missing = [p for p in pages if not (d / L["name"] / p).exists()]
             if missing:
                 print("%s %s title %s: %s pages not local (%s ...); fetch again" % (st, code, name, L["name"], ", ".join(missing[:3])))
@@ -422,7 +484,8 @@ def build_formula(st, code, items, everything=False):
             failed += 1
             continue
         meta = local_meta(src) or {}
-        tree, report = build.convert(src.read_bytes(), f, src.stem,
+        m = re.fullmatch(re.escape(f["file"]).replace(re.escape("{item}"), "(.+)"), src.name)
+        tree, report = build.convert(src.read_bytes(), f, m.group(1) if m else src.stem,
                                      {"edition": meta.get("edition"), "retrieved": meta.get("fetched"), "url": meta.get("url"),
                                       "formula": "%s.%s" % (st, code)})
         out = uslm_path(st, code, src)
@@ -437,17 +500,28 @@ def cmd_probe(args):
     """Save pages for working out a new state's formula: robots.txt verdict, the page, its links and the
     URLs its scripts mention (AJAX endpoints of a selector form). Files go to build/probe/<host>/."""
     out = tconfig.WORK / "build" / "probe"
-    for url in args.urls:
+    urls = list(args.urls)
+    if args.file:
+        urls += [l.split("#")[0].strip() for l in open(args.file, encoding="utf-8") if l.split("#")[0].strip()]
+    for url in urls:
         u = urllib.parse.urlsplit(url)
         host = "%s://%s" % (u.scheme, u.netloc)
-        ok = allowed(url)
+        try:
+            ok = allowed(url)
+        except Exception as e:
+            print("%s\n  robots.txt: %s" % (url, e))
+            continue
         rp = _robots[host]
         print("%s\n  robots.txt: %s" % (url, "allowed" if ok else getattr(rp, "reason", "disallowed")))
         if not ok:
             continue
         name = re.sub(r"[^A-Za-z0-9._-]+", "_", (u.path + ("?" + u.query if u.query else "")).strip("/")) or "index"
         path = out / u.netloc / (name[:150] + ".html")
-        n = download(url, path)
+        try:
+            n = download(url, path)
+        except SystemExit as e:              # one bad URL must not stop a batch
+            print("  failed: %s" % e.code)
+            continue
         raw = path.read_bytes().decode("utf-8", "replace")
         links = sorted(set(re.findall(r"""href=["']([^"'#]+)""", raw)))
         js = sorted(set(re.findall(r"""["'](/[A-Za-z0-9_/.-]*(?:api|Api|Get|get|Statute|statute|Law|law)[A-Za-z0-9_/.?=&-]*)["']""", raw)))
@@ -642,7 +716,8 @@ def main():
     ss = sub.add_parser("status", help="the tally from docs/state-tracker.toml: by status, shared pieces, claimed, ready")
     ss.set_defaults(func=cmd_status)
     pr = sub.add_parser("probe", help="save a page (robots.txt obeyed) and its links, to work out a new state's formula")
-    pr.add_argument("urls", nargs="+")
+    pr.add_argument("urls", nargs="*")
+    pr.add_argument("--file", help="a file of URLs, one per line (# comments)")
     pr.set_defaults(func=cmd_probe)
     nt = sub.add_parser("notes", help="(re)write the Obsidian notes of everything stored here -> md-state/ (fetch does it too)")
     nt.set_defaults(func=cmd_notes)

@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------- New Hampshire Revised Statutes Annotated
+# Published by the General Court's Office of Legislative Services at gc.nh.gov (informational, not the
+# official bound RSA). Pages: rsa/html/nhtoc.htm lists titles -> NHTOC/NHTOC-{TITLE}.htm lists chapters
+# -> one whole-chapter file /rsa/html/{TITLE}/{CH}/{CH}-mrg.htm (all sections in one page).
+# Markup of a -mrg page (no classes; custom tags):
+#   <center><h1>TITLE I<br>THE STATE AND ITS GOVERNMENT</h1></center>    title banner, repeated per chapter
+#   <center><h2>Chapter 1<br>STATE BOUNDARIES</h2></center>             the chapter
+#   <center><h2>Seaward Limits of Jurisdiction</h2></center>            an unnumbered subdivision
+#   <center><h3>Section 1:1</h3></center>                               anchor line repeating the number
+#   &nbsp;&nbsp;&nbsp;<b> 1:1 Perambulation of ... &#150;</b>           section number + catchline (bare in body)
+#   <codesect> text <br> I. <br> text <br> II. ... </codesect>          the law text, lines split by <br>
+#   <sourcenote><p><b>Source.</b> 2000, 35:1 ...</p></sourcenote>     the source note
+[NH.rsa]
+name    = "New Hampshire Revised Statutes Annotated"
+doc     = "/us-nh/rsa"                        # /us-nh/rsa/tI/s1:14/I/a
+fetch   = "index"
+item    = ""                                  # titles are roman numerals with suffixes: I, XIX-A, XXXIV-A
+index_file = "NHTOC-{item}.htm"
+# title page -> chapter list page -> the chapter's merged file. UNVERIFIED: the NHTOC pages were not
+# probed yet (see build/dispatch/NH.txt); the second level assumes each chapter's TOC page links its
+# "{CH}-mrg.htm" whole-chapter file. Adjust after the probe.
+links   = ['href="([^"]*NHTOC-[^"/]+\.htm)"', 'href="([^"]*-mrg\.htm)"']
+layers  = [ { name = "current", url = "https://gc.nh.gov/rsa/html/NHTOC/NHTOC-{item}.htm" } ]
+encoding = "cp1252"                           # &#150; (en dash) and Windows quotes; pages carry no charset
+family  = "html-paragraphs"
+terms   = "unverified (public records; no reuse terms stated)"
+
+[NH.rsa.html]
+# The section's catchline <b> sits directly in <body>, not inside any block element, so <b> is itself a
+# block (a <b> inside codesect/sourcenote <p> is nested in a block and counts as part of that block).
+blocks   = ["b", "p"]
+headings = ["h2"]                             # chapter headings and unnumbered subdivision headings
+opening  = ["b"]
+split_br = ["codesect"]                       # each <br>-separated line of the law text is its own block
+# h1: the title banner repeated at the top of every chapter page (the title heading comes from the index);
+# h3: "Section 1:1" anchor lines that only repeat the number in the bold catchline that follows.
+# Neither is law text; both are counted in the verify report.
+drop     = ["h1", "h3"]
+
+[NH.rsa.ladder]
+# RSA numbering: I. (a) (1) (A) (i), roman paragraph numbers dotted, often alone on their <br> line
+types = ["roman_upper.", "lower", "num", "upper", "roman_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[NH.rsa.containers]
+# The h2 reads "Chapter 21-P<br>DEPARTMENT OF SAFETY", and a block's text joins across <br> with no space:
+# "Chapter 21-PDEPARTMENT OF SAFETY". So the number takes at most ONE suffix letter, then the name must
+# start (an uppercase letter). A chapter with a doubled suffix (126-AA, if any) would be misread as 126-A:
+# shared-code fix requested in NH.status.md (<br> inside a block read as a space). heading = "self": the
+# whole line is the heading. Any other h2 is an unnumbered subdivision of the chapter ("Seaward Limits of Jurisdiction");
+# it has no number, so its id comes from its first word (see status: a sequence id would be better).
+chapter     = { match = '^(?P<heading>Chapter\s+(?P<num>\d+(?:-[A-Z])?)(?=[A-Z\s]|$).*)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
+subdivision = { match = '^(?P<heading>(?!Chapter\s)(?P<num>[A-Za-z]+).*)$', tag = "subchapter", rank = 3, id = "sd-{num}", heading = "self" }
+
+[NH.rsa.sections]
+# the bold catchline: "1:14 Extent. –" / "21-P:7-a Repealed by 2000, 35:2, I, eff. Jan. 1, 2001. –"
+match = '^(?P<num>\d+(?:-[A-Z]+)?:\d+(?:-[a-z]+)?)\s+(?P<heading>.*)$'
+bold  = true
+scope = "title"                               # section numbers carry the chapter: /us-nh/rsa/tI/s1:14
+
+[NH.rsa.notes]
+sourceCredit  = '^Source\.'
+editorialNote = ['^Revision note\.', "^Editor's note", '^Effective Date note', '^Contingent', '^Applicability']

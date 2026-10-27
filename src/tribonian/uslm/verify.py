@@ -23,6 +23,9 @@ SCHEMA = Path(__file__).resolve().parent.parent / "data" / "uslm" / "USLM-1.0.15
 _schema = None
 
 
+COVERAGE_MIN = 0.98      # parsed text / raw visible text; below this the HTML parser lost part of the file
+
+
 def schema():
     global _schema
     if _schema is None:
@@ -52,7 +55,7 @@ def _local(el):
     return etree.QName(el).localname
 
 
-def numbering(tree, ladder_types, ladder_tags):
+def numbering(tree, ladder_types, ladder_tags, decimal=False):
     """Out-of-order siblings: numbered paragraphs by the ladder type of their tag; sections by the
     numbers in their number (26.5-1-101 -> (26, 5, 1, 101))."""
     by_tag = dict(zip(ladder_tags, ladder_types))
@@ -71,8 +74,10 @@ def numbering(tree, ladder_types, ladder_tags):
                 continue
             if tag in by_tag:
                 o = level_ordinal(by_tag[tag], value)
+                if o is None:                       # a dotted level stores "1" for the label "1."
+                    o = level_ordinal(by_tag[tag], value + ".")
             elif tag == "section":
-                o = section_key(value)
+                o = section_key(value, decimal)
             else:
                 continue
             if o is None:
@@ -89,10 +94,13 @@ def numbering(tree, ladder_types, ladder_tags):
     return out
 
 
-def section_key(num):
+def section_key(num, decimal=False):
     """Section numbers in order: 1-1 < 1-1a < 1-1z < 1-1aa < 1-2 < 1-10; 26.5-1-101; "1-2d_to_1-2y" by its first
-    number. Each run of digits with its letter suffix is (number, letters as base 26)."""
+    number. Each run of digits with its letter suffix is (number, letters as base 26). With decimal
+    ([sections].decimal, Nevada's NRS), digits after a point are a decimal fraction: 1.4253 < 1.426."""
     first = num.split("_")[0].lower()
+    if decimal:
+        first = re.sub(r"\.(\d+)", lambda m: "." + m.group(1).ljust(8, "0"), first)   # fixed width: compare as fractions
     key = []
     for d, letters in re.findall(r"(\d+)([a-z]*)", first):
         n = 0
@@ -128,7 +136,9 @@ def verify(source_text, tree, ladder, formula):
         "dropped": getattr(ladder, "dropped", {}),
         "schema": {"ok": valid, "errors": [str(e) for e in list(s.error_log)[:20]]},
         "unmapped": {"count": len(um), "first": um[:10]},
-        "numbering": numbering(tree, formula["ladder"]["types"], formula["ladder"]["tags"]),
+        "numbering": numbering(tree, formula["ladder"]["types"], formula["ladder"]["tags"],
+                               formula.get("sections", {}).get("decimal", False)),
+        "parse_coverage": getattr(ladder, "coverage", None),
         "duplicate_identifiers": identifiers(tree),
         "ambiguous_labels": ladder.ambiguous,
         "anomalies": ladder.anomalies,
@@ -136,7 +146,8 @@ def verify(source_text, tree, ladder, formula):
         "counts": {t: sum(1 for _ in tree.getroot().iter("{%s}%s" % (NS, t)))
                    for t in ["section"] + list(formula["ladder"]["tags"]) + ["sourceCredit", "editorialNote", "note"]},
     }
-    r["ok"] = r["conservation"]["ok"] and valid
+    cov = r["parse_coverage"]
+    r["ok"] = bool(r["conservation"]["ok"]) and valid and (cov is None or cov["ratio"] >= COVERAGE_MIN)
     return r
 
 
@@ -149,6 +160,8 @@ def summary(name, r):
                                      ((" in " + ", ".join(c["failed"][:5])) if c.get("failed") else "", c["first_difference"],
                                       c["source_chars"], c["uslm_chars"], c["source_at"], c["uslm_at"]))),
              "  dropped       %s" % (", ".join("%s %d chars" % kv for kv in r.get("dropped", {}).items()) or "nothing"),
+             "  parse         %s" % ("not measured" if not r.get("parse_coverage") else "%.1f%% of the file's visible text%s" % (
+                 100 * r["parse_coverage"]["ratio"], "" if r["parse_coverage"]["ratio"] >= COVERAGE_MIN else "  FAILED: the parser lost text")),
              "  schema        %s" % ("ok" if r["schema"]["ok"] else "FAILED\n    " + "\n    ".join(r["schema"]["errors"][:5])),
              "  unmapped      %d" % r["unmapped"]["count"] + "".join("\n    " + u for u in r["unmapped"]["first"][:3]),
              "  numbering     %d to look at" % len(r["numbering"]) + "".join("\n    " + u for u in r["numbering"][:5]),

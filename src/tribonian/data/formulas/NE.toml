@@ -1,0 +1,53 @@
+# NE.toml -- Nebraska: Revised Statutes of Nebraska (NE.rs). Constitution (NE.const) waits on a probe of
+# /laws/display-fullconst.php?print=false (see build/dispatch/NE.status.md).
+#
+# Source: nebraskalegislature.gov (Revisor of Statutes). Each chapter 1..90 has a whole-chapter print page,
+# /laws/display-chapters.php?chapter=N: one request per chapter (the site has answered "Too many
+# connections", so per-section pages are out). The page is bare HTML: no site navigation, no chapter
+# heading. One div.printwidth per section:
+#   <strong>1-105. Act, how cited.</strong><br>             section number + catchline (the opening run)
+#   <p style="text-indent: 1.5em;">(1) ...</p>               law text, one <p> per numbered paragraph
+#   <div class="source"><span><strong>Source:</strong></span>Laws ...<br><strong>Effective Date: ...</strong></div>
+#   <div class="anno"><span><strong>Annotations</strong></span><ul><div>case note</div>...</ul></div>
+#   <div class="cross"><span><strong>Cross References</strong></span><ul><span>item</span><br>...</ul></div>
+# The Uniform Commercial Code is not in chapters 1..90 (it has its own pages, /laws/ucc.php?code=...).
+
+[NE.rs]
+wrap = { tag = "chapter", id = "ch{item}" }   # chapter pages carry no chapter heading (coordinator, round 2)
+name    = "Revised Statutes of Nebraska"
+doc     = "/us-ne/rs"                        # /us-ne/rs/s1-105/1/a (section numbers are unique statewide)
+fetch   = "template"
+url     = "https://nebraskalegislature.gov/laws/display-chapters.php?chapter={item}"
+edition = "current"                          # the site shows the law in force (reissue + supplements + session laws)
+item    = "%d"                               # chapter 1 -> "1" (no padding in the URL)
+file    = "chapter-{item}.htm"
+encoding = "utf-8"                           # <meta charset="utf-8">
+family  = "html-paragraphs"
+terms   = "Copyright Nebraska Legislature; the online text is not the official publication"
+
+[NE.rs.html]
+# Blocks, all direct children of div.printwidth or of the note divs (div.printwidth itself is not a block:
+# it holds the whole section):
+#   strong        the section opening "1-105. Act, how cited." (a <strong> inside another block stays part of it)
+#   p             law text lines
+#   div.source    the source note, with its trailing "Effective Date:"/"Operative Date:" line, as one block
+#   span:noclass  the "Annotations"/"Cross References" label spans and each cross-reference item (<span>)
+#   div:noclass   each case annotation (div style="text-indent: 1em")
+blocks   = ["strong", "p", "div.source", "span:noclass", "div:noclass"]
+headings = []                                # the print page has no chapter/article headings
+opening  = ["strong"]
+
+[NE.rs.ladder]
+types = ["num", "lower", "roman_lower", "upper"]          # (1)(a)(i)(A)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NE.rs.sections]
+# "1-105.01. Heading." ; numbers may carry a comma after the chapter-article run: "21-2,101", "77-27,132"
+match = '^(?P<num>\d+[A-Z]?-\d+(?:,\d+)?(?:\.\d+)?[A-Z]?)\.\s*(?P<heading>.*)$'
+bold  = true                                 # matched against the <strong> opening
+scope = "title"
+
+[NE.rs.notes]
+sourceCredit  = '^Source:'
+note          = [{ match = '^Annotations$', topic = "annotation" }]
+editorialNote = [{ match = '^Cross References$', topic = "crossReference" }]

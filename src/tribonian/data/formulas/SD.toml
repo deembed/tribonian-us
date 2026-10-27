@@ -1,0 +1,96 @@
+# SD.toml -- South Dakota Codified Laws (SDCL) and the South Dakota Constitution.
+#
+# Source: the Legislative Research Council's site (sdlegislature.gov) is a JavaScript app; its static HTML
+# lives under /api/Statutes/<cite>.html. With ?all=true a chapter page (1-1) holds the whole chapter, and the
+# constitution is published as pseudo-title "0N" (/api/Statutes/0N.html?all=true, found via web search), so a
+# title page with ?all=true should hold the whole title: one request per title (template strategy).
+#
+# Page shape (probe api_Statutes_1-1.html_all_true.html):
+#   * UTF-16 little-endian, no BOM (the single-section page /api/Statutes/1-1-1.html is UTF-8).
+#   * NOT one HTML document: one complete <html>...</html> per part, back to back, separated by
+#     <br /><hr><br />. First the chapter's own document (CHAPTER 1-1 / its name / table of contents),
+#     then one document per section. Each is Word -> HTML ("PowerTools for Open XML").
+#   * Class names carry a per-document generated prefix (s2030343Normal, s8cea3b48...HG4), and centering /
+#     bold come only from those classes' rules in each document's <style>: no align=, no <b>.
+#   So two shared-code features are needed before this formula reads the page correctly (see
+#   build/dispatch/SD.status.md): (1) read every concatenated document, not just the first (libxml2 stops
+#   at the first </html> -- the parser AND the conservation check silently see only the chapter's TOC);
+#   (2) resolve :centered and bold from the page's CSS class rules.
+#   The settings below are written for the page as it reads once those exist; they were tested offline on
+#   the probe with both features emulated in the test harness.
+
+[SD.sdcl]
+name    = "South Dakota Codified Laws"
+doc     = "/us-sd/sdcl"                       # /us-sd/sdcl/t1/s1-1-1.1/2
+fetch   = "template"
+url     = "https://sdlegislature.gov/api/Statutes/{item}.html?all=true"
+edition = 2026                                # current through the 2026 session (the site has no edition in the url)
+item    = ""                                  # title numbers as written: 1, 10, 32 ... (no zero padding in the url)
+file    = "title-{item}.html"
+skip    = ["0N"]                              # pseudo-title 0N is the constitution: its own formula, SD.const
+encoding = "utf-16-le"                        # ?all=true pages are UTF-16LE without a BOM
+family  = "html-paragraphs"
+terms   = "none stated; the printed SDCL volumes are official (SDCL 2-16-13), this online text is not"
+
+[SD.sdcl.html]
+blocks   = ["p"]
+headings = ["p:centered"]                     # CHAPTER 1-1 and its name: centered by CSS class rule (feature 2)
+opening  = ["b", "strong"]                    # unused: sections are matched on the whole paragraph (bold = false)
+drop     = ["style", "title", "meta"]         # per-document <head> furniture, should a document's head land in the body
+
+[SD.sdcl.ladder]
+# SDCL numbers subdivisions (1), then (a), then (i), then (A)
+types = ["num", "lower", "roman_lower", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[SD.sdcl.containers]
+title   = { match = '^TITLE\s+(?P<num>\d+[A-Z]?)$', tag = "title", rank = 1, id = "t{num}" }
+chapter = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?-\d+[A-Z]?)$', tag = "chapter", rank = 2, id = "ch{num}" }
+
+[SD.sdcl.sections]
+# The section's first paragraph is only "1-1-1.1. Retrocession of jurisdiction ... authorized." (number and
+# catchline bold; the text starts in the next paragraph). Matched on the whole paragraph, not the bold run,
+# so it works with or without CSS bold. A repealed section reads "1-1-11. Repealed by SL 2006, ch 130, § 1."
+# Number: title 1-62 with letter suffixes (32A?), chapter with letters (10-45D), section with dotted parts (1-1-2.1).
+match = '^(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:\s+to\s+\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*)?)\.\s+(?P<heading>.*)$'
+bold  = false
+scope = "title"                               # section numbers are unique within a title: /us-sd/sdcl/t1/s1-1-1
+# Table-of-contents lines (chapter list on a title page, section list on a chapter page) are the number,
+# four non-breaking spaces and the catchline -- no period after the number, unlike a section's opening.
+toc   = ['^\d+[A-Z]?-\d+[A-Z]?(?:-\d+[A-Z]?(?:\.\d+[A-Z]?)*)?\s']
+
+[SD.sdcl.notes]
+sourceCredit  = '^Source:'
+editorialNote = ['^(?:Code )?Commission Note:', '^Cross-References?:', "^Editor's note", '^Note:']
+
+# ---------------------------------------------------------------- South Dakota Constitution
+# Published as pseudo-title 0N: one ?all=true page. Articles head "ARTICLE III" / "LEGISLATIVE DEPARTMENT";
+# sections open "0N-3-1 Legislative power--Initiative and referendum. § 1." (seen only through a web reader,
+# so the punctuation is unconfirmed: needs the probe in SD.txt); notes open "History:"; some sections are
+# a range marked "Superseded" (0N-4-10 §§ 10 to 13.).
+[SD.const]
+inherit = "SD.sdcl"
+name    = "Constitution of the State of South Dakota"
+doc     = "/us-sd/const"                      # /us-sd/const/a3/s1
+items   = ["0N"]
+skip    = []
+file    = "constitution-{item}.html"
+
+[SD.const.ladder]
+types = ["num", "lower", "roman_lower", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[SD.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE|Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[SD.const.sections]
+# "0N-3-1 <catchline> § 1." -> s1 under the article; "0N-4-10 §§ 10 to 13." -> s10_to_13 (range, no catchline)
+match = '^0N-\d+-(?P<num>\d+[A-Z]?(?:\.\d+)?)\.?\s+(?P<heading>.*)$'
+bold  = false
+scope = "container"
+toc   = ['^ARTICLE\s+[IVXL]+$']
+
+[SD.const.notes]
+sourceCredit  = '^History:'
+editorialNote = ['^(?:Code )?Commission Note:', '^Cross-References?:']

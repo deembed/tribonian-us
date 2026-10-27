@@ -1,0 +1,69 @@
+# WV.toml -- West Virginia: the Code of West Virginia and the Constitution, from code.wvlegislature.gov
+# (the Legislature's WordPress site; "online copies are not the official versions").
+#
+# Site shape (probes 2026-10-26, build/probe/code.wvlegislature.gov/):
+#   /{ch}/          chapter page: links to its articles /{ch}-{art}/ (no law text)
+#   /{ch}-{art}/    article page: links to its sections /{ch}-{art}-{sec}/ (no law text); a
+#                   "Display all Article N Sections" button loads the whole article by AJAX
+#                   (wp-admin/admin-ajax.php; action not yet seen -- needs the theme's javascript.js)
+#   /{ch}-{art}-{sec}/  one section -- NOT YET PROBED; WV.code below waits on it
+#   /west-virginia-constitution  the whole constitution on one page (WV.const, below)
+#
+# WV.code is not written yet: no section-text page has been probed (see build/dispatch/WV.txt).
+
+# ---------------------------------------------------------------- Constitution of West Virginia
+# One page. Inside div.entry-content:
+#   h3 (no class)        "As Ratified in 1872 and Subsequently Amended" (malformed: an h2 "ARTICLES" sits inside it)
+#   p                    the two link lists (articles, amendments): a table of contents
+#   h2.wvc-article       ARTICLE I. ... ARTICLE XIV (dot sometimes missing); Preamble; AMENDMENTS (TOC header);
+#                        AMENDMENTS TO THE CONSTITUTION (the bond amendments); CONSTITUTIONAL AMENDMENTS SUBMITTED
+#                        (a ballot history by year)
+#   h3.wvc-section       a section's catchline -- it comes BEFORE the section's "§N." paragraph
+#   p                    "§1. The State of West Virginia is ..." -- plain text, the label not bold, the body
+#                        continuing in the same paragraph
+#   h4.wvc-subsection    "Subsection A – Appropriation Bills" inside art. VI, sec. 51 and art. X, sec. 1b:
+#                        cross headings inside a section (not containers, so the section stays open)
+#   blockquote.editor-notes > p   "[Editor’s note. – ...]" after a section
+# Article names are not on the page except in the TOC link list (the first section's catchline often repeats it).
+[WV.const]
+name    = "Constitution of West Virginia"
+doc     = "/us-wv/const"                     # /us-wv/const/a3/s7
+fetch   = "template"
+url     = "https://code.wvlegislature.gov/west-virginia-constitution"
+item    = ""
+items   = ["const"]                          # always the one page
+file    = "west-virginia-constitution.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[WV.const.html]
+root     = "div.entry-content"               # the h1 page title, menus, search form and sidebar sit outside it
+blocks   = ["p"]
+headings = ["h2.wvc-article", "h3.wvc-section", "h3:noclass", "h4.wvc-subsection"]
+opening  = []                                # nothing is bold: the section label is plain text
+drop     = []
+
+[WV.const.ladder]
+# Art. VI sec. 51 numbers (1)..(11) then (a)..(c) inside; amendments use (1)(2) and (a)(b)(c)
+types = ["num", "lower", "roman_lower"]
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[WV.const.containers]
+# heading = "self" everywhere: the page gives no article names, and the h3 after "ARTICLE I." is section 1's
+# catchline, which must not be taken as the article's name. The whole line is kept as the heading text.
+front     = { match = '^(?P<heading>As Ratified in 1872 and Subsequently Amended.*)$', tag = "level", rank = 2, id = "front", heading = "self" }
+toc       = { match = '^(?P<heading>AMENDMENTS)$', tag = "level", rank = 2, id = "toc", heading = "self" }   # the TOC's second header
+preamble  = { match = '^(?P<heading>Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article   = { match = '^(?P<heading>ARTICLE\s+(?P<num>[IVXL]+)\.?)$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "self" }
+amendments = { match = '^(?P<heading>AMENDMENTS TO THE CONSTITUTION)$', tag = "level", rank = 2, id = "amendments", heading = "self" }
+submitted = { match = '^(?P<heading>CONSTITUTIONAL AMENDMENTS SUBMITTED)$', tag = "level", rank = 2, id = "submitted", heading = "self" }
+
+[WV.const.sections]
+# "§1. The State ..." / "§1a. Notwithstanding ..." / "§6. Repealed." -- not bold, so matched on the paragraph text.
+match = '^§\s*(?P<num>\d+[a-z]?(?:-[a-z])?)\.'
+bold  = false
+scope = "container"                          # numbers restart per article: /us-wv/const/a3/s7
+toc   = ['^Article I\. Relations to', '^Judicial Amendment\.']   # the two link-list paragraphs at the top
+
+[WV.const.notes]
+editorialNote = ['^\[Editor’s note', "^\\[Editor's note"]

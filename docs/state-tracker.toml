@@ -23,7 +23,8 @@
 # ---------------------------------------------------------------- shared pieces
 [pieces.index2]
 what    = "fetch strategy: two-level index (title page -> chapter page -> section pages)"
-status  = "todo"            # todo | claimed | done
+status  = "done"            # todo | claimed | done
+how     = "index fetch with links = [regex per level]; save_as = \"path\" when page names repeat across folders"
 claimed = ""
 unlocks = ["AZ", "KS", "ME", "MT", "OH", "RI", "MN", "WI", "HI", "ID", "IL", "KY", "LA", "MA", "AK"]
 
@@ -105,14 +106,14 @@ branch = ""
 status = "fits"
 needs  = []
 source = "html index per title/chapter; authenticated PDF per title"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [FL]
 status = "fits"
 needs  = []
 source = "html browse by title/chapter; a 'Statutes Download' mode (format unverified)"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [HI]
@@ -182,7 +183,7 @@ branch = ""
 status = "fits"
 needs  = []
 source = "html OneChapter.aspx?chapter=N (whole chapter)"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [MT]
@@ -196,28 +197,28 @@ branch = ""
 status = "fits"
 needs  = []
 source = "html per chapter /EnactedLegislation/Statutes/HTML/ByChapter/Chapter_1.html"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [NE]
 status = "fits"
 needs  = []
 source = "html whole chapter /laws/display-chapters.php?chapter=N"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [NH]
 status = "fits"
 needs  = []
 source = "html: title index, whole chapter in one merged file"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [NV]
 status = "fits"
 needs  = []
 source = "html one file per chapter: leg.state.nv.us/NRS/NRS-XXX.html"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [OH]
@@ -231,7 +232,7 @@ branch = ""
 status = "fits"
 needs  = []
 source = "html per chapter (static, /bills_laws/ors/); file name pattern unverified"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [RI]
@@ -245,28 +246,28 @@ branch = ""
 status = "fits"
 needs  = []
 source = "html one .php page per chapter (/code/t01c023.php)"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [SD]
 status = "fits"
 needs  = []
 source = "JavaScript app, but static HTML via /api/Statutes/{cite}.html (?all=true for a chapter; unverified)"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [VT]
 status = "fits"
 needs  = []
 source = "html full chapter /statutes/fullchapter/{title}/{chapter}"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [WA]
 status = "fits"
 needs  = []
 source = "html per section; archive one HTML per title"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [WI]
@@ -280,7 +281,7 @@ branch = ""
 status = "fits"
 needs  = []
 source = "html per article /{ch}-{art}/"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 # ---------------------------------------------------------------- unclear (probe first)
@@ -288,14 +289,14 @@ branch = ""
 status = "unclear"
 needs  = []
 source = "NMOneSource document.do (nmsa-unanno); possibly a JavaScript app"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 [PA]
 status = "unclear"
 needs  = []
 source = "palegis.us (new site, format unverified); legacy html/pdf per title or act"
-claimed = ""
+claimed = "agent, round 2 (2026-10-26)"
 branch = ""
 
 # ---------------------------------------------------------------- bulk / API
