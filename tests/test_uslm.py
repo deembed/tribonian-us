@@ -59,12 +59,12 @@ class Ladder(unittest.TestCase):
 
     def test_choices(self):
         L = tree.Ladder(FORMULA["ladder"]["types"])
-        self.assertEqual(L.place("I", [(1, 0), (8, 0), None, (8, 0)], "x;"), 3)     # (I) after (H): a letter
-        self.assertEqual(L.place("I", [(1, 0), (1, 0)], "text;"), 2)                 # (I) under (a): roman one
-        self.assertEqual(L.place("i", [(1, 0), (8, 0)], "text;"), 1)                 # (i) after (h): a letter
-        self.assertEqual(L.place("i", [(1, 0), (8, 0)], "the following:"), 2)        # announced: roman child
+        self.assertEqual(L.place("I", ["1", "h", None, "H"], "x;"), 3)     # (I) after (H): a letter
+        self.assertEqual(L.place("I", ["1", "a"], "text;"), 2)                 # (I) under (a): roman one
+        self.assertEqual(L.place("i", ["1", "h"], "text;"), 1)                 # (i) after (h): a letter
+        self.assertEqual(L.place("i", ["1", "h"], "the following:"), 2)        # announced: roman child
         self.assertEqual(L.place("a", [], ""), 1)                                    # a section may start at (a)
-        self.assertIsNone(L.place("the", [(1, 0)], ""))
+        self.assertIsNone(L.place("the", ["1"], ""))
 
 
 class Family(unittest.TestCase):

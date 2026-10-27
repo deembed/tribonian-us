@@ -16,8 +16,20 @@ from tribonian.uslm import families, verify, writer
 from tribonian.uslm.tree import Node
 
 
+def _cp1252_fallback(err):
+    """A byte that is not UTF-8 inside a UTF-8 page (Nebraska's stray Latin-1 degree sign): read it as
+    Windows-1252 instead of losing it to U+FFFD."""
+    bad = err.object[err.start:err.end]
+    return bad.decode("cp1252", errors="replace"), err.end
+
+
+import codecs
+codecs.register_error("cp1252fallback", _cp1252_fallback)
+
+
 def _decode(raw_bytes, formula):
-    return raw_bytes.decode(formula.get("encoding", "utf-8"), errors="replace")
+    enc = formula.get("encoding", "utf-8")
+    return raw_bytes.decode(enc, errors="cp1252fallback" if enc.lower().replace("-", "") == "utf8" else "replace")
 
 
 def convert(raw_bytes, formula, item, meta):

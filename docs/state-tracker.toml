@@ -217,6 +217,7 @@ needs  = []
 source = "html: title index, whole chapter in one merged file"
 claimed = "agent, round 2 (2026-10-26)"
 branch = ""
+skipped = "constitution: www.nh.gov blocks every non-browser client (bot protection, even robots.txt); deferred by the user 2026-10-26 -- revisit when needed"
 
 [NV]
 status = "working"

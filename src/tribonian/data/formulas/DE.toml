@@ -39,12 +39,13 @@ opening  = ["div.SectionHead"]                # the whole "§ 101. Designation a
 # site furniture only: the breadcrumb row ("Title 1" link, "Authenticated PDF" link) and the
 # in-page jump list of section numbers (ul.chaptersections: "§ 101", "§ 101A" ... anchors, repeated
 # verbatim by each section's own heading)
+verbatim = ["div.code-table"]                 # statutory tables (11 Del. C. § 1105(f) offense list): one text item, cells joined
 drop     = ["div.row", "ul.chaptersections"]
 
 [DE.code.ladder]
-# Delaware style (a)(1)a.1.A. -- deeper levels unconfirmed on the probe (title 1 ch. 1 only reaches (d)(3))
-types = ["lower", "num", "lower.", "num.", "upper."]
-tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+# Delaware style (a)(1)a.1.A.I. (the sixth level, roman dotted, in 11 Del. C. § 1448(a)(5)c.1.A.I.)
+types = ["lower", "num", "lower.", "num.", "upper.", "roman_upper."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
 
 [DE.code.containers]
 # The title's number and name repeat on every chapter page (h1 / first h4). They are kept as cross
@@ -60,6 +61,8 @@ subchapter = { match = '^Subchapter\s+(?P<num>[IVXL]+[A-Z]?)\b.*$', tag = "subch
 match = '^§§?\s*(?P<num>\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*(?:\s*(?:-|–|to|,)\s*\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*)?)\.\s*(?P<heading>.*)$'
 bold  = true                                  # matched against the opening run (div.SectionHead)
 scope = "title"                               # /us-de/code/t1/s101
+versions = '\[Effective'                      # "§ 2101. Purposes ... [Effective until Feb. 1, 2027]." then
+                                              # "§ 2101. ... [Effective Feb. 1, 2027].": two versions, kept as s2101, s2101_v2
 
 [DE.code.notes]
 # the history credit ("1 Del. C. 1953, § 101; 49 Del. Laws, c. 220, § 1;"): the only loose text in a section

@@ -527,7 +527,7 @@ def build_formula(st, code, items, everything=False):
             continue
         meta = local_meta(src) or {}
         m = re.fullmatch(re.escape(f["file"]).replace(re.escape("{item}"), "(.+)"), src.name)
-        tree, report = build.convert(src.read_bytes(), f, m.group(1) if m else src.stem,
+        tree, report = build.convert(src.read_bytes(), f, m.group(1) if m and m.re.groups else src.stem,
                                      {"edition": meta.get("edition"), "retrieved": meta.get("fetched"), "url": meta.get("url"),
                                       "formula": "%s.%s" % (st, code)})
         out = uslm_path(st, code, src)

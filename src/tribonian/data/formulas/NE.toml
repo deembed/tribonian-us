@@ -32,7 +32,9 @@ terms   = "Copyright Nebraska Legislature; the online text is not the official p
 #   div.source    the source note, with its trailing "Effective Date:"/"Operative Date:" line, as one block
 #   span:noclass  the "Annotations"/"Cross References" label spans and each cross-reference item (<span>)
 #   div:noclass   each case annotation (div style="text-indent: 1em")
-blocks   = ["strong", "p", "div.source", "span:noclass", "div:noclass"]
+#   a             only a bare link between sections counts (every other <a> sits inside a block): chapter 90's
+#                 "<a href=/images/statutes/s_90-105.jpg>90-105 Image</a>", the state symbol the section adopts
+blocks   = ["strong", "p", "div.source", "span:noclass", "div:noclass", "a"]
 headings = []                                # the print page has no chapter/article headings
 opening  = ["strong"]
 verbatim = ["table"]                         # 28-105's felony-class penalty table (set inside a <p>): one text item
@@ -51,6 +53,9 @@ scope = "title"
 sourceCredit  = '^Source:'
 note          = [{ match = '^Annotations$', topic = "annotation" }]
 editorialNote = [{ match = '^Cross References$', topic = "crossReference" }]
+# "90-105 Image" (the link above) belongs to the NEXT section: it ends the previous section's notes and
+# stands as a cross heading between the two, rather than landing in 90-104's source note
+close         = ['^\d+[A-Z]?-\d+(?:,\d+)?(?:\.\d+)?[A-Z]? Image$']
 
 # ---------------------------------------------------------------- Nebraska Constitution
 # The whole constitution on one page, /laws/display-fullconst.php?print=false (about 1 MB). Inside the site

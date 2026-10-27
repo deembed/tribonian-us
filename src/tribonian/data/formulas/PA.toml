@@ -78,16 +78,17 @@ sourceCredit  = '^\((?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.? \d
 # capitalized words ending in a period. Law text never opens that way here (subsections open "(a)",
 # definitions open with a quotation) -- except "Schedule. Effective date ..." in the Constitution's appendix,
 # an unnumbered provision heading, excluded by the lookahead.
-editorialNote = ['^(?!Schedule\.)(?:\d{4} )?[A-Z][a-z]+(?: (?:[A-Z][a-z]+|of|by|in|to|on|for|and|the|\d{4}))*\.\s']
+editorialNote = ['^(?!Schedule\.)(?:\d{4} )?[A-Z][a-z]+(?: (?:[A-Z][a-z]+|of|by|in|to|on|for|and|the|\d{4}))*\.\s',
+                 '^Editorial Note:']           # Title 79 (reserved) holds only this note, at the top level
 
 # ---------------------------------------------------------------- Constitution of Pennsylvania (ttl=0)
 [PA.const]
 inherit = "PA.cs"
 name    = "Constitution of Pennsylvania"
 doc     = "/us-pa/const"                      # /us-pa/const/a1/s7
-item    = ""                                  # item "0" -> {n:04d} = "0000." in the URL
-items   = ["0"]
-file    = "constitution.htm"
+item    = ""
+items   = [""]                                # the one file; an empty item gives {n} = 0 -> "ttl=0000." in the URL
+file    = "constitution{item}.htm"           # -> constitution.htm ({item} present: build matches the name against it)
 dir     = "cs"                                # shares the folder: law/pa/cs/constitution.htm
 replace = ["containers", "sections", "notes", "ladder", "wrap"]   # the Constitution's own structure (taken whole)
 wrap    = {}                                  # no title wrapper: articles hang off /us-pa/const directly

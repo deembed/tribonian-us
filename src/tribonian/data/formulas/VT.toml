@@ -28,10 +28,13 @@ terms   = "unofficial copy provided as a convenience (site notice); the official
 
 [VT.vsa.html]
 root     = "div#main-content"
-blocks   = ["p"]
+# <center> carries the bracketed version markers "[Subsection (d) effective until July 1, 2027; see also ...]"
+# that come before each of two versions of a paragraph (it sits outside the <p>, which the site leaves empty)
+blocks   = ["p", "center"]
 # h3.statute-chapter "Chapter 001: Name"; the subchapter line is a bare <i> inside an <li> (an <i> inside a
 # <p> is not read as a heading: blocks nested in blocks count once, as part of the outer one)
 headings = ["h3.statute-chapter", "i"]
+verbatim = ["table"]                           # definition lists and forms set as tables (9A § 8-102(b)): one text item
 opening  = ["b"]                               # the section line "§ 51. Heading" is bold
 drop     = ["div.print-top",                   # "Print" button
             "h2:noclass",                      # "The Vermont Statutes Online" banner
@@ -41,7 +44,7 @@ drop     = ["div.print-top",                   # "Print" button
                                                # the title is named once by the build (as Maryland's banner)
 
 [VT.vsa.ladder]
-# (a)(1)(A)(i)(I)(aa), as the US Code
+# (a)(1)(A)(i)(I)(aa), as the US Code (title 9A, the UCC, has its own formula: VT.ucc)
 types = ["lower", "num", "upper", "roman_lower", "roman_upper", "double_lower"]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
 
@@ -59,6 +62,9 @@ subchapter = { match = '^Subchapter\s+0*(?P<num>\d+[A-Z]?)\s*:', tag = "subchapt
 match = '^§§?\s*(?P<num>\d+[a-zA-Z]*(?:[-–—]\d+[a-zA-Z]*)*)(?:(?:,\s*|\s+(?:to|and)\s+)\d+[a-zA-Z]*(?:[-–—]\d+[a-zA-Z]*)*)*\.\s*(?P<heading>.*)$'
 bold  = true
 scope = "title"
+# two texts of one section, marked in the heading: "§ 5901. Purpose [Contingently enacted]" vs
+# "... [Contingently repealed; effective until contingency met]"; "[Effective July 1, 2027]"
+versions = '(?i)\[(?:Contingently (?:enacted|repealed)|[^\]]*\beffective\b)'   # coordinator: any "[... effective ...]" marker
 
 [VT.vsa.notes]
 # none as separate blocks: history is inline at the end of the text
@@ -102,3 +108,31 @@ close = [{ heading = true }]
 # the page's sign-off after the <hr> ("The Vermont General Assembly / Montpelier, Vermont") is not law:
 # kept as a note, not dropped (it has no selector of its own)
 note = { match = '^The Vermont General Assembly Montpelier, Vermont$', topic = "colophon" }
+
+# ---------------------------------------------------------------- V.S.A. title 9A, Uniform Commercial Code
+# Same pages as VT.vsa; only the paragraph numbering differs: the uniform act's (1)(a)(i)(A) in some articles
+# (2, 2A, ...) and Vermont's (a)(1)(A)(i) in others (9 ...). The first four levels accept both orders (the ladder
+# tries every type of a level). Kept apart because the mixed ladder misplaces labels in ordinary titles.
+[VT.ucc]
+inherit = "VT.vsa"
+name    = "Vermont Statutes Annotated, title 9A (Uniform Commercial Code)"
+items   = ["09A"]
+dir     = "vsa"                                # same download folder as VT.vsa: law/vt/vsa/
+
+[VT.ucc.ladder]
+types = [["lower", "num"], ["num", "lower"], ["upper", "roman_lower"], ["roman_lower", "upper"], "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+# ---------------------------------------------------------------- V.S.A. appendix titles (3, 10, 16, 24 APPENDIX)
+# Same site and page layout as the titles (title page h2.statute-header "Title 3 Appendix: Executive Orders",
+# links /statutes/chapter/03APPENDIX/CCC, whole-chapter pages /statutes/fullchapter/03APPENDIX/CCC), but the
+# title page shows section numbers restarting in each chapter ("Chapter 003 ... §§ 1 - 99", "Chapter 005 ...
+# §§ 1 - 7"), so section ids hang off the chapter: /us-vt/vsa/t3APPENDIX/ch5/s1. Not yet checked on a chapter page.
+[VT.app]
+inherit = "VT.vsa"
+name    = "Vermont Statutes Annotated, appendix titles"
+item    = "%02d"                               # "3APPENDIX" -> "03APPENDIX"
+items   = ["03APPENDIX", "10APPENDIX", "16APPENDIX", "24APPENDIX"]
+
+[VT.app.sections]
+scope = "container"

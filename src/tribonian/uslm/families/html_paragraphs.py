@@ -410,6 +410,7 @@ class Builder:
         self.toc_rx = _regex_list(s.get("toc"))
         self.version_rx = re.compile(s["versions"]) if s.get("versions") else None
         self.versions = []                 # labels that repeat as another version (effective-date variants)
+        self.version_next = False          # a version marker stood alone on the line before
         n = f.get("notes", {})
         self.annot_rx = re.compile(n["annotation"]) if n.get("annotation") else None
         self.note_rules = []               # (element, topic, regex or None, class or None)
@@ -564,7 +565,9 @@ class Builder:
             where = "%s %s" % (self.section.num if self.section else "", "".join("(%s)" % n.num for n in self.levels))
             prev = self.here().last_text() if self.levels or self.section else ""
             same = [n.rank for n in self.levels if n.label == label]
-            is_version = bool(same and self.version_rx and self.version_rx.match(rest.lstrip()) and raw is raws[-1])
+            is_version = bool(same and self.version_rx and raw is raws[-1] and
+                              (self.version_rx.match(rest.lstrip()) or self.version_next))   # marker after the label,
+            self.version_next = False                                                   # or on the line before it
             d = same[-1] if is_version else self.ladder.place(label, open_labels, prev, where.strip(), hint)
             if d is None:
                 break
@@ -586,6 +589,7 @@ class Builder:
         rest = rest.strip()
         if rest:
             self.here().add("text", rest)
+
 
     # ---------------------------------------------------------------- driver
 
@@ -609,6 +613,9 @@ class Builder:
 
     def feed(self, text, bold, centered, classes=frozenset(), verbatim=False, indent=None):
         self.cur_classes = classes
+        if self.version_rx and self.version_rx.match(text.strip()) and not split_labels(text, self.ladder.dotted)[0]:
+            self.version_next = True      # "[Paragraph V effective ...]" on its own line (or a centered note):
+                                          # the next repeated label is a version, not an error
         if self.held_heading is not None and not self.section_start_probe(text, bold):
             held, self.held_heading = self.held_heading, None          # not followed by a section: it goes the
             self._feed(*self.held_args)                                # normal way (notes.close, cross heading)
