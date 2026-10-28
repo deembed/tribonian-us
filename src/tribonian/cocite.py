@@ -2746,7 +2746,8 @@ def cmd_prox_evidence(args):
 
 def main():
     import signal
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)     # `| head` ends quietly instead of with a traceback
+    if hasattr(signal, "SIGPIPE"):                    # not on Windows
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # `| head` ends quietly instead of with a traceback
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     view = argparse.ArgumentParser(add_help=False)

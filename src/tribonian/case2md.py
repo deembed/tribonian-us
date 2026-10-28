@@ -20,7 +20,7 @@ by CourtListener in html_with_citations.
 Token: environment variable COURTLISTENER_TOKEN, else the GNOME keyring via
     secret-tool lookup service courtlistener
 """
-import argparse, atexit, fcntl, json, os, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, unicodedata
+import argparse, atexit, json, os, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, unicodedata
 from contextlib import contextmanager
 from collections import Counter
 from datetime import date
@@ -303,12 +303,40 @@ def file_lock(name):
             _LOCK_DEPTH[path] -= 1
         return
     with open(path, "w") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
+        _flock(f)
         _LOCK_DEPTH[path] = 1
         try:
             yield
         finally:
             _LOCK_DEPTH[path] = 0
+            _funlock(f)
+
+
+def _flock(f):
+    """Wait until this process holds an exclusive lock on f: flock on Linux and macOS, msvcrt on Windows
+    (a lock on the file's first byte; msvcrt.LK_LOCK gives up after about 10 s, so keep asking)."""
+    if os.name == "nt":
+        import msvcrt
+        while True:
+            try:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+                return
+            except OSError:
+                continue
+    import fcntl
+    fcntl.flock(f, fcntl.LOCK_EX)
+
+
+def _funlock(f):
+    """Release _flock's lock (closing the file releases it too; Windows says when only loosely, so do it now)."""
+    if os.name == "nt":
+        import msvcrt
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def index_lock():
