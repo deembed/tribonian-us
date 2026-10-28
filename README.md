@@ -682,6 +682,7 @@ Keys for APIs live in your shell profile, never in the repo: `NYSENATE_API_KEY` 
 ## Other
 
 - **`tribonian link-audit [md]`:** counts US Code notes with no wikilinks in or out, grouped by title and heading type.
+- **`tribonian serve`:** one long-running process the GUI talks to, a JSON request per line on stdin and a reply per line on stdout (ops: `ping`, `law.text`, `law.fetch`, `quit`; protocol in `src/tribonian/serve.py`). Try it: `echo '{"id":1,"op":"law.text","key":"usc:5:552a"}' | tribonian serve`.
 
 ## Running things at the same time
 

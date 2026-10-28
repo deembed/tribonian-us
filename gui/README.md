@@ -42,7 +42,8 @@ No setup is needed: the app runs `.tribonian check --paths` at start and reads t
   parentheticals describe it). Uses `search.sqlite` and `courtlistener.sqlite` from `bulk_dir` unless
   `search_db` / `main_db` say otherwise. Tests: `cargo test` (query building, citation detection).
 - Build on the case page runs `tribonian map get --cluster N` then `tribonian case build cases/<file>` in the work folder
-  (`python -m tribonian` with `src/` on `PYTHONPATH`; interpreter: `[gui] python`), streaming output into a log panel at the bottom. A build only counts
+  (`python -m tribonian` with `src/` on `PYTHONPATH`; interpreter: `[gui] python`; or `<prefix> tribonian` when the
+  `TRIBONIAN_COMMAND_PREFIX` variable is set, e.g. `wsl` to run the scripts inside WSL), streaming output into a log panel at the bottom. A build only counts
   as done when case2md prints its `wrote pdf/...` line, as in `tribonian build`. Afterwards the app rereads the
   case files and reloads the page. One build at a time.
 - The case page shows at once, with no build: details from the main database (docket, dates, judges,
@@ -100,3 +101,8 @@ No setup is needed: the app runs `.tribonian check --paths` at start and reads t
 - **Pop out** (top bar): the current page in a window of its own, content only, with its own back/forward (Alt+Left /
   Alt+Right) and "Open in main window". **Ctrl+click** any link (in the main window or a pop-out) opens it in a new window
   instead. Pop-outs share the page cache and the build queue with the main window; closing one forgets its history.
+- `src/serve.rs`: the client for `tribonian serve` (one long-running Python process, JSON lines; blocking, so call
+  it from a worker thread). Check setup starts it and pings it. New views that need the scripts' code (the
+  law browser) read through it rather than opening files in the app; the existing views still read SQLite
+  and the work folder directly, so `TRIBONIAN_COMMAND_PREFIX` alone does not yet make them work across a
+  WSL or container boundary.

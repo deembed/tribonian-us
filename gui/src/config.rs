@@ -79,9 +79,23 @@ pub struct Config {
     pub config_error: Option<String>,
 }
 
-/// `python -m tribonian`, from the checkout's src/ whether or not the package is installed. It runs in
-/// the work folder (the CLI changes to it), so relative paths in arguments are relative to that folder.
+/// TRIBONIAN_COMMAND_PREFIX, split on spaces: when set (e.g. "wsl", or "docker exec -i tribonian"),
+/// every command runs as `<prefix> tribonian ...`, the `tribonian` installed wherever the prefix
+/// leads, instead of this machine's interpreter and checkout.
+pub fn command_prefix() -> Vec<String> {
+    std::env::var("TRIBONIAN_COMMAND_PREFIX").unwrap_or_default().split_whitespace().map(String::from).collect()
+}
+
+/// `python -m tribonian`, from the checkout's src/ whether or not the package is installed (or
+/// `<prefix> tribonian`, see [`command_prefix`]). It runs in the work folder (the CLI changes to it),
+/// so relative paths in arguments are relative to that folder.
 pub fn tribonian(python: &str, repo: &Path) -> Command {
+    let prefix = command_prefix();
+    if let Some((first, rest)) = prefix.split_first() {
+        let mut c = Command::new(first);
+        c.args(rest).arg("tribonian");
+        return c;
+    }
     let mut c = Command::new(python);
     let mut pp = vec![repo.join("src")];
     if let Some(old) = std::env::var_os("PYTHONPATH") {
@@ -129,7 +143,7 @@ impl Config {
         }
         // The repo: gui.toml, else the folder above gui/ (where this app was built from).
         let repo_dir = fc.repo_dir.clone().or_else(|| manifest.parent().map(Path::to_path_buf)).unwrap_or_default();
-        if !repo_dir.join("src").join("tribonian").join("check.py").is_file() {
+        if command_prefix().is_empty() && !repo_dir.join("src").join("tribonian").join("check.py").is_file() {
             return Err(format!(
                 "No tribonian-us code (src/tribonian/) in {}. Set repo_dir in gui.toml (copy gui.toml.example).",
                 repo_dir.display()

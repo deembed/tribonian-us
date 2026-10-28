@@ -79,6 +79,7 @@ code, the two tracked data files (`data/`) and the shell scripts (`sh/`).
 | `render.py` | — | ~200 | **The shared LaTeX preamble and TeX escaping**, so both corpora look the same on the tablet |
 | `tconfig.py` | — | ~170 | Settings (variable, else config file, else default) and the work folder |
 | `sync_remarkable.py`, `sh/sync_vault.sh`, `link_audit.py` | `sync-remarkable`, `sync-vault`, `link-audit` | small | Delivery and audits |
+| `serve.py` | `serve` | small | Long-running JSON-lines process for the GUI: law text and fetches through the scripts' code, so the app need not open those files itself |
 
 Modules import each other as `from tribonian import case2md`. `casemap.py` imports `case2md` (as `c`) and `casedb`;
 `case2md`, `cocite` and `casemap` import each other inside functions, so each is loaded once whichever command runs.
