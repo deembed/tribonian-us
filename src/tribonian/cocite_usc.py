@@ -249,6 +249,14 @@ def full_refs(t, m):
     out = [(m.start(), title, s, p) for s, p in split_hyphen(m.group(3), plural)]
     end = m.end()
     prev = m.group(3)
+    # "§§ 2000aa-2000aa-12", "§§ 2000e-2000e-17": a range whose ends are hyphenated sections. SECT takes
+    # "2000aa-2000aa" as one token; the range is 2000aa to 2000aa-12
+    rng = re.fullmatch(r"(\d+[A-Za-z]+)-(\d+[A-Za-z]+)", m.group(3)) if plural else None
+    tail = re.compile(r"-(\d+[A-Za-z]*)(?!\w|-\d|\.\d)" + SUBS).match(t, m.end(3)) if rng else None
+    if tail:
+        last = "%s-%s" % (rng.group(2), tail.group(1))
+        out = [(m.start(), title, rng.group(1), 2), (m.start(3) + len(rng.group(1)) + 1, title, last, 3)]
+        prev, end = last, tail.end()
     while plural:
         n = MORE_RE.match(t, end)
         if not n:

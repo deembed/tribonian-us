@@ -85,3 +85,33 @@ scope = "title"
 # <annotation type="..."> runs, each led by a class="atype" label line from the transform
 sourceCredit  = { class = "atype", match = '^History$' }
 editorialNote = { class = "atype" }
+
+[DC.code.cite]
+# "D.C. Code § 22-2101", "D.C. Code Ann.", "D.C. Official Code"; the UCC title is 28:9-102. "D.C. Code"
+# needs the word Code, so "D.C. Cir." never matches. Pre-2001 cites ("D.C. Code § 22-2401 (1996)") use the
+# old numbering and will miss or mis-hit the current text.
+full    = ['D\.\s?C\.\s?(?:Official\s+)?Code(?:\s?Ann\.)?(?:,?\s*(?:19[4-9]\d|20[0-4]\d)(?:\s*[Ee]d\.)?)?',
+           'District\s+of\s+Columbia\s+(?:Official\s+)?Code']
+section = '\d+[A-Z]?(?::\d+[A-Z]?)?-\d+[A-Za-z]?(?:\.\d+[A-Za-z]?)*'
+item    = ['^(\d+[A-Z]?)[:-]', '{1}']        # 22-2101 -> 22; 28:9-102 -> 28; 29A-... -> 29A
+label   = "D.C. Code § {sec}"
+examples = [["D.C. Code § 1-206.02(a)(3)", "dc-code:1-206.02", "D.C. Code § 1-206.02"],
+            ["D.C. Code Ann. § 28:9-102 (2012 Repl.)", "dc-code:28:9-102"],
+            ["D.C. Official Code § 47-1801.04", "dc-code:47-1801.04"],
+            ["D.C. Code § 22-2101", "dc-code:22-2101"]]
+
+# ---------------------------------------------------------------- D.C. Municipal Regulations (cite-only)
+[DC.dcmr]
+name    = "District of Columbia Municipal Regulations"
+source_error = "no formula yet: the DCMR is published at dcregs.dc.gov (Office of Documents and Administrative Issuances); not wired up"
+
+[DC.dcmr.cite]
+# "D.C. Mun. Regs. tit. 17, § 100.1" (Bluebook), "17 DCMR § 100.1" (D.C. courts)
+full    = ['D\.\s?C\.\s?Mun\.\s?Regs\.(?:\s?Ann\.)?,?\s*tit\.\s*(?P<title>\d+[A-Z]?),?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])',
+           '(?P<title>\d+[A-Z]?)\s*(?:DCMR|D\.\s?C\.\s?M\.\s?R\.)\s*(?:§§?\s*)?{section}(?![\w])']
+section = '\d+(?:\.\d+)?'
+key     = "{title}/{sec}"
+label   = "D.C. Mun. Regs. tit. {title}, § {sec}"
+examples = [["D.C. Mun. Regs. tit. 17, § 100.1", "dc-dcmr:17/100.1", "D.C. Mun. Regs. tit. 17, § 100.1"],
+            ["14 DCMR § 4300.1", "dc-dcmr:14/4300.1"],
+            ["29 D.C.M.R. § 1901", "dc-dcmr:29/1901"]]

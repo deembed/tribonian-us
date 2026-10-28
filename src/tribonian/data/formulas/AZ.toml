@@ -78,6 +78,16 @@ scope = "title"                               # /us-az/ars/t36/s36-101
 decimal = true                                # 36-2901.01 sorts as a decimal part
 
 [AZ.ars.notes]
+
+[AZ.ars.cite]
+# "Ariz. Rev. Stat. Ann. § 13-1105", "A.R.S. § 13-1105" (Arizona's courts: unique to the state, taken as full)
+full    = ['Ariz\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?', 'A\.\s?R\.\s?S\.', 'Arizona\s+Revised\s+Statutes']
+section = '\d+-\d+(?:\.\d+)?(?![-\d])'
+item    = ['^(\d+)-', '{1}']                       # 13-1105 -> title 13
+label   = "Ariz. Rev. Stat. Ann. § {sec}"
+examples = [["A.R.S. § 13-1105(A)(2)", "az-ars:13-1105", "Ariz. Rev. Stat. Ann. § 13-1105"],
+            ["Ariz. Rev. Stat. Ann. § 33-1321 (2019)", "az-ars:33-1321"],
+            ["Ariz. Rev. Stat. § 1-213", "az-ars:1-213"]]
 # the site carries no history or source lines
 
 # ---------------------------------------------------------------- Arizona Constitution
@@ -93,7 +103,7 @@ decimal = true                                # 36-2901.01 sorts as a decimal pa
 # from save_as = "url" (const_6.1_1.htm), inherited.
 [AZ.const]
 inherit = "AZ.ars"
-replace = ["sections", "notes", "ladder"]
+replace = ["sections", "notes", "ladder", "cite"]
 name    = "Constitution of Arizona"
 doc     = "/us-az/const"                      # /us-az/const/t1/s1 (t = article, one file per article)
 index_file = "article-{item}.html"
@@ -122,3 +132,26 @@ heading_before = '^\d+(?:\.\d+)?[A-Za-z]?\.\s+\S'
 scope = "title"                               # one article per file: /us-az/const/t1/s1
 
 [AZ.const.notes]
+
+[AZ.const.cite]
+# Arizona writes articles in Arabic ("art. 2, § 8"), and has an art. 6.1
+full    = ['Ariz\.\s?Const\.?', 'Arizona\s+Constitution', 'Constitution\s+of\s+(?:the\s+State\s+of\s+)?Arizona',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXL]+|\d+(?:\.\d+)?)\b,?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<sec>\d+(?:\.\d+)?)\b,?\s*of\s+(?:the\s+)?Arizona\s+Constitution']
+tail    = ',?\s*[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXL]+|\d+(?:\.\d+)?)\b(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+(?:\.\d+)?[a-z]?))?(?:\s?\([A-Za-z0-9]{1,3}\))*'
+item    = "{art}"                                  # one item per article
+label   = "Ariz. Const. art. {roman}[, § {sec}]"
+examples = [["Ariz. Const. art. 2, § 8", "az-const:art-2:8", "Ariz. Const. art. II, § 8"],
+            ["Ariz. Const. art. 6.1, § 4", "az-const:art-6.1:4"],
+            ["Article 22, Section 14 of the Arizona Constitution", "az-const:art-22:14"]]
+
+# ---------------------------------------------------------------- cite-only (no formula): recognized in cites, no text
+[AZ.aac]
+name    = "Arizona Administrative Code"
+kind    = "regs"
+source_error = "no formula yet: the Secretary of State publishes the A.A.C. as PDFs per chapter"
+
+[AZ.aac.cite]
+full    = ['(?:Ariz\.\s?Admin\.\s?Code|A\.\s?A\.\s?C\.)\s*(?:§\s*)?(?P<sec>R\d+-\d+-[A-Z]?\d+(?:\.\d+)?)']
+label   = "Ariz. Admin. Code § {sec}"
+examples = [["Ariz. Admin. Code § R9-22-101(B)", "az-aac:R9-22-101", "Ariz. Admin. Code § R9-22-101"],
+            ["A.A.C. R19-1-101", "az-aac:R19-1-101"]]

@@ -61,6 +61,18 @@ scope = "title"
 sourceCredit  = '^HISTORY:'
 editorialNote = ["^Editor's Note$", "^Code Commissioner's Note$", "^Effect of Amendment$", "^CROSS REFERENCES?$"]
 
+[SC.code.cite]
+# how cases cite it (statecites.py): "S.C. Code Ann. § 16-3-10 (2015)", "S.C. Code § 16-3-10",
+# "section 16-3-10 of the South Carolina Code"
+full    = ['S\.\s?C\.\s?Code(?:\s?Ann\.)?(?:\s+of\s+Laws)?', 'South\s+Carolina\s+Code(?:\s+of\s+Laws)?(?:\s+Ann(?:otated|\.))?']
+after   = ['of\s+the\s+South\s+Carolina\s+Code(?:\s+of\s+Laws)?(?:\s+Ann(?:otated|\.))?', 'S\.\s?C\.\s?Code(?:\s?Ann\.)?']
+section = '\d+-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+)?'      # 16-3-10, 56-5-2930
+item    = ['^(\d+)-', '{1}']                        # 16-3-10 -> title 16
+label   = "S.C. Code Ann. § {sec}"
+examples = [["S.C. Code Ann. § 12-2-10 (2014)", "sc-code:12-2-10", "S.C. Code Ann. § 12-2-10"],
+            ["S.C. Code § 1-23-380(5)", "sc-code:1-23-380"],
+            ["section 63-1-10 of the South Carolina Code", "sc-code:63-1-10"]]
+
 # ---------------------------------------------------------------- Constitution of South Carolina, 1895
 # scconstitution/scconst.php links one PDF per article (/scconstitution/A01.pdf .. A17.pdf, A08A.pdf); the HTML
 # article pages (A01.php) are 404 and commented out of the index, so PDF is the only text route besides Word
@@ -132,3 +144,11 @@ sourceCredit  = '^HISTORY:'
 # "Editor’s Note" (curly apostrophe) sits on its own line, but its text starts at col 0 on the next line, so the
 # transform joins them: the block starts "Editor’s Note For similar provisions ...". Also "[Notes under former section".
 editorialNote = ["^Editor.s Note\\b", '^\[Notes under former section']
+
+
+[SC.const.cite]
+full    = ['S\.\s?C\.\s?Const\.?', 'South\s+Carolina\s+Constitution']   # then "art. I, § 3"
+item    = "{art}"                                                         # article 1 -> A01.pdf
+label   = "S.C. Const. art. {roman}[, § {sec}]"
+examples = [["S.C. Const. art. I, § 3", "sc-const:art-1:3", "S.C. Const. art. I, § 3"],
+            ["S.C. Const. art. XVII, § 1", "sc-const:art-17:1"]]

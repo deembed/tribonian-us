@@ -7,12 +7,15 @@ One key per provision, at section level (the subsection is kept as the pin, not 
     const:amend-14:1       U.S. Const. amend. XIV, § 1
     const:art-3:2          U.S. Const. art. III, § 2
     cfr:34:300.324         34 C.F.R. § 300.324;  cfr:34:pt-300  34 C.F.R. pt. 300
+    <st>-<code>:...        state law, from the [cite] tables in the state formulas (statecites.py):
     co-crs:26.5-4-205      Colo. Rev. Stat. § 26.5-4-205, C.R.S. § ..., § 26.5-4-205, C.R.S.
     co-ccr:8-1404-1:4.109  8 CCR 1404-1 § 4.109, 8 Colo. Code Regs. 1404-1 § 4.109;  co-ccr:8-1404-1 alone
     co-const:art-9:7       Colo. Const. art. IX, § 7
+    tx-codes:GV/311.001    Tex. Gov't Code Ann. § 311.001; "Gov't Code § 311.001" only in a Texas case
+    pa-ps:...              a code with no source (cite-only table): recognized; the appendix says why no text
 
-A short form ("§ 26.5-4-205(2)", "§ 1983") takes the code of the last full cite with the same
-shape. Regular expressions only; no language model.
+A short form ("§ 26.5-4-205(2)", "§ 1983") takes the code of the latest full cite whose numbers have its
+shape (a U.S.C. title only near a section cited in full). Regular expressions only; no language model.
 """
 import re
 from collections import Counter, defaultdict
@@ -34,14 +37,9 @@ NAMED_AMEND_RE = re.compile(r"\b(" + "|".join(ORD) + r")\s+Amendment\b")
 NAMED_CLAUSE_RE = re.compile(r"\b(Free Exercise|Establishment|Free Speech|Equal Protection|Supremacy|Spending|Commerce)\s+Clauses?\b", re.I)
 CFR_RE = re.compile(r"\b(\d{1,2})\s*C\.\s?F\.\s?R\.?\s*(?:(pts?\.|[Pp]arts?)\s*(\d+)|(§§?)?\s*(\d+)\.(\d+[a-z]?))" + SUBS)
 CRS_SECT = r"\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?"
-CRS_RE = re.compile(r"(?:Colo\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?|C\.\s?R\.\s?S\.|Colorado\s+Revised\s+Statutes)\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)?\s*(" + CRS_SECT + ")" + SUBS)
-CRS_AFTER_RE = re.compile(r"(?:§§?|[Ss]ection)\s*(" + CRS_SECT + ")" + SUBS + r",?\s*(?:C\.\s?R\.\s?S\.|Colo\.\s?Rev\.\s?Stat\.)")
-CCR_RE = re.compile(r"\b(\d{1,2})\s*(?:CCR|C\.C\.R\.|Colo\.\s?Code\s?Regs?\.|Code\s+of\s+Colorado\s+Regulations)"
-                    r"(?:\s*\(\d{4}\))?:?\s*(?:§\s*)?(\d{3,4}-\d+)"
-                    r"(?:\s*(?:,\s*)?(?:§§?|[Rr]ule(?:\s+[Ss]ections?)?|:)\s*(\d+\.\d+))?")
-COCONST_RE = re.compile(r"Colo\.\s?Const\.?,?\s*art\.?\s*(" + NUM + r")(?:,?\s*§+\s*(\d+))?", re.I)
 ETSEQ_RE = re.compile(r"\s*,?\s*et\s+seq\.")
-BARE_RE = re.compile(r"(?<![\w.§])(?:§§?)\s*(" + CRS_SECT + r"|\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?)(?![\w.-]\d)" + SUBS)
+BARE_RE = re.compile(r"(?<![\w.§])(?:§§?)\s*(\d[\w.:/-]*?[\w])(?![\w.:/-]*\w)" + SUBS)
+USC_SHORT = re.compile(r"\d+[A-Za-z]{0,3}(?:-\d+[A-Za-z]?)?")
 
 
 def num(s):
@@ -60,11 +58,17 @@ def flatten(text):
 
 def find(text, flat=True):
     """-> dict(cites=Counter key -> formal citations, named=Counter key -> mentions by name,
-               spans=[(start, end, key)] in the flattened text, text=the flattened text)"""
-    from tribonian import cocite_usc as U
+               spans=[(start, end, key)] in the flattened text, text=the flattened text,
+               editions={key: (publisher, year)} from a parenthetical after the cite ("(West 2019)"),
+               unresolved=Counter of short forms placed nowhere)
+    State cites come from the formulas' [cite] tables (statecites.py); forms that do not name the state are
+    read against statecites.CONTEXT (the case's court) and the states the text names."""
+    from tribonian import cocite_usc as U, statecites
     t = flatten(text) if flat else text
     hits = []                                   # (start, end, key, kind)
     taken = []
+    info = {}                                   # (start, end) of a full state cite -> (table, vals)
+    editions = {}
 
     def free(a, b):
         return not any(a < y and x < b for x, y in taken)
@@ -73,24 +77,24 @@ def find(text, flat=True):
         if key and free(a, b):
             hits.append((a, b, key, kind))
             taken.append((a, b))
+            return True
+        return False
 
     for m in CONST_RE.finditer(t):
         n = num(m.group(2) or m.group(4))
         if n:
             key = "const:%s-%d" % ("amend" if m.group(1) else "art", n) + (":%s" % m.group(5) if m.group(5) else "")
             add(m.start(), m.end(), key)
-    for m in COCONST_RE.finditer(t):
-        n = num(m.group(1))
-        if n:
-            add(m.start(), m.end(), "co-const:art-%d" % n + (":%s" % m.group(2) if m.group(2) else ""))
     for m in CFR_RE.finditer(t):
         key = "cfr:%s:pt-%s" % (m.group(1), m.group(3)) if m.group(2) else "cfr:%s:%s.%s" % (m.group(1), m.group(5), m.group(6))
         add(m.start(), m.end(), key)
-    for rx in (CRS_RE, CRS_AFTER_RE):
-        for m in rx.finditer(t):
-            add(m.start(), m.end(), "co-crs:%s" % m.group(1))
-    for m in CCR_RE.finditer(t):
-        add(m.start(), m.end(), "co-ccr:%s-%s" % (m.group(1), m.group(2)) + (":%s" % m.group(3) if m.group(3) else ""))
+    full_state = sorted(statecites.find_full(t, free), key=lambda h: (h[0], -(h[1] - h[0])))
+    for a, b, key, tb, vals in full_state:
+        if add(a, b, key):
+            info[(a, b)] = (tb, vals)
+            ed = statecites.edition_after(t, b)
+            if ed:
+                editions.setdefault(key, ed)
     for m in U.FULL_RE.finditer(t):
         refs, end = U.full_refs(t, m)
         if free(m.start(), end):
@@ -98,9 +102,10 @@ def find(text, flat=True):
             for k, (pos, title, sec, part) in enumerate(kept):
                 hits.append((pos, end if k == len(kept) - 1 else pos + 1, "usc:%s:%s" % (title.lower(), sec.lower()), "cite"))
             taken.append((m.start(), end))
-    # short forms: the code of the last full cite with the same shape. A bare "§ N" after a U.S.C. cite is taken as
-    # that title's only near a section the text cites in full (within 100): "§ 1414" after "20 U.S.C. § 1412" is,
-    # "§ 702" after "42 U.S.C. § 2000e" is not (Title VII's own section numbering); what is not placed is counted
+    # short forms: the latest full cite whose code takes a number of this shape. A state code by its [cite]
+    # section pattern; a U.S.C. title only near a section the text cites in full (within 100): "§ 1414" after
+    # "20 U.S.C. § 1412" is, "§ 702" after "42 U.S.C. § 2000e" is not (Title VII's own section numbering).
+    # What is placed nowhere is counted.
     hits.sort()
     full = sorted(hits)
     unresolved = Counter()
@@ -114,24 +119,30 @@ def find(text, flat=True):
     for m in BARE_RE.finditer(t):
         if not free(m.start(), m.end()) or U.NOT_SHORT.search(t[max(0, m.start() - 30):m.start()]) or \
                 re.search(r"(?:\b[Cc]h\.|\b[Cc]hapter|P\.\s?L\.|Pub\.\s?L\.|Act|Laws)[^§;]{0,16}$", t[max(0, m.start() - 30):m.start()]):
-            continue                             # a session law, a state code or an Act's own section: not a short form
+            continue                             # a session law or an Act's own section: not a short form
         s = m.group(1)
-        crs = re.fullmatch(CRS_SECT, s) is not None
-        prev = [h for h in full if h[1] <= m.start()]
         placed = False
-        for a, b, key, kind in reversed(prev):
-            if crs and key.startswith("co-crs:"):
-                add(m.start(), m.end(), "co-crs:%s" % s, "short")
-                placed = True
-                break
-            if not crs and key.startswith("usc:"):
+        before = [h for h in full if h[1] <= m.start()]
+        # a number within 100 of a U.S.C. section cited in full before it is that title's, whatever came last:
+        # "§ 2000bb-1" after "42 U.S.C. § 2000bb" and a state cite is the U.S.C.'s (state section shapes are looser)
+        n0 = base(s) if USC_SHORT.fullmatch(s) else None
+        if n0 is not None:
+            fit = [key for a, b, key, kind in before if key.startswith("usc:") and any(abs(n0 - x) <= 100 for x in full_usc[key.split(":")[1]])]
+            if fit:
+                placed = add(m.start(), m.end(), "usc:%s:%s" % (fit[-1].split(":")[1], s.lower()), "short")
+                if placed:
+                    continue
+        for a, b, key, kind in reversed(before):
+            if (a, b) in info:
+                k2 = statecites.short_key(*info[(a, b)], s)
+                if k2:
+                    placed = add(m.start(), m.end(), k2, "short")
+                    break
+            elif key.startswith("usc:") and USC_SHORT.fullmatch(s):
                 t_, n = key.split(":")[1], base(s)
                 if n is not None and any(abs(n - x) <= 100 for x in full_usc[t_]):
-                    add(m.start(), m.end(), "usc:%s:%s" % (t_, s.lower()), "short")
-                    placed = True
+                    placed = add(m.start(), m.end(), "usc:%s:%s" % (t_, s.lower()), "short")
                 break
-            if not crs and not key.startswith("usc:"):
-                break                            # the last full cite was another code: leave it
         if not placed:
             unresolved["§ " + s] += 1
     # by name: "the First Amendment", "the Free Exercise Clause"
@@ -147,7 +158,7 @@ def find(text, flat=True):
     # "§§ 26.5-4-201 et seq.": the cite stands for the part it opens
     etseq = {k for a, b, k, _ in hits if ETSEQ_RE.match(t, b)}
     return {"cites": cites, "named": named, "etseq": etseq, "spans": sorted((a, b, k) for a, b, k, _ in hits), "text": t,
-            "unresolved": unresolved}
+            "unresolved": unresolved, "editions": editions}
 
 
 def covers(key, other, etseq=()):
@@ -165,9 +176,17 @@ def covers(key, other, etseq=()):
 
 
 def section_of(key):
-    """'co-ccr:8-1404-1:4.109' -> 'co-ccr:8-1404-1'; 'const:amend-14:1' -> 'const:amend-14' (the provision's parent)"""
+    """'co-ccr:8-1404-1:4.109' -> 'co-ccr:8-1404-1'; 'const:amend-14:1' -> 'const:amend-14' (the provision's parent):
+    a constitution's article, a regulation's rule. State statute keys have no third part."""
     p = key.split(":")
-    return ":".join(p[:2]) if p[0] in ("co-ccr", "const", "co-const") and len(p) > 2 else key
+    if "-" in p[0]:                              # state law: the [cite] key template says what is the pin
+        from tribonian import statecites
+        tb, vals = statecites.parse(key)
+        if tb is not None and vals and "sec" in vals and tb.kind in ("const", "regs"):
+            parent = tb.key({k: v for k, v in vals.items() if k != "sec"})
+            return parent or key
+        return key
+    return ":".join(p[:2]) if p[0] == "const" and len(p) > 2 else key
 
 
 _USC_CASE = None
@@ -209,16 +228,13 @@ def label(key):
         a, n = p[1].split("-")
         r = {v: k for k, v in ROMAN.items()}[int(n)]
         return "U.S. Const. %s %s" % ("amend." if a == "amend" else "art.", r) + (", § %s" % p[2] if len(p) > 2 else "")
-    if kind == "co-const":
-        n = int(p[1].split("-")[1])
-        return "Colo. Const. art. %s" % {v: k for k, v in ROMAN.items()}[n] + (", § %s" % p[2] if len(p) > 2 else "")
     if kind == "cfr":
         return "%s C.F.R. pt. %s" % (p[1], p[2][3:]) if p[2].startswith("pt-") else "%s C.F.R. § %s" % (p[1], p[2])
-    if kind == "co-crs":
-        return "Colo. Rev. Stat. § %s" % p[1]
-    if kind == "co-ccr":
-        t, rule = p[1].split("-", 1)
-        return "%s Colo. Code Regs. %s" % (t, rule) + (" § %s" % p[2] if len(p) > 2 else "")
+    if "-" in kind:
+        from tribonian import statecites
+        tb, vals = statecites.parse(key)
+        if tb is not None and vals is not None:
+            return tb.label(vals) or key
     return key
 
 
@@ -230,24 +246,35 @@ def note_name(key):
         return "%s-usc-%s" % (p[1], p[2])
     if p[0] == "cfr":
         return "%s-cfr-%s" % (p[1], p[2])
-    # state law and the Constitution (statelaw.py notes): a C.R.S. section; a constitution's article or
-    # amendment and a Colorado rule as one note each, whatever section the cite pins
-    if p[0] == "co-crs":
-        return "co-crs-%s" % p[1]
-    if p[0] in ("co-const", "co-ccr"):
-        return "%s-%s" % (p[0], p[1])
+    # state law and the Constitution (statelaw.py notes): a statute section each ('co-crs-26.5-4-205',
+    # 'tx-codes-GV-311.001'); a constitution's article or amendment and a rule as one note each, whatever
+    # section the cite pins
+    if "-" in p[0]:                              # no ':' or '/' in file names (Obsidian, Windows)
+        return re.sub(r"[:/]", "-", lawcites_parent(key))
     if p[0] == "const":
         return "us-const-%s" % p[1]
     return None
 
 
-ORDER = {"const": 0, "usc": 1, "cfr": 2, "co-const": 3, "co-crs": 4, "co-ccr": 5}
+def lawcites_parent(key):
+    return section_of(key)
+
+
+ORDER = {"const": 0, "usc": 1, "cfr": 2}
 
 
 def sort_key(key):
+    """Federal first (Constitution, U.S.C., C.F.R.), then each state by name: its constitution, statutes, rules."""
     p = key.split(":")
-    nums = [int(x) if x.isdigit() else x for x in re.split(r"[.:-]", ":".join(p[1:])) if x]
-    return (ORDER.get(p[0], 9), [(0, x) if isinstance(x, int) else (1, x) for x in nums])
+    nums = [int(x) if x.isdigit() else x for x in re.split(r"[./:-]", ":".join(p[1:])) if x]
+    if "-" in p[0]:
+        from tribonian import statecites
+        tb = statecites.table(p[0])
+        sub = 0 if tb is not None and tb.kind == "const" else 2 if tb is not None and tb.kind == "regs" else 1
+        group = (3, p[0].split("-")[0], sub, p[0])
+    else:
+        group = (ORDER.get(p[0], 9), "", 0, "")
+    return (group, [(0, x) if isinstance(x, int) else (1, x) for x in nums])
 
 
 def spans_in(text):

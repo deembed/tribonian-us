@@ -84,6 +84,17 @@ versions = '^Note: Effective \S+ this (?:section|subsection|paragraph|subparagra
 group    = '^Article\s+(?P<num>[IVXL]+)$'
 group_id = "art{num}"
 
+[WY.statutes.cite]
+# "Wyo. Stat. Ann. § 6-2-101 (LexisNexis 2023)", older "W.S. 1977 § 6-2-101" / "W.S. 6-2-101"
+full    = ['Wyo\.\s?Stat\.(?:\s?Ann\.)?', 'W\.\s?S\.(?:\s?1977)?', 'Wyoming\s+Statutes(?:\s+Annotated)?']
+section = '\d+(?:\.\d+)?-\d+(?:\.\d+)?[A-Z]?-\d+(?:\.\d+)?[A-Z]?'
+item    = ['^(\d+(?:\.\d+)?)-', '{1}']       # 34.1-2-302 -> 34.1
+label   = "Wyo. Stat. Ann. § {sec}"
+examples = [["Wyo. Stat. Ann. § 1-1-109 (LexisNexis 2023)", "wy-statutes:1-1-109", "Wyo. Stat. Ann. § 1-1-109"],
+            ["W.S. 1977 § 21-2-202(a)(i)", "wy-statutes:21-2-202"],
+            ["Wyo. Stat. Ann. § 34.1-2-302", "wy-statutes:34.1-2-302"],
+            ["W.S. 6-2-101", "wy-statutes:6-2-101"]]
+
 # ---------------------------------------------------------------- Wyoming Constitution (statutes Title 97)
 #                 TITLE 97 - WYOMING CONSTITUTION
 #                ARTICLE 1 - DECLARATION OF RIGHTS
@@ -91,6 +102,7 @@ group_id = "art{num}"
 # Sections are numbered within articles (scope = container). The signers' list closes the document.
 [WY.const]
 inherit   = "WY.statutes"
+replace = ["cite"]                             # its own [cite] table, not merged with the parent's
 name      = "Constitution of the State of Wyoming"
 doc       = "/us-wy/const"                     # /us-wy/const/a1/s1
 item      = "%02d"                             # the only item: 97
@@ -109,3 +121,11 @@ article = { match = '^(?P<heading>ARTICLE\s+(?P<num>\d+)\s+-\s.*)$', tag = "arti
 match = '^(?P<n>Article\s+\d+,\s+Section\s+(?P<num>\d+[A-Za-z]?))\s+(?P<heading>.*?[^A-Z.]\.)(?=\s|$)'
 bold  = false
 scope = "container"
+
+[WY.const.cite]
+# Wyoming numbers its articles in Arabic: "Wyo. Const. art. 1, § 7"
+full    = ['Wyo\.\s?Const\.?', 'Wyoming\s+Constitution']
+item    = "97"
+label   = "Wyo. Const. art. {art}[, § {sec}]"
+examples = [["Wyo. Const. art. 1, § 7", "wy-const:art-1:7", "Wyo. Const. art. 1, § 7"],
+            ["Wyo. Const. art. 3, § 27", "wy-const:art-3:27"]]

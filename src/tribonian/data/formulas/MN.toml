@@ -161,6 +161,17 @@ sourceCredit = '^History:\s*$'              # the h2 label; its p.first holds th
 # first-grade headings end the open History note and stand as cross headings between sections
 close        = [{ class = "fgh", heading = true }, { class = "loose" }]
 
+[MN.stat.cite]
+# "Minn. Stat. § 609.185", "Minn. Stat. Ann. § 609.185 (West ...)", "Minnesota Statutes section 645.44"; ", subd. 2"
+# after the number is left unread (the cite keys the section)
+full    = ['Minn\.\s?Stat(?:s?\.|utes?)(?:\s?Ann\.)?', 'Minnesota\s+Statutes(?:\s+Annotated)?', 'M\.\s?S\.\s?A\.']
+section = '\d+[A-Z]?\.\d+'
+item    = ['^(\d+[A-Z]?)\.', '{1}']                 # 116J.89 -> chapter 116J
+label   = "Minn. Stat. § {sec}"
+examples = [["Minn. Stat. § 609.185(a)(1) (2022)", "mn-stat:609.185", "Minn. Stat. § 609.185"],
+            ["Minnesota Statutes section 645.44, subdivision 5", "mn-stat:645.44"],
+            ["Minn. Stat. Ann. § 116J.89 (West 2020)", "mn-stat:116J.89"]]
+
 # ---------------------------------------------------------------- Constitution of the State of Minnesota
 # /constitution/ : the whole constitution on one page. div#xtend.constitution holds:
 #   p.ce "Adopted October 13, 1857" / "Generally Revised November 5, 1974"; a table of articles;
@@ -208,3 +219,10 @@ sourceCredit = '^\[(?:Amended|Adopted|Repealed|Renumbered)'   # "[Amended, Novem
 # 1974" (p.ce) -> one enactment note; then the article list (one tr per article) -> one toc note. Each note opens
 # on its first line only; the lines after it join the open note (notes run to the next container).
 note         = [{ class = "ce", match = '^Adopted ', topic = "enactment" }, { match = '^Article 1\.', topic = "toc" }]
+
+[MN.const.cite]
+full    = ['Minn\.\s?Const\.?', 'Minnesota\s+Constitution', 'Constitution\s+of\s+(?:the\s+State\s+of\s+)?Minnesota']
+item    = "full"
+label   = "Minn. Const. art. {roman}[, § {sec}]"
+examples = [["Minn. Const. art. I, § 7", "mn-const:art-1:7", "Minn. Const. art. I, § 7"],
+            ["Minn. Const. art. XI, § 5", "mn-const:art-11:5"]]

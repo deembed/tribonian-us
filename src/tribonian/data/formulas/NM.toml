@@ -176,6 +176,19 @@ editorialNote = [{ class = "annotations", topic = "annotation" }]   # empty end-
 # compact's text: it ends the open section and stands as a cross heading (the appendix text follows it).
 close = ['^Appendix to Article \w+$']
 
+[NM.nmsa.cite]
+# "NMSA 1978, § 30-2-1", "NMSA 1978, Section 30-2-1(A)", "N.M. Stat. Ann. § 30-2-1 (2019)"; older opinions put it
+# after: "Section 41-4-4(A), NMSA 1978"
+full    = ['N\.\s?M\.\s?Stat\.(?:\s?Ann\.)?', 'N\.?M\.?S\.?A\.?(?:\s*1978)?', 'New\s+Mexico\s+Statutes\s+Annotated(?:\s+1978)?']
+after   = ['N\.?M\.?S\.?A\.?(?:\s*1978)?']
+section = '\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?'
+item    = ['^(\d+[A-Z]?)-', '{1}']             # 32A-6A-13 -> chapter 32A
+label   = "N.M. Stat. Ann. § {sec}"
+examples = [["NMSA 1978, § 77-1-1", "nm-nmsa:77-1-1", "N.M. Stat. Ann. § 77-1-1"],
+            ["N.M. Stat. Ann. § 32A-6A-13 (2019)", "nm-nmsa:32A-6A-13"],
+            ["Section 1-1-1.1, NMSA 1978", "nm-nmsa:1-1-1.1"],
+            ["NMSA 1978, Section 24A-1-2(B)", "nm-nmsa:24A-1-2"]]
+
 # ---------------------------------------------------------------- Constitution of New Mexico
 # Collection c, item 5916 -> /w/nmos/n-5916-en.epub (one EPUB, 215 chunks, ANNOTATED: no unannotated edition).
 # h1 "PREAMBLE" / "ARTICLE II Bill of Rights"; h4 "Section 1. [Supreme law of the land.]" / "Sec. 2. [...]";
@@ -183,7 +196,7 @@ close = ['^Appendix to Article \w+$']
 # all notes to the next section. h3 "ADDENDA JUDICIAL NOMINATING COMMISSION" at the end.
 [NM.const]
 inherit = "NM.nmsa"
-replace = ["html", "containers", "sections", "ladder", "notes"]
+replace = ["html", "containers", "sections", "ladder", "notes", "cite"]
 name    = "Constitution of New Mexico"
 doc     = "/us-nm/const"                       # /us-nm/const/a2/s1
 fetch   = "template"
@@ -223,3 +236,9 @@ versions = '^\(Proposed\.\)'
 
 [NM.const.notes]
 editorialNote = [{ match = '^ANNOTATIONS$', topic = "annotation" }]   # history lines sit inside the annotations here
+
+[NM.const.cite]
+full    = ['N\.\s?M\.\s?Const\.?', 'New\s+Mexico\s+Constitution']
+item    = "5916"
+examples = [["N.M. Const. art. II, § 18", "nm-const:art-2:18", "N.M. Const. art. II, § 18"],
+            ["N.M. Const. art. II, § 1", "nm-const:art-2:1"]]

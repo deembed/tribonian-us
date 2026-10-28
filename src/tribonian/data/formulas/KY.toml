@@ -660,6 +660,17 @@ tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 "640" = 39433
 "645" = 39435
 
+[KY.krs.cite]
+# how cases cite it (statecites.py): "KRS 507.020(1)(a)", "Ky. Rev. Stat. Ann. § 507.020" (Bluebook), "K.R.S. 507.020"
+full    = ['Ky\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?', 'K\.?R\.?S\.?', 'Kentucky\s+Revised\s+Statutes?']
+section = '\d{1,3}[A-Z]?\.\d{3,4}'             # 507.020, 6A.010, 218A.1412
+item    = ['^(\d+[A-Z]?)\.', '{1}']             # 6A.010 -> chapter 6A
+label   = "Ky. Rev. Stat. Ann. § {sec}"
+examples = [["KRS 645.020", "ky-krs:645.020", "Ky. Rev. Stat. Ann. § 645.020"],
+            ["Ky. Rev. Stat. Ann. § 6A.010(2) (West 2020)", "ky-krs:6A.010", "Ky. Rev. Stat. Ann. § 6A.010"],
+            ["K.R.S. 222.005", "ky-krs:222.005"],
+            ["KRS 1.010", "ky-krs:1.010"]]
+
 
 # ---------------------------------------------------------------- Constitution of Kentucky (1891, as amended)
 # Law/Constitution lists every section in collapsible panels (h4 span.TitleText = division name, e.g. "BILL
@@ -708,3 +719,17 @@ tags  = ["subsection", "paragraph"]
 
 [KY.const.notes]
 sourceCredit = ['^Text as Ratified on:', '^History:']
+
+
+[KY.const.cite]
+# The 1891 Constitution numbers its sections 1-263 straight through, with no articles: "Ky. Const. § 2",
+# "Section 110 of the Kentucky Constitution". Key "{sec}" (no art-); the one item is "const".
+full    = ['Ky\.\s?Const\.?,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}',
+           'Kentucky\s+Constitution,?\s*(?:§§?|[Ss]ections?)\s*{section}',
+           '[Ss]ection\s+{section}\s+of\s+the\s+Kentucky\s+Constitution']
+section = '\d{1,3}[A-Za-z]?'
+key     = "{sec}"
+item    = "const"
+label   = "Ky. Const. § {sec}"
+examples = [["Ky. Const. § 2", "ky-const:2", "Ky. Const. § 2"],
+            ["Section 110 of the Kentucky Constitution", "ky-const:110"]]

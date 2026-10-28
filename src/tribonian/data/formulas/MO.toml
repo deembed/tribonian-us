@@ -104,6 +104,19 @@ sourceCredit  = ['^\((?![^)\s]{1,4}\))', '^Source:']
 editorialNote = [{ match = '^Prior revisions:', topic = "priorRevisions" },
                  { match = '^-{5,}\s.*\s-{5,}$', topic = "effectiveDate" }]    # "----- 1.010 8/28/2015 -----" after each section
 
+[MO.rsmo.cite]
+# "Mo. Rev. Stat. § 565.020 (2016)", "RSMo § 565.020", and Missouri's own order: "section 565.020.1, RSMo 2016"
+# (the code after the number; ".1" after the section is its subsection, written with a dot)
+full    = ['Mo\.\s?Rev\.\s?Stat\.', 'Mo\.\s?Ann\.\s?Stat\.', 'V\.\s?A\.\s?M\.\s?S\.', 'RSMo\.?', 'Revised\s+Statutes\s+of\s+Missouri']
+after   = ['(?:§§?|[Ss]ections?)\s*{section}(?:\.\d+)?(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s*(?:RSMo|Mo\.\s?Rev\.\s?Stat\.)']
+section = '\d+\.\d+'
+item    = ['^(\d+)\.', '{1}']                        # 565.020 -> chapter 565
+label   = "Mo. Rev. Stat. § {sec}"
+examples = [["Mo. Rev. Stat. § 1.010 (2016)", "mo-rsmo:1.010", "Mo. Rev. Stat. § 1.010"],
+            ["section 701.010.1, RSMo 2016", "mo-rsmo:701.010"],
+            ["§ 565.020, RSMo Supp. 2023", "mo-rsmo:565.020"],
+            ["RSMo § 701.015", "mo-rsmo:701.015"]]
+
 # ---------------------------------------------------------------- Constitution of Missouri (1945)
 [MO.const]
 inherit = "MO.rsmo"
@@ -132,3 +145,12 @@ match = '^(?P<art>[IVXL]+)\s+Section\s+(?P<num>\d+(?:\(?[a-z]\)?)?)\.\s*(?P<head
 bold  = true
 scope = "title"                              # section ids move under the article via wrap.rebase
 decimal = false
+
+[MO.const.cite]
+full    = ['Mo\.\s?Const\.?', 'Missouri\s+Constitution', 'Constitution\s+of\s+Missouri']
+# the items are the article's Roman numeral (I ... XIV) but keys hold it in Arabic: "{roman}" is not offered to
+# item rules yet (statecites.Table.item_of gives only the cite's own fields), so this names no item until it is
+item    = "{roman}"
+label   = "Mo. Const. art. {roman}[, § {sec}]"
+examples = [["Mo. Const. art. I, § 10", "mo-const:art-1:10", "Mo. Const. art. I, § 10"],
+            ["Mo. Const. art. VIII, § 3", "mo-const:art-8:3"]]

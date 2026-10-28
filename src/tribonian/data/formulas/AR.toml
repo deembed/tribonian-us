@@ -1,0 +1,28 @@
+# AR.toml -- Arkansas: cite-only tables. The Arkansas Code of 1987 Annotated is published online only through
+# LexisNexis, whose terms forbid automated access; the open copies are stale (DATASOURCES.md). Cites are recognized
+# and keyed; the appendix says why there is no text.
+
+[AR.code]
+name    = "Arkansas Code of 1987 Annotated"
+source_error = "LexisNexis-only publication; its terms forbid automated access (see DATASOURCES.md)"
+
+[AR.code.cite]
+full    = ['Ark\.\s?Code(?:\s?Ann\.)?', 'A\.\s?C\.\s?A\.', 'Arkansas\s+Code(?:\s+Annotated)?(?:\s+of\s+1987)?']
+section = '\d+-\d+-\d+(?:\.\d+)?'
+label   = "Ark. Code Ann. § {sec}"
+examples = [["Ark. Code Ann. § 5-10-101(a)(1) (Supp. 2023)", "ar-code:5-10-101", "Ark. Code Ann. § 5-10-101"],
+            ["A.C.A. § 16-90-111", "ar-code:16-90-111"],
+            ["Arkansas Code Annotated section 5-4-104", "ar-code:5-4-104"]]
+
+[AR.const]
+name    = "Constitution of the State of Arkansas"
+kind    = "const"
+source_error = "not sourced: the state's code (LexisNexis-only, terms forbid automated access; see DATASOURCES.md) carries it, and no separately published official text has been evaluated yet"
+
+[AR.const.cite]
+# Arabic article numbers ("art. 2, § 8"); the amendments are numbered on their own ("amend. 80, § 2")
+full    = ['(?:Ark\.\s?Const\.?|Arkansas\s+Constitution),?\s*(?:[Aa]rt(?:icle)?\.?\s*(?P<art>\d+)|[Aa]mend(?:ment)?\.?\s*(?P<amend>\d+))\b(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+[a-z]?))?']
+key     = "[art-{art}][amend-{amend}][:{sec}]"
+label   = "Ark. Const. [art. {art}][amend. {amend}][, § {sec}]"
+examples = [["Ark. Const. art. 2, § 8", "ar-const:art-2:8", "Ark. Const. art. 2, § 8"],
+            ["Ark. Const. amend. 80, § 3", "ar-const:amend-80:3", "Ark. Const. amend. 80, § 3"]]

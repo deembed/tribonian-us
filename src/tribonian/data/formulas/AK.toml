@@ -71,6 +71,17 @@ decimal = true                                # 01.05.081 < 01.05.1 style orderi
 [AK.statutes.notes]
 close = ['^Title\s+\d+\.\s+\S']             # the title's name line at the top of the file
 
+[AK.statutes.cite]
+# "Alaska Stat. § 11.41.100" (Bluebook); Alaska courts write "AS 11.41.100(a)(1)" with no section sign.
+# "AS" is a word too: the section's dd.dd.ddd shape is what keeps it tight.
+full    = ['Alaska\s+Stat(?:\.|utes)(?:\s?Ann\.)?', 'AS']
+section = '\d{2}\.\d{2}\.\d{3}'
+item    = ['^(\d{2})\.', '{1}']              # 11.41.100 -> 11; 01.10.060 -> 01
+label   = "Alaska Stat. § {sec}"
+examples = [["AS 11.41.100(a)(1)(A)", "ak-statutes:11.41.100", "Alaska Stat. § 11.41.100"],
+            ["Alaska Stat. § 47.30.735 (2022)", "ak-statutes:47.30.735"],
+            ["former AS 01.10.060(a)(7)", "ak-statutes:01.10.060"]]
+
 # ---------------------------------------------------------------- Constitution of the State of Alaska
 # ltgov.alaska.gov/?p=64 (Lieutenant Governor; same page as /information/alaskas-constitution/): one WordPress
 # (Divi) page. The law is div.et_pb_section_2; before it are the intro and a toggle TOC (div#index), after it
@@ -117,3 +128,27 @@ scope = "container"
 [AK.const.notes]
 # "[Amended 1972]" ends the section's text on the same line: left in the text. Editor's notes are lines of their own.
 editorialNote = '^Editor’s Note:'
+
+[AK.const.cite]
+full    = ['Alaska\s+Const\.?', 'Alaska\s+Constitution',
+           '[Aa]rt(?:icle|\.)\s*(?P<art>[IVX]+),?\s*(?:[Ss]ection|[Ss]ec\.|§)\s*(?P<sec>\d+[a-z]?),?\s*of\s+(?:the\s+)?Alaska\s+Constitution']
+item    = "64"
+label   = "Alaska Const. art. {roman}[, § {sec}]"
+examples = [["Alaska Const. art. I, § 22", "ak-const:art-1:22", "Alaska Const. art. I, § 22"],
+            ["article I, section 14 of the Alaska Constitution", "ak-const:art-1:14"]]
+
+# ---------------------------------------------------------------- Alaska Administrative Code (cite-only)
+[AK.aac]
+name    = "Alaska Administrative Code"
+source_error = "no formula yet: the AAC is on the Legislature's BASIS site (akleg.gov/basis/aac.asp); not wired up"
+
+[AK.aac.cite]
+# "15 AAC 05.010" (Alaska courts), "Alaska Admin. Code tit. 15, § 05.010" (Bluebook)
+full    = ['(?P<title>\d{1,2})\s*AAC\s*(?:§\s*)?{section}(?![\w])',
+           'Alaska\s+Admin\.\s?Code\s*tit\.\s*(?P<title>\d{1,2}),?\s*(?:§§?\s*)?{section}(?![\w])']
+section = '\d{2,3}\.\d{3}'
+key     = "{title}/{sec}"
+label   = "Alaska Admin. Code tit. {title}, § {sec}"
+examples = [["15 AAC 05.010", "ak-aac:15/05.010", "Alaska Admin. Code tit. 15, § 05.010"],
+            ["Alaska Admin. Code tit. 8, § 45.180(b)", "ak-aac:8/45.180"],
+            ["7 AAC 125.010", "ak-aac:7/125.010"]]

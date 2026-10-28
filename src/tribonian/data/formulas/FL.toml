@@ -115,6 +115,23 @@ decimal = true                               # 768.0415 sorts before 768.042
 sourceCredit  = '^History\.—'               # "History.—ss. 1, 2, 3, ch. 57-395; ..."
 editorialNote = '^Note\.—'                  # "Note.—Former s. 54.28."
 
+[FL.fs.cite]
+# "Fla. Stat. § 768.28(9)(a) (2019)", "§ 768.28, Fla. Stat.", "section 768.28, Florida Statutes" (Florida courts),
+# "s. 768.28, F.S." (the statutes' own style, and agency/bar usage), "F.S.A. § 768.28" (West's annotated, older cases)
+full    = ['Fla\.\s?Stat\.(?:\s?Ann\.)?', 'Florida\s+Statutes(?:\s+Annotated)?',
+           '(?:ss?\.)\s*(?P<sec>\d{1,4}\.\d{1,5})(?:\([A-Za-z0-9]{1,4}\))*,?\s*(?:Fla\.\s?Stat\.(?:\s?Ann\.)?|Florida\s+Statutes)']
+after   = ['Fla\.\s?Stat\.(?:\s?Ann\.)?', 'Florida\s+Statutes']
+bare    = ['F\.\s?S\.\s?A\.',
+           '(?:§§?|[Ss]ec(?:tion)?\.?|[Ss]ections?|ss?\.)\s*(?P<sec>\d{1,4}\.\d{1,5})(?:\([A-Za-z0-9]{1,4}\))*,?\s*F\.\s?S\.(?!\s?A\.)']
+section = '\d{1,4}\.\d{1,5}'
+item    = ['^(\d+)\.', '{1}']                 # 768.28 -> chapter 768
+label   = "Fla. Stat. § {sec}"
+examples = [["Fla. Stat. § 768.28(9)(a) (2019)", "fl-fs:768.28", "Fla. Stat. § 768.28"],
+            ["§ 768.0427, Fla. Stat. (2023)", "fl-fs:768.0427"],
+            ["section 316.193, Florida Statutes", "fl-fs:316.193"],
+            ["s. 39.01, F.S.", "fl-fs:39.01"],
+            ["Fla. Stat. Ann. § 790.01 (West 2019)", "fl-fs:790.01"]]
+
 # ---------------------------------------------------------------- Florida Constitution
 # One page, the whole constitution: https://www.flsenate.gov/Laws/Constitution (div.Constitution).
 [FL.const]
@@ -163,3 +180,30 @@ scope = "container"                          # numbers restart per article: /us-
 # lead-in becomes a p.loose block without the Note class. Everything after it to the next section is notes.
 sourceCredit  = '^History\.—'               # "History.—S.J.R. 917, 1974; adopted 1974; ..."
 editorialNote = '^Note\.—'                  # "Note.—This section, originally designated ..."
+
+[FL.const.cite]
+# "Fla. Const. art. V, § 3(b)(3)"; Florida courts put it last: "Art. I, § 9, Fla. Const.", "article I, section 23 of
+# the Florida Constitution"
+full    = ['Fla\.\s?Const\.', 'Florida\s+Constitution',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXL]+)(?:,\s*(?:§§?|[Ss]ec(?:tion)?\.?)\s*(?P<sec>\d+[a-z]?)(?:\([A-Za-z0-9]{1,4}\))*)?,?\s*(?:of\s+the\s+)?(?:Fla\.\s?Const\.|Florida\s+Constitution)']
+section = '\d{1,2}[a-z]?'                    # sections are 1-2 digits (10a): a later bare "§ 790.01" is not one
+item    = "const"
+label   = "Fla. Const. art. {roman}[, § {sec}]"
+examples = [["Art. I, § 9, Fla. Const.", "fl-const:art-1:9", "Fla. Const. art. I, § 9"],
+            ["Fla. Const. art. V, § 3(b)(3)", "fl-const:art-5:3", "Fla. Const. art. V, § 3"],
+            ["article I, section 23 of the Florida Constitution", "fl-const:art-1:23"]]
+
+# ---------------------------------------------------------------- Florida Administrative Code (cite-only)
+[FL.fac]
+name    = "Florida Administrative Code"
+kind    = "regs"
+source_error = "no formula yet: the Florida Administrative Code (flrules.org, Department of State) is not fetched by this pipeline"
+
+[FL.fac.cite]
+# "Fla. Admin. Code R. 62-302.530", "Fla. Admin. Code Ann. r. 33-601.314"; Florida courts: "Rule 64B8-9.003, F.A.C."
+full    = ['Fla\.\s?Admin\.\s?Code(?:\s?Ann\.)?\s*(?:[Rr](?:ule)?\.?)?']
+bare    = ['(?:[Rr]ule|[Rr]\.)\s*(?P<sec>\d{1,3}[A-Z]{0,2}\d{0,2}-\d+(?:\.\d+)?)(?:\([A-Za-z0-9]{1,4}\))*,?\s*F\.\s?A\.\s?C\.']
+section = '\d{1,3}[A-Z]{0,2}\d{0,2}-\d+(?:\.\d+)?'
+label   = "Fla. Admin. Code R. {sec}"
+examples = [["Fla. Admin. Code R. 62-302.530(47)", "fl-fac:62-302.530", "Fla. Admin. Code R. 62-302.530"],
+            ["Rule 64B8-9.003, F.A.C.", "fl-fac:64B8-9.003"]]

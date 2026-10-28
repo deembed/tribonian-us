@@ -90,6 +90,17 @@ sourceCredit = { class = "ksa_stat_hist" }    # "History: L. 1915, ch. 1 ..."
 # p.ksa_8pt_ca "CASE ANNOTATIONS" and the p.ksa_8pt_body lines stay in the open note
 note = [{ class = "ksa_8pt_title", topic = "annotation" }, { class = "ksa_8pt_ca", topic = "annotation" }]
 
+[KS.ksa.cite]
+# "K.S.A. 21-5402(a)(1)", "K.S.A. 2023 Supp. 22-3504" (the supplement year comes before the number), "Kan. Stat. Ann. § 60-1610"
+full    = ['K\.\s?S\.\s?A\.(?:\s+(?:19|20)\d\d\s+Supp\.)?', 'Kan\.\s?Stat\.\s?Ann\.', 'Kansas\s+Statutes\s+Annotated']
+section = '\d+[a-z]?-\d+[a-z]?(?:-\d+[a-z]?)?'
+item    = ['^(\d+[a-z]?)-', '{1}']             # 16a-1-101 -> chapter 16a
+label   = "Kan. Stat. Ann. § {sec}"
+examples = [["K.S.A. 2023 Supp. 16a-1-101", "ks-ksa:16a-1-101", "Kan. Stat. Ann. § 16a-1-101"],
+            ["Kan. Stat. Ann. § 84-1-103 (2019)", "ks-ksa:84-1-103"],
+            ["K.S.A. 53-101", "ks-ksa:53-101"],
+            ["K.S.A. 21-5402(a)(1)", "ks-ksa:21-5402"]]
+
 # ---------------------------------------------------------------- Kansas Constitution
 # /kanconst.html lists every page: kanconst/{doc}_{part}_{sec}.html -- 090 Organic Act (1854), 091 Act for
 # Admission (1861), 092_000 Ordinance, 092_001 Bill of Rights (092_001_0000 its Preamble), 093_{art} Articles
@@ -104,7 +115,7 @@ note = [{ class = "ksa_8pt_title", topic = "annotation" }, { class = "ksa_8pt_ca
 #   join it, so sections nest under their article without the index outline.
 [KS.const]
 inherit = "KS.ksa"
-replace = ["sections", "notes", "title", "html", "containers"]
+replace = ["sections", "notes", "title", "html", "containers", "cite"]
 name    = "Constitution of the State of Kansas"
 doc     = "/us-ks/const"                      # /us-ks/const/tkanconst/const/a15/s3a
 items   = ["kanconst"]
@@ -164,3 +175,17 @@ scope = "container"                           # numbers restart per article: /us
 [KS.const.notes]
 sourceCredit = { class = "ksa_stat_hist" }
 note = [{ class = "ksa_8pt_title", topic = "annotation" }, { class = "ksa_8pt_ca", topic = "annotation" }]
+
+[KS.const.cite]
+# Kansas articles are Arabic ("Kan. Const. art. 15, § 3a"); the Bill of Rights is not an article:
+# "Kansas Constitution Bill of Rights, § 10" -> key "BR:10" (the group takes the "B" of "Bill", the label spells it out)
+full    = ['Kan(?:\.|sas)\s+Const(?:\.|itution)?',
+           'Kan(?:\.|sas)\s+Const(?:\.|itution)?,?\s+(?P<bor>B)ill\s+of\s+Rights,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+[a-z]?)']
+key     = "[art-{art}][{bor}R][:{sec}]"
+# "{art:.0}" prints nothing but needs art: a Bill of Rights cite gets no item, so no text. Its sections sit in an
+# unnumbered part, and lawtext's article match would take the Ordinance's (or the Organic Act's) § 5 for BR:5.
+item    = "kanconst{art:.0}"
+label   = "Kan. Const.[ art. {art}][ {bor}ill of Rights][, § {sec}]"
+examples = [["Kan. Const. art. 15, § 3a", "ks-const:art-15:3a", "Kan. Const. art. 15, § 3a"],
+            ["Kansas Constitution, article 11, section 1", "ks-const:art-11:1"],
+            ["Kan. Const. art. 2", "ks-const:art-2"]]

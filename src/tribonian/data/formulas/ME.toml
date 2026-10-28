@@ -87,6 +87,21 @@ versions = '\((?:WHOLE SECTION )?TEXT (?:EFFECTIVE|REPEALED)'
 # "SECTION HISTORY  PL 1979, c. 512, §1 (AMD). ..." after the text. The per-paragraph "[PL 1985, c. 802, §1 (AMD).]"
 # lines (span.bhistory) are not notes: they stay in the body as text of the paragraph they close.
 sourceCredit = { class = "qhistory" }
+
+[ME.statutes.cite]
+# The title comes before the section: "Me. Stat. tit. 17-A, § 201 (2023)" (Bluebook), "Me. Rev. Stat. Ann. tit. 17-A,
+# § 201", and the Maine courts' "17-A M.R.S. § 201 (2023)" / older "17-A M.R.S.A. § 201"
+full    = ['Me\.\s?(?:Rev\.\s?)?Stat\.(?:\s?Ann\.)?,?\s+tit\.\s*(?P<title>\d+(?:-[A-Z])?),?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])',
+           'Maine\s+Revised\s+Statutes(?:\s+Annotated)?,?\s+[Tt]itle\s+(?P<title>\d+(?:-[A-Z])?),?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])',
+           '(?P<title>\d+(?:-[A-Z])?)\s+M\.\s?R\.\s?S\.(?:\s?A\.)?,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])']
+section = '\d+(?:-\d+)?(?:-[A-Z]{1,2})?'
+key     = "{title}/{sec}"
+item    = "{title}"
+label   = "Me. Stat. tit. {title}, § {sec}"
+examples = [["Me. Stat. tit. 39-A, § 102 (2023)", "me-statutes:39-A/102", "Me. Stat. tit. 39-A, § 102"],
+            ["27 M.R.S. § 2 (2024)", "me-statutes:27/2"],
+            ["1 M.R.S.A. § 3", "me-statutes:1/3"],
+            ["Me. Rev. Stat. Ann. tit. 17-A, § 201", "me-statutes:17-A/201"]]
 # "Revisor's Note: (Paragraph P as enacted by ... is REALLOCATED TO ...)" -- div.note INSIDE a paragraph (1 §402-3-P).
 # Not a note rule: the writer places a section's notes after the level they follow closes, which moves the text
 # out of order (conservation fails). As a plain block it stays as text of the paragraph it sits in.
@@ -135,3 +150,14 @@ scope = "container"                           # numbering restarts per article /
 [ME.const.notes]
 sourceCredit  = '^SECTION HISTORY'
 editorialNote = '^Note:'
+
+[ME.const.cite]
+# Articles IV, V and VIII have parts: "Me. Const. art. IV, pt. 3, § 1"; sections can be lettered ("§ 6-A")
+full    = ['Me\.\s?Const\.?', 'Maine\s+Constitution']
+tail    = ',?\s*(?:[Aa]rt(?:icle)?\.?)\s*(?P<art>[IVXLC]+|\d+)\b(?:,?\s*(?:[Pp]t\.|[Pp]art)\s*(?P<pt>\d+|[IVX]+)\b)?(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+(?:-[A-Z])?))?'
+key     = "art-{art}[/pt-{pt}][:{sec}]"
+item    = "constitution"
+label   = "Me. Const. art. {roman}[, pt. {pt}][, § {sec}]"
+examples = [["Me. Const. art. I, § 6-A", "me-const:art-1:6-A", "Me. Const. art. I, § 6-A"],
+            ["Me. Const. art. IV, pt. 3, § 1", "me-const:art-4/pt-3:1", "Me. Const. art. IV, pt. 3, § 1"],
+            ["Me. Const. art. IX, § 1", "me-const:art-9:1"]]

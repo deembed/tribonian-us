@@ -12,10 +12,12 @@ data/state_law_sources.toml. Colorado so far:
     tribonian state notes                     (re)write the Obsidian notes -> md-state/ (fetch does it too)
     tribonian state list                      what is stored here
     tribonian state status                    the 51-jurisdiction tracker (docs/state-tracker.toml): who is on what
+    tribonian state cites [CO TX ...]         check the [cite] tables against their examples
 
-Codes with a formula in data/state_formulas.toml (C.R.S., the Colorado Constitution) are fetched by the
-generic downloader and converted by a shared parser family (uslm/); the rest (8 CCR, the U.S. Constitution)
-still have their own readers below.
+Every state code has a formula (data/state_formulas.toml, data/formulas/XX.toml): fetched by the generic
+downloader and converted by a shared parser family (uslm/), statutes, constitutions and regulations alike
+(8 CCR: kind = "regs", fetch = "resolve"). Each formula's [cite] table says how courts cite it (statecites.py);
+`tribonian state cites` checks the tables. Only the U.S. Constitution keeps its own reader below.
 
 C.R.S.: the Office of Legislative Legal Services' per-title HTML (olls.info/crs/crs<edition>-title-NN.htm),
 the edition current through the latest regular session. Personal use; republishing needs a statement to
@@ -207,44 +209,53 @@ def sos_url(path):
     return urllib.parse.quote(urllib.parse.urljoin(SOS, path.replace("&amp;", "&")), safe=":/?&=%#;,+")
 
 
-def fetch_co_ccr(series, force=False):
-    """8 CCR 1404-1: the Secretary of State's department list -> the agency's rule list -> the rule's page ->
-    its current version, as the Word document (the PDF is the official one; the DOCX is the same text,
-    easier to read). Files: <law_dir>/co/ccr/8-1404-1.docx + .json {effective, version_id, url, ...}."""
-    import html as _html, re
-    for ser in series:
-        m = re.fullmatch(r"(\d+)-(\d{3,4})-(\d+)", ser)
-        if not m:
-            sys.exit("give the rule as volume-agency-number, e.g. 8-1404-1 for 8 CCR 1404-1")
-        vol, agency, num = m.groups()
-        name = "%s CCR %s-%s" % (vol, agency, num)
-        path = state_dir("CO") / "ccr" / ("%s.docx" % ser)
-        have = local_meta(path)
-        if have and not force:
-            print("%s: local, effective %s (fetched %s); --force to check for a newer version" % (name, have["effective"], have["fetched"]))
-            continue
-        page = get_text(SOS + "NumericalDeptList.do")
-        link = re.search(r"""href=["']([^"']*agencyName=%s[ %%][^"']*)["']""" % agency, page)
-        if not link:
-            sys.exit("%s: no agency %s in the Secretary of State's department list" % (name, agency))
-        page = get_text(sos_url(link.group(1)))
-        link = re.search(r"""href=["']([^"']*DisplayRule\.do[^"']*seriesNum=%s[^"']*)["']""" % re.escape(name).replace("\\ ", "(?: |%20|\\+)"), page)
-        if not link:
-            sys.exit("%s: not in the agency's rule list" % name)
-        page = get_text(sos_url(_html.unescape(link.group(1))))
-        cur = page                          # the current version's row comes first, before the archived ones
-        word = re.search(r"OpenRuleWordVersion\('(\d+)'", cur)
-        eff = re.search(r"OpenRuleWindow\('\d+'[^>]*>\s*(\d{2})/(\d{2})/(\d{4})", cur)
-        if not word:
-            sys.exit("%s: no current Word version on the rule's page" % name)
-        url = sos_url("GenerateRulePdf.do?type=word&ruleVersionId=%s&fileName=%s" % (word.group(1), name))
-        print("%s, current version %s ..." % (name, word.group(1)), flush=True)
-        n = download(url, path)
-        effective = "%s-%s-%s" % (eff.group(3), eff.group(1), eff.group(2)) if eff else ""
-        path.with_suffix(".json").write_text(json.dumps(
-            {"effective": effective, "version_id": word.group(1), "fetched": date.today().isoformat(), "url": url, "bytes": n},
-            indent=1), encoding="utf-8")
-        print("  wrote %s (effective %s, %.1f MB)" % (path, effective or "?", n / 1e6))
+def resolve_co_sos(f, ser):
+    """8 CCR 1404-1 ('8-1404-1'): the Secretary of State's department list -> the agency's rule list -> the rule's
+    page -> its current version, as the Word document (the PDF is the official one; the DOCX is the same text,
+    easier to read). -> (url, {"edition": effective date, "effective": ..., "version_id": ...})."""
+    import html as _html
+    m = re.fullmatch(r"(\d+)-(\d{3,4})-(\d+)", ser)
+    if not m:
+        sys.exit("give the rule as volume-agency-number, e.g. 8-1404-1 for 8 CCR 1404-1")
+    vol, agency, num = m.groups()
+    name = "%s CCR %s-%s" % (vol, agency, num)
+    page = get_text(SOS + "NumericalDeptList.do")
+    link = re.search(r"""href=["']([^"']*agencyName=%s[ %%][^"']*)["']""" % agency, page)
+    if not link:
+        sys.exit("%s: no agency %s in the Secretary of State's department list" % (name, agency))
+    page = get_text(sos_url(link.group(1)))
+    link = re.search(r"""href=["']([^"']*DisplayRule\.do[^"']*seriesNum=%s[^"']*)["']""" % re.escape(name).replace("\\ ", "(?: |%20|\\+)"), page)
+    if not link:
+        sys.exit("%s: not in the agency's rule list" % name)
+    cur = get_text(sos_url(_html.unescape(link.group(1))))   # the current version's row comes first, before the archived ones
+    word = re.search(r"OpenRuleWordVersion\('(\d+)'", cur)
+    eff = re.search(r"OpenRuleWindow\('\d+'[^>]*>\s*(\d{2})/(\d{2})/(\d{4})", cur)
+    if not word:
+        sys.exit("%s: no current Word version on the rule's page" % name)
+    effective = "%s-%s-%s" % (eff.group(3), eff.group(1), eff.group(2)) if eff else ""
+    return (sos_url("GenerateRulePdf.do?type=word&ruleVersionId=%s&fileName=%s" % (word.group(1), name)),
+            {"edition": effective or "current", "effective": effective, "version_id": word.group(1)})
+
+
+# fetch = "resolve": a formula names one of these (resolver = "co-sos"); it finds an item's current file through
+# the publisher's pages (a rule's latest version has no fixed URL). Regulations codes mostly need one.
+RESOLVERS = {"co-sos": resolve_co_sos}
+
+
+def _fetch_resolve(st, code, f, d, name, force):
+    path = d / f["file"].format(item=name)
+    have = local_meta(path)
+    if have and not force:
+        print("%s %s %s: local, %s (fetched %s); --force to check for a newer version" % (st, code, name, have.get("edition"), have.get("fetched")))
+        return
+    fn = RESOLVERS.get(f.get("resolver"))
+    if fn is None:
+        sys.exit("%s %s: unknown resolver %r (known: %s)" % (st, code, f.get("resolver"), ", ".join(RESOLVERS)))
+    url, extra = fn(f, name)
+    print("%s %s %s (%s) ..." % (st, code, name, extra.get("edition", "")), flush=True)
+    n = download(url, path)
+    meta_path(path).write_text(json.dumps(dict(extra, fetched=date.today().isoformat(), url=url, bytes=n), indent=1), encoding="utf-8")
+    print("  wrote %s (%.2f MB)" % (path, n / 1e6))
 
 
 # The U.S. Constitution: House Document 110-50 on govinfo ("The Constitution of the United States of America,
@@ -274,7 +285,7 @@ def fetch_us_const(items=None, force=False):
     sys.exit("U.S. Constitution: neither govinfo rendition could be fetched")
 
 
-FETCHERS = {("CO", "ccr"): fetch_co_ccr, ("US", "const"): fetch_us_const}
+FETCHERS = {("US", "const"): fetch_us_const}
 
 
 # ---------------------------------------------------------------- formulas (data/state_formulas.toml)
@@ -312,8 +323,58 @@ def formulas():
                     if (st, code) in flat:
                         sys.exit("formula %s.%s is defined twice (second in %s)" % (st, code, path.name))
                     flat[(st, code)] = f
-        _FORMULAS = {k: _inherit(flat, k, f) for k, f in flat.items()}
+        # a table with no `fetch` is cite-only (statecites.py): a code we recognize in citations but have no
+        # source for (Purdon's Pennsylvania Statutes, a LexisNexis-only state); it says why in `source_error`
+        global _CITE_ONLY
+        _CITE_ONLY = {k: f for k, f in flat.items() if "fetch" not in f and "inherit" not in f}
+        _FORMULAS = {k: _inherit(flat, k, f) for k, f in flat.items() if k not in _CITE_ONLY}
     return _FORMULAS
+
+
+_CITE_ONLY = {}
+
+
+def cite_only():
+    """{(STATE, code): table} for codes with a [cite] table and no source (no `fetch`)."""
+    formulas()
+    return _CITE_ONLY
+
+
+def uslm_file(st, code, item):
+    """Where `build` writes one item's USLM: law/<st>/uslm/<code>/<name>.xml, named as each strategy names it
+    (template, zip, scroll: the source file's stem; index: title-<item>; list: <item>). None if the item
+    has not been built."""
+    import pathlib
+    f = formulas().get((st, code))
+    if f is None or item is None:
+        return None
+    name = item_name(f.get("item"), item)
+    d = state_dir(st) / "uslm" / code
+    cands = []
+    if f.get("file"):
+        cands.append(pathlib.Path(f["file"].format(item=name) if "{item}" in f["file"] else f["file"]).stem)
+    cands += ["title-%s" % name, name, str(item)]
+    for c in cands:
+        p = d / (c + ".xml")
+        if p.exists():
+            return p
+    if d.is_dir():                                   # a build named in another case (Michigan's CHAP26.xml)
+        low = {x.lower() for x in cands}
+        for p in d.glob("*.xml"):
+            if p.stem.lower() in low:
+                return p
+    return None
+
+
+def fetch_and_build(st, code, item, force=False):
+    """One item, fetched (unless its source is local) and built to USLM. Raises SystemExit with the reason."""
+    fetch_formula(st, code, [item] if item else [], force)
+    if build_formula(st, code, [item] if item else []):
+        print("  %s %s %s: built, but verify reports problems (the text is still used)" % (st, code, item))
+
+
+NOT_INHERITED = ("cite", "catalog")    # how a code is cited, and what items it has, are its own (a constitution
+                                       # inheriting a statute formula must not read statute cites)
 
 
 def _inherit(flat, key, f, depth=0):
@@ -323,7 +384,7 @@ def _inherit(flat, key, f, depth=0):
         return f
     st, _, code = f["inherit"].partition(".")
     base = _inherit(flat, (st, code), flat[(st, code)], depth + 1)
-    out = dict(base)
+    out = {k: v for k, v in base.items() if k not in NOT_INHERITED}
     for k, v in f.items():
         merge = isinstance(v, dict) and isinstance(base.get(k), dict) and k not in f.get("replace", [])
         out[k] = dict(base[k], **v) if merge else v
@@ -551,6 +612,8 @@ def _fetch_item(st, code, f, d, it, force):
             for e in entries:
                 _get_one(f["url"].format(item=name, entry=urllib.parse.quote(e)), d_item / f["file"].format(entry=e),
                          f.get("edition", "current"), force, "  %s %s" % (name, e))
+        elif f["fetch"] == "resolve":
+            _fetch_resolve(st, code, f, d, name, force)
         elif f["fetch"] == "zip":
             _fetch_zip(st, code, f, d, name, force)
         elif f["fetch"] == "scroll":
@@ -1026,52 +1089,55 @@ def _note(path, cite, heading, fields, body):
     path.write_text("\n".join(L).rstrip() + "\n", encoding="utf-8")
 
 
-def write_notes(quiet=False):
-    """Notes for every state text stored here: a C.R.S. section each (co-crs-26.5-4-205), the Colorado and U.S.
-    Constitutions an article or amendment each (co-const-art-9, us-const-amend-1), a Colorado rule each
-    (co-ccr-8-1404-1). Names match lawcites.note_name, so cites in the case and docket notes link to them."""
+NOTE_STATES = ("CO",)       # whose built law gets notes; the rest wait for the vault work (it would be every section)
+
+
+def write_notes(quiet=False, states=NOTE_STATES):
+    """Notes from the built USLM of each code with a [cite] table: a statute section each (co-crs-26.5-4-205), a
+    constitution an article each (co-const-art-9), a rule each (co-ccr-8-1404-1); the U.S. Constitution an article
+    or amendment each (us-const-amend-1). Names match lawcites.note_name, so cites in the case and docket notes
+    link to them. Codes whose sections repeat across sub-codes (Texas's codes) are left for later."""
     import re
-    from tribonian import case2md as c, lawcites, lawtext
+    from tribonian import case2md as c, lawcites, lawtext, statecites
     known = c.statute_notes()
     plans = []                                     # (path, cite, heading, fields, rows)
-    crs = state_dir("CO") / "crs"
-    for f in sorted(crs.glob("title-*.htm")) if crs.is_dir() else []:
-        meta, t = local_meta(f) or {}, f.stem.split("-", 1)[1]
-        fields = [("source", "olls.info (Colorado Office of Legislative Legal Services)"), ("edition", c.Raw(meta.get("edition", ""))),
-                  ("retrieved", c.Raw(meta.get("fetched", "")))]
-        paras = lawtext._co_paras(t if t != "00" else "0")
-        if t == "00":                              # the Colorado Constitution: one note per article
-            for text, bold, centered in paras:
-                m = re.fullmatch(r"ARTICLE ([IVXL]+)", text)
-                if not (m and centered):
-                    continue
-                n = c.from_roman(m.group(1))
-                head, rows = lawtext.co_const(str(n), None, "md") or ("", [])
-                body = []
-                for _, label, heading, _ in rows:
-                    sec = label.replace("§ ", "")
-                    got = lawtext.co_const(str(n), sec, "md")
-                    body += [(0, label, heading, "")] + (got[1] if got else [])
-                plans.append((notes_dir() / "co" / "const" / ("co-const-art-%d.md" % n), "Colo. Const. art. %s" % m.group(1),
-                              re.sub(r"^Article [IVXL]+\.\s*", "", head), fields, body))
+    for tb in statecites.tables():
+        if tb.st not in states or tb.source_error or tb.subs:
             continue
-        for text, bold, centered in paras:
-            m = lawtext.CRS_START.match(text)
-            if not (bold and m):
-                continue
-            got = lawtext.co_crs(m.group(1), "md")
-            if got:
-                plans.append((notes_dir() / "co" / "crs" / ("t" + t) / ("co-crs-%s.md" % m.group(1)),
-                              "Colo. Rev. Stat. § %s" % m.group(1), got[0].rstrip("."), fields, got[1]))
-    ccr = state_dir("CO") / "ccr"
-    for f in sorted(ccr.glob("*.docx")) if ccr.is_dir() else []:
-        meta = local_meta(f) or {}
-        got = lawtext.co_ccr(f.stem, None, "md")
-        if got:
-            vol, rule = f.stem.split("-", 1)
-            plans.append((notes_dir() / "co" / "ccr" / ("co-ccr-%s.md" % f.stem), "%s Colo. Code Regs. %s" % (vol, rule), got[0],
-                          [("source", "sos.state.co.us (Colorado Secretary of State)"), ("effective", c.Raw(meta.get("effective", ""))),
-                           ("retrieved", c.Raw(meta.get("fetched", "")))], got[1]))
+        d = state_dir(tb.st) / "uslm" / tb.code
+        for f in sorted(d.glob("*.xml")) if d.is_dir() else []:
+            root = lawtext._uslm(f)
+            props = {p.get("role"): (p.text or "").strip() for p in root.iter("property")}
+            fields = [("source", props.get("url", "")), ("edition", c.Raw(props.get("edition", ""))),
+                      ("retrieved", c.Raw(props.get("retrieved", "")))]
+            secs = list(root.iter("section"))
+            if tb.kind == "const":
+                arts = list(dict.fromkeys(lawtext._article_of(x) for x in secs))
+                for art in arts:
+                    if not art:
+                        continue
+                    head, rows = lawtext.state(tb.key({"art": art}), "md") or ("", [])
+                    body = []
+                    for _, label, heading, _ in rows:
+                        got = lawtext.state(tb.key({"art": art, "sec": label.replace("§ ", "")}), "md")
+                        body += [(0, label, heading, "")] + (got[1] if got else [])
+                    key = tb.key({"art": art})
+                    plans.append((notes_dir() / tb.st.lower() / tb.code / (lawcites.note_name(key) + ".md"), lawcites.label(key),
+                                  lawtext.article_heading(tb, art), fields, body))
+            elif tb.kind == "regs":
+                vals = tb.parse("%s:%s" % (tb.prefix, f.stem)) or {}
+                key = tb.key(vals) if vals else None
+                got = lawtext.state(key, "md") if key else None
+                if got:
+                    plans.append((notes_dir() / tb.st.lower() / tb.code / (lawcites.note_name(key) + ".md"), lawcites.label(key),
+                                  re.sub(r"\s*\{.*$", "", got[0]), fields, got[1]))
+            else:
+                for x in secs:
+                    key = tb.key({"sec": lawtext._num(x)})
+                    got = lawtext.state(key, "md") if key else None
+                    if got:
+                        plans.append((notes_dir() / tb.st.lower() / tb.code / ("t" + f.stem.replace("title-", "")) / (lawcites.note_name(key) + ".md"),
+                                      lawcites.label(key), got[0].rstrip("."), fields, got[1]))
     us = state_dir("US") / "const" / "constitution.htm"
     if us.exists():
         meta = local_meta(us) or {}
@@ -1202,12 +1268,68 @@ def cmd_zip(args):
     print("%d members copied; %d range requests" % (got, rf.requests))
 
 
+def cmd_cites(args):
+    """Check the [cite] tables: every `examples` pair (cite text -> key) must read back as that key, its item must be
+    one the formula knows (catalog/items), and when the item is built here its text must be found. --fetch gets the
+    items first. Exits 1 on any failure."""
+    from tribonian import lawcites, lawtext, statecites
+    want = {s.upper() for s in args.states}
+    bad = 0
+    tbs = [t for t in statecites.tables() if not want or t.st in want]
+    if not tbs:
+        sys.exit("no [cite] tables%s" % (" for " + " ".join(sorted(want)) if want else ""))
+    for tb in tbs:
+        exs = tb.c.get("examples") or []
+        if not exs and not tb.source_error:
+            print("%s.%s: no examples" % (tb.st, tb.code))
+            bad += 1
+        statecites.CONTEXT["states"] = [tb.st]          # bare forms are tried as if the case were from this state
+        for ex in exs:
+            text, key = ex[0], ex[1]
+            got = lawcites.find(text)
+            keys = [k for k in got["cites"]]
+            ok = key in keys
+            line = "%-4s %-8s %-48s -> %-34s" % (tb.st, tb.code, text[:48], key)
+            if not ok:
+                print(line + " FAIL read %s" % (keys or "nothing"))
+                bad += 1
+                continue
+            if tb.source_error:
+                print(line + " ok (source error: %s)" % tb.source_error[:40])
+                continue
+            spec = lawtext.fetch_spec(key)
+            item = spec[3] if spec else None
+            f = formulas().get((tb.st, tb.code), {})
+            known = [str(x) for x in (f.get("catalog") or f.get("items") or [])]
+            low = {k.lower() for k in known} | {item_name(f.get("item"), k).lower() for k in known}
+            name_ok = item is not None and (not known or item.lower() in low or item_name(f.get("item"), item).lower() in low)
+            if args.fetch and spec and lawtext.text_of(key) is None:
+                okf, why = lawtext.run_fetch(spec)
+                if not okf:
+                    print("  fetch %s: %s" % (" ".join(spec[1:]), why))
+            txt = lawtext.text_of(key)
+            if not name_ok:
+                print(line + " FAIL item %r not in the formula's catalog/items" % item)
+                bad += 1
+            elif txt is None:
+                print(line + " ok, item %s (%s)" % (item, lawtext.fetch_hint(key)))
+            else:
+                print(line + " ok, item %s, text: %s" % (item, re.sub(r"\s*\{.*$", "", txt[0])[:40]))
+            if len(ex) > 2 and lawcites.label(key) != ex[2]:
+                print("     label %r, expected %r" % (lawcites.label(key), ex[2]))
+                bad += 1
+    statecites.CONTEXT["states"] = []
+    print("%d problem%s" % (bad, "" if bad == 1 else "s"))
+    if bad:
+        sys.exit(1)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch", help="download a state's code, title by title, unless already local")
     f.add_argument("state", help="postal code, e.g. CO")
-    f.add_argument("code", help="crs (Colorado Revised Statutes), const (Colorado Constitution), ccr (Code of Colorado Regulations)")
+    f.add_argument("code", help="the formula's code: crs (Colorado Revised Statutes), const, ccr (Code of Colorado Regulations), ...")
     f.add_argument("items", nargs="*", help="crs: titles, e.g. 26.5 00; ccr: rules, e.g. 8-1404-1; US const: none")
     f.add_argument("--force", action="store_true", help="download again whatever is local")
     f.set_defaults(func=cmd_fetch)
@@ -1231,6 +1353,10 @@ def main():
     zp.add_argument("--out", help="folder (default build/probe/<host>/<zip name>/)")
     zp.add_argument("--max", type=int, default=0, help="copy at most this many matching members")
     zp.set_defaults(func=cmd_zip)
+    ci = sub.add_parser("cites", help="check the [cite] tables against their examples (and the built text, when local)")
+    ci.add_argument("states", nargs="*", help="postal codes (default: every table)")
+    ci.add_argument("--fetch", action="store_true", help="fetch and build each example's item first (network)")
+    ci.set_defaults(func=cmd_cites)
     l = sub.add_parser("list", help="what is stored here")
     l.set_defaults(func=cmd_list)
     args = ap.parse_args()

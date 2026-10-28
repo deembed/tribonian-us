@@ -77,10 +77,92 @@ editorialNote = { class = "tocnote" }        # LAW_TOC_TBL.history_note: "Chapte
 types = [["lower"], ["num"], ["upper"], ["roman_lower"], ["roman_upper"]]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
+[CA.code.cite]
+# how cases cite the codes (statecites.py): Bluebook "Cal. Penal Code § 187 (West 2014)", "Cal. Civ. Proc. Code
+# § 425.16"; federal courts "Cal. Code Civ. Proc. § 425.16", "California Government Code section 12940"; California
+# courts (Style Manual) without the state: "Pen. Code, § 187", "Code Civ. Proc., § 425.16", "section 1101 of the
+# Evidence Code". Each sub pattern carries its own "Code" (Code Civ. Proc. puts it first).
+full    = ['Cal(?:ifornia|\.)?\s*{sub}(?:\s*Ann(?:otated|\.))?',
+           '(?:West\x27s\s+Ann(?:otated|\.)\s*|Deering\x27s\s+(?:Ann(?:otated|\.)\s*)?)Cal(?:ifornia|\.)?\s*{sub}']
+bare    = ['{sub}',
+           '(?:§|[Ss]ection)\s*(?P<sec>\d+(?:\.\d+)*(?:½|[a-z]{1,2}|[A-Z](?![a-z]))?)(?![\w])(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s+of\s+the\s+{sub}']
+after   = ['of\s+the\s+California\s+{sub}']
+section = '\d+(?:\.\d+)*(?:½|[a-z]{1,2}|[A-Z](?![a-z]))?'
+item    = "{sub}"
+label   = "Cal. {name} Code § {sec}"
+examples = [["Cal. Penal Code § 187(a) (West 2014)", "ca-code:PEN/187", "Cal. Penal Code § 187"],
+            ["Gov. Code, § 12940, subd. (h)", "ca-code:GOV/12940", "Cal. Gov't Code § 12940"],
+            ["Cal. Code Civ. Proc. § 425.16", "ca-code:CCP/425.16", "Cal. Civ. Proc. Code § 425.16"],
+            ["section 1101 of the Evidence Code", "ca-code:EVID/1101", "Cal. Evid. Code § 1101"],
+            ["California Family Code section 3011", "ca-code:FAM/3011"],
+            ["Bus. & Prof. Code, § 17200", "ca-code:BPC/17200", "Cal. Bus. & Prof. Code § 17200"]]
+
+[CA.code.cite.sub]
+BPC  = ['Bus(?:iness|\.)?\s*(?:&|and)\s*Prof(?:essions|\.)?\s*Code']
+CCP  = ['Code\s*(?:of\s+)?Civ(?:il|\.)?\s*Proc(?:edure|\.)?', 'Civ(?:il|\.)?\s*Proc(?:edure|\.)?\s*Code', 'Code\s*Civ\.\s*P\.']
+CIV  = ['Civ(?:il|\.)\s*Code']
+COM  = ['Com(?:mercial|\.)\s*Code']
+CORP = ['Corp(?:orations?|s?\.)\s*Code']
+EDC  = ['Educ(?:ation|\.)\s*Code', 'Ed\.\s*Code']
+ELEC = ['Elec(?:tions?|\.)\s*Code']
+EVID = ['Evid(?:ence|\.)\s*Code']
+FAC  = ['Food\s*(?:&|and)\s*Agr(?:iculture|ic(?:ultural)?\.?|\.)\s*Code']
+FAM  = ['Fam(?:ily|\.)\s*Code']
+FGC  = ['Fish\s*(?:&|and)\s*G(?:ame|\.)\s*Code']
+FIN  = ['Fin(?:ancial|\.)\s*Code']
+GOV  = ['Gov(?:ernment|(?:\x27|’)?t\.?|\.)\s*Code']
+HNC  = ['Harb(?:ors|\.)\s*(?:&|and)\s*Nav(?:igation|\.)\s*Code']
+HSC  = ['Health\s*(?:&|and)\s*Saf(?:ety|\.)\s*Code']
+INS  = ['Ins(?:urance|\.)\s*Code']
+LAB  = ['Lab(?:or|\.)\s*Code']
+MVC  = ['Mil(?:itary|\.)\s*(?:&|and)\s*Vet(?:erans|\.)\s*Code']
+PCC  = ['Pub(?:lic|\.)\s*Cont(?:ract|\.)\s*Code']
+PEN  = ['Pen(?:al|\.)\s*Code']
+PRC  = ['Pub(?:lic|\.)\s*Res(?:ources|\.)\s*Code']
+PROB = ['Prob(?:ate|\.)\s*Code']
+PUC  = ['Pub(?:lic|\.)\s*Util(?:ities|\.)\s*Code']
+RTC  = ['Rev(?:enue|\.)\s*(?:&|and)\s*Tax(?:ation|\.)?\s*Code']
+SHC  = ['(?:Sts|Streets)\.?\s*(?:&|and)\s*(?:High(?:ways)?|Hy)\.?\s*Code']
+UIC  = ['Unemp(?:loyment|\.)\s*Ins(?:urance|\.)\s*Code']
+VEH  = ['Veh(?:icle|\.)\s*Code']
+WAT  = ['Wat(?:er|\.)\s*Code']
+WIC  = ['Welf(?:are|\.)\s*(?:&|and)\s*Inst(?:itutions|\.)\s*Code']
+
+[CA.code.cite.names]
+BPC = "Bus. & Prof."
+CCP = "Civ. Proc."
+CIV = "Civ."
+COM = "Com."
+CORP = "Corp."
+EDC = "Educ."
+ELEC = "Elec."
+EVID = "Evid."
+FAC = "Food & Agric."
+FAM = "Fam."
+FGC = "Fish & Game"
+FIN = "Fin."
+GOV = "Gov't"
+HNC = "Harb. & Nav."
+HSC = "Health & Safety"
+INS = "Ins."
+LAB = "Lab."
+MVC = "Mil. & Vet."
+PCC = "Pub. Cont."
+PEN = "Penal"
+PRC = "Pub. Res."
+PROB = "Prob."
+PUC = "Pub. Util."
+RTC = "Rev. & Tax."
+SHC = "Sts. & High."
+UIC = "Unemp. Ins."
+VEH = "Veh."
+WAT = "Water"
+WIC = "Welf. & Inst."
+
 # ---------------------------------------------------------------- California Constitution
 [CA.const]
 inherit = "CA.code"
-replace = ["containers", "sections"]
+replace = ["containers", "sections", "cite"]
 dir     = "code"                             # shares CA.code's folder and its one ~100 MB law-member zip
 name    = "Constitution of the State of California"
 doc     = "/us-ca/const"                     # /us-ca/const/a1/s7
@@ -101,3 +183,43 @@ article = { match = '^(?P<heading>\[?ARTICLE\s+(?P<num>[IVXL]+(?:\s+[A-Z](?=\s))
 match = '(?i)^(?:SECTION|SEC\.)\s+(?P<num>\d+(?:\.\d+)?(?:½|[a-z])?)\.$'   # also "Section 4." (art. XXXIV), "SEC. 6½." 
 bold  = true
 scope = "container"                          # the enclosing ARTICLE: /us-ca/const/CONS/aI/s1
+
+[CA.const.cite]
+# "Cal. Const. art. I, § 7"; California courts "Cal. Const., art. I, § 7"; "article XIII A, section 1 of the
+# California Constitution". Lettered articles (XIII A, XIX B) keep the letter after a space, as the source's ids do.
+full    = ['Cal(?:ifornia|\.)?\s*Const(?:itution|\.)?{tail}',
+           'California\s+Constitution{tail}',
+           '[Aa]rt(?:icle|\.)\s*(?P<art>[IVXL]+(?:\s[A-E](?![\w]))?),?\s*(?:§|[Ss]ec(?:tion|\.))\s*(?P<sec>\d+(?:\.\d+)?[a-z]?)(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s+of\s+the\s+California\s+Constitution']
+tail    = ',?\s*(?:[Aa]rt(?:icle)?\.?)\s*(?P<art>[IVXLC]+(?:\s[A-E](?![\w]))?|\d+)(?![\w])(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+(?:\.\d+)?[a-z]?))?(?:\s?\((?!(?:1[89]|20)\d\d\))[A-Za-z0-9]{1,4}\))*'
+item    = "CONS"
+label   = "Cal. Const. art. {roman}[, § {sec}]"
+examples = [["Cal. Const., art. I, § 7", "ca-const:art-1:7", "Cal. Const. art. I, § 7"],
+            ["article XIII A, section 1 of the California Constitution", "ca-const:art-XIII A:1", "Cal. Const. art. XIII A, § 1"],
+            ["California Constitution, article VI, section 10", "ca-const:art-6:10"]]
+
+# ---------------------------------------------------------------- cite-only: commonly cited, no source here
+[CA.ccr]
+name    = "California Code of Regulations"
+source_error = "no source: the official CCR is a Westlaw-hosted OAL compilation with no bulk download"
+
+[CA.ccr.cite]
+full    = ['Cal(?:ifornia|\.)?\s*Code\s*(?:of\s+)?Regs?(?:ulations|\.)?,?\s*tit(?:le|\.)\s*(?P<tit>\d+[A-Z]?),?\s*(?:§§?|[Ss]ec(?:tion|s?\.))\s*(?P<sec>\d+(?:\.\d+)*[a-z]?)',
+           '(?:[Tt]it(?:le|\.)\s*)?(?P<tit>\d+[A-Z]?),?\s*Cal(?:ifornia|\.)?\s*Code\s*(?:of\s+)?Regs?(?:ulations|\.)?,?\s*(?:§§?|[Ss]ec(?:tion|s?\.))\s*(?P<sec>\d+(?:\.\d+)*[a-z]?)']
+section = '\d+(?:\.\d+)*[a-z]?'
+key     = "{tit}/{sec}"
+label   = "Cal. Code Regs. tit. {tit}, § {sec}"
+examples = [["Cal. Code Regs., tit. 2, § 11019", "ca-ccr:2/11019", "Cal. Code Regs. tit. 2, § 11019"],
+            ["22 Cal. Code Regs. § 72527", "ca-ccr:22/72527"]]
+
+[CA.crc]
+name    = "California Rules of Court"
+source_error = "no formula yet: the Judicial Council publishes the rules per rule on courts.ca.gov"
+
+[CA.crc.cite]
+full    = ['Cal(?:ifornia|\.)?\s*Rules\s+of\s+Court,?\s*(?:[Rr]ules?|[Rr]\.)\s*(?P<sec>\d+\.\d+)',
+           'Cal\.\s*R(?:ules?|\.)?\s*(?:of\s+)?Ct\.\s*(?P<sec>\d+\.\d+)',
+           '[Rr]ule\s+(?P<sec>\d+\.\d+)(?:\s?\([a-z0-9]{1,3}\))*\s+of\s+the\s+California\s+Rules\s+of\s+Court']
+section = '\d+\.\d+'
+label   = "Cal. R. Ct. {sec}"
+examples = [["Cal. Rules of Court, rule 8.1115(a)", "ca-crc:8.1115", "Cal. R. Ct. 8.1115"],
+            ["rule 8.500 of the California Rules of Court", "ca-crc:8.500"]]

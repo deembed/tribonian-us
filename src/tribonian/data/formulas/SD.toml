@@ -87,6 +87,17 @@ sourceCredit  = '^Source:'
 close = ['^\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:\s+to|\s*,)\s+\S+\s*\.\s+(?:Repealed|Transferred|Superseded|Omitted|Reserved|Executed|Obsolete|Expired)\.$']
 editorialNote = ['^(?:Code )?Commission Note:', '^Cross-References?:', "^Editor's note", '^Note:']
 
+[SD.sdcl.cite]
+# "S.D. Codified Laws § 22-16-4" (Bluebook); South Dakota courts write "SDCL 22-16-4" with no section sign
+full    = ['S\.\s?D\.\s?Codified\s+Laws(?:\s?Ann\.)?', 'SDCL', 'S\.\s?D\.\s?C\.\s?L\.', 'South\s+Dakota\s+Codified\s+Laws']
+section = '\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*'
+item    = ['^(\d+[A-Z]?)-', '{1}']
+label   = "S.D. Codified Laws § {sec}"
+examples = [["SDCL 32-23-1(1)", "sd-sdcl:32-23-1", "S.D. Codified Laws § 32-23-1"],
+            ["S.D. Codified Laws § 62-1-1(7) (2023)", "sd-sdcl:62-1-1"],
+            ["SDCL § 2-14-1", "sd-sdcl:2-14-1"],
+            ["SDCL 15-6-56(c)", "sd-sdcl:15-6-56"]]
+
 # ---------------------------------------------------------------- South Dakota Constitution
 # Published as pseudo-title 0N: one ?all=true page (probe api_Statutes_0N.html_all_true.html), mostly Wp2Html
 # documents. Articles head "ARTICLE III" / "LEGISLATIVE DEPARTMENT" (centered), then the article's section list
@@ -95,10 +106,11 @@ editorialNote = ['^(?:Code )?Commission Note:', '^Cross-References?:', "^Editor'
 # ("§§ 10 to 13. Superseded."). Article II has no sections: its text sits at article level.
 [SD.const]
 inherit = "SD.sdcl"
-replace = ["containers", "sections", "notes", "html"]
+replace = ["containers", "sections", "notes", "html", "cite"]
 name    = "Constitution of the State of South Dakota"
 doc     = "/us-sd/const"                      # /us-sd/const/a3/s1
 items   = ["0N"]
+catalog = ["0N"]                              # not the inherited SDCL title list: the constitution is the one item
 skip    = []
 file    = "constitution-{item}.html"
 
@@ -127,3 +139,25 @@ toc   = ['^\d+\.\s', '^Article(?:\s+[IVXL]+)?$', '^Preamble\.$']   # article lis
 
 [SD.const.notes]
 sourceCredit  = '^History:'
+
+[SD.const.cite]
+full    = ['S\.\s?D\.\s?Const\.?', 'South\s+Dakota\s+Constitution',
+           '[Aa]rt(?:icle|\.)\s*(?P<art>[IVX]+),?\s*(?:[Ss]ection|[Ss]ec\.|§)\s*(?P<sec>\d+[a-z]?),?\s*of\s+(?:the\s+)?South\s+Dakota\s+Constitution']
+item    = "0N"
+label   = "S.D. Const. art. {roman}[, § {sec}]"
+examples = [["S.D. Const. art. VI, § 2", "sd-const:art-6:2", "S.D. Const. art. VI, § 2"],
+            ["Article VI, § 11 of the South Dakota Constitution", "sd-const:art-6:11"]]
+
+# ---------------------------------------------------------------- Administrative Rules of South Dakota (cite-only)
+[SD.arsd]
+name    = "Administrative Rules of South Dakota"
+source_error = "no formula yet: ARSD is on sdlegislature.gov/Rules (same API family as SDCL); not wired up"
+
+[SD.arsd.cite]
+# "ARSD 20:10:01:01" (South Dakota courts), "S.D. Admin. R. 20:10:01:01" (Bluebook)
+full    = ['ARSD', 'S\.\s?D\.\s?Admin\.\s?R\.', 'Admin\.\s?R\.\s?S\.\s?D\.']
+section = '\d+:\d+(?::\d+)+(?:\.\d+)?'
+label   = "S.D. Admin. R. {sec}"
+examples = [["ARSD 20:10:01:01", "sd-arsd:20:10:01:01", "S.D. Admin. R. 20:10:01:01"],
+            ["S.D. Admin. R. 47:01:02:01.01", "sd-arsd:47:01:02:01.01"],
+            ["ARSD 61:01:01:01(3)", "sd-arsd:61:01:01:01"]]

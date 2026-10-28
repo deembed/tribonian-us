@@ -1282,6 +1282,17 @@ close = [{ heading = true, match = '^(?:CHAPTER|ARTICLE|PART)\s' }]
 "0852" = "Vol14_Ch0701-0853"
 "0853" = "Vol14_Ch0701-0853"
 
+[HI.hrs.cite]
+# "Haw. Rev. Stat. § 707-701 (2014)", the Hawai'i courts' "HRS § 707-701(1)(a)" (with § only: "HRS" alone is too loose)
+full    = ['Haw\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?', 'Hawai(?:\x27|’|ʻ)?i\s+Revised\s+Statutes', 'HRS\s*§§?\s*{section}(?![\w])']
+section = '\d+[A-Z]?-\d+(?:\.\d+)?[A-Z]?'
+item    = ['^(\d+[A-Z]?)-', '{1}']             # 707-701.5 -> chapter 707 (file 0707)
+label   = "Haw. Rev. Stat. § {sec}"
+examples = [["Haw. Rev. Stat. § 707-701 (2014)", "hi-hrs:707-701", "Haw. Rev. Stat. § 707-701"],
+            ["HRS § 707-701.5(1)(a)", "hi-hrs:707-701.5"],
+            ["HRS § 92-1.5", "hi-hrs:92-1.5"],
+            ["Hawaii Revised Statutes § 329-2", "hi-hrs:329-2"]]
+
 # ---------------------------------------------------------------- Constitution of the State of Hawaii
 # lrb.hawaii.gov/constitution/: the whole constitution on one WordPress page (one request). Inside div.col:
 # front matter (h2 title, adoption history, h3 "Revision Note" + blockquote, a linked table of contents of
@@ -1349,3 +1360,9 @@ note = [{ match = '^The Constitution of the State of Hawaii$', topic = "frontMat
 # h4 "Effective Date" at the end of article XVIII is the constitution's closing provision, not part of
 # section 12: it ends the section and stands as a cross heading in the article
 close = [{ heading = true, match = '^Effective Date$' }]
+
+[HI.const.cite]
+full    = ['Haw\.\s?Const\.?', 'Hawai(?:\x27|’|ʻ)?i\s+Const(?:\.|itution)?']
+item    = "current"
+examples = [["Haw. Const. art. I, § 7", "hi-const:art-1:7", "Haw. Const. art. I, § 7"],
+            ["Hawai'i Constitution article I, section 5", "hi-const:art-1:5"]]

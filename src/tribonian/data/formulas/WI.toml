@@ -112,6 +112,17 @@ editorialNote = [{ class = "qsnote_xref", topic = "crossReference" }, { class = 
 # the note is attached to the section and written after the whole subsection: order changes and conservation fails
 # (tried on ch. 49). Until notes can attach to the open level, the paragraphs after a mid-section NOTE stay in it.   # xref_code: "See also chs. DHS 250 ..., Wis. adm. code."
 
+[WI.stats.cite]
+# "Wis. Stat. § 940.01(1)(a) (2021-22)", and the older "sec. 940.01, Stats." (bare: only in Wisconsin cases)
+full    = ['Wis\.\s?Stat(?:s?\.|utes)(?:\s?Ann\.)?', 'Wisconsin\s+Statutes', 'W\.\s?S\.\s?A\.']
+bare    = ['(?:§§?|[Ss]ecs?\.)\s*{section}(?:\s?\([0-9a-z]{1,4}\))*,?\s*Stats\.']
+section = '\d+\.\d+[a-z]?'
+item    = ['^(\d+)\.', '{1}']                        # 940.01 -> chapter 940
+label   = "Wis. Stat. § {sec}"
+examples = [["Wis. Stat. § 340.01(1) (2021-22)", "wi-stats:340.01", "Wis. Stat. § 340.01"],
+            ["sec. 49.45(24s)(a), Stats.", "wi-stats:49.45"],
+            ["Wis. Stat. Ann. § 940.01 (West 2022)", "wi-stats:940.01"]]
+
 # ---------------------------------------------------------------- Wisconsin Constitution (annotated)
 # /constitution/wi: the LRB's annotated constitution (last amended April 2025, published Aug 5, 2026), same
 # WordParser markup and the same windowing. The unannotated HTML is disallowed by robots.txt.
@@ -127,6 +138,7 @@ name    = "Wisconsin Constitution"
 doc     = "/us-wi/const"                      # /us-wi/const/a4/s3
 url     = "https://docs.legis.wisconsin.gov/scroll/down/{start}/constitution/{item}"   # fetch/next/join inherited
 items   = ["wi"]                              # always the one document
+catalog = ["wi"]                              # its own (the inherited one lists the statute chapters)
 file    = "{item}.html"
 
 [WI.const.html]
@@ -161,3 +173,10 @@ note          = [{ class = "qstitle_chapter", topic = "edition" }, { class = "qs
 sourceCredit  = { class = "qsnote_history" }
 editorialNote = [{ class = "qsnote_xref", topic = "crossReference" }, { class = "qsnote_xref_code", topic = "crossReference" },
                  { class = "qsnote_note", topic = "note" }]   # xref_code: "See also chs. DHS 250 ..., Wis. adm. code."
+
+[WI.const.cite]
+full    = ['Wis\.\s?Const\.?', 'Wisconsin\s+Constitution', 'Constitution\s+of\s+(?:the\s+State\s+of\s+)?Wisconsin']
+item    = "wi"
+label   = "Wis. Const. art. {roman}[, § {sec}]"
+examples = [["Wis. Const. art. I, § 11", "wi-const:art-1:11", "Wis. Const. art. I, § 11"],
+            ["Wis. Const. art. IV", "wi-const:art-4"]]

@@ -88,6 +88,22 @@ close = ['^LOUISIANA REVISED STATUTES$', '^\d+\.\s+[A-Z][A-Z ,;:&()\x27-]+$', '^
 sourceCredit  = '^(?:Added by Acts|Acts\s+\d{4}|Amended by Acts|Redesignated|Enacted by Acts|Source:)'
 editorialNote = ['^\{\{NOTE:', '^NOTE:', "^Editor's note"]
 
+[LA.rs.cite]
+# how cases cite it (statecites.py): "La. R.S. 14:30", "La. Rev. Stat. Ann. § 14:30", "LSA-R.S. 14:30"; Louisiana
+# courts also write a bare "R.S. 14:30". Title before the colon, section after: explicit (?P<tit>) + {section}.
+full    = ['La\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?\s*(?:§§?\s*)?(?P<tit>\d+):{section}',
+           '(?:La\.\s?|LSA-)R\.\s?S\.(?:\s?A\.)?\s*(?:§§?\s*)?(?P<tit>\d+):{section}',
+           'Louisiana\s+Revised\s+Statutes?,?\s*(?:§§?\s*)?(?P<tit>\d+):{section}']
+bare    = ['R\.\s?S\.\s*(?:§§?\s*)?(?P<tit>\d+):{section}']
+section = '\d+(?:\.\d+)*(?![\d:])'            # 30, 30.1, 32.12; never the title before a colon ("§§ 14:30, 14:31")
+key     = "{tit}:{sec}"
+item    = "{tit}"
+label   = "La. Rev. Stat. Ann. § {tit}:{sec}"
+examples = [["La. R.S. 14:30", "la-rs:14:30", "La. Rev. Stat. Ann. § 14:30"],
+            ["La. Rev. Stat. Ann. § 14:30.1(A)(1) (2019)", "la-rs:14:30.1", "La. Rev. Stat. Ann. § 14:30.1"],
+            ["LSA-R.S. 14:20", "la-rs:14:20"],
+            ["as defined in R.S. 1:3", "la-rs:1:3"]]
+
 # ---------------------------------------------------------------- Louisiana Constitution of 1974
 # Same viewer (Laws_Toc.aspx?folder=72, articles I-XIV via postback links; sections on Law.aspx?d=<id>).
 # Section pages are assumed to share the R.S. markup ("§1. Origin and Purpose of Government"); NOT yet
@@ -95,6 +111,7 @@ editorialNote = ['^\{\{NOTE:', '^NOTE:', "^Editor's note"]
 # section numbers restart per article, so the article is the identifier's parent: /us-la/const/a1/s1.
 [LA.const]
 inherit = "LA.rs"
+replace = ["cite"]                            # its own [cite] table, not merged with the R.S. one
 name    = "Constitution of the State of Louisiana (1974)"
 doc     = "/us-la/const"
 item    = "%d"                                # the TOC numbers articles in arabic: ARTICLE 1 ... ARTICLE 14
@@ -141,3 +158,67 @@ heading_before = '^§'
 close = ['^(?:CONSTITUTION|OF THE|STATE OF LOUISIANA|OF 1974)$']
 sourceCredit  = '^(?:Added by Acts|Acts\s+\d{4}|Amended by Acts|Redesignated|Enacted by Acts|Source:)'
 editorialNote = ['^\{\{NOTE:', '^NOTE:', "^Editor's note"]
+
+[LA.const.cite]
+full    = ['La\.\s?Const\.?(?:\s?Ann\.)?(?:\s?of\s1974)?', 'Louisiana\s+Constitution(?:\s+of\s+1974)?']   # then "art. I, § 2"
+item    = "{art}"
+label   = "La. Const. art. {roman}[, § {sec}]"
+examples = [["La. Const. art. I, § 2", "la-const:art-1:2", "La. Const. art. I, § 2"],
+            ["La. Const. of 1974, art. I, § 20", "la-const:art-1:20"]]
+
+# ---------------------------------------------------------------- Louisiana's codes outside the R.S. (cite-only)
+# The Civil Code, Code of Civil Procedure, Code of Criminal Procedure and Code of Evidence are cited by article
+# ("La. Civ. Code art. 2315"). legis.la.gov serves each on the same postback viewer as the R.S. (Laws_Toc.aspx
+# folders 67, 68, 69, 70; see build/dispatch/LA.status.md), so a formula like LA.rs could be added; none is yet.
+[LA.cc]
+name    = "Louisiana Civil Code"
+source_error = "no formula yet: legis.la.gov serves it (Laws_Toc.aspx?folder=67, the R.S. postback viewer)"
+
+[LA.cc.cite]
+full    = ['La\.\s?Civ\.\s?Code(?:\s?Ann\.)?', '(?:La\.\s?|LSA-)C\.\s?C\.', 'Louisiana\s+Civil\s+Code']
+bare    = ['C\.\s?C\.\s?[Aa]rts?\.\s*{section}', 'Civil\s+Code\s+[Aa]rt(?:icle)?s?\.?\s*{section}']
+section = '\d+(?:\.\d+)?'
+label   = "La. Civ. Code art. {sec}"
+examples = [["La. Civ. Code art. 2315", "la-cc:2315", "La. Civ. Code art. 2315"],
+            ["La. C.C. art. 2317.1", "la-cc:2317.1"],
+            ["LSA-C.C. art. 1953", "la-cc:1953"],
+            ["under Civil Code article 2315(A)", "la-cc:2315"]]
+
+[LA.ccp]
+name    = "Louisiana Code of Civil Procedure"
+source_error = "no formula yet: legis.la.gov serves it (Laws_Toc.aspx?folder=68, the R.S. postback viewer)"
+
+[LA.ccp.cite]
+full    = ['La\.\s?Code\s?Civ\.\s?Proc\.(?:\s?Ann\.)?', '(?:La\.\s?|LSA-)C\.\s?C\.\s?P\.']
+bare    = ['C\.\s?C\.\s?P\.\s?[Aa]rts?\.\s*{section}']
+section = '\d+(?:\.\d+)?'
+label   = "La. Code Civ. Proc. art. {sec}"
+examples = [["La. Code Civ. Proc. art. 1871", "la-ccp:1871", "La. Code Civ. Proc. art. 1871"],
+            ["La. C.C.P. art. 966(A)(3)", "la-ccp:966"],
+            ["see C.C.P. art. 891", "la-ccp:891"]]
+
+[LA.ccrp]
+name    = "Louisiana Code of Criminal Procedure"
+source_error = "no formula yet: legis.la.gov serves it (Laws_Toc.aspx?folder=69, the R.S. postback viewer)"
+
+[LA.ccrp.cite]
+full    = ['La\.\s?Code\s?Crim\.\s?Proc\.(?:\s?Ann\.)?', '(?:La\.\s?|LSA-)C\.\s?Cr\.\s?P\.']
+bare    = ['C\.\s?Cr\.\s?P\.\s?[Aa]rts?\.\s*{section}']   # not "Code of Criminal Procedure article": Texas writes that
+section = '\d+(?:\.\d+)?'
+label   = "La. Code Crim. Proc. art. {sec}"
+examples = [["La. Code Crim. Proc. art. 701", "la-ccrp:701", "La. Code Crim. Proc. art. 701"],
+            ["La. C.Cr.P. art. 894.1", "la-ccrp:894.1"],
+            ["under C.Cr.P. art. 930.8", "la-ccrp:930.8"]]
+
+[LA.ce]
+name    = "Louisiana Code of Evidence"
+source_error = "no formula yet: legis.la.gov serves it (Laws_Toc.aspx?folder=70, the R.S. postback viewer)"
+
+[LA.ce.cite]
+full    = ['La\.\s?Code\s?Evid\.(?:\s?Ann\.)?', '(?:La\.\s?|LSA-)C\.\s?E\.']
+bare    = ['C\.\s?E\.\s?[Aa]rts?\.\s*{section}']
+section = '\d+(?:\.\d+)?'
+label   = "La. Code Evid. art. {sec}"
+examples = [["La. Code Evid. art. 404(B)(1)", "la-ce:404", "La. Code Evid. art. 404"],
+            ["La. C.E. art. 801", "la-ce:801"],
+            ["see C.E. art. 412.2", "la-ce:412.2"]]

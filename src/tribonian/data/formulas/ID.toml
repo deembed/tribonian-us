@@ -94,6 +94,19 @@ scope = "title"                               # numbers carry the title: /us-id/
 [ID.code.notes]
 sourceCredit = '^History:'                    # "History:" alone, then the bracketed history line
 
+[ID.code.cite]
+# "Idaho Code § 18-4001", the Idaho courts' "I.C. § 18-4001", and "section 18-4001, Idaho Code"
+full    = ['Idaho\s+Code(?:\s+Ann(?:\.|otated))?']
+bare    = ['I\.\s?C\.\s*§§?\s*{section}(?![\w-])']
+after   = ['Idaho\s+Code']
+section = '\d+-\d+[A-Z]?(?:-\d+[A-Z]?)?'
+item    = ['^(\d+)-', '{1}']                   # 18-4001 -> title 18
+label   = "Idaho Code § {sec}"
+examples = [["Idaho Code § 74-101(1)", "id-code:74-101", "Idaho Code § 74-101"],
+            ["I.C. § 2-101", "id-code:2-101"],
+            ["section 4-101, Idaho Code", "id-code:4-101"],
+            ["Idaho Code § 6-918A", "id-code:6-918A"]]
+
 # ---------------------------------------------------------------- Idaho Constitution (approved July 3, 1890)
 # /statutesrules/idconst/ lists articles ArtI ... ArtXXI; /idconst/ArtI/ lists sections ArtI/Sect1 ... under
 # <h2 class="lso-toc">ARTICLE I DECLARATION OF RIGHTS</h2>; /idconst/ArtI/Sect1 is one section's text.
@@ -107,7 +120,7 @@ sourceCredit = '^History:'                    # "History:" alone, then the brack
 # The preamble sits on the top page only (in <center> inside <em>): not in the build (ID.status.md).
 [ID.const]
 inherit = "ID.code"
-replace = ["containers", "sections", "ladder", "html"]
+replace = ["containers", "sections", "ladder", "html", "cite"]
 name    = "Constitution of the State of Idaho"
 doc     = "/us-id/const"                      # /us-id/const/a1/s1
 item    = "%d"
@@ -170,3 +183,9 @@ bold  = false
 scope = "title"                               # the file's top level is the article
 
 [ID.const.notes]
+
+[ID.const.cite]
+full    = ['Idaho\s+Const\.?', 'Idaho\s+Constitution']
+item    = "{art}"
+examples = [["Idaho Const. art. I, § 13", "id-const:art-1:13", "Idaho Const. art. I, § 13"],
+            ["Idaho Const. art. XXI, § 2", "id-const:art-21:2"]]

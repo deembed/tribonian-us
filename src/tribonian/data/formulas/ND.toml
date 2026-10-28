@@ -344,6 +344,19 @@ scope = "root"                                # section numbers carry the title 
 
 [ND.cc.notes]
 
+[ND.cc.cite]
+# "N.D. Cent. Code § 12.1-16-01", "N.D.C.C. § 12.1-16-01". Item = the chapter PDF: 12.1-32-01 -> t12-1c32,
+# 4.1-01.1-01 -> t04-1c01-1, 57-39.4A-01 -> t57c39-4a (an empty-capture group stands in for the lower-case letter)
+full    = ['N\.\s?D\.\s?Cent\.\s?Code(?:\s?Ann\.)?', 'N\.\s?D\.\s?C\.\s?C\.', 'North\s+Dakota\s+Century\s+Code']
+section = '\d+(?:\.\d+)?-\d+(?:\.\d+)?[A-Z]?-\d+(?:\.\d+)*'
+item    = ['^(?P<t>\d+)(?:\.(?P<td>\d+))?-(?P<c>\d+)(?:\.(?P<cd>\d+))?(?:(?P<la>(?=A))A|(?P<lb>(?=B))B)?-',
+           't{t:0>2}[-{td}]c{c:0>2}[-{cd}][a{la}][b{lb}]']
+label   = "N.D. Cent. Code § {sec}"
+examples = [["N.D.C.C. § 12.1-32-01(4)", "nd-cc:12.1-32-01", "N.D. Cent. Code § 12.1-32-01"],
+            ["N.D. Cent. Code § 4.1-01.1-01 (2023)", "nd-cc:4.1-01.1-01"],
+            ["N.D.C.C. § 1-01-01", "nd-cc:1-01-01"],
+            ["N.D.C.C. § 57-39.4A-01", "nd-cc:57-39.4A-01"]]
+
 # ---------------------------------------------------------------- North Dakota Constitution
 # One PDF per article: https://ndlegis.gov/constit/a01.pdf ... a16.pdf, plus preamble.pdf and
 # transition_schedule.pdf (links on ndlegis.gov/constitution, which holds no text; theenablingact.pdf is the
@@ -352,7 +365,7 @@ scope = "root"                                # section numbers carry the title 
 # Century Code; a second paragraph after a blank line ("For purposes of this section", art. I sec. 16).
 [ND.const]
 inherit = "ND.cc"
-replace = ["containers", "sections", "ladder", "pdf"]
+replace = ["containers", "sections", "ladder", "pdf", "cite"]
 name    = "Constitution of North Dakota"
 doc     = "/us-nd/const"                      # /us-nd/const/a1/s25/1/a
 url     = "https://ndlegis.gov/constit/{item}.pdf"
@@ -384,3 +397,11 @@ bold  = false
 scope = "container"                           # sections restart in every article: /us-nd/const/a1/s1
 
 [ND.const.notes]
+
+[ND.const.cite]
+full    = ['N\.\s?D\.\s?Const\.?', 'North\s+Dakota\s+Constitution',
+           '[Aa]rt(?:icle|\.)\s*(?P<art>[IVX]+),?\s*(?:[Ss]ection|[Ss]ec\.|§)\s*(?P<sec>\d+(?:\.\d+)?),?\s*of\s+(?:the\s+)?North\s+Dakota\s+Constitution']
+item    = "a{art:0>2}"                         # one PDF per article: a01 ... a14
+label   = "N.D. Const. art. {roman}[, § {sec}]"
+examples = [["N.D. Const. art. I, § 8", "nd-const:art-1:8", "N.D. Const. art. I, § 8"],
+            ["Article XI, Section 6 of the North Dakota Constitution", "nd-const:art-11:6"]]

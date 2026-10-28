@@ -66,6 +66,17 @@ annotation = '^ANNOTATION$'                    # centered: case annotations foll
 sourceCredit  = '^Source:'
 editorialNote = ["^Editor's note", "^Cross references:", "^Law reviews"]
 
+[CO.crs.cite]
+# how cases cite it (statecites.py): "Colo. Rev. Stat. § 26.5-4-205", "C.R.S. § ...", "§ 26.5-4-205, C.R.S."
+full    = ['Colo\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?', 'C\.\s?R\.\s?S\.', 'Colorado\s+Revised\s+Statutes']
+after   = ['C\.\s?R\.\s?S\.', 'Colo\.\s?Rev\.\s?Stat\.']
+section = '\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?'
+item    = ['^(\d+(?:\.\d+)?)-', '{1}']        # 26.5-4-205 -> title 26.5
+label   = "Colo. Rev. Stat. § {sec}"
+examples = [["Colo. Rev. Stat. § 26.5-4-205(2) (2023)", "co-crs:26.5-4-205", "Colo. Rev. Stat. § 26.5-4-205"],
+            ["see § 26.5-4-210, C.R.S.", "co-crs:26.5-4-210"],
+            ["C.R.S. § 24-4-103", "co-crs:24-4-103"]]
+
 # ---------------------------------------------------------------- Colorado Constitution (C.R.S. title 00)
 [CO.const]
 name    = "Constitution of the State of Colorado"
@@ -103,6 +114,62 @@ toc   = ['^Sec\.\s+\d']                            # numbers restart per article
 annotation = '^ANNOTATION$'
 sourceCredit  = '^Source:'
 editorialNote = ["^Editor's note", "^Cross references:", "^Law reviews"]
+
+[CO.const.cite]
+full    = ['Colo\.\s?Const\.?', 'Colorado\s+Constitution']    # then "art. IX, § 7" (statecites.CONST_TAIL)
+item    = "00"
+label   = "Colo. Const. art. {roman}[, § {sec}]"
+examples = [["Colo. Const. art. IX, § 7", "co-const:art-9:7", "Colo. Const. art. IX, § 7"],
+            ["Colo. Const. art. II", "co-const:art-2"]]
+
+# ---------------------------------------------------------------- Code of Colorado Regulations (a regulations code)
+# Regulations codes take kind = "regs". A rule (8 CCR 1404-1) is one item; its current version has no fixed URL,
+# so a resolver walks the Secretary of State's pages to it (statelaw.RESOLVERS). The DOCX is the same text as the
+# official PDF and keeps the paragraph styles, which the docx-styles transform turns into HTML blocks.
+[CO.ccr]
+name    = "Code of Colorado Regulations"
+kind    = "regs"
+doc     = "/us-co/ccr"                       # /us-co/ccr/8-1404-1/s4.109/A
+fetch   = "resolve"
+resolver = "co-sos"
+item    = ""                                 # volume-agency-number: 8-1404-1
+file    = "{item}.docx"
+transform = "docx-styles"
+family  = "html-paragraphs"
+wrap    = { tag = "title", id = "{item}", rebase = true }   # one rule per file; section numbers are the rule's own
+terms   = "Colorado Secretary of State; the PDF is the official version (C.R.S. 24-4-103(11))"
+
+[CO.ccr.docx]
+center  = ["Heading1"]                       # the rule's title
+bold    = ["Heading2"]                       # "4.109 ELIGIBILITY": a section
+indent  = { par1 = 0, par2 = 1, par3 = 2, par4 = 3, par5 = 4, upar1 = 0, upar2 = 1, upar3 = 2 }
+
+[CO.ccr.html]
+indent  = 4
+
+[CO.ccr.ladder]
+types = ["upper.", "num.", "lower.", "num", "lower", "roman_lower."]     # A. 1. a. (1) (a) i.
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
+
+[CO.ccr.containers]
+title   = { match = '^(?P<heading>.+)$', tag = "level", rank = 2, id = "rule", heading = "self" }
+
+[CO.ccr.sections]
+match = '^(?P<num>\d+\.\d+[A-Za-z]?(?:\.\d+)?)\s+(?P<heading>.*)$'
+bold  = true
+scope = "title"
+
+[CO.ccr.notes]
+editorialNote = ["^Editor’s Notes$", "^Editor's Notes$", "^History$", "^Annotations$"]
+
+[CO.ccr.cite]
+full    = ['(?P<vol>\d{1,2})\s*(?:CCR|C\.C\.R\.|Colo\.\s?Code\s?Regs?\.|Code\s+of\s+Colorado\s+Regulations)(?:\s*\(\d{4}\))?:?\s*(?:§\s*)?(?P<rule>\d{3,4}-\d+)(?:\s*(?:,\s*)?(?:§§?|[Rr]ule(?:\s+[Ss]ections?)?|:)\s*(?P<sec>\d+\.\d+[A-Za-z]?))?']
+section = '\d+\.\d+[A-Za-z]?'
+key     = "{vol}-{rule}[:{sec}]"
+item    = "{vol}-{rule}"
+label   = "{vol} Colo. Code Regs. {rule}[ § {sec}]"
+examples = [["8 CCR 1404-1 § 4.109", "co-ccr:8-1404-1:4.109", "8 Colo. Code Regs. 1404-1 § 4.109"],
+            ["8 Colo. Code Regs. 1404-1", "co-ccr:8-1404-1"]]
 
 # ---------------------------------------------------------------- General Statutes of Connecticut
 # Published as a revision (every section, revised to January 1, 2025) plus a supplement (only the
@@ -162,6 +229,20 @@ sourceCredit  = { class = "source-first" }
 editorialNote = [{ class = "history-first", topic = "history" }, { class = "cross-ref-first", topic = "crossReference" },
                  { class = "front-note-first", topic = "frontNote" }]
 
+[CT.cgs.cite]
+# "Conn. Gen. Stat. § 53a-54a", "C.G.S. § ...", "Conn. Gen. Stat. Ann. § ... (West ...)"; Connecticut's own courts
+# write "General Statutes (Rev. to 2019) § 53a-54a" (bare: only in Connecticut cases; "N.C. Gen. Stat." and
+# "North Carolina General Statutes" name their state, which keeps the bare forms off them)
+full    = ['Conn\.\s?Gen\.\s?Stat\.(?:\s?Ann\.)?', 'C\.\s?G\.\s?S\.(?:\s?A\.)?', 'Connecticut\s+General\s+Statutes(?:\s+Annotated)?']
+bare    = ['General\s+Statutes(?:\s*\(Rev\.\s*(?:to\s*)?\d{4}\))?', 'Gen\.\s?Stat\.(?:\s*\(Rev\.\s*(?:to\s*)?\d{4}\))?']
+section = '\d+[a-z]*-\d+[a-z]*'
+item    = ['^(\d+[a-z]*)-', '{1}']                   # 53a-54a -> title 53a (fetched as "53a"; 1 -> "01")
+label   = "Conn. Gen. Stat. § {sec}"
+examples = [["Conn. Gen. Stat. § 1-1(a) (2023)", "ct-cgs:1-1", "Conn. Gen. Stat. § 1-1"],
+            ["General Statutes (Rev. to 2019) § 53a-54a", "ct-cgs:53a-54a"],
+            ["C.G.S. § 46b-56", "ct-cgs:46b-56"],
+            ["Conn. Gen. Stat. Ann. § 1-2z (West 2023)", "ct-cgs:1-2z"]]
+
 # ---------------------------------------------------------------- Maryland Code (and Constitution)
 # The legislature's statute selector (mgaleg.maryland.gov/mgawebsite/Laws/Statutes): one page per section,
 # listed by its JSON API. Items are the selector's article codes: gcr (Criminal Law), gcj, ... One USLM file
@@ -205,9 +286,158 @@ scope = "title"
 
 [MD.code.notes]
 
+[MD.code.cite]
+# The articles are sub-codes; a sub's key is its item (the selector's article code). Forms seen in cases:
+#   Bluebook        "Md. Code Ann., Crim. Law § 2-201"   (also "Md. Code, Crim. Law § 2-201")
+#   Maryland courts "Md. Code (2002, 2021 Repl. Vol.), Criminal Law Article ("CR") § 2-201", then "CR § 2-201";
+#                   "§ 2-201 of the Criminal Law Article"
+# The two-letter abbreviations (CR, CP, CJ ...) and the bare article names are bare forms (Maryland cases only)
+# and need a "§": "CR 12-345" is a docket number. Old numbered articles ("Art. 27, § 286") are not read.
+full    = ['Md\.\s?Code(?:\s?Ann\.)?(?:\s*\([^()]{0,40}\))?,?\s*{sub}(?:\s+Art(?:icle\b|\.))?(?:\s*\(\W{0,2}[A-Z]{2,4}\W{0,2}\))?',
+           'Md\.\s?Code(?:\s?Ann\.)?(?:\s*\([^()]{0,40}\))?,?\s*(?:§§?|[Ss]ections?)\s*{section}(?:\s?\([A-Za-z0-9]{1,4}\))*\s+of\s+the\s+{sub}\s+Article',
+           'Maryland\s+Code(?:\s+Annotated)?,?\s*{sub}(?:\s+Article\b)?']
+bare    = ['{sub}(?:\s+Art(?:icle\b|\.))?(?:\s*\(\W{0,2}[A-Z]{2,4}\W{0,2}\))?,?\s*§§?\s*{section}',
+           '(?:§§?|[Ss]ections?)\s*{section}(?:\s?\([A-Za-z0-9]{1,4}\))*\s+of\s+the\s+{sub}\s+Article']
+section = '\d+[A-Z]?(?:\.\d+)?(?:-\d+[A-Z]?(?:\.\d+)?)+'      # 2-201, 21-801.1, 3-8A-01
+item    = "{sub}"
+label   = "Md. Code Ann., {name} § {sec}"
+examples = [["Md. Code Ann., Crim. Law § 2-201(a)(1) (West 2021)", "md-code:gcr/2-201", "Md. Code Ann., Crim. Law § 2-201"],
+            ["Md. Code (2002, 2021 Repl. Vol.), § 1-101 of the Criminal Law Article", "md-code:gcr/1-101"],
+            ["CR § 2-101", "md-code:gcr/2-101"],
+            ["Md. Code (1974, 2020 Repl. Vol.), Courts and Judicial Proceedings Article (\"CJ\"), § 3-8A-01", "md-code:gcj/3-8A-01", "Md. Code Ann., Cts. & Jud. Proc. § 3-8A-01"],
+            ["Md. Code Ann., Health–Gen. § 10-1301", "md-code:ghg/10-1301"]]
+
+[MD.code.cite.sub]
+gag = ['Agric\.', 'Agriculture', 'AG']
+gab = ['Alc\.\s?Bev\.(?:\s?(?:&|and)\s?Cannabis)?', 'Alcoholic\s+Beverages(?:\s+and\s+Cannabis)?', 'ABC', 'AB']
+gbo = ['Bus\.\s?Occ\.\s?(?:&|and)\s?Prof\.', 'Business\s+Occupations\s+and\s+Professions', 'BOP']
+gbr = ['Bus\.\s?Reg\.', 'Business\s+Regulation', 'BR']
+gcl = ['Com\.\s?Law', 'Commercial\s+Law', 'CL']
+gca = ['Corps\.\s?(?:&|and)\s?Ass(?:\x27|’)?ns', 'Corporations\s+and\s+Associations', 'CA']
+gcs = ['Corr\.\s?Servs\.', 'Correctional\s+Services', 'CS']
+gcj = ['Cts\.\s?(?:&|and)\s?Jud\.\s?Proc\.', 'Courts\s+(?:and|&)\s+Judicial\s+Proceedings', 'CJP', 'CJ']
+gcr = ['Crim\.\s?Law', 'Criminal\s+Law', 'CR']
+gcp = ['Crim\.\s?Proc\.', 'Criminal\s+Procedure', 'CP']
+gec = ['Econ\.\s?Dev\.', 'Economic\s+Development', 'EC']
+ged = ['Educ\.', 'Education', 'ED']
+gel = ['Elec\.\s?Law', 'Election\s+Law', 'EL']
+gen = ['Env(?:\x27|’)?t', 'Envir\.', 'Environment', 'EN']
+get = ['Est\.\s?(?:&|and)\s?Trusts', 'Estates\s+(?:and|&)\s+Trusts', 'ET']
+gfl = ['Fam\.\s?Law', 'Family\s+Law', 'FL']
+gfi = ['Fin\.\s?Inst\.', 'Financial\s+Institutions', 'FI']
+ggp = ['Gen\.\s?Provis\.', 'General\s+Provisions', 'GP']
+ghg = ['Health\s?[-–—]\s?Gen(?:\.|eral)', 'HG']
+gho = ['Health\s+Occ(?:\.|upations)', 'HO']
+ghs = ['Hous\.\s?(?:&|and)\s?Cmty\.\s?Dev\.', 'Housing\s+and\s+Community\s+Development', 'HS']
+ghu = ['Hum\.\s?Servs\.', 'Human\s+Services', 'HU']
+gin = ['Ins\.', 'Insurance', 'IN']
+gle = ['Lab\.\s?(?:&|and)\s?Empl\.', 'Labor\s+and\s+Employment', 'LE']
+glu = ['Land\s+Use', 'LU']
+glg = ['Local\s+Gov(?:\x27|’)?t', 'Local\s+Government', 'LG']
+gnr = ['Nat\.\s?Res\.', 'Natural\s+Resources', 'NR']
+gps = ['Pub\.\s?Safety', 'Public\s+Safety', 'PS']
+gpu = ['Pub\.\s?Util(?:s|ities)?\.?(?:\s?Cos\.)?', 'Public\s+Utilit(?:ies|y\s+Companies)', 'PUA', 'PUC', 'PU']
+grp = ['Real\s+Prop(?:\.|erty)', 'RP']
+gsf = ['State\s+Fin\.\s?(?:&|and)\s?Proc(?:\.|urement)', 'State\s+Finance\s+and\s+Procurement', 'SFP', 'SF']
+gsg = ['State\s+Gov(?:\x27|’)?t', 'State\s+Government', 'SG']
+gsp = ['State\s+Pers\.\s?(?:&|and)\s?Pens\.', 'State\s+Personnel\s+and\s+Pensions', 'SPP', 'SP']
+gtg = ['Tax\s?[-–—]\s?Gen(?:\.|eral)', 'TG']
+gtp = ['Tax\s?[-–—]\s?Prop(?:\.|erty)', 'TP']
+gtr = ['Transp(?:\.|ortation)', 'TR']
+
+[MD.code.cite.names]
+gag = "Agric."
+gab = "Alc. Bev."
+gbo = "Bus. Occ. & Prof."
+gbr = "Bus. Reg."
+gcl = "Com. Law"
+gca = "Corps. & Ass'ns"
+gcs = "Corr. Servs."
+gcj = "Cts. & Jud. Proc."
+gcr = "Crim. Law"
+gcp = "Crim. Proc."
+gec = "Econ. Dev."
+ged = "Educ."
+gel = "Elec. Law"
+gen = "Env't"
+get = "Est. & Trusts"
+gfl = "Fam. Law"
+gfi = "Fin. Inst."
+ggp = "Gen. Provis."
+ghg = "Health–Gen."
+gho = "Health Occ."
+ghs = "Hous. & Cmty. Dev."
+ghu = "Hum. Servs."
+gin = "Ins."
+gle = "Lab. & Empl."
+glu = "Land Use"
+glg = "Local Gov't"
+gnr = "Nat. Res."
+gps = "Pub. Safety"
+gpu = "Pub. Util."
+grp = "Real Prop."
+gsf = "State Fin. & Proc."
+gsg = "State Gov't"
+gsp = "State Pers. & Pens."
+gtg = "Tax–Gen."
+gtp = "Tax–Prop."
+gtr = "Transp."
+
 # The Maryland Constitution: the same selector, articles c0 (Declaration of Rights) to c20
 [MD.const]
 inherit = "MD.code"
 name    = "Constitution of Maryland"
 doc     = "/us-md/const"                      # /us-md/const/c0/s24
 items_match = 'c\d+[a-z]?'
+
+[MD.const.cite]
+# "Md. Const. art. IV, § 14"; articles XI-A ... XI-I are their own items (c11a ...): the letter is a sub ("-A" -> a),
+# keyed art-11-a. The Declaration of Rights (item c0) is cited by its own articles: table MD.decl below.
+full    = ['(?:Md\.\s?Const\.?|Maryland\s+Constitution|Constitution\s+of\s+Maryland),?\s*[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXLC]+|\d+)(?:-{sub})?\b(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+[A-Za-z]?(?:\.\d+)?))?']
+key     = "art-{art}[-{sub}][:{sec}]"
+item    = "c{art}[{sub}]"
+label   = "Md. Const. art. {roman}[-{name}][, § {sec}]"
+examples = [["Md. Const. art. IV, § 14", "md-const:art-4:14", "Md. Const. art. IV, § 14"],
+            ["Md. Const. art. XI-A, § 3", "md-const:art-11-a:3", "Md. Const. art. XI-A, § 3"],
+            ["Md. Const. art. XX", "md-const:art-20"]]
+
+[MD.const.cite.sub]
+a = ['A']
+b = ['B']
+c = ['C']
+d = ['D']
+e = ['E']
+f = ['F']
+g = ['G']
+h = ['H']
+i = ['I']
+
+[MD.const.cite.names]
+a = "A"
+b = "B"
+c = "C"
+d = "D"
+e = "E"
+f = "F"
+g = "G"
+h = "H"
+i = "I"
+
+# The Maryland Declaration of Rights: the constitution's item c0, cited by its own articles ("Article 24 of the
+# Maryland Declaration of Rights"). A cite table only (no fetch): its text is read from MD.const's built c0 (`also`).
+[MD.decl]
+name    = "Maryland Declaration of Rights"
+
+[MD.decl.cite]
+full    = ['Md\.\s?(?:Const\.,?\s*)?Decl(?:\.|aration)\s*of\s*R(?:ts?\.|ights),?\s*[Aa]rt(?:icle)?s?\.?\s*{section}',
+           'Maryland\s+Declaration\s+of\s+Rights,?\s*[Aa]rt(?:icle)?s?\.?\s*{section}',
+           '[Aa]rt(?:icle)?s?\.?\s*{section}\s+of\s+the\s+Maryland\s+Declaration\s+of\s+Rights']
+bare    = ['Decl(?:\.|aration)\s*of\s*R(?:ts?\.|ights),?\s*[Aa]rt(?:icle)?s?\.?\s*{section}',
+           '[Aa]rt(?:icle)?s?\.?\s*{section}\s+of\s+the\s+Declaration\s+of\s+Rights']
+section = '\d+[A-Z]?'
+item    = "c0"
+also    = ["const"]
+label   = "Md. Const. Decl. of Rts. art. {sec}"
+examples = [["Article 24 of the Maryland Declaration of Rights", "md-decl:24", "Md. Const. Decl. of Rts. art. 24"],
+            ["Md. Decl. of Rts. art. 26", "md-decl:26"],
+            ["Md. Const. Declaration of Rights, Art. 40", "md-decl:40"]]

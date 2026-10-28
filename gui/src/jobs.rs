@@ -101,7 +101,7 @@ fn run_step(py: &Py, args: &[String], need: Option<&str>, tx: &Sender<Msg>, wake
 }
 
 /// Build (or rebuild) one case's note and PDF, on a thread; messages arrive on the returned job.
-pub fn build_case(py: Py, r: i64, title: String, quick: bool, wake: impl Fn() + Send + Sync + 'static) -> Running {
+pub fn build_case(py: Py, r: i64, title: String, quick: bool, state: bool, wake: impl Fn() + Send + Sync + 'static) -> Running {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
         let ok = (|| {
@@ -121,6 +121,9 @@ pub fn build_case(py: Py, r: i64, title: String, quick: bool, wake: impl Fn() + 
             let mut args: Vec<String> = vec!["case".into(), "build".into()];
             if quick {
                 args.push("--quick-goodlaw".into());
+            }
+            if state {
+                args.push("--fetch-state-law".into()); // the "Fetch state law" checkbox
             }
             args.push(format!("cases/{full}"));
             run_step(&py, &args, Some("wrote "), &tx, &wake)

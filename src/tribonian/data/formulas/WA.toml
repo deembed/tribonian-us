@@ -75,6 +75,17 @@ toc     = ['^\d+[A-Z]?\.\d+[A-Z]?\.\d+(?![\d.])']
 sourceCredit  = '^\['                        # "[ 1951 c 5 s 2; 1950 ex.s. c 16 s 1.]"
 editorialNote = ['^NOTES:$', '^Notes:$']     # section notes / chapter notes (cross references, findings)
 
+[WA.rcw.cite]
+# "Wash. Rev. Code § 9A.32.030", "RCW 9A.32.030" (unique to Washington: taken as naming the state)
+full    = ['Wash\.\s?Rev\.\s?Code(?:\s?Ann\.)?', 'RCW', 'R\.\s?C\.\s?W\.', 'Revised\s+Code\s+of\s+Washington']
+section = '\d+[A-Z]?\.\d+[A-Z]?\.\d+'
+item    = ['^(\d+[A-Z]?)\.', '{1}']                 # 9A.32.030 -> title 9A
+label   = "Wash. Rev. Code § {sec}"
+examples = [["RCW 9A.32.030(1)(a)", "wa-rcw:9A.32.030", "Wash. Rev. Code § 9A.32.030"],
+            ["Wash. Rev. Code § 9A.04.110 (2020)", "wa-rcw:9A.04.110"],
+            ["Wash. Rev. Code Ann. § 1.12.010", "wa-rcw:1.12.010"],
+            ["RCW 49.60.180", "wa-rcw:49.60.180"]]
+
 # ---------------------------------------------------------------- Washington State Constitution
 # leg.wa.gov (Blazor site); ?showall=true is the whole text on one page (the plain page holds only the preamble).
 # div.main-chapter-content holds, in order:
@@ -124,3 +135,27 @@ scope = "container"                          # numbers restart per article
 sourceCredit = '^\[\s*(?:AMENDMENT|Amendment|Repealed|Stricken)'   # a history line standing alone
 editorialNote = '^NOTES:$'                   # superseded texts ("Amendment 7 (1911) -- ...", "Original text -- ...")
                                              # follow: their (a)(b) labels stay note text, not law
+
+[WA.const.cite]
+# Washington's courts write "CONST. art. I, § 7" (no state: bare; not after "U.S." or any "X." abbreviation)
+full    = ['Wash\.\s?Const\.?', 'Washington\s+(?:State\s+)?Constitution',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXL]+|\d+),?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<sec>\d+[a-z]?)\b,?\s*of\s+(?:the\s+|our\s+)?Washington\s+(?:State\s+)?Constitution']
+bare    = ['(?<!\.\s)(?<!\.)(?:Const|CONST)\.',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXL]+|\d+),?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<sec>\d+[a-z]?)\b,?\s*of\s+(?:the|our)\s+[Ss]tate\s+[Cc]onstitution']
+label   = "Wash. Const. art. {roman}[, § {sec}]"
+examples = [["Wash. Const. art. I, § 7", "wa-const:art-1:7", "Wash. Const. art. I, § 7"],
+            ["CONST. art. I, § 22", "wa-const:art-1:22"],
+            ["article I, section 7 of the Washington Constitution", "wa-const:art-1:7"]]
+
+# ---------------------------------------------------------------- cite-only (no formula): recognized in cites, no text
+[WA.wac]
+name    = "Washington Administrative Code"
+kind    = "regs"
+source_error = "no formula yet (app.leg.wa.gov/wac serves chapters like the RCW pages; a formula could follow WA.rcw)"
+
+[WA.wac.cite]
+full    = ['WAC', 'Wash\.\s?Admin\.\s?Code']
+section = '\d+-\d+[A-Z]?-\d+[A-Z]?'
+label   = "Wash. Admin. Code § {sec}"
+examples = [["WAC 388-15-009(1)", "wa-wac:388-15-009", "Wash. Admin. Code § 388-15-009"],
+            ["Wash. Admin. Code § 296-155-24510", "wa-wac:296-155-24510"]]

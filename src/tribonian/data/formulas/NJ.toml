@@ -115,6 +115,23 @@ lead_always = true
 [NJ.statutes.notes]
 sourceCredit = ['^(?:L\.\s*\d{4}|amended\s+\d{4}|Amended\s+\d{4}|R\.S\.\s*\d{4}|Source)']   # "L.2016, c.1, s.1."; "amended 1948, c.4; ..."
 
+[NJ.statutes.cite]
+# "N.J.S.A. 2A:14-1", "N.J. Stat. Ann. § 2C:11-3", "N.J. Rev. Stat. § 10:5-12" (federal courts), "N.J.S. 2C:35-5"
+# New Jersey writes the subsection letter onto the number: "2C:11-3a(1)" is 2C:11-3, subsection a, paragraph (1); a
+# letter that is not followed by "(" or a digit is part of the number (1:1-2a). So the forms place the section
+# themselves; "2C:11-3a." at a sentence end still reads as section 3a.
+full    = ['(?:N\.\s?J\.\s?S\.\s?A\.|N\.\s?J\.\s?Stat\.(?:\s?Ann\.)?|N\.\s?J\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?|N\.\s?J\.\s?S\.|New\s+Jersey\s+Statutes(?:\s+Annotated)?),?\s*(?:§§?\s*)?(?P<sec>\d+[A-Z]?:\d+[A-Z]*-\d+(?:\.\d+)*(?:[a-z](?![(\d]))?)(?:[a-z](?=\())?(?![\w])(?:\s?\((?!(?:1[89]|20)\d\d\))[A-Za-z0-9]{1,4}\))*']
+section = '\d+[A-Z]?:\d+[A-Z]*-\d+(?:\.\d+)*[a-z]?'
+item    = ['^(\d+[A-Z]?):', '{1}']                  # 2A:14-1 -> title 2A
+label   = "N.J. Stat. Ann. § {sec}"
+examples = [["N.J.S.A. 2A:14-1 (West 2010)", "nj-statutes:2A:14-1", "N.J. Stat. Ann. § 2A:14-1"],
+            ["N.J. Stat. Ann. § 2C:11-3(a)(1)", "nj-statutes:2C:11-3", "N.J. Stat. Ann. § 2C:11-3"],
+            ["notice under N.J.S.A. 59:8-8", "nj-statutes:59:8-8"],
+            ["N.J. Rev. Stat. § 10:5-12(d)", "nj-statutes:10:5-12"],
+            ["N.J.S. 2A:14-2", "nj-statutes:2A:14-2"],
+            ["N.J.S.A. 2C:11-3a(1)", "nj-statutes:2C:11-3"],
+            ["N.J.S.A. 1:1-2a", "nj-statutes:1:1-2a"]]
+
 # ---------------------------------------------------------------- Constitution from NJCONST-TEXT.zip (NJCONST.TXT)
 # Same text as the HTML page, plus the amendment history lines ("Article II, Section I, paragraph 1 amended
 # effective January 17, 2006."). Plain ASCII, CRLF, one paragraph per line; headings are lines indented with
@@ -125,6 +142,7 @@ sourceCredit = ['^(?:L\.\s*\d{4}|amended\s+\d{4}|Amended\s+\d{4}|R\.S\.\s*\d{4}|
 inherit = "NJ.const"
 replace = ["containers", "html", "sections"]
 name    = "New Jersey State Constitution 1947 (bulk text)"
+kind    = "const"                             # statecites: the code name does not end in "const"
 fetch   = "zip"                               # statelaw._fetch_zip
 url     = "https://pub.njleg.gov/statutes/NJCONST-TEXT.zip"   # 86,969 bytes; members NJCONST.TXT, NJCONST.RTF
 member  = 'NJCONST\.TXT'                     # full match, exactly one member
@@ -156,3 +174,50 @@ scope = "container"
 # amendment history, one line after the paragraph it describes
 editorialNote = [{ match = '^Article\s+[IVXL]+,\s+(?:Section|section)\s+[IVXL]+.*(?:amended|added|repealed|deleted|effective)', topic = "amendments" },
                  { match = '^Article\s+[IVXL]+,?\s+(?:paragraph|Paragraph).*(?:amended|added|effective)', topic = "amendments" }]
+
+[NJ.consttxt.cite]
+# The table sits on consttxt, not NJ.const: consttxt inherits NJ.const, so a table there would be copied into a second
+# one. Article I has paragraphs only ("art. I, ¶ 7"); the others have Sections, then paragraphs ("art. VIII, § 2, ¶ 3").
+# Keys: art-1:7 (paragraph = sec, found in the text); art-8:s2:p3 (section and paragraph: the text lookup, which
+# knows only article + paragraph number, gives the article -- paragraph numbers restart in each Section).
+full    = ['(?:N\.\s?J\.\s?Const\.?|New\s+Jersey\s+Constitution|Constitution\s+of\s+(?:the\s+State\s+of\s+)?New\s+Jersey),?\s*[Aa]rt(?:icle)?\.?\s*(?P<art>I|1)(?![\w])(?:\s*,?\s*(?:¶¶?|[Pp]ara(?:graph)?s?\.?|[Pp]ar\.|§)\s*(?P<sec>\d+))?',
+           '(?:N\.\s?J\.\s?Const\.?|New\s+Jersey\s+Constitution|Constitution\s+of\s+(?:the\s+State\s+of\s+)?New\s+Jersey),?\s*[Aa]rt(?:icle)?\.?\s*(?P<art>(?!I\b|1\b)[IVXL]+|\d+)\b(?:\s*,?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<part>\d+|[IVX]+)\b(?:\s*,?\s*(?:¶¶?|[Pp]ara(?:graph)?s?\.?|[Pp]ar\.)\s*(?P<para>\d+))?|\s*,?\s*(?:¶¶?|[Pp]ara(?:graph)?s?\.?|[Pp]ar\.)\s*(?P<sec>\d+))?',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>I|1)\b,?\s*(?:¶¶?|[Pp]ara(?:graph)?s?\.?|[Pp]ar\.|§)\s*(?P<sec>\d+),?\s*of\s+(?:the\s+)?(?:New\s+Jersey|N\.\s?J\.)\s+Constitution',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>(?!I\b|1\b)[IVXL]+|\d+)\b,?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<part>\d+|[IVX]+)\b(?:,?\s*(?:¶¶?|[Pp]ara(?:graph)?s?\.?|[Pp]ar\.)\s*(?P<para>\d+))?,?\s*of\s+(?:the\s+)?(?:New\s+Jersey|N\.\s?J\.)\s+Constitution']
+# "Article I, Paragraph 7 of the State Constitution": New Jersey's own courts; a paragraph is required (NJ's mark)
+bare    = ['[Aa]rt(?:icle)?\.?\s*(?P<art>I|1)\b,?\s*(?:¶¶?|[Pp]ara(?:graph)?s?\.?|[Pp]ar\.)\s*(?P<sec>\d+),?\s*of\s+(?:the|our)\s+[Ss]tate\s+[Cc]onstitution',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>(?!I\b|1\b)[IVXL]+|\d+)\b,?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<part>\d+|[IVX]+)\b,?\s*(?:¶¶?|[Pp]ara(?:graph)?s?\.?|[Pp]ar\.)\s*(?P<para>\d+),?\s*of\s+(?:the|our)\s+[Ss]tate\s+[Cc]onstitution']
+key     = "art-{art}[:s{part}][:p{para}][:{sec}]"
+also    = ["const"]
+label   = "N.J. Const. art. {roman}[, § {part}][, ¶ {para}][, ¶ {sec}]"
+examples = [["N.J. Const. art. I, ¶ 7", "nj-consttxt:art-1:7", "N.J. Const. art. I, ¶ 7"],
+            ["N.J. Const. art. VIII, § 2, ¶ 3", "nj-consttxt:art-8:s2:p3", "N.J. Const. art. VIII, § 2, ¶ 3"],
+            ["Article I, Paragraph 5 of the New Jersey Constitution", "nj-consttxt:art-1:5"],
+            ["Article I, Paragraph 10 of the State Constitution", "nj-consttxt:art-1:10"]]
+
+# ---------------------------------------------------------------- cite-only (no formula): recognized in cites, no text
+[NJ.njac]
+name    = "New Jersey Administrative Code"
+kind    = "regs"
+source_error = "no free structured source: the N.J.A.C. is published online only through LexisNexis (linked from the OAL site); no formula"
+
+[NJ.njac.cite]
+full    = ['N\.\s?J\.\s?A\.\s?C\.', 'N\.\s?J\.\s?Admin\.\s?Code']
+section = '\d+[A-Z]?:\d+[A-Z]?-\d+(?:\.\d+)*[A-Za-z]?'       # 10:69-1.1 (title:chapter-subchapter.section)
+label   = "N.J. Admin. Code § {sec}"
+examples = [["N.J.A.C. 10:69-1.1", "nj-njac:10:69-1.1", "N.J. Admin. Code § 10:69-1.1"],
+            ["N.J. Admin. Code § 6A:14-2.3(a)", "nj-njac:6A:14-2.3"]]
+
+[NJ.rules]
+name    = "Rules Governing the Courts of the State of New Jersey"
+source_error = "no formula yet: the Judiciary (njcourts.gov) publishes the Court Rules as PDFs, one per Part"
+
+[NJ.rules.cite]
+# "R. 4:6-2(e)", "Rule 4:46-2(c)" (New Jersey courts: bare); "N.J. Ct. R. 4:46-2" (Bluebook)
+full    = ['N\.\s?J\.\s?Ct\.\s?R\.']
+bare    = ['R\.', 'Rules?']
+section = '\d:\d+[A-Z]?-\d+[A-Z]?(?:\.\d+)?'
+label   = "N.J. Ct. R. {sec}"
+examples = [["R. 4:6-2(e)", "nj-rules:4:6-2", "N.J. Ct. R. 4:6-2"],
+            ["N.J. Ct. R. 4:46-2(c)", "nj-rules:4:46-2"],
+            ["Rule 3:22-4", "nj-rules:3:22-4"]]

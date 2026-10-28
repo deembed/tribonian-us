@@ -174,6 +174,18 @@ toc   = ['^\d+[A-Z]*\.\d+[A-Z]*\s']           # p.toc lines (slim:TOC) before th
 sourceCredit  = { class = "hist" }            # "[C71, ... §68A.1]", "84 Acts, ch 1145, §1", "C85, §22.1"
 editorialNote = [{ class = "fn", topic = "footnote" }]   # effective/repeal notes, "NEW subsections 76 and 77"
 
+[IA.code.cite]
+# how cases cite it (statecites.py): "Iowa Code § 707.2" (Bluebook), "Iowa Code section 321J.2(1)" (Iowa courts),
+# "I.C.A. § 707.2" (older, federal). Iowa section numbers are unique code-wide; the chapter is the item.
+full    = ['Iowa\s+Code(?:\s+Ann\.)?', 'I\.\s?C\.\s?A\.']
+section = '\d+[A-Z]{0,2}\.\d+[A-Z]{0,2}'           # 707.2, 321J.2, 714.21A
+item    = ['^(\d+[A-Z]*)\.', '{1}']                # 321J.2 -> chapter 321J
+also    = ["codepdf"]                              # the chapter-PDF route builds the same chapters
+label   = "Iowa Code § {sec}"
+examples = [["Iowa Code § 714.1 (2019)", "ia-code:714.1", "Iowa Code § 714.1"],
+            ["Iowa Code section 321.2(1)", "ia-code:321.2"],
+            ["I.C.A. § 22.2", "ia-code:22.2"]]
+
 # ================================================================ IA.codepdf: fallback, per-chapter PDF
 [IA.codepdf]
 name    = "Iowa Code (chapter PDF route)"
@@ -298,3 +310,10 @@ toc   = ['^(?:SEC\.\s+)?\d+[A-Z]?\.\s', '^ARTICLE\s+[IVXL]+\.\s+—', '^PREAMBLE
 editorialNote = [{ match = '^(?:Amended|Added|Repealed|Paragraph \d|Former|Subsection)\b', topic = "amendments" },
                  { match = '^(?:Referred to in|See )', topic = "crossReference" },
                  { match = '^(?:\*|This (?:proposition|provision|transitional))', topic = "footnote" }]
+
+
+[IA.const.cite]
+full    = ['Iowa\s+Const\.?', 'Iowa\s+Constitution']     # then "art. I, § 8"
+label   = "Iowa Const. art. {roman}[, § {sec}]"
+examples = [["Iowa Const. art. I, § 8", "ia-const:art-1:8", "Iowa Const. art. I, § 8"],
+            ["Iowa Const. art. I, § 9", "ia-const:art-1:9"]]
