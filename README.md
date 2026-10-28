@@ -75,12 +75,12 @@ anything missing (see [Database health](#database-health)).
 
 ### 1. Install
 
-Linux (tested on Debian/Ubuntu, Python 3.10).
+Linux (tested on Debian/Ubuntu, Python 3.10). For macOS and Windows, see [INSTALL.md](INSTALL.md).
 
 ```
 git clone https://github.com/deembed/tribonian-us.git && cd tribonian-us
 sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic \
-                 poppler-utils curl rsync lbzip2 libsecret-tools
+                 poppler-utils curl lbzip2 libsecret-tools
 python3 -m venv ~/.venvs/tribonian && . ~/.venvs/tribonian/bin/activate
 pip install -e '.[test]'            # the `tribonian` command; -e: edits to src/ take effect at once
 mkdir -p xml bulk db                # db/ must exist before stage 4, or the opinion text lands beside the main database
@@ -317,7 +317,7 @@ All of these are in the work folder (the checkout, unless `work_dir` says otherw
 
 Everything the scripts generate is ignored by git (`.gitignore`); tracked are the code, the docs, `tests/`, `src/tribonian/data/cocite_labels.json` and `cocite_gold.json` (hand- and model-written inputs that can't be rebuilt), and `templates/`.
 
-## `tribonian build` (sh/build_all.sh) — build everything out of date, in parallel
+## `tribonian build` — build everything out of date, in parallel
 
 ```
 tribonian build                  # everything out of date
@@ -736,12 +736,14 @@ Build and sync options are environment variables only:
 
 ### Windows
 
-Run everything inside WSL (the Windows Subsystem for Linux). There, the config file is in the WSL home
-(`~/.config/...`), and the GUI shows on the Windows desktop through WSLg (Windows 11). Keep the databases on the
-Linux file system (`~/...`), not on a Windows drive (`/mnt/c`, `/mnt/d`): access through `/mnt/<letter>` is slow,
-and SQLite locking there is unreliable. `tribonian check` warns when a database is on one. WSL has no keyring service
-by default, so put the token in the config file. A native Windows build isn't supported yet: `case2md.py` locks
-files with `fcntl` (Unix only), and the build and sync tools are shell scripts.
+Native Windows works: see [INSTALL.md](INSTALL.md). The config file is `%APPDATA%\tribonian-us\config.toml`,
+and the token goes in it (there is no keyring lookup on Windows).
+
+WSL (the Windows Subsystem for Linux) works too. There, the config file is in the WSL home (`~/.config/...`), and
+the GUI shows on the Windows desktop through WSLg (Windows 11). Keep the databases on the Linux file system
+(`~/...`), not on a Windows drive (`/mnt/c`, `/mnt/d`): access through `/mnt/<letter>` is slow, and SQLite locking
+there is unreliable. `tribonian check` warns when a database is on one. WSL has no keyring service by default, so
+put the token in the config file.
 
 ## Requirements
 
@@ -751,10 +753,9 @@ files with `fcntl` (Unix only), and the build and sync tools are shell scripts.
 - `curl`, for `tribonian scotus fetch`
 - `lbzip2` or `pbzip2` (optional), to load bulk files on every core
 - `secret-tool`, for a token stored in the keyring
-- `rsync`, for `tribonian sync-vault`
 - `rmapi`, for `tribonian sync-remarkable`
 - Rust 1.85 or newer, for `gui/`
-- Linux: the scripts use `nproc`, GNU `sed -i` and, optionally, the GNOME keyring
+- Linux, macOS or Windows: see [INSTALL.md](INSTALL.md) for each
 
 Tests: `python -m pytest` from the repo root. No database or network; the fixture builds are skipped when `xml/usc01.xml`, a `cases/*.json` or pdflatex is missing.
 

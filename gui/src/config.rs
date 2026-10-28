@@ -59,7 +59,7 @@ pub struct Config {
     pub default_view: String,
     /// Obsidian vault name, for obsidian:// links. None hides "Open note".
     pub obsidian_vault: Option<String>,
-    /// Where md-cases/ is mirrored inside the vault (sync_vault.sh).
+    /// Where md-cases/ is mirrored inside the vault (tribonian sync-vault).
     pub obsidian_cases_dir: String,
     /// casedb.py's full-text index.
     pub search_db: Option<PathBuf>,
@@ -67,7 +67,7 @@ pub struct Config {
     pub main_db: Option<PathBuf>,
     /// casedb.py's opinion-text database.
     pub opinions_db: Option<PathBuf>,
-    /// Interpreter for the repo's scripts. Default "python3".
+    /// Interpreter for the repo's scripts. Default "python3" ("python" on Windows).
     pub python: String,
     /// Where the data paths came from: None = check.py --paths; Some(why not) = the app's own defaults.
     pub paths_error: Option<String>,
@@ -149,7 +149,7 @@ impl Config {
                 repo_dir.display()
             ));
         }
-        let python = fc.python.clone().unwrap_or_else(|| "python3".into());
+        let python = fc.python.clone().unwrap_or_else(|| if cfg!(windows) { "python" } else { "python3" }.into());
         let (sp, paths_error) = match script_paths(&python, &repo_dir) {
             Ok(sp) => (Some(sp), None),
             Err(e) => (None, Some(e)),

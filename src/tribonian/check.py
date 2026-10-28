@@ -176,6 +176,11 @@ def run_config():
 
 # ------------------------------------------------------------------ tools
 
+def by_os(linux, mac, windows):
+    """A fix hint for this system (INSTALL.md has the full steps)."""
+    return windows if os.name == "nt" else mac if sys.platform == "darwin" else linux
+
+
 def run_tools():
     def modules(c, names, what):
         missing = []
@@ -201,20 +206,26 @@ def run_tools():
     @check("tool:pdflatex", "Tools", "pdflatex + packages")
     def _(c):
         if not shutil.which("pdflatex"):
-            return c.fail("pdflatex not found", "install TeX Live (e.g. apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic)")
+            return c.fail("pdflatex not found", by_os(
+                "install TeX Live (e.g. apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic)",
+                "install MacTeX (brew install --cask mactex-no-gui), then open a new terminal",
+                "install MiKTeX (winget install MiKTeX.MiKTeX), then open a new terminal"))
         if not shutil.which("kpsewhich"):
             return c.warn("pdflatex found; kpsewhich missing, packages not checked")
         missing = [s for s in ("XCharter.sty", "tcolorbox.sty", "ulem.sty")
                    if not subprocess.run(["kpsewhich", s], capture_output=True, text=True).stdout.strip()]
         if missing:
             c.fail("missing LaTeX packages: " + ", ".join(missing),
-                   "XCharter: texlive-fonts-extra; tcolorbox: texlive-latex-extra; ulem: texlive-plain-generic")
+                   by_os("XCharter: texlive-fonts-extra; tcolorbox: texlive-latex-extra; ulem: texlive-plain-generic",
+                         "sudo tlmgr install xcharter tcolorbox ulem",
+                         "miktex packages install xcharter tcolorbox ulem   (or MiKTeX Console > Packages)"))
         else:
             c.ok("XCharter, tcolorbox, ulem")
 
     @check("tool:pdftotext", "Tools", "pdftotext")
     def _(c):
-        c.ok(shutil.which("pdftotext")) if shutil.which("pdftotext") else c.warn("not found (used by tests and some slip opinions)", "apt install poppler-utils")
+        c.ok(shutil.which("pdftotext")) if shutil.which("pdftotext") else c.warn("not found (used by tests and some slip opinions)",
+                                                                         by_os("apt install poppler-utils", "brew install poppler", "winget install oschwartz10612.Poppler, then open a new terminal"))
 
     @check("tool:rmapi", "Tools", "rmapi (reMarkable sync)")
     def _(c):
