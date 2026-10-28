@@ -35,6 +35,8 @@ In the steps below, Windows differs in two places:
 - Activate the virtual environment with `.\.venv\Scripts\Activate.ps1`. If PowerShell refuses to run it, run
   `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once.
 - The config file is `%APPDATA%\tribonian-us\config.toml` (in PowerShell: `$env:APPDATA\tribonian-us\config.toml`).
+  Write Windows paths in it in single quotes, `bulk_dir = 'D:\courtlistener'`, or with forward slashes,
+  `"D:/courtlistener"`: inside double quotes a backslash starts an escape, and the file is rejected.
 
 ## macOS
 

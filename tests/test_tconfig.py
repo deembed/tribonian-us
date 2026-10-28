@@ -25,7 +25,7 @@ on = true
 def paths(env):
     """tribonian check --paths in a clean environment plus env."""
     base = {k: v for k, v in os.environ.items()
-            if not (k.startswith("CL_") or k in ("TRIBONIAN_CONFIG", "XDG_CONFIG_HOME", "TRIBONIAN_WORK"))}
+            if not (k.startswith("CL_") or k in ("TRIBONIAN_CONFIG", "XDG_CONFIG_HOME", "APPDATA", "TRIBONIAN_WORK"))}
     out = subprocess.run([sys.executable, "-m", "tribonian", "check", "--paths"], capture_output=True, text=True,
                          cwd=ROOT, env=dict(base, PYTHONPATH=str(ROOT / "src"), **env))
     return json.loads(out.stdout), out.stderr
@@ -52,9 +52,12 @@ class Parse(unittest.TestCase):
 
 class Precedence(unittest.TestCase):
     def setUp(self):
-        self.d = Path(tempfile.mkdtemp())
+        # resolved: the scripts resolve paths, and a temp folder can be a link (/var -> /private/var on macOS)
+        # or a short name (RUNNER~1 on Windows)
+        self.d = Path(tempfile.mkdtemp()).resolve()
         self.cfg = self.d / "config.toml"
-        self.cfg.write_text('main_db = "%s"\nsearch_db = "db/s.sqlite"\n[gui]\ndefault_view = "v"\n' % (self.d / "file.sqlite"))
+        # TOML literal strings ('...'): a Windows path's backslashes are escapes in "..."
+        self.cfg.write_text("main_db = '%s'\nsearch_db = 'db/s.sqlite'\n[gui]\ndefault_view = 'v'\n" % (self.d / "file.sqlite"))
 
     def tearDown(self):
         shutil.rmtree(self.d, ignore_errors=True)
@@ -69,7 +72,7 @@ class Precedence(unittest.TestCase):
 
     def test_work_dir_from_file_and_variable(self):
         work = self.d / "work"
-        self.cfg.write_text('work_dir = "%s"\nsearch_db = "db/s.sqlite"\n' % work)
+        self.cfg.write_text("work_dir = '%s'\nsearch_db = 'db/s.sqlite'\n" % work)
         p, _ = paths({"TRIBONIAN_CONFIG": str(self.cfg)})
         self.assertEqual(p["work_dir"], str(work))
         self.assertEqual(p["search_db"], str(work / "db" / "s.sqlite"))
@@ -84,16 +87,16 @@ class Precedence(unittest.TestCase):
     def test_xdg_location(self):
         (self.d / "tribonian-us").mkdir()
         shutil.copy(self.cfg, self.d / "tribonian-us" / "config.toml")
-        p, _ = paths({"XDG_CONFIG_HOME": str(self.d)})
+        p, _ = paths({"XDG_CONFIG_HOME": str(self.d), "APPDATA": str(self.d)})
         self.assertEqual(p["config_file"], str(self.d / "tribonian-us" / "config.toml"))
 
     def test_no_file_is_default(self):
         work = self.d / "work"
-        p, _ = paths({"XDG_CONFIG_HOME": str(self.d / "none"), "TRIBONIAN_WORK": str(work)})
+        p, _ = paths({"XDG_CONFIG_HOME": str(self.d / "none"), "APPDATA": str(self.d / "none"), "TRIBONIAN_WORK": str(work)})
         self.assertIsNone(p["config_file"])
         self.assertEqual(p["opinions_db"], str(work / "bulk" / "opinions.sqlite"))   # no db/: beside main_db
         (work / "db").mkdir(parents=True)
-        p, _ = paths({"XDG_CONFIG_HOME": str(self.d / "none"), "TRIBONIAN_WORK": str(work)})
+        p, _ = paths({"XDG_CONFIG_HOME": str(self.d / "none"), "APPDATA": str(self.d / "none"), "TRIBONIAN_WORK": str(work)})
         self.assertEqual(p["opinions_db"], str(work / "db" / "opinions.sqlite"))
 
     def test_broken_file_is_ignored_and_reported(self):

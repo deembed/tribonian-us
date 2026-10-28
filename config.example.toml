@@ -3,6 +3,8 @@
 # Every key is optional. Order of precedence: the CL_* environment variable, then this file, then the
 # default. tribonian check shows the value in effect for each and where it came from.
 # Paths may start with ~. A relative path is relative to the work folder.
+# Windows paths: single quotes ('D:\courtlistener') or forward slashes ("D:/courtlistener"); in double
+# quotes a backslash is an escape and the file is rejected.
 
 # Work folder: every input and output (xml/, cases/, md*/, pdf/, build/, state/, bulk/, db/); every
 # command runs there. Default: the checkout, else ~/.local/share/tribonian-us   (TRIBONIAN_WORK)
