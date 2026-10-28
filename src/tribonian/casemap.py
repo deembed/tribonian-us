@@ -240,7 +240,7 @@ def cmd_stubs(args):
             if why is None:
                 c.register(data, index, out)
                 how = "API"
-            else:                                                       # out of cases/, so build_all.sh skips it
+            else:                                                       # out of cases/, so tribonian build skips it
                 (c.CASES / "unparsed").mkdir(exist_ok=True)
                 out.replace(c.CASES / "unparsed" / out.name)
         if how:

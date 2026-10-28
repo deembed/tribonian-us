@@ -102,7 +102,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, slice: i64, sub: i64) {
             }
         }
         if let Some(m) = &md {
-            // sync_vault.sh mirrors md-cocite/ to the folder beside the case notes' (08-Reference/Co-citation)
+            // tribonian sync-vault mirrors md-cocite/ to the folder beside the case notes' (08-Reference/Co-citation)
             let url = cfg.obsidian_vault.as_ref().map(|v| {
                 let base = Path::new(cfg.obsidian_cases_dir.trim_end_matches('/'))
                     .parent()
@@ -113,7 +113,7 @@ pub fn bar(app: &mut App, ui: &mut Ui, slice: i64, sub: i64) {
             });
             match url {
                 Some(u) => {
-                    if ui.button("Open note in Obsidian").on_hover_text(format!("{u}\n(after sync_vault.sh)")).clicked() {
+                    if ui.button("Open note in Obsidian").on_hover_text(format!("{u}\n(after tribonian sync-vault)")).clicked() {
                         open_external(&u);
                     }
                 }

@@ -9,8 +9,31 @@
 //! edges one contiguous read, and their decisions one read each in edge order (mostly sequential).
 
 use std::fs::File;
-use std::os::unix::fs::FileExt;
 use std::path::Path;
+
+/// Fill buf from the file at offset off, without moving a shared cursor: pread on Unix, seek_read
+/// (which may return short, so loop) on Windows.
+#[cfg(unix)]
+fn read_exact_at(file: &File, buf: &mut [u8], off: u64) -> std::io::Result<()> {
+    std::os::unix::fs::FileExt::read_exact_at(file, buf, off)
+}
+
+#[cfg(windows)]
+fn read_exact_at(file: &File, mut buf: &mut [u8], mut off: u64) -> std::io::Result<()> {
+    use std::os::windows::fs::FileExt;
+    while !buf.is_empty() {
+        match file.seek_read(buf, off) {
+            Ok(0) => return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "file ended early")),
+            Ok(n) => {
+                buf = &mut buf[n..];
+                off += n as u64;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
 
 /// One .npy array: its file, where the data starts, item count and size.
 pub struct Npy {
@@ -25,13 +48,13 @@ impl Npy {
     pub fn open(path: &Path, descr: &str) -> Result<Npy, String> {
         let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut head = [0u8; 12];
-        file.read_exact_at(&mut head, 0).map_err(|e| format!("{}: {e}", path.display()))?;
+        read_exact_at(&file, &mut head, 0).map_err(|e| format!("{}: {e}", path.display()))?;
         if &head[..6] != b"\x93NUMPY" {
             return Err(format!("{}: not a .npy file", path.display()));
         }
         let (hlen, start) = if head[6] == 1 { (u16::from_le_bytes([head[8], head[9]]) as u64, 10) } else { (u32::from_le_bytes([head[8], head[9], head[10], head[11]]) as u64, 12) };
         let mut h = vec![0u8; hlen as usize];
-        file.read_exact_at(&mut h, start).map_err(|e| e.to_string())?;
+        read_exact_at(&file, &mut h, start).map_err(|e| e.to_string())?;
         let h = String::from_utf8_lossy(&h);
         if !h.contains(&format!("'descr': '{descr}'")) || h.contains("'fortran_order': True") {
             return Err(format!("{}: expected a {descr} array, header {h}", path.display()));
@@ -44,7 +67,7 @@ impl Npy {
 
     fn read(&self, lo: u64, hi: u64) -> Result<Vec<u8>, String> {
         let mut buf = vec![0u8; ((hi - lo) * self.item) as usize];
-        self.file.read_exact_at(&mut buf, self.off + lo * self.item).map_err(|e| e.to_string())?;
+        read_exact_at(&self.file, &mut buf, self.off + lo * self.item).map_err(|e| e.to_string())?;
         Ok(buf)
     }
 

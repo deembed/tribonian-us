@@ -1367,7 +1367,7 @@ def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP, opinions=()):
 # ================================================================ vault: generated map of content
 # `vault` writes md-cocite/: one note per area, one per lineage that reaches --min-size cases
 # (an explainer: who joined and left each slice, merges and splits), and an index MOC.
-# The folder is generator-owned (sync_vault.sh mirrors it with --delete); headings are fixed so
+# The folder is generator-owned (tribonian sync-vault mirrors it, deleting what is gone); headings are fixed so
 # a personal MOC elsewhere in the vault can transclude sections: ![[<note>#Timeline]].
 BAD_CHARS = re.compile(r'[\\/:*?"<>|#^\[\]]')
 
@@ -1607,7 +1607,7 @@ def cmd_vault(args):
     stale = [p for p in out_dir.rglob("*.md") if p.resolve() not in written      # Sub-clusters/: cocite.py subdoc's
              and p.relative_to(out_dir).parts[0] != "Sub-clusters"]
     print("vault: %d lineage notes, %d area notes -> %s%s  (%.1f min)" % (
-        len(names), len(moc), out_dir, ("; %d old notes no longer generated (sync_vault.sh drops them from the vault; "
+        len(names), len(moc), out_dir, ("; %d old notes no longer generated (tribonian sync-vault drops them from the vault; "
                                         "remove them here with: rm -r %s)" % (len(stale), out_dir)) if stale else "",
         (time.time() - t0) / 60))
 
@@ -2746,7 +2746,8 @@ def cmd_prox_evidence(args):
 
 def main():
     import signal
-    signal.signal(signal.SIGPIPE, signal.SIG_DFL)     # `| head` ends quietly instead of with a traceback
+    if hasattr(signal, "SIGPIPE"):                    # not on Windows
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)  # `| head` ends quietly instead of with a traceback
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     view = argparse.ArgumentParser(add_help=False)

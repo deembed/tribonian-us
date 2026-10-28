@@ -48,12 +48,12 @@ tribonian-us turns federal law into **dense PDFs you can read and annotate on a 
                md/ + build/*.tex     md-cases/ + build/*.tex
                        └───────┬─────────────┘
                                ▼
-                        tribonian build  (sh/build_all.sh: parallel, incremental, pdflatex ×2)
+                        tribonian build  (build.py: parallel, incremental, pdflatex ×2)
                                ▼
                              pdf/
                    ┌───────────┴────────────┐
          tribonian sync-vault      tribonian sync-remarkable
-          (rsync --delete into      (rmapi via rmfakecloud,
+          (mirrored, with deletes,  (rmapi via rmfakecloud,
            Obsidian 08-Reference)     never deletes on tablet)
 ```
 
@@ -75,10 +75,10 @@ code, the two tracked data files (`data/`) and the shell scripts (`sh/`).
 | `check.py` | `check` | ~500 | Setup and database health; `--paths` is what the GUI reads at start |
 | `casedb.py` | `db` | ~500 | Bulk CSV → SQLite loader, full-text index |
 | `goodlaw_eval.py`, `semsearch.py`, `usc_status.py` | `goodlaw-eval`, `map semsearch`, `usc-status` | ~300 each | Good-law test harness; semantic search; US Code release points |
-| `sh/build_all.sh` | `build` | ~260 | Orchestrator: finds out-of-date jobs, runs them in parallel, keeps a manifest |
+| `build.py` | `build` | ~300 | Orchestrator: finds out-of-date jobs, runs them in parallel, keeps a manifest |
 | `render.py` | — | ~200 | **The shared LaTeX preamble and TeX escaping**, so both corpora look the same on the tablet |
 | `tconfig.py` | — | ~170 | Settings (variable, else config file, else default) and the work folder |
-| `sync_remarkable.py`, `sh/sync_vault.sh`, `link_audit.py` | `sync-remarkable`, `sync-vault`, `link-audit` | small | Delivery and audits |
+| `sync_remarkable.py`, `sync_vault.py`, `link_audit.py` | `sync-remarkable`, `sync-vault`, `link-audit` | small | Delivery and audits |
 | `serve.py` | `serve` | small | Long-running JSON-lines process for the GUI: law text and fetches through the scripts' code, so the app need not open those files itself |
 
 Modules import each other as `from tribonian import case2md`. `casemap.py` imports `case2md` (as `c`) and `casedb`;
@@ -121,7 +121,7 @@ Every relative path in the config file or a `CL_*` variable resolves against it,
 a command's arguments (the CLI runs there). Code never finds data through `Path(__file__)`: `tconfig.PKG` (the
 package folder) is only for what ships with the code.
 
-**Shipped with the code:** `sh/build_all.sh`, `sh/sync_vault.sh` and `data/cocite_labels.json`,
+**Shipped with the code:** `data/cocite_labels.json` and
 `data/cocite_gold.json` (git-tracked inputs that can't be rebuilt). `tconfig.data_file(name)` returns the work
 folder's `data/<name>` if there is one, else the package's; writing (`cocite labels import`) goes to the package's
 copy while it is writable (a checkout, so the change shows in git), else to the work folder's.
@@ -295,10 +295,10 @@ The question is **which cases travel together, and how that changes over time**.
 
 ## 8. Build orchestration: `tribonian build`
 
-- **How it runs:** `tribonian build` starts `sh/build_all.sh` in the work folder. Each job calls `"$PY" -m tribonian usc …` or `case build …` (`PY` is `TRIBONIAN_PY`, the interpreter `tribonian` runs under), and the script fans out by re-running itself as `bash "$SELF" --job` under `xargs -P`.
+- **How it runs:** `tribonian build` (`build.py`) runs in the work folder. Each job runs `python -m tribonian usc …` or `case build …` as a child process (the interpreter is `TRIBONIAN_PY`, the one `tribonian` runs under), `JOBS` at a time from a thread pool; the main thread prints the countdown and appends to the manifest. Plain Python, so it is the same on Linux, macOS and Windows.
 - **Job discovery:** `xml/*.xml` gives one job per chapter (chapter lists are cached in `build/chapters/` until the XML changes). `cases/*.json` gives case jobs and `cases/recap/*.json` gives docket jobs.
 - **Incremental builds:** `state/built.tsv` maps each job to its PDF. A job builds when it has no record, its PDF is missing, or its source is newer. Failures are never recorded, so the next run retries them. `FORCE=1` after changing a generator.
-- **Parallel runs:** each job gets its own scratch folder (`mktemp -d "$SCRATCH/job.XXXXXX"`), so parallel `.tex`, `.aux` and `.md` files never collide. Manifest lines are short enough that appends from parallel workers are atomic.
+- **Parallel runs:** each job gets its own scratch folder (`build/job.*`, or under `SCRATCH`), so parallel `.tex`, `.aux` and `.md` files never collide. Only the main thread writes the manifest.
 - **Success signal:** `tribonian case build` prints `wrote pdf/…` only when pdflatex succeeded. The script parses that line, and a missing line is a failure.
 - **Failures:** saved to `build/failures.txt` and `build/failed_jobs.txt` (rerunnable as a list file).
 
@@ -306,8 +306,8 @@ The question is **which cases travel together, and how that changes over time**.
 
 ## 9. Delivery
 
-- **`tribonian sync-vault`:** `rsync --delete` of `md/` → `08-Reference/USC`, `md-cases/` → `08-Reference/Cases` and `md-cocite/` → `08-Reference/Co-citation`. These vault folders are **generator-owned**: anything not in the source is deleted. Personal notes live elsewhere in the vault and link in. Guard: a source with fewer than 90% of the vault's notes is taken for a partial build and refused (`FORCE=1` overrides); `tribonian build` exits non-zero on any failure so `&&` chains stop.
-- **`tribonian sync-remarkable`:** uploads through rmapi and rmfakecloud. A PDF is classified as a case if a note with the same name exists in `md-cases/`; otherwise, a name starting with a title number means US Code. **It never deletes on the tablet.** A changed PDF is replaced with `--force`, which **does** drop that document's pen annotations, so more than `MAX_UPDATES` (10) replacements need `--yes`. `state/rm_manifest.json` holds SHA-256 hashes; builds are byte-reproducible (`SOURCE_DATE_EPOCH` in the build scripts, `\pdftrailerid{\jobname}` in the preamble), so an unchanged source never shows as changed.
+- **`tribonian sync-vault`** (`sync_vault.py`): mirrors `md/` → `08-Reference/USC`, `md-cases/` → `08-Reference/Cases`, `md-cocite/` → `08-Reference/Co-citation`, `md-cfr/` → `08-Reference/CFR` and `md-state/` → `08-Reference/State`. These vault folders are **generator-owned**: a note not in the source is deleted. Personal notes live elsewhere in the vault and link in. Guard: a source with fewer than 90% of the vault's notes is taken for a partial build and refused (`FORCE=1` overrides); `tribonian build` exits non-zero on any failure so `&&` chains stop.
+- **`tribonian sync-remarkable`:** uploads through rmapi and rmfakecloud. A PDF is classified as a case if a note with the same name exists in `md-cases/`; otherwise, a name starting with a title number means US Code. **It never deletes on the tablet.** A changed PDF is replaced with `--force`, which **does** drop that document's pen annotations, so more than `MAX_UPDATES` (10) replacements need `--yes`. `state/rm_manifest.json` holds SHA-256 hashes; builds are byte-reproducible (`SOURCE_DATE_EPOCH` in `tribonian build`, `\pdftrailerid{\jobname}` in the preamble), so an unchanged source never shows as changed.
 
 ---
 
@@ -341,4 +341,4 @@ The question is **which cases travel together, and how that changes over time**.
    4. `recap_build`.
 4. `casedb.py`: `TABLES`.
 5. `casemap.py`: `db_case`, then `cmd_citedby` and `goodlaw`.
-6. `sh/build_all.sh` (`tribonian build`): `build_case`, `run_job` and the manifest logic.
+6. `build.py` (`tribonian build`): `build_case`, `run_job` and the manifest logic.
