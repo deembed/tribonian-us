@@ -17,6 +17,7 @@ mod scotus;
 mod scotus_page;
 mod subdoc;
 mod search;
+mod serve;
 mod semsearch_page;
 
 use cases::CaseFiles;

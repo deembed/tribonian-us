@@ -60,15 +60,27 @@ fn spawn(py: Py, api: bool, wake: impl Fn() + Send + 'static) -> Receiver<Result
             args.push("--api".into());
         }
         // `tribonian check` exits 1 when no mode is ready; its JSON is on stdout either way
-        let r = match py.cmd().args(&args).output() {
+        let mut r = match py.cmd().args(&args).output() {
             Err(e) => Err(format!("could not run {} -m tribonian check: {e}", py.python)),
             Ok(o) => serde_json::from_slice::<Report>(&o.stdout)
                 .map_err(|e| format!("tribonian check gave no report ({e}):\n{}", String::from_utf8_lossy(&o.stderr))),
         };
+        if let Ok(rep) = &mut r {
+            rep.checks.push(serve_check(&py));
+        }
         let _ = tx.send(r);
         wake();
     });
     rx
+}
+
+/// Start `tribonian serve`, ping it, stop it: the app's long-running link to the scripts works.
+fn serve_check(py: &Py) -> Item {
+    let (status, detail, fix) = match crate::serve::Serve::start(py) {
+        Ok(_) => ("ok", format!("answers in protocol {}", crate::serve::PROTOCOL), String::new()),
+        Err(e) => ("fail", e, "run `tribonian serve` in a terminal and send {\"op\": \"ping\"} to see why".into()),
+    };
+    Item { group: "Tools".into(), label: "tribonian serve".into(), status: status.into(), detail, fix }
 }
 
 fn start(app: &mut App) {

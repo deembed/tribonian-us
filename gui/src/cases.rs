@@ -214,9 +214,10 @@ fn head_matter(path: &Path) -> Vec<(String, String)> {
     out
 }
 
-/// Open a file or URL with the desktop's default handler.
+/// Open a file or URL with the desktop's default handler (xdg-open on Linux, start on Windows,
+/// open on macOS), without waiting for it.
 pub fn open_external(target: &str) {
-    let _ = std::process::Command::new("xdg-open").arg(target).spawn();
+    let _ = open::that_detached(target);
 }
 
 /// obsidian://open?vault=..&file=.. for a note under md-cases/.

@@ -26,6 +26,7 @@ COMMANDS = {
     "sync-remarkable": ("sync_remarkable", "upload changed PDFs to the reMarkable (rmapi)"),
     "goodlaw-eval":    ("goodlaw_eval",    "score the good-law rules on cases whose overruling is known"),
     "link-audit":      ("link_audit",      "wikilink connectivity across the US Code notes"),
+    "serve":           ("serve",           "long-running JSON-lines process for the GUI (law text, fetches)"),
 }
 SCRIPTS = {"link_audit"}          # top-level scripts with no main(): run as __main__
 
