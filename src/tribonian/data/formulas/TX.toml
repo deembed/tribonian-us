@@ -1,0 +1,146 @@
+# TX.toml -- Texas: the codes (TX.codes, one formula for all 30 codes) and the Texas Constitution (TX.const).
+# Source: statutes.capitol.texas.gov, Texas Legislative Council (TLC).
+#
+# ROUTE (Batch 3c, from the JS bundle): PLAIN STATIC HTML, one file per chapter, on a separate FILE SERVER.
+#   statutes.capitol.texas.gov is an Angular app; every path (even robots.txt, /Docs/...) answers 200 with the
+#   same 250,874-byte shell. The app's "docs/**" route (chunk-UA4VGO6K) redirects in the browser to
+#     FileServerPath + "/<CODE>/htm/<CODE>.<chapter>.htm"      (also /pdf/...pdf, /word/...docx; per-section
+#     FileServerPath + "/<CODE>/htm/<CODE>.<chapter>/<CODE>.<section>.htm" exists too)
+#   and the download route sends "zips"/"sdocs"/"archivedscans" to FileServerPath + "/Zips/<name>".
+#   chunk-7GRZWKYH.js: {environment:"PROD", TCASCore:"https://tcss.legis.texas.gov/api/",
+#                       FileServerPath:"https://tcss.legis.texas.gov/resources"}
+#   Chapter files are what the site itself serves for download, so the zip route is not needed.
+# Chapter file markup (resources/GV/htm/GV.311.htm, probed):
+#   <body><pre> of <p>: p.center[style=font-weight:bold] "GOVERNMENT CODE", "TITLE 3. LEGISLATIVE BRANCH",
+#   "SUBTITLE B. ...", "CHAPTER 311. ...", "SUBCHAPTER A. ..."; empty p.left holding <a name> anchors;
+#   p.left[text-indent:7ex] <a style="font-weight:bold">Sec. 311.001.  SHORT TITLE.</a>  body;
+#   p.left[text-indent:13ex] "(1) ..."; history p.left "Acts 1985, ..." / "Added by Acts ..." /
+#   "Amended by:" followed by indented "Acts 2005, ..." lines.
+
+[TX.codes]
+name    = "Texas Statutes (codes)"
+doc     = "/us-tx/codes"                    # files /us-tx/codes/GV.ch311 (section numbers repeat across codes)
+fetch   = "template"
+item    = ""                                # items "<CODE>.<chapter>" as the site names files: GV.311, AG.1, HS.81A
+item_match = '(?P<code>[A-Z0-9]{2})\.(?P<chapter>.+)'   # -> {code} for the folder; one formula serves all 30 codes
+url     = "https://tcss.legis.texas.gov/resources/{code}/htm/{item}.htm"
+edition = "current"
+file    = "{item}.htm"
+title_id = ['^([A-Z0-9]{2})\.(.+)$', '\1.ch\2']     # GV.311 -> GV.ch311
+wrap    = { tag = "level", id = "{item}", rebase = true }   # the template build ignores title_id: ids go under /us-tx/codes/PE.1 (section numbers repeat across codes)
+reject  = 'data-beasties-container|id="ng-state"'     # the app shell (statutes.capitol.texas.gov answers 200 with it everywhere)
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "none stated (Information page: privacy policy only); robots.txt allows /resources/ on tcss.legis.texas.gov"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (494) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "GV.1", "GV.2", "GV.21", "GV.22", "GV.22A", "GV.23", "GV.24", "GV.25", "GV.25A", "GV.26", "GV.27", "GV.29",
+  "GV.30", "GV.31", "GV.32", "GV.33", "GV.34", "GV.35", "GV.36", "GV.37", "GV.38", "GV.39", "GV.41", "GV.42",
+  "GV.43", "GV.44", "GV.45", "GV.46", "GV.51", "GV.52", "GV.53", "GV.54", "GV.54A", "GV.54B", "GV.55", "GV.56",
+  "GV.57", "GV.61", "GV.62", "GV.71", "GV.72", "GV.73", "GV.74", "GV.75", "GV.76", "GV.77", "GV.78", "GV.79",
+  "GV.80", "GV.81", "GV.82", "GV.83", "GV.84", "GV.91", "GV.92", "GV.121", "GV.122", "GV.123", "GV.124", "GV.125",
+  "GV.126", "GV.129", "GV.130", "GV.141", "GV.151", "GV.152", "GV.153", "GV.154", "GV.155", "GV.156", "GV.157",
+  "GV.158", "GV.171", "GV.301", "GV.302", "GV.303", "GV.304", "GV.305", "GV.306", "GV.311", "GV.312", "GV.313",
+  "GV.314", "GV.315", "GV.316", "GV.317", "GV.318", "GV.319", "GV.320", "GV.321", "GV.322", "GV.323", "GV.324",
+  "GV.325", "GV.326", "GV.327", "GV.329", "GV.391", "GV.392", "GV.393", "GV.401", "GV.402", "GV.403", "GV.404",
+  "GV.405", "GV.406", "GV.411", "GV.413", "GV.414", "GV.417", "GV.418", "GV.419", "GV.420", "GV.420A", "GV.421",
+  "GV.422", "GV.423", "GV.424", "GV.425", "GV.426", "GV.426.v2", "GV.431", "GV.432", "GV.433", "GV.434", "GV.436",
+  "GV.437", "GV.438", "GV.441", "GV.442", "GV.443", "GV.443A", "GV.444", "GV.445", "GV.447", "GV.448", "GV.450",
+  "GV.451", "GV.452", "GV.455", "GV.464", "GV.465", "GV.466", "GV.468", "GV.469", "GV.470", "GV.472", "GV.475",
+  "GV.476", "GV.477", "GV.478", "GV.479", "GV.480", "GV.481", "GV.482", "GV.483", "GV.485", "GV.485A", "GV.487",
+  "GV.488", "GV.489", "GV.490", "GV.490A", "GV.490B", "GV.490C", "GV.490D", "GV.490E", "GV.490F", "GV.490G",
+  "GV.490I", "GV.491", "GV.492", "GV.493", "GV.494", "GV.495", "GV.496", "GV.497", "GV.498", "GV.499", "GV.500",
+  "GV.501", "GV.507", "GV.508", "GV.509", "GV.510", "GV.511", "GV.521", "GV.522", "GV.523", "GV.524", "GV.525",
+  "GV.526", "GV.531", "GV.532", "GV.540", "GV.540A", "GV.542", "GV.543", "GV.543A", "GV.544", "GV.545", "GV.546",
+  "GV.547", "GV.547A", "GV.548", "GV.549", "GV.550", "GV.551", "GV.552", "GV.553", "GV.554", "GV.555", "GV.556",
+  "GV.557", "GV.558", "GV.559", "GV.560", "GV.571", "GV.572", "GV.573", "GV.574", "GV.575", "GV.576", "GV.601",
+  "GV.602", "GV.603", "GV.604", "GV.605", "GV.606", "GV.607", "GV.608", "GV.609", "GV.610", "GV.611", "GV.612",
+  "GV.613", "GV.614", "GV.615", "GV.616", "GV.617", "GV.618", "GV.619", "GV.620", "GV.651", "GV.652", "GV.653",
+  "GV.654", "GV.655", "GV.656", "GV.657", "GV.658", "GV.659", "GV.660", "GV.661", "GV.662", "GV.663", "GV.664",
+  "GV.665", "GV.666", "GV.667", "GV.669", "GV.670", "GV.671", "GV.672", "GV.673", "GV.742", "GV.751", "GV.752",
+  "GV.753", "GV.760", "GV.761", "GV.763", "GV.764", "GV.771", "GV.772", "GV.773", "GV.774", "GV.775", "GV.776",
+  "GV.782", "GV.783", "GV.791", "GV.792", "GV.793", "GV.794", "GV.795", "GV.801", "GV.802", "GV.803", "GV.804",
+  "GV.805", "GV.808", "GV.809", "GV.809A", "GV.810", "GV.811", "GV.812", "GV.813", "GV.814", "GV.815", "GV.820",
+  "GV.821", "GV.822", "GV.823", "GV.824", "GV.825", "GV.830", "GV.831", "GV.832", "GV.833", "GV.834", "GV.835",
+  "GV.836", "GV.837", "GV.838", "GV.839", "GV.840", "GV.840A", "GV.841", "GV.842", "GV.843", "GV.844", "GV.845",
+  "GV.851", "GV.852", "GV.853", "GV.854", "GV.855", "GV.861", "GV.862", "GV.863", "GV.864", "GV.865", "GV.1201",
+  "GV.1202", "GV.1203", "GV.1204", "GV.1205", "GV.1206", "GV.1207", "GV.1208", "GV.1231", "GV.1232", "GV.1251",
+  "GV.1252", "GV.1253", "GV.1301", "GV.1302", "GV.1303", "GV.1331", "GV.1333", "GV.1371", "GV.1372", "GV.1373",
+  "GV.1401", "GV.1403", "GV.1431", "GV.1432", "GV.1433", "GV.1434", "GV.1435", "GV.1471", "GV.1472", "GV.1473",
+  "GV.1474", "GV.1475", "GV.1476", "GV.1477", "GV.1478", "GV.1479", "GV.1501", "GV.1502", "GV.1503", "GV.1504",
+  "GV.1505", "GV.1506", "GV.1507", "GV.1508", "GV.1509", "GV.1510", "GV.2001", "GV.2002", "GV.2003", "GV.2004",
+  "GV.2005", "GV.2006", "GV.2007", "GV.2008", "GV.2009", "GV.2051", "GV.2052", "GV.2053", "GV.2054", "GV.2056",
+  "GV.2058", "GV.2059", "GV.2060", "GV.2062", "GV.2063", "GV.2101", "GV.2102", "GV.2103", "GV.2104", "GV.2105",
+  "GV.2106", "GV.2107", "GV.2108", "GV.2109", "GV.2110", "GV.2111", "GV.2112", "GV.2113", "GV.2114", "GV.2115",
+  "GV.2116", "GV.2151", "GV.2152", "GV.2155", "GV.2156", "GV.2157", "GV.2158", "GV.2161", "GV.2163", "GV.2165",
+  "GV.2166", "GV.2167", "GV.2170", "GV.2171", "GV.2172", "GV.2175", "GV.2176", "GV.2177", "GV.2201", "GV.2203",
+  "GV.2204", "GV.2205", "GV.2206", "GV.2251", "GV.2252", "GV.2253", "GV.2254", "GV.2255", "GV.2256", "GV.2257",
+  "GV.2258", "GV.2259", "GV.2260", "GV.2261", "GV.2262", "GV.2263", "GV.2264", "GV.2265", "GV.2267", "GV.2268",
+  "GV.2269", "GV.2270", "GV.2271", "GV.2272", "GV.2273", "GV.2274", "GV.2275", "GV.2276", "GV.2277", "GV.2302",
+  "GV.2303", "GV.2304", "GV.2305", "GV.2306", "GV.2308", "GV.2308A", "GV.2309", "GV.2310", "GV.2311", "GV.2400",
+  "GV.2401", "GV.3000", "GV.3001", "GV.3002", "GV.3100", "GV.3101", "GV.3104", "GV.3105", "GV.3106", "GV.3107",
+  "GV.3108", "GV.3151", "GV.4001", "GV.4002", "GV.4003", "GV.4004", "GV.4005", "GV.4006", "GV.4007", "GV.4008"
+]
+
+[TX.codes.html]
+blocks   = ["p"]
+headings = ["p:centered"]                   # p.center, bold: code name, TITLE, SUBTITLE, CHAPTER, SUBCHAPTER
+opening  = ["a"]                            # the bold <a> "Sec. 311.001.  SHORT TITLE." opens a section
+
+[TX.codes.ladder]
+# Texas: (a) subsection, (1) subdivision, (A) paragraph, (i) subparagraph; insertions (a-1), (1-a)
+types = [["lower"], ["num"], ["upper"], ["roman_lower"]]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[TX.codes.containers]
+# every file repeats its code name first ("GOVERNMENT CODE") -> a level with no id, like CO's constitution title
+code       = { match = "^(?P<heading>[A-Z][A-Z ,.&'-]*CODE(?: - NOT CODIFIED)?|AUXILIARY WATER LAWS|VERNON'S CIVIL STATUTES)$", tag = "level", rank = 1, id = "", heading = "self", sections = "here" }   # sections hang off the file: GV.ch311/s311.002
+title      = { match = '^TITLE\s+(?P<num>\d+[A-Z]?)\.\s+(?P<heading>.+)$', tag = "title", rank = 2, id = "t{num}" }
+subtitle   = { match = '^SUBTITLE\s+(?P<num>[A-Z0-9-]+)\.\s+(?P<heading>.+)$', tag = "subtitle", rank = 3, id = "st{num}" }
+chapter    = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)\.\s+(?P<heading>.+)$', tag = "chapter", rank = 4, id = "ch{num}" }
+subchapter = { match = '^SUBCHAPTER\s+(?P<num>[A-Z0-9-]+)\.\s+(?P<heading>.+)$', tag = "subchapter", rank = 5, id = "sch{num}" }
+
+[TX.codes.sections]
+# opening run "Sec. 311.001.  SHORT TITLE." ; "Sec. 311.0015." ; "Sec. 51.001-a." (GUESS for the odd forms)
+match = '^Sec\.\s+(?P<num>\d+[A-Z]?\.\d+[A-Za-z0-9-]*)\.\s+(?P<heading>.+?)$'
+scope = "title"                             # overridden by sections = "here" on the code line
+decimal = true                              # 311.0015 sorts between 311.001 and 311.002
+
+[TX.codes.notes]
+# history: "Acts 1985, 69th Leg., ...", "Added by Acts ...", "Amended by:" + indented "Acts 2005, ..." lines
+sourceCredit = ['^(Added by|Amended by|Acts \d{4}|Renumbered from|Transferred|Redesignated|Repealed by)']
+
+# ---------------------------------------------------------------- Texas Constitution (code CN)
+# Files resources/CN/htm/CN.<article>.htm (the app's docs route: code CN, chapter folder "CN.<article>"), same TLC
+# markup as the codes. Article / section lines below are GUESSES until CN.1 is local (requested in TX.txt):
+#   "THE TEXAS CONSTITUTION" / "ARTICLE 1. BILL OF RIGHTS" / "Sec. 1.  FREEDOM AND SOVEREIGNTY OF STATE."
+#   history "(Amended Nov. 7, 2017.)"-style lines.
+[TX.const]
+inherit = "TX.codes"
+replace = ["containers", "sections", "notes", "wrap"]
+wrap    = {}                                # no wrapper: article ids are unique in the one constitution (/us-tx/const/a1/s1)
+name    = "Constitution of Texas (1876)"
+doc     = "/us-tx/const"
+item_match = '(?P<code>CN)?(?P<chapter>.*)'  # items are article numbers 1 .. 17; {code} unused
+url     = "https://tcss.legis.texas.gov/resources/CN/htm/CN.{item}.htm"
+file    = "CN.{item}.htm"
+title_id = ['^(.*)$', 'art\1']
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (18) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "PR", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "14", "15", "16", "17", "AP"
+]
+
+[TX.const.containers]
+const   = { match = '^(?P<heading>(?:THE )?TEXAS CONSTITUTION|THE CONSTITUTION OF THE STATE OF TEXAS)$', tag = "level", rank = 1, id = "", heading = "self" }
+article = { match = '^ARTICLE\s+(?P<num>\d+)\.\s+(?P<heading>.+)$', tag = "article", rank = 2, id = "a{num}" }
+
+[TX.const.sections]
+match = '^Sec\.\s+(?P<num>\d+[a-z]?(?:-[a-z0-9]+)?)\.\s+(?P<heading>.+?)$'
+scope = "container"                         # Sec. 1 in every article: /us-tx/const/art1/a1/s1
+
+[TX.const.notes]
+sourceCredit = ['^\((Added|Amended|Repealed|Adopted)\b', '^(Added by|Amended by|Acts \d{4})']

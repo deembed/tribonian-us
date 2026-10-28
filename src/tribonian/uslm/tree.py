@@ -66,15 +66,21 @@ def _split_frac(label):
     base, dot, frac = label.partition(".")
     if dot:
         return (base, int(frac)) if frac.isdigit() else (None, None)
-    m = re.fullmatch(r"([A-Za-z0-9]+)-([a-z])", label)        # New Hampshire's II-a. between II. and III.
+    m = re.fullmatch(r"([A-Za-z]+)-([ivxlc]{1,6})", label)     # DC's (B-i) (B-ii): an inserted roman after B
+    if m and roman_value(m.group(2)):
+        return m.group(1), roman_value(m.group(2))
+    m = re.fullmatch(r"([A-Za-z0-9]+)-([a-zA-Z])", label)     # New Hampshire's II-a. between II. and III.;
+    if m:                                                     # Maine's 1-A. and (1-A)
+        return m.group(1), ord(m.group(2).lower()) - 96
+    m = re.fullmatch(r"([A-Za-z]+)-(\d{1,2})", label)         # Maine's A-1. and (a-1)
     if m:
-        return m.group(1), ord(m.group(2)) - 96
+        return m.group(1), int(m.group(2))
     m = re.fullmatch(r"([A-Za-z]+)(\d{1,2})", label)
     if m:
         return m.group(1), int(m.group(2))
-    m = re.fullmatch(r"(\d+)([a-z])", label)
+    m = re.fullmatch(r"(\d+)([a-zA-Z])", label)              # (8L) Wisconsin, 5A. Iowa: an inserted number
     if m:
-        return m.group(1), ord(m.group(2)) - 96
+        return m.group(1), ord(m.group(2).lower()) - 96
     return label, 0
 
 
@@ -130,10 +136,10 @@ def follows(prev, o):
     return o > prev and o[0] <= prev[0] + 2
 
 
-LABEL = re.compile(r"\(([0-9]+(?:\.[0-9]+|[a-z])?|[A-Za-z]{1,6}(?:\.[0-9]+|[0-9]{1,2})?)\)\s*")
+LABEL = re.compile(r"\[?\(([0-9]+(?:\.[0-9]+|[a-zA-Z]|-[A-Za-z])?|[A-Za-z]{1,8}(?:\.[0-9]+|-?[0-9]{1,2}|-[a-z]{1,6})?)\)\]?\s*")   # [(d)]: a label the revisor inserted (Hawaii)
 # A dotted label ends at a space, the line's end, or a chained label: Florida's "1.a." / "2.a.(I)" open a level
 # and its first item together. Only a lowercase or numeric dotted label, or "(", may follow (not "U.S.").
-DOTTED = re.compile(r"([0-9]+(?:-[a-z])?\.|[IVXLC]{1,6}(?:-[a-z])?\.|[A-Z]{1,2}\.|[a-z]{1,2}\.)"
+DOTTED = re.compile(r"([0-9]+(?:-[A-Za-z]|[A-Z])?\.|[IVXLC]{1,6}(?:-[a-z])?\.|[A-Z]{1,2}(?:-[0-9]{1,2})?\.|[a-z]{1,2}\.)"
                     r"(?=\s|$|\(|[a-z]{1,2}\.(?:\s|\(|$)|[0-9]{1,3}\.(?:\s|\(|$))\s*")   # 1. A. a. IV. (MD, DE, NH)
 
 

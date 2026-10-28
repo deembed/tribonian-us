@@ -115,13 +115,14 @@ def section_key(num, decimal=False, comma=False):
     number. Each run of digits with its letter suffix is (number, letters as base 26). With decimal
     ([sections].decimal, Nevada's NRS), digits after a point are a decimal fraction: 1.4253 < 1.426."""
     first = re.sub(r"\(([A-Za-z0-9]+)\)", r"\1", num.split("_")[0])     # 18(a) -> 18a (Missouri's constitution)
+    first = first.replace("½", ".5").replace("1/2", ".5")             # 6½, 13B1/2: a half section after 6 (CA, MA)
     if comma and "," in first:                         # [sections].comma = "article" (Nebraska): 28-3,100 is
         first = first.replace(",", "-")                # article 3, section 100; 28-399 is article 3, section 99
     elif comma:
         first = re.sub(r"-(\d+?)(\d{2})(?=$|[.A-Za-z_])", r"-\1-\2", first)   # also before ".01" / a suffix
     else:
         first = first.replace(",", "-")
-    m = re.match(r"([IVXLC]+)(?=[-.])", first)       # a roman prefix (Nebraska's constitution: II-1) counts as its number
+    m = re.match(r"([IVXLC]+)(?=[-.]|$)", first)     # a roman prefix (Nebraska: II-1) or a whole roman number (MA: XLVIII)
     if m:
         from tribonian.uslm.tree import roman_value
         v = roman_value(m.group(1))

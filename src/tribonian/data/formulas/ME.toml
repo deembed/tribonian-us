@@ -1,0 +1,137 @@
+# ME.toml -- Maine: the Maine Revised Statutes and the Maine Constitution, from legislature.maine.gov
+# (Office of the Revisor of Statutes; the site states no terms; robots.txt allows /statutes/).
+#
+# Site shape (probes 2026-10-27, build/probe/legislature.maine.gov/):
+#   /statutes/                               list of titles: links "1/title1ch0sec0.html" ... "39-A/title39-Ach0sec0.html"
+#   /statutes/{t}/title{t}ch0sec0.html       title page: div.MRSChapter_toclist links "./title1ch14-Asec0.html"
+#   /statutes/{t}/title{t}ch{c}sec0.html     chapter page: div.MRSSection_toclist links "./title1sec15-A.html"
+#   /statutes/{t}/title{t}sec{s}.html        one section (the only HTML that carries law text)
+#   PDF / Word exist per title, chapter and section -- not used (HTML only).
+# There is no whole-chapter or whole-title HTML page, so the fetch is per section, walked from the title page.
+#
+# ---------------------------------------------------------------- Maine Revised Statutes
+# Item = a title as the site writes it: 1, 13-A, 39-A. One USLM file per title (the index walk starts at the
+# title page; a chapter can't be the item because its URL needs the title as well as the chapter).
+[ME.statutes]
+name    = "Maine Revised Statutes"
+doc     = "/us-me/statutes"                   # /us-me/statutes/t1/s15-A/1/A
+fetch   = "index"
+item    = ""                                  # as written: 1, 13-A
+index_file = "title{item}ch0sec0.html"
+links   = ["href=\"\\./(title[0-9A-Z-]+ch[0-9A-Z-]+sec0\\.html)\"",    # title page -> chapter pages (_idx/)
+           "href=\"\\./(title[0-9A-Z-]+sec[0-9A-Z-]+\\.html)\""]       # chapter page -> section pages
+# the chapter page also links back to "./title1ch0sec0.html" (the title page): the level-1 regex would take it
+# as a chapter; the section regex (level 2) can't match "ch..sec0", so the walk only reads it as a list page.
+layers  = [ { name = "current", url = "https://legislature.maine.gov/statutes/{item}/title{item}ch0sec0.html" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (64) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "7-A", "8", "9", "9-A", "9-B", "10", "11", "12", "13", "13-A", "13-B",
+  "13-C", "14", "15", "16", "17", "17-A", "18", "18-A", "18-B", "18-C", "19", "19-A", "20", "20-A", "21", "21-A",
+  "22", "22-A", "23", "24", "24-A", "25", "26", "27", "28", "28-A", "28-B", "29", "29-A", "30", "30-A", "31",
+  "32", "33", "34", "34-A", "34-B", "35", "35-A", "36", "37", "37-A", "37-B", "38", "39", "39-A"
+]
+
+[ME.statutes.html]
+root     = "div.title_toc"                    # left nav (PDF/Word links, contents), header, footer are outside it
+# Section text is nested: div.MRSSubSection > div.mrs-text (the "1. Heading." line) + div.mrs-text.MRSLetteredPara
+# ("A.") > div.mrs-text.MRSSubPara ("(1)") ...; the "[PL 1975, c. 758 (NEW).]" history line (span.bhistory) sits
+# inside a text div or loose after it in the subsection div, so it is a block of its own (stays in the body text).
+# div.headnote_blip: "(REPEALED)" after a repealed section's h3 (stays body text of the section)
+# div:noclass: a centered line inside a text div (1 §201: 'to wit:<div style="text-align: ;" id="P">MAINE.</div>')
+blocks   = ["div.mrs-text", "span.bhistory", "div.note", "div.headnote_blip", "div:noclass", "p.loose", "h3", "div.qhistory"]   # p.loose: an outer div's own text (nested)
+nested   = true
+headings = ["div.MRSSubTitle", "div.MRSPart", "div.MRSSubPart", "div.MRSChapter", "div.MRSSubChapter", "div.MRSArticle"]
+opening  = ["h3"]                             # "§1. Extent of sovereignty and jurisdiction"
+verbatim = ["table"]
+# site furniture: the "§2" next-section link beside the heading strip, and the strip's "Title 1: GENERAL
+# PROVISIONS" running header (repeated on every section page; the title's name is read once from the title
+# page instead -- [ME.statutes.title] below)
+drop     = ["div.nonprinting", "div.MRSTitle"]
+
+[ME.statutes.title]
+name     = "div.title_heading"               # title page: "Title 1: GENERAL PROVISIONS"
+
+[ME.statutes.ladder]
+# 1. Subsection  A. Paragraph  (1) Subparagraph  (a) Division  (i) Subdivision  -- Maine's own level names
+types = ["num.", "upper.", "num", "lower", "roman_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[ME.statutes.containers]
+# every section page repeats its heading strip: "Chapter 13: PUBLIC RECORDS AND PROCEEDINGS" / "Subchapter 1: FREEDOM
+# OF ACCESS" (div.MRSChapter, div.MRSSubChapter, seen). The title pages show Subtitle and Part levels (title 22:
+# "Subtitle 2: HEALTH" > "Part 1: ADMINISTRATION" > chapters); their strip classes (div.MRSSubTitle, div.MRSPart)
+# are inferred from the site's naming, to be confirmed on a sample. Pages of one chapter join it.
+# Title 11 (UCC) names its chapters "Article 1-A: GENERAL PROVISIONS" (URL title11ch1-Asec0.html): rank 5 like a
+# chapter, so a UCC "Part" under it would wrongly close it -- check when title 11 is sampled.
+subtitle   = { match = '^Subtitle\s+(?P<num>[0-9A-Z-]+):\s*(?P<heading>.*)$', tag = "subtitle", rank = 2, id = "st{num}" }
+part       = { match = '^Part\s+(?P<num>[0-9A-Z-]+):\s*(?P<heading>.*)$', tag = "part", rank = 3, id = "pt{num}" }
+subpart    = { match = '^Subpart\s+(?P<num>[0-9A-Z-]+):\s*(?P<heading>.*)$', tag = "subpart", rank = 4, id = "spt{num}" }
+chapter    = { match = '^Chapter\s+(?P<num>[0-9A-Z-]+):\s*(?P<heading>.*)$', tag = "chapter", rank = 5, id = "ch{num}" }
+article    = { match = '^Article\s+(?P<num>[0-9A-Z-]+):\s*(?P<heading>.*)$', tag = "article", rank = 5, id = "a{num}" }
+subchapter = { match = '^Subchapter\s+(?P<num>[0-9A-Z-]+):\s*(?P<heading>.*)$', tag = "subchapter", rank = 6, id = "sch{num}" }
+
+[ME.statutes.sections]
+# "§1. Extent of ...", "§15-A. ... (REPEALED)", UCC "§1-1101. ...": the h3 is the opening run
+match = '^§\s*(?P<num>[0-9]+[0-9A-Z-]*)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+# two versions of one paragraph or section on a page: "B. (TEXT EFFECTIVE UNTIL 1/01/27) ..." then
+# "B. (TEXT EFFECTIVE 1/01/27) ..." (39-A §201-3-A); whole sections "(WHOLE SECTION TEXT EFFECTIVE ...)" in the heading
+versions = '\((?:WHOLE SECTION )?TEXT (?:EFFECTIVE|REPEALED)'
+
+[ME.statutes.notes]
+# "SECTION HISTORY  PL 1979, c. 512, §1 (AMD). ..." after the text. The per-paragraph "[PL 1985, c. 802, §1 (AMD).]"
+# lines (span.bhistory) are not notes: they stay in the body as text of the paragraph they close.
+sourceCredit = { class = "qhistory" }
+# "Revisor's Note: (Paragraph P as enacted by ... is REALLOCATED TO ...)" -- div.note INSIDE a paragraph (1 §402-3-P).
+# Not a note rule: the writer places a section's notes after the level they follow closes, which moves the text
+# out of order (conservation fails). As a plain block it stays as text of the paragraph it sits in.
+
+# ---------------------------------------------------------------- Constitution of Maine
+# /const/ is a JavaScript app (Durandal); the text is a static view it loads:
+# /ros/LawsOfMaine/App/views/constitution.html -- the whole constitution, one HTML fragment (no <html>/<body>).
+# Inside div.text: h3 "PREAMBLE." / "Article I." (strong; anchored a1..aA), h4 the article's name, or
+# h4 "Part First." + h4 the part's name; Articles IV, V, VIII repeat a plain h3 "Article IV." before each later Part.
+# p: "<strong>Section 1.  Natural rights.</strong>  All people ...", numbered subsections "1. Petition procedure."
+# in a later <p>, history "SECTION HISTORY CR 2023, c. 1 (RP)." and "Note: ..." paragraphs.
+[ME.const]
+name    = "Constitution of Maine"
+doc     = "/us-me/const"                      # /us-me/const/a4/pt2/s1
+fetch   = "template"
+url     = "https://legislature.maine.gov/ros/LawsOfMaine/App/views/{item}.html"
+items   = ["constitution"]
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[ME.const.html]
+root     = "div.text:matches(^PREAMBLE)"      # (the toolbar's div.text.headnote comes first) toolbar (article jump list, PDF link), title block, footer are outside
+blocks   = ["p"]
+headings = ["h3", "h4"]
+opening  = ["strong"]
+# Art. X sec. 5 (the Articles of Separation) has one run of text in a bare <span> between <p>s: loose makes it a
+# block. block_tags: the <a name="a1"> anchors that wrap the article h3s stay as they are (not wrapped as text).
+loose    = ["div.text"]
+block_tags = ["a"]
+
+[ME.const.ladder]
+types = ["num.", "upper.", "num", "lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[ME.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE\.)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^Article\s+(?P<num>[IVX]+)\.$', tag = "article", rank = 2, id = "a{num_arabic}" }   # name: next h4
+part     = { match = '^Part\s+(?P<num>First|Second|Third|Fourth)\.$', tag = "part", rank = 3, id = "pt{num}" }   # name: next h4
+
+[ME.const.sections]
+match = '^Section\s+(?P<num>\d+(?:-[A-Z])?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "container"                           # numbering restarts per article / part
+
+[ME.const.notes]
+sourceCredit  = '^SECTION HISTORY'
+editorialNote = '^Note:'

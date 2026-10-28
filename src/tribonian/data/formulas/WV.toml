@@ -30,6 +30,19 @@ layers  = [ { name = "current", url = "https://code.wvlegislature.gov/{item}/" }
 encoding = "utf-8"
 family  = "html-paragraphs"
 
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (139) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "5A", "5B", "5C", "5D", "5E", "5F", "5G", "5H", "6", "6A", "6B", "6C", "6D", "7", "7A",
+  "8", "8A", "9", "9A", "10", "11", "11A", "11B", "12", "13", "14", "15", "15A", "16", "16A", "16B", "17", "17A",
+  "17B", "17C", "17D", "17E", "17F", "17G", "17H", "18", "18A", "18B", "18C", "19", "20", "21", "21A", "22",
+  "22A", "22B", "22C", "23", "24", "24A", "24B", "24C", "24D", "24E", "24F", "25", "26", "27", "28", "29", "29A",
+  "29B", "29C", "30", "31", "31A", "31B", "31C", "31D", "31E", "31F", "31G", "31H", "31I", "31J", "32", "32A",
+  "32B", "33", "34", "35", "35A", "36", "36A", "36B", "37", "37A", "37B", "37C", "38", "39", "39A", "39B", "40",
+  "41", "42", "43", "44", "44A", "44B", "44C", "44D", "45", "46", "46A", "46B", "47", "47A", "47B", "48", "49",
+  "49A", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60", "60A", "60B", "61", "62", "63", "64"
+]
+
 [WV.code.html]
 root     = "div#results-box"                  # chapter selector, search form, sidebar and footer are outside it
 blocks   = ["p", "h4"]

@@ -17,7 +17,7 @@ default <work>/law; some titles run to hundreds of MB):
 
 Standard library only. robots.txt is obeyed (scope §3): a disallowed URL is reported, not fetched.
 """
-import argparse, json, os, re, sys, time, urllib.error, urllib.request, urllib.robotparser, zlib
+import argparse, json, os, re, sys, time, urllib.error, urllib.parse, urllib.request, urllib.robotparser, zlib
 from datetime import date
 from pathlib import Path
 
@@ -47,25 +47,87 @@ def local(title):
         return None
 
 
+def _cert_dir():
+    """Where intermediate certificates fetched at run time are kept: <work>/build/certs (not in the repository)."""
+    return tconfig.WORK / "build" / "certs"
+
+
 def tls_context():
-    """The system's trusted roots, plus the intermediate certificates in data/certs/*.pem: some publishers'
-    servers (Connecticut's General Assembly) send their certificate without the intermediate, which browsers
-    fetch on their own and Python does not. An intermediate added here only helps build the chain; it must
-    still end at a root the system trusts. Put only CA intermediates in that folder, never a root."""
+    """The system's trusted roots, plus intermediate certificates fetched at run time (_fetch_intermediate): some
+    publishers' servers (Connecticut's General Assembly, Illinois's) send their certificate without the intermediate,
+    which browsers fetch on their own from the address in the certificate ("CA Issuers") and Python does not. An
+    intermediate only helps build the chain; it must still end at a root the system already trusts, so a fetched
+    one cannot make anything trusted that was not."""
     global _TLS
     if _TLS is None:
         import ssl
         _TLS = ssl.create_default_context()
-        for pem in sorted((tconfig.PKG / "data" / "certs").glob("*.pem")):
-            _TLS.load_verify_locations(cafile=str(pem))
+        d = _cert_dir()
+        for pem in sorted(d.glob("*.pem")) if d.is_dir() else []:
+            try:
+                _TLS.load_verify_locations(cafile=str(pem))
+            except ssl.SSLError:
+                pass
     return _TLS
 
 
 _TLS = None
+_TRIED = set()
+
+
+def _fetch_intermediate(host, port=443):
+    """The server left out its intermediate: read its own certificate (unverified, only to learn the issuer's
+    address), download the issuer certificate from the "CA Issuers" URL in it, keep it in build/certs/, and rebuild
+    the TLS context. -> True when a new certificate was added."""
+    global _TLS
+    import ssl, tempfile
+    if host in _TRIED:
+        return False
+    _TRIED.add(host)
+    try:
+        leaf = ssl.get_server_certificate((host, port))
+        with tempfile.NamedTemporaryFile("w", suffix=".pem", delete=False) as fh:
+            fh.write(leaf)
+        info = ssl._ssl._test_decode_cert(fh.name)          # the stdlib's own certificate decoder
+        os.unlink(fh.name)
+        urls = [u for u in info.get("caIssuers", ()) if u.startswith(("http://", "https://"))]
+        if not urls:
+            return False
+        with urllib.request.urlopen(urllib.request.Request(urls[0], headers={"User-Agent": "tribonian"}), timeout=60) as r:
+            der = r.read()
+        if der.lstrip().startswith(b"-----BEGIN"):
+            pem = der.decode("ascii")
+        elif urls[0].lower().endswith(".p7c"):          # a PKCS#7 bundle: openssl lists its certificates
+            import subprocess
+            pem = subprocess.run(["openssl", "pkcs7", "-inform", "DER", "-print_certs"], input=der,
+                                 check=True, capture_output=True).stdout.decode("ascii")
+        else:
+            pem = ssl.DER_cert_to_PEM_cert(der)
+    except Exception as e:
+        print("  (could not fetch the missing intermediate for %s: %s)" % (host, e))
+        return False
+    d = _cert_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / (host + ".pem")).write_text(pem, encoding="ascii")
+    print("  (fetched the intermediate certificate %s left out, from %s)" % (host, urls[0]))
+    _TLS = None
+    return True
+
+
+def _verify_failed(e):
+    import ssl
+    r = getattr(e, "reason", e)
+    return isinstance(r, ssl.SSLCertVerificationError) and "local issuer" in str(r)
 
 
 def urlopen(req, timeout):
-    return urllib.request.urlopen(req, timeout=timeout, context=tls_context())
+    try:
+        return urllib.request.urlopen(req, timeout=timeout, context=tls_context())
+    except urllib.error.URLError as e:
+        host = urllib.parse.urlsplit(req.full_url if hasattr(req, "full_url") else req).hostname
+        if _verify_failed(e) and _fetch_intermediate(host):
+            return urllib.request.urlopen(req, timeout=timeout, context=tls_context())
+        raise
 
 
 def read_robots(host, ua):

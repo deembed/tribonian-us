@@ -1,0 +1,172 @@
+# ID.toml -- Idaho Statutes (Idaho Code) and the Idaho Constitution, from legislature.idaho.gov
+# (Legislative Services Office WordPress site; the official Idaho Code is LexisNexis's printing).
+#
+# Site shape (probes 2026-10-27, build/probe/legislature.idaho.gov/):
+#   /statutesrules/idstat/                     table of titles: /statutesrules/idstat/Title{N} (1 ... 74)
+#   /statutesrules/idstat/Title{N}/            table of chapters: Title{N}/T{N}CH{C} (+ a PDF per chapter)
+#   /statutesrules/idstat/Title{N}/T{N}CH{C}/  table of sections: .../SECT{N}-{S} (no law text; PDF link only)
+#   .../SECT{N}-{S}                            ONE section's text (Arbortext Epic output pasted into the page)
+# There is no whole-chapter or whole-title HTML page (only the per-chapter PDF, not used): one request
+# per section. Item = a TITLE; the walk is title page -> chapter pages (_idx/) -> section pages, and the
+# build joins the section pages of one chapter (each repeats the chapter heading) into one USLM title.
+# (The brief prefers the chapter as item for per-section sites; the index layer URL takes only {item},
+# so a chapter item "1/1" cannot become Title1/T1CH1 -- see ID.status.md.)
+#
+# Section page markup, inside div.pgbrk (everything else is site furniture):
+#   div:centered  "TITLE 1" / "COURTS AND COURT OFFICIALS" / "CHAPTER 1" / "ENUMERATION OF COURTS"
+#   div           "1-101.  <span style=text-transform:uppercase>Courts enumerated. </span>The following ..."
+#                 -- nothing bold: the catchline is only styled uppercase, the body follows in the same div
+#   div           "1.  The Supreme Court."            numbered lines, all the same text-indent
+#   div           "History:"  then  div "[(1-101) C.C.P. 1881, sec. 17; ... am. 1983, ch. 18, sec. 1, p. 52.]"
+[ID.code]
+name    = "Idaho Statutes"
+doc     = "/us-id/code"                       # /us-id/code/t1/s1-101/1
+fetch   = "index"
+item    = "%d"                                # title 1 -> "1" (URLs are Title1, not Title01)
+index_file = "Title{item}.html"               # the title's chapter table
+links   = ['href="(/statutesrules/idstat/Title\d+/T\d+CH\d+[A-Z]?)"',                    # title -> chapter pages (_idx/)
+           'href="(/statutesrules/idstat/Title\d+/T\d+CH\d+[A-Z]?PT\d+[A-Z]?)"',          # chapter -> PART pages (_idx/),
+                                              # only in chapters split into parts (title 28 UCC: T28CH1PT1 ...);
+                                              # a chapter page with no part links goes straight to the next level
+           'href="(/statutesrules/idstat/Title\d+/T\d+CH\d+[A-Z]?(?:PT\d+[A-Z]?)?/SECT\d+-[0-9A-Z.,-]+)"']  # -> section pages
+                                              # (UCC numbers have three parts: SECT28-1-201; the section link form
+                                              # under a part page is not yet probed, so the PT segment is optional)
+save_as = "path"                              # chapter hrefs have no file name of their own; keep the path
+layers  = [ { name = "current", url = "https://legislature.idaho.gov/statutesrules/idstat/Title{item}/" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "unverified (Idaho Legislature site; no reuse terms stated)"
+# title heading from the title page (number and name in one line): <h1 class="lso-toc"><center>TITLE 1 COURTS AND COURT OFFICIALS</center></h1>
+title   = { number = "", name = "h1.lso-toc" }
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (74) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38",
+  "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56",
+  "57", "58", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69", "70", "71", "72", "73", "74"
+]
+
+[ID.code.html]
+root     = "div.pgbrk"                        # the Arbortext section block; menus, search form, footer outside it
+blocks   = ["div[style*=line-height]"]   # every text line; NOT div.pgbrk itself (the root)
+headings = ["div:centered"]                   # the TITLE / CHAPTER lines and their names
+opening  = []                                 # nothing is bold: sections are matched on the line's text
+verbatim = ["table"]                          # statutory forms and rate tables, if any (none in the probes)
+# Depth: a first-level line has "text-indent: 5.9%" (no padding: no hint); deeper lines "padding-left: 5.9%",
+# 12.5%, 20.8% for depth 1, 2, 3 (28-1-201, 63-3022A). The % has no unit the parser knows, so it reads as px:
+# 5.9 -> 4.4pt, 12.5 -> 9.4pt, 20.8 -> 15.6pt; a unit of 4.9pt rounds those to 1, 2, 3.
+indent_css = { unit = 4.9, base = 0, property = "padding-left" }
+
+[ID.code.ladder]
+# Idaho has no single scheme; the top level is (a) in some sections, (1) in others:
+#   1-101       1. 2. 3.                       (dotted numbers, oldest)
+#   63-3022     (a) ... (c)(1) (2) ...         letters, then numbers
+#   63-3022A    (1)(a)(i) then "1." "2."       numbers, letters, romans, dotted numbers
+#   28-1-201    (a) (b)(1) ... (10)(A) (B)     UCC: letters, numbers, capitals
+# so each level takes several types; the sequence and the indentation (below) place a label.
+types = [["num", "lower", "num."], ["lower", "num"], ["roman_lower", "upper"], ["num.", "upper", "roman_lower"], ["upper", "num"]]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[ID.code.containers]
+# "TITLE 1" + "COURTS AND COURT OFFICIALS": the title banner, repeated on every section page. It cannot be
+# dropped (the name line has no markup or text that tells it from a chapter's name line), so it is a container
+# of the SAME rank as a chapter: the CHAPTER line closes it, the chapter stays at the top of the page (where
+# the build joins a chapter's pages), and every page's banner has the same identifier, so the build joins the
+# banners into one empty level too -- the banner appears once, not once per section.
+banner  = { match = '^TITLE\s+(?P<num>\d+[A-Z]?)$', tag = "level", rank = 2, id = "banner" }
+# "CHAPTER 1" then the name on the next centered line; chapters may be suffixed (T39CH4A)
+chapter = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)$', tag = "chapter", rank = 2, id = "ch{num}" }
+# Chapters split into parts (title 28 UCC): every section page repeats centered "PART 2." + name under CHAPTER;
+# the build merges the repeated part containers (28-1-201 probe)
+part    = { match = '^PART\s+(?P<num>\d+[A-Z]?)\.?$', tag = "part", rank = 3, id = "pt{num}" }
+
+[ID.code.sections]
+# "1-101. Courts enumerated. The following are ..." -- the catchline is the run up to the first ". "
+# (it has no markup but CSS uppercase); the rest of the line is the body. A catchline holding an
+# abbreviation ("U.S.") would be cut at it -- the text is kept either way (heading or body).
+# Numbers: 1-101, 63-3022A, 28-1-201 (UCC). A catchline with no closing period takes the whole line.
+match = '^(?P<num>\d+[A-Z]?(?:-\d+[A-Z]*){1,2}(?:\.\d+)?)\.\s+(?P<heading>.*?[.\]](?=\s|$)|.*$)'
+bold  = false
+scope = "title"                               # numbers carry the title: /us-id/code/t1/s1-101
+
+[ID.code.notes]
+sourceCredit = '^History:'                    # "History:" alone, then the bracketed history line
+
+# ---------------------------------------------------------------- Idaho Constitution (approved July 3, 1890)
+# /statutesrules/idconst/ lists articles ArtI ... ArtXXI; /idconst/ArtI/ lists sections ArtI/Sect1 ... under
+# <h2 class="lso-toc">ARTICLE I DECLARATION OF RIGHTS</h2>; /idconst/ArtI/Sect1 is one section's text.
+# Section page (probes ArtI/Sect1, ArtIII/Sect2, ArtXXI/Sect1): the same Arbortext div.pgbrk as the statutes but
+# NO article heading and no history line -- only "Section 1. Inalienable rights of man. All men are ..." and
+# "(1)" ... lines. The article heading exists only on the article's list page.
+# Item = an ARTICLE (1 ... 21; the URL's roman numeral from [ID.const.ids]): one USLM file per article, its
+# heading from the list page's h2, section ids under it (/us-id/const/a1/s1) -- section numbers restart per
+# article, so one file for the whole constitution would repeat s1, s2 ... (an `outline` article line puts the
+# article before its sections, but the build does not yet put the section pages INSIDE it: ID.status.md).
+# The preamble sits on the top page only (in <center> inside <em>): not in the build (ID.status.md).
+[ID.const]
+inherit = "ID.code"
+replace = ["containers", "sections", "ladder", "html"]
+name    = "Constitution of the State of Idaho"
+doc     = "/us-id/const"                      # /us-id/const/a1/s1
+item    = "%d"
+items   = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21"]
+index_file = "art-{item}.html"                # the article's section list
+links   = 'href="(/statutesrules/idconst/Art[IVXL]+/Sect\d+[A-Za-z]?)"'       # article page -> section pages
+layers  = [ { name = "current", url = "https://legislature.idaho.gov/statutesrules/idconst/Art{id}/" } ]
+title_id = ['^(\d+)$', 'a\1']                 # the file's top level is the article: /us-id/const/a1
+dir     = "const"
+title   = { number = "", name = "h2.lso-toc" }   # "ARTICLE I DECLARATION OF RIGHTS"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (21) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21"
+]
+
+[ID.const.ids]
+1 = "I"
+2 = "II"
+3 = "III"
+4 = "IV"
+5 = "V"
+6 = "VI"
+7 = "VII"
+8 = "VIII"
+9 = "IX"
+10 = "X"
+11 = "XI"
+12 = "XII"
+13 = "XIII"
+14 = "XIV"
+15 = "XV"
+16 = "XVI"
+17 = "XVII"
+18 = "XVIII"
+19 = "XIX"
+20 = "XX"
+21 = "XXI"
+
+[ID.const.html]
+root     = "div.pgbrk"
+blocks   = ["div[style*=line-height]"]
+headings = ["div:centered"]                   # none seen on constitution pages
+opening  = []
+verbatim = ["table"]
+
+[ID.const.ladder]
+types = [["num", "lower"], ["lower", "num"], ["roman_lower", "upper"]]   # III sec. 2: (1)-(6); others unseen
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[ID.const.containers]
+
+[ID.const.sections]
+# "Section 1. Inalienable rights of man. All men ..." -- catchline in CSS uppercase only, as in the statutes;
+# a few pages print the word in capitals: "SECTION 23." (art. I), "SECTION 29." (art. III)
+match = '^(?:Section|SECTION)\s+(?P<num>\d+[A-Za-z]?)\.\s+(?P<heading>.*?[.\]](?=\s|$)|.*$)'
+bold  = false
+scope = "title"                               # the file's top level is the article
+
+[ID.const.notes]

@@ -641,6 +641,21 @@ adds its own checks:
 The button turns red when the app couldn't start up (no scripts found, a broken `gui.toml`) or the default
 view is missing. Each fix has a **Copy** button.
 
+## State law: files you download by hand
+
+Where every state's law comes from, what's missing and why: [DATASOURCES.md](DATASOURCES.md).
+
+A few publishers refuse our fetcher (they answer their app's empty page instead of the file). We never work around a
+refusal; instead you download the official file once in a browser and put it where the formula expects it. The
+fetch then uses it like any other download (`manual = true` in the formula; it records the URL and the file's date).
+
+| State | File | Save as | Refresh |
+|---|---|---|---|
+| IN | https://iga.in.gov/ic/2026/2026-Indiana-Code-html.zip (the "ZIP (HTML only)" link on https://iga.in.gov/laws/ic/downloads) | `law/in/ic/_bulk/2026-Indiana-Code-html.zip` | each new code year: update the year in `IN.toml` |
+
+If a fetch says `download <url> in a browser and save it as <path>`, that file belongs in this table.
+Keys for APIs live in your shell profile, never in the repo: `NYSENATE_API_KEY` (free, https://legislation.nysenate.gov/).
+
 ## Other
 
 - **`tribonian link-audit [md]`:** counts US Code notes with no wikilinks in or out, grouped by title and heading type.

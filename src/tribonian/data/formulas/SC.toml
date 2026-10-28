@@ -16,6 +16,15 @@ encoding = "utf-8"
 family  = "html-paragraphs"
 terms   = "personal, not commercial, use (scstatehouse.gov/disclaimer.php)"
 
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (63) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38",
+  "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56",
+  "57", "58", "59", "60", "61", "62", "63"
+]
+
 [SC.code.html]
 root     = "div#contentsection"               # everything outside it is site navigation
 split_br = ["div#contentsection"]             # one line per <br />-separated run
@@ -51,3 +60,75 @@ scope = "title"
 [SC.code.notes]
 sourceCredit  = '^HISTORY:'
 editorialNote = ["^Editor's Note$", "^Code Commissioner's Note$", "^Effect of Amendment$", "^CROSS REFERENCES?$"]
+
+# ---------------------------------------------------------------- Constitution of South Carolina, 1895
+# scconstitution/scconst.php links one PDF per article (/scconstitution/A01.pdf .. A17.pdf, A08A.pdf); the HTML
+# article pages (A01.php) are 404 and commented out of the index, so PDF is the only text route besides Word
+# (getfile.php?TYPE=CONSTITUTION&ARTICLE=A01). Preamble.pdf / Introduction.pdf / Signatures.pdf / Amendments.pdf are
+# not articles: not items (the preamble could be added as item "Preamble" once its layout is seen).
+# DRAFT, written before any PDF was local: the [pdf] settings and the line patterns below are guesses from the
+# statutes' house style ("SECTION 1. Political power in the people."); test on the A01 / A03 probes and fix.
+[SC.const]
+name    = "Constitution of South Carolina, 1895"
+doc     = "/us-sc/const"                      # /us-sc/const/a1/s1, /us-sc/const/a8A/s1
+fetch   = "template"                          # one PDF per article; no index walk needed (fixed names)
+item    = "%02d"                              # items 1 .. 17 and 8A -> A01 .. A17, A08A ("%02d" pads the number part only)
+items   = ["1", "2", "3", "4", "5", "6", "7", "8", "8A", "9", "10", "11", "12", "13", "14", "15", "16", "17"]
+url     = "https://www.scstatehouse.gov/scconstitution/A{item}.pdf"
+file    = "A{item}.pdf"
+title_id = ['^0*(.+)$', 'a\1']                # one USLM file per article: 01 -> a1, 08A -> a8A (section numbers restart per article)
+dir     = "const"
+transform = "pdf-text"                        # uslm/transforms/pdf_text.py
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "personal, not commercial, use (scstatehouse.gov/disclaimer.php)"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (18) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "8A", "9", "10", "11", "12", "13", "14", "15", "16", "17"
+]
+
+[SC.const.pdf]
+# A01 / A03 probes: "SECTION N. Catchline." at col 0 after a blank line; each body paragraph opens indented 2-4
+# spaces and wraps back to col 0; labels ((A) (1) (a), "I." in III s.34) are indented 2-8; notes ("Editor's Note"
+# + text at col 0) and the amendment history "(1970 (56) 2684; ...)" are blank-separated. So plain indent joining.
+# No running heads or page numbers in the PDFs.
+join   = "indent"
+# a section line always opens a paragraph; so do the note lines ("Editor’s Note" right after I s.14's body, no blank)
+starts = ['^SECTION\s+\d+(?:\.?[A-Z])?\.\s', '^Editor.s Note$', '^HISTORY:']
+center = 15                                   # "ARTICLE I" / "DECLARATION OF RIGHTS" at col ~40-45
+drop   = []
+
+[SC.const.html]
+root     = "div#pdf"                          # the transform's wrapper
+blocks   = ["p"]
+headings = ["p:centered"]
+opening  = []
+
+[SC.const.ladder]
+# as in the code: (A)(1)(a) in newer amendments, (a)(1)(i) in older text, so level 0 takes either case;
+# III s.34 lists its items "I. To change ..." .. "XI." (dotted capital romans) at the top level
+types = [["upper", "lower", "roman_upper."], "num", ["lower", "roman_lower"], "roman_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[SC.const.containers]
+# The file is already the article (title_id a1): the ARTICLE line names it and adds no level of its own (IA's chapter
+# pattern). any = true in case the line is not centred. Its name ("DECLARATION OF RIGHTS") is the next heading line.
+article = { match = '^ARTICLE\s+(?P<num>[IVXL]+(?:-?A)?)\.?$', tag = "article", rank = 1, id = "", any = true }
+
+[SC.const.sections]
+# "SECTION 1. Political power in the people." then the body; "Section" case-insensitive in case the PDFs use it
+# "SECTION 1.A. Meeting of General Assembly." (III s.1.A -> s1.A); quoted act text '“SECTION 1.A. The amendment ...'
+# in notes starts with a quote mark and does not match.
+match = '^SECTION\s+(?P<num>\d+(?:\.?[A-Z])?)\.\s*(?P<heading>.*?)$'
+bold  = false
+scope = "title"                               # the title is the article file: /us-sc/const/a1/s1
+
+[SC.const.notes]
+# "HISTORY: 1979 Act No. 34; ..." after some sections (III s.36). The inline amendment history "(1970 (56) 2684;
+# 1971 (57) 315.)" ends the body paragraph itself and stays in it.
+sourceCredit  = '^HISTORY:'
+# "Editor’s Note" (curly apostrophe) sits on its own line, but its text starts at col 0 on the next line, so the
+# transform joins them: the block starts "Editor’s Note For similar provisions ...". Also "[Notes under former section".
+editorialNote = ["^Editor.s Note\\b", '^\[Notes under former section']

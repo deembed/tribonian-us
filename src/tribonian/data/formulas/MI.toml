@@ -1,0 +1,255 @@
+# Michigan -- Constitution of 1963 (PDF) and Michigan Compiled Laws (PDF per chapter; draft) -- batch 4.
+#
+# legislature.mi.gov (Legislative Service Bureau) has no complete HTML chapter view: /Laws/MCL?objectName=mcl-chapN
+# is only a table of the chapter's acts (chapter 1 = one row, mcl-Constitution); text in HTML exists one section per
+# page (/Laws/MCL?objectName=mcl-<sec>), i.e. tens of thousands of requests behind chapter -> act -> section layers.
+# The same page links "Download Chapter" = /Home/Document?objectName=mcl-chapN, the whole chapter as one PDF
+# (the LSB's MCL PDFs carry footers "Rendered <date> Page N / Michigan Compiled Laws Complete Through PA n of yyyy /
+# Courtesy of legislature.mi.gov"). One PDF per chapter (~230 requests) beats the per-section HTML, so MI is a PDF
+# state: MI.const from the LSB's constitution booklet, MI.mcl from the chapter PDFs (draft until a sample is probed).
+
+# ---------------------------------------------------------------- Constitution of Michigan of 1963
+# MIConstitution.pdf (InDesign, 92 pp, rev. 6/2025): pp 1-10 cover/history/TOC, 11-76 the text, 77- the index.
+# pdftotext -layout reads one column: centred "PREAMBLE" / "ARTICLE I" + name ("Declaration of Rights") / "SCHEDULE
+# AND TEMPORARY PROVISIONS"; each section is a catchline row "§ 1   Political power." at column 0, then
+# "   Sec. 1. ..." paragraphs indented 3-4 spaces with continuation lines at column 0, "(1)" labels on indented lines,
+# notes "History:", "Compiler's note:", "Former constitution:" indented too. Bold catchlines are the LSB's, not law.
+[MI.const]
+name    = "Constitution of Michigan of 1963"
+title   = "Constitution of Michigan of 1963"
+doc     = "/us-mi/const"                       # /us-mi/const/const/a1/s27/2/a
+fetch   = "template"
+url     = "https://www.legislature.mi.gov/Publications/MIConstitution.pdf"
+item    = "%s"
+items   = ["const"]                            # always the one file
+file    = "{item}.pdf"
+transform = "pdf-text"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "const"
+]
+
+[MI.const.pdf]
+pages  = "11-76"                               # skip cover, history, TOC (pp 1-10) and the index (pp 77-92)
+join   = "indent"                              # paragraphs open indented, continue at column 0
+starts = ['^§\s*\d+[a-z]?\s', '^Preamble\.$']  # catchline rows sit at column 0 like continuation lines
+center = 7                                     # headings and in-section catchlines sit at column 7-60; body text and notes at <= 6
+drop   = [
+  # even-page running head: "Art. I, § 7      CONSTITUTION OF MICHIGAN OF 1963      2" (also "Art. IX § 41", "Sched. § 12")
+  '^\s*(?:Art\.\s+[IVX]+,?|Sched\.)\s*§\s*\d+[a-z]?\s{3,}CONSTITUTION OF MICHIGAN OF 1963(?:\s+\d+)?\s*$',
+  # odd-page running head: "3      DECLARATION OF RIGHTS      Art. I, § 18"
+  '^\s*\d+\s{3,}[A-Z][A-Z ,]+\s{3,}(?:Art\.\s+[IVX]+,?|Sched\.)\s*§\s*\d+[a-z]?\s*$',
+]
+
+[MI.const.html]
+blocks   = ["p"]
+# headings = any line indented 7+ spaces (pdf-text margin-left >= 7pt; body text and notes sit at 0-6pt). pdf-text's
+# centring test (room right ~ room left, against the widest line) misses them here: the small-type notes run to
+# column ~148 while the body and its centred headings use ~95, so nothing looks centred. Spelled as margin-left
+# prefixes: "1" = 10-19pt, "7" "8" "9" = 7-9 and 70-99pt, "20".."69" two-digit (a bare "2".."6" would hit body 2-6pt).
+headings = ["p:centered",
+            "p[style*=margin-left:1]",
+            "p[style*=margin-left:7]",
+            "p[style*=margin-left:8]",
+            "p[style*=margin-left:9]",
+            "p[style*=margin-left:20]",
+            "p[style*=margin-left:21]",
+            "p[style*=margin-left:22]",
+            "p[style*=margin-left:23]",
+            "p[style*=margin-left:24]",
+            "p[style*=margin-left:25]",
+            "p[style*=margin-left:26]",
+            "p[style*=margin-left:27]",
+            "p[style*=margin-left:28]",
+            "p[style*=margin-left:29]",
+            "p[style*=margin-left:30]",
+            "p[style*=margin-left:31]",
+            "p[style*=margin-left:32]",
+            "p[style*=margin-left:33]",
+            "p[style*=margin-left:34]",
+            "p[style*=margin-left:35]",
+            "p[style*=margin-left:36]",
+            "p[style*=margin-left:37]",
+            "p[style*=margin-left:38]",
+            "p[style*=margin-left:39]",
+            "p[style*=margin-left:40]",
+            "p[style*=margin-left:41]",
+            "p[style*=margin-left:42]",
+            "p[style*=margin-left:43]",
+            "p[style*=margin-left:44]",
+            "p[style*=margin-left:45]",
+            "p[style*=margin-left:46]",
+            "p[style*=margin-left:47]",
+            "p[style*=margin-left:48]",
+            "p[style*=margin-left:49]",
+            "p[style*=margin-left:50]",
+            "p[style*=margin-left:51]",
+            "p[style*=margin-left:52]",
+            "p[style*=margin-left:53]",
+            "p[style*=margin-left:54]",
+            "p[style*=margin-left:55]",
+            "p[style*=margin-left:56]",
+            "p[style*=margin-left:57]",
+            "p[style*=margin-left:58]",
+            "p[style*=margin-left:59]",
+            "p[style*=margin-left:60]",
+            "p[style*=margin-left:61]",
+            "p[style*=margin-left:62]",
+            "p[style*=margin-left:63]",
+            "p[style*=margin-left:64]",
+            "p[style*=margin-left:65]",
+            "p[style*=margin-left:66]",
+            "p[style*=margin-left:67]",
+            "p[style*=margin-left:68]",
+            "p[style*=margin-left:69]"]
+opening  = []
+indent_css = { unit = 4, base = 0 }            # pdf-text margin-left = spaces; body paragraphs at 3-4 (hint only)
+
+[MI.const.ladder]
+types = ["num", "lower", "roman_lower", "upper"]   # art. I § 27: (2)(b)(i); (1)(a) elsewhere
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[MI.const.containers]
+title    = { match = '^(?P<heading>CONSTITUTION OF THE STATE OF MICHIGAN OF 1963)$', tag = "title", rank = 1, id = "", heading = "self" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }   # name: next centred line
+schedule = { match = '^(?P<heading>SCHEDULE AND TEMPORARY PROVISIONS)$', tag = "level", rank = 2, id = "schedule", heading = "self" }
+
+[MI.const.sections]
+match = '^§\s*(?P<num>\d+[a-z]?)\s+(?P<heading>.+)$'   # the catchline row opens the section
+lead  = '^Sec\.\s+\d+[a-z]?\.\s*'              # "Sec. 27. (1) ...": the restated number is text, (1) opens a level
+bold  = false
+scope = "container"                            # numbers restart per article
+
+[MI.const.notes]
+sourceCredit  = '^History:'
+editorialNote = ["^Compiler’s note:", "^Compiler's note:", "^Former constitution:"]
+
+# ---------------------------------------------------------------- Michigan Compiled Laws (HTML per chapter)
+# /Laws/ChapterIndex lists 241 objects: mcl-chapN, and ranges kept as one object where one act spans several chapters
+# (mcl-chapters-61-75 = the General Law Village Act, 61.1-75.12). Each object's /Home/Document?objectName=mcl-<obj> page
+# offers "HTML Version" /Home/RenderDoc?objectName=mcl-<obj> and "PDF Version" /documents/mcl/pdf/MCL-<OBJ>.pdf.
+# Batch 4c: the RenderDoc HTML is the source the PDF is printed from (same @page footer text), with the structure in
+# classes, so it is used instead of the PDF (pdf-text glued every column-0 "History:" line into the section text):
+#   div.chapterWrapper > div.chapterHeading  h1.h1 "Chapter 26" + h2.h2 "SUPREME COURT REPORTS"
+#   div.statuteWrapper > div.statuteHeading  h1.h2 act name + h2.h3 "Act 385 of 1927"; p title; div.editorials
+#   div.divisionWrapper > div.divisionHeading  parts / chapters inside an act (h?.h3..h5)
+#   div.sectionWrapper  h1.h4 "26.1 Catchline."; p "Sec. 1."; p text (labels lead, &nbsp; indent); div.editorials
+#                       p: "<b>History:</b> ...<br><b>Former Law:</b> ..."
+# Items are the object names as the site spells them (chap26, chapters-61-75);
+# mcl-chap1 (the Constitution) is MI.const.
+[MI.mcl]
+name    = "Michigan Compiled Laws"
+title   = "Michigan Compiled Laws"
+doc     = "/us-mi/mcl"                         # /us-mi/mcl/ch26/act1927-385/s26.1
+fetch   = "template"
+url     = "https://legislature.mi.gov/Home/RenderDoc?objectName=mcl-{item}"
+item    = "%s"
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+items   = ["chap2", "chap3", "chap4", "chap5", "chap6", "chap8", "chap10", "chap11", "chap12", "chap13", "chap14",
+           "chap15", "chap16", "chap17", "chap18", "chap19", "chap21", "chap24", "chap26", "chap28", "chap29",
+           "chap30", "chap31", "chap32", "chap33", "chap35", "chap36", "chap37", "chap38", "chap41", "chap42",
+           "chap43", "chap45", "chap46", "chap47", "chap48", "chap49", "chap50", "chap51", "chap52", "chap53",
+           "chap54", "chap55", "chapters-61-75", "chap78", "chap79", "chapters-81-113", "chap115", "chap117",
+           "chap119", "chap120", "chap121", "chap123", "chap124", "chap125", "chap128", "chap129",
+           "chapters-131-139", "chap141", "chap168", "chap169", "chap200", "chap201", "chap205", "chap206",
+           "chap207", "chap208", "chap209", "chap211", "chap213", "chapters-220-244", "chap247", "chap249",
+           "chap250", "chap252", "chap253", "chap254", "chap255", "chap256", "chap257", "chap259", "chap260",
+           "chapters-261-278b", "chap279", "chap280", "chap281", "chap282", "chap285", "chap286", "chap287",
+           "chap288", "chap289", "chap290", "chap291", "chap295", "chap299", "chap300", "chapters-301-306",
+           "chap307", "chap308", "chapters-311-315", "chap316", "chap317", "chap318", "chap319", "chap320",
+           "chap321", "chap322", "chap323", "chap324", "chap325", "chap326", "chap327", "chap328", "chap329",
+           "chap330", "chap331", "chap332", "chap333", "chap335", "chap336", "chap338", "chap339", "chap340",
+           "chapters-341-386", "chap380", "chap388", "chap389", "chap390", "chap393", "chap395", "chap397",
+           "chap399", "chap400", "chapters-401-403", "chap404", "chap408", "chap409", "chap418", "chap419",
+           "chap421", "chap423", "chap425", "chap426", "chap427", "chap429", "chap430", "chap431", "chap432",
+           "chap433", "chap434", "chap435", "chap436", "chap438", "chap439", "chap440", "chap441", "chap442",
+           "chap443", "chap444", "chap445", "chap446", "chap447", "chap449", "chap450", "chap451", "chap453",
+           "chap454", "chap455", "chap456", "chap457", "chap458", "chap460", "chap462", "chapters-463-467",
+           "chap468", "chap469", "chap470", "chap471", "chap472", "chap473", "chap474", "chapters-475-479",
+           "chap480", "chap482", "chap483", "chap484", "chap485", "chap486", "chap487", "chap488", "chap489",
+           "chap490", "chap491", "chap492", "chap493", "chap494", "chap500", "chapters-501-548", "chap550",
+           "chap551", "chap552", "chap554", "chap555", "chap556", "chap557", "chap558", "chap559", "chap560",
+           "chap561", "chap564", "chap565", "chap566", "chap567", "chap570", "chap600", "chap691", "chap692",
+           "chap700", "chapters-701-713", "chap720", "chap722", "chap725", "chap726", "chap727", "chap728",
+           "chap729", "chap730", "chap750", "chap752", "chapters-760-777", "chap780", "chap791", "chap798",
+           "chap800", "chap801", "chap802", "chap803", "chap804", "chap830"]
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (240) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "chap2", "chap3", "chap4", "chap5", "chap6", "chap8", "chap10", "chap11", "chap12", "chap13", "chap14",
+  "chap15", "chap16", "chap17", "chap18", "chap19", "chap21", "chap24", "chap26", "chap28", "chap29", "chap30",
+  "chap31", "chap32", "chap33", "chap35", "chap36", "chap37", "chap38", "chap41", "chap42", "chap43", "chap45",
+  "chap46", "chap47", "chap48", "chap49", "chap50", "chap51", "chap52", "chap53", "chap54", "chap55",
+  "chapters-61-75", "chap78", "chap79", "chapters-81-113", "chap115", "chap117", "chap119", "chap120", "chap121",
+  "chap123", "chap124", "chap125", "chap128", "chap129", "chapters-131-139", "chap141", "chap168", "chap169",
+  "chap200", "chap201", "chap205", "chap206", "chap207", "chap208", "chap209", "chap211", "chap213",
+  "chapters-220-244", "chap247", "chap249", "chap250", "chap252", "chap253", "chap254", "chap255", "chap256",
+  "chap257", "chap259", "chap260", "chapters-261-278b", "chap279", "chap280", "chap281", "chap282", "chap285",
+  "chap286", "chap287", "chap288", "chap289", "chap290", "chap291", "chap295", "chap299", "chap300",
+  "chapters-301-306", "chap307", "chap308", "chapters-311-315", "chap316", "chap317", "chap318", "chap319",
+  "chap320", "chap321", "chap322", "chap323", "chap324", "chap325", "chap326", "chap327", "chap328", "chap329",
+  "chap330", "chap331", "chap332", "chap333", "chap335", "chap336", "chap338", "chap339", "chap340",
+  "chapters-341-386", "chap380", "chap388", "chap389", "chap390", "chap393", "chap395", "chap397", "chap399",
+  "chap400", "chapters-401-403", "chap404", "chap408", "chap409", "chap418", "chap419", "chap421", "chap423",
+  "chap425", "chap426", "chap427", "chap429", "chap430", "chap431", "chap432", "chap433", "chap434", "chap435",
+  "chap436", "chap438", "chap439", "chap440", "chap441", "chap442", "chap443", "chap444", "chap445", "chap446",
+  "chap447", "chap449", "chap450", "chap451", "chap453", "chap454", "chap455", "chap456", "chap457", "chap458",
+  "chap460", "chap462", "chapters-463-467", "chap468", "chap469", "chap470", "chap471", "chap472", "chap473",
+  "chap474", "chapters-475-479", "chap480", "chap482", "chap483", "chap484", "chap485", "chap486", "chap487",
+  "chap488", "chap489", "chap490", "chap491", "chap492", "chap493", "chap494", "chap500", "chapters-501-548",
+  "chap550", "chap551", "chap552", "chap554", "chap555", "chap556", "chap557", "chap558", "chap559", "chap560",
+  "chap561", "chap564", "chap565", "chap566", "chap567", "chap570", "chap600", "chap691", "chap692", "chap700",
+  "chapters-701-713", "chap720", "chap722", "chap725", "chap726", "chap727", "chap728", "chap729", "chap730",
+  "chap750", "chap752", "chapters-760-777", "chap780", "chap791", "chap798", "chap800", "chap801", "chap802",
+  "chap803", "chap804", "chap830"
+]
+
+[MI.mcl.html]
+root     = "main"                              # the @page footer is CSS; <footer> "Rendered ..." is outside main
+blocks   = ["p", "h1", "h2", "h3", "h4", "h5", "h6", "div[style*=font-variant:italic]"]   # last: "The People of the State of Michigan enact:"
+headings = [".h1", ".h2", ".h3", ".h5", ".h6"] # chapter / act / division headings (.h4 = section rows)
+opening  = []
+verbatim = ["table"]                           # schedules and rate tables (211.7b, 211.34c) taken whole
+loose    = ["div.sectionWrapper"]               # text after a table: the source opens a table inside a <p>, the parser closes
+                                               # the <p> there, and the rest ("(d) A claimant ...") is bare text in the section
+split_br = ["p"]                               # editorials: History / Former Law / Transfer of Power lines split by <br>
+nested   = true                                # split_br puts p.br-line inside the p: read the inner ones
+
+[MI.mcl.ladder]
+types = ["num", "lower", "roman_lower", "upper", "roman_upper"]   # (1)(a)(i)(A)(I)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[MI.mcl.containers]
+# "Chapter N" names two levels: the MCL chapter (h1.h1, once, top of the file) and an act's own chapters inside
+# div.divisionHeading ("Chapter 1" as h1.h3 in act 281 of 1967, h1.h2 in R.S. of 1846 -- the h-level is not
+# stable below h1). rank_class 'h(1)' ranks only the h1 row as 1; every other "Chapter N" takes rank 3.
+# The bare row only: R.S. of 1846 follows "Chapter 1" with "CHAPTER 1. OF THE STATUTES." -- that is the name.
+# Act divisions: act 2 > article 2.4 > part 2.5 > chapter 3 > subchapter 3.5 (floats allowed; UCC-style ARTICLE > PART
+# assumed -- the true nesting is in the divisionWrapper divs, see status).
+chapter    = { match = '(?i)^chapter\s+(?P<num>\d+[A-Z]?)$', tag = "chapter", rank = 3, rank_class = 'h(1)', id = "ch{num}" }
+# the act's name comes BEFORE "Act N of YYYY" (h1.h2 then h2.h3) and stays a crossHeading; see status (shared need)
+act        = { match = '^(?P<heading>Act\s+(?P<num>\d+)\s+of\s+(?P<year>\d{4}))$', tag = "level", rank = 2, id = "act{year}-{num}", heading = "self" }
+revised    = { match = '^(?P<heading>R\.\s?S\.\s+of\s+(?P<year>\d{4}))$', tag = "level", rank = 2, id = "rs{year}", heading = "self" }   # Revised Statutes of 1846
+article    = { match = '(?i)^article\s+(?P<num>\d+[A-Z]?)$', tag = "article", rank = 2.4, id = "ar{num}" }
+part       = { match = '(?i)^part\s+(?P<num>\d+[A-Z]?)$', tag = "part", rank = 2.5, id = "pt{num}" }
+subchapter = { match = '(?i)^subchapter\s+(?P<num>\d+[A-Z]?)$', tag = "subchapter", rank = 3.5, id = "sch{num}" }
+
+[MI.mcl.sections]
+# h1.h4 "26.1 Michigan reports ...", also lists and ranges of repealed sections "206.32, 206.34 Repealed. ..." and
+# "206.116-206.120 Repealed. ..." (one section each, the number kept as printed)
+match = '^(?P<num>\d+[A-Za-z]?\.\d+[A-Za-z]*(?:\s*(?:,|-|to)\s*\d+[A-Za-z]?\.\d+[A-Za-z]*)*)\s+(?P<heading>.+)$' 
+class = "h4"                                   # only the section rows open a section
+bold  = false
+scope = "title"
+
+[MI.mcl.notes]
+sourceCredit  = '^History:'
+editorialNote = ["^Compiler’s note:", "^Compiler's note:", "^Former Law:", "^Transfer of Power:", "^Popular Name:", "^Constitutionality:"]

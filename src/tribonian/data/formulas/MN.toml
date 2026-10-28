@@ -1,0 +1,210 @@
+# MN.toml -- Minnesota: Minnesota Statutes (MN.stat) and the Constitution of the State of Minnesota (MN.const).
+#
+# Source: www.revisor.mn.gov (Office of the Revisor of Statutes; "Official Publication of the State of
+# Minnesota"). robots.txt allows /statutes/ and /constitution/.
+#
+# Statutes: 105 "parts" (/statutes/part/<NAME>) list the chapters (1, 2A, 3E, 116J, 609 ...). Each chapter has
+#   /statutes/cite/<ch>        table of sections only (no text)
+#   /statutes/cite/<ch>/full   "Full Chapter Text": every section of the chapter on one page  <- the item
+#   /statutes/cite/<ch>.<sec>  one section
+# The /full page (checked on chapters 1 and 645), inside div#xtend.statute > div.col-sm:
+#   <h2 class="chapter_title">CHAPTER 645. INTERPRETATION OF STATUTES</h2>
+#   <div id="chapter_analysis"><table><caption>Table of Sections</caption> header row, one tr per section,
+#       tr.fgh "GENERAL PROVISIONS" group rows </table></div>
+#   <h1 class="fgh">GENERAL PROVISIONS</h1>                     first-grade heading between sections (cross heading)
+#   <div class="section"><h1 class="shn">645.01 WORDS AND PHRASES.</h1>
+#      <div class="subd"><a class="permalink">§</a><h2 class="subd_no">Subdivision 1.<span class="headnote">Scope.</span></h2><p>..</p></div>
+#      <p class="ce"> centered lines of a quoted compact; <p class="bl"> flush text after a list
+#   </div>
+#   <div class="history"><h2>History: </h2><p class="first">1981 c 253 s 35</p></div>
+#   <div class="sr"><b>1.14</b> [Repealed, 1961 c 561 s 17]</div>     a repealed / renumbered section stub
+#   <div class="sr_by_subd"><h1>116J.89 </h1><div class="subd">..[Renumbered 116M.06, subd 1]..</div>...</div>
+# Numbering inside a section: Subdivision 1. / Subd. 2. -> (a) paragraph -> (1) clause -> (i) item -> (A) subitem.
+
+[MN.stat]
+name    = "Minnesota Statutes"
+doc     = "/us-mn/stat"                      # /us-mn/stat/ch645/s645.44/subd5/a (section numbers are unique statewide)
+fetch   = "template"
+url     = "https://www.revisor.mn.gov/statutes/cite/{item}/full"
+edition = 2025                               # the site shows the 2025 statutes
+item    = "%s"                               # chapter as printed: 1, 2A, 116J, 609 (no padding)
+file    = "chapter-{item}.htm"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "Official publication of the State of Minnesota, Revisor of Statutes"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1133) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "2A", "3", "3A", "3B", "3C", "3D", "3E", "4", "4A", "5", "5A", "5B", "6", "7", "8", "9", "10", "10A",
+  "11", "11A", "12", "12A", "12B", "13", "13A", "13B", "13C", "13D", "14", "15", "15A", "15B", "15C", "15D", "16",
+  "16A", "16B", "16C", "16D", "16E", "17", "17A", "17B", "18", "18A", "18B", "18C", "18D", "18E", "18F", "18G",
+  "18H", "18J", "18K", "19", "20", "21", "21A", "22", "23", "24", "25", "26", "27", "28", "28A", "29", "30", "31",
+  "31A", "31B", "32", "32A", "32B", "32C", "32D", "33", "34", "34A", "35", "36", "37", "38", "39", "40", "40A",
+  "41", "41A", "41B", "41C", "41D", "42", "43", "43A", "44", "44A", "45", "45A", "46", "46A", "47", "48", "48A",
+  "49", "50", "51", "51A", "52", "53", "53A", "53B", "53C", "54", "55", "56", "58", "58A", "58B", "59", "59A",
+  "59B", "59C", "59D", "60", "60A", "60B", "60C", "60D", "60E", "60F", "60G", "60H", "60J", "60K", "60L", "60M",
+  "61", "61A", "61B", "62", "62A", "62B", "62C", "62D", "62E", "62F", "62G", "62H", "62I", "62J", "62K", "62L",
+  "62M", "62N", "62P", "62Q", "62R", "62S", "62T", "62U", "62V", "62W", "63", "64", "64A", "64B", "65", "65A",
+  "65B", "66", "66A", "67", "67A", "68", "68A", "69", "70", "70A", "71", "71A", "72", "72A", "72B", "72C", "73",
+  "74", "75", "76", "77", "79", "79A", "80", "80A", "80B", "80C", "80D", "80E", "80F", "80G", "81", "81A", "82",
+  "82A", "82B", "82C", "83", "83A", "84", "84A", "84B", "84C", "84D", "85", "85A", "85B", "86", "86A", "86B",
+  "87", "87A", "88", "89", "89A", "90", "91", "92", "93", "94", "97", "97A", "97B", "97C", "98", "99", "100",
+  "101", "102", "103A", "103B", "103C", "103D", "103E", "103F", "103G", "103H", "103I", "104", "105", "106",
+  "106A", "107", "108", "109", "110", "110A", "110B", "111", "112", "113", "114", "114A", "114B", "114C", "114D",
+  "114E", "115", "115A", "115B", "115C", "115D", "115E", "116", "116A", "116B", "116C", "116D", "116E", "116F",
+  "116G", "116H", "116I", "116J", "116K", "116L", "116M", "116N", "116O", "116P", "116Q", "116R", "116S", "116T",
+  "116U", "116V", "116W", "116X", "117", "118", "118A", "119", "119A", "119B", "120", "120A", "120B", "121",
+  "121A", "122", "122A", "123", "123A", "123B", "124", "124A", "124B", "124C", "124D", "124E", "124F", "125",
+  "125A", "125B", "126", "126A", "126B", "126C", "127", "127A", "128", "128A", "128B", "128C", "128D", "129",
+  "129A", "129B", "129C", "129D", "130", "131", "132", "133", "134", "134A", "135", "135A", "136", "136A", "136B",
+  "136C", "136D", "136E", "136F", "136G", "137", "138", "138A", "139", "140", "141", "142", "142A", "142B",
+  "142C", "142D", "142E", "142F", "142G", "144", "144A", "144B", "144C", "144D", "144E", "144F", "144G", "144H",
+  "145", "145A", "145B", "145C", "145D", "146", "146A", "146B", "147", "147A", "147B", "147C", "147D", "147E",
+  "147F", "148", "148A", "148B", "148C", "148D", "148E", "148F", "148G", "149", "149A", "150", "150A", "151",
+  "152", "152A", "153", "153A", "153B", "154", "155", "155A", "156", "156A", "157", "158", "159", "160", "161",
+  "162", "163", "164", "165", "166", "167", "168", "168A", "168B", "168C", "168D", "168E", "169", "169A", "170",
+  "171", "172", "173", "174", "174A", "175", "175A", "176", "176A", "176B", "177", "178", "179", "179A", "180",
+  "181", "181A", "181B", "181C", "182", "182A", "183", "184", "184A", "184B", "185", "186", "187", "190", "191",
+  "192", "192A", "193", "194", "195", "196", "197", "198", "200", "201", "202", "202A", "203", "203A", "203B",
+  "204", "204A", "204B", "204C", "204D", "205", "205A", "206", "207", "207A", "208", "209", "209A", "210", "210A",
+  "211", "211A", "211B", "211C", "212", "214", "215", "216", "216A", "216B", "216C", "216D", "216E", "216F",
+  "216G", "216H", "216I", "217", "218", "219", "220", "221", "222", "223", "223A", "224", "225", "226", "227",
+  "228", "229", "230", "231", "232", "233", "234", "235", "236", "236A", "237", "238", "239", "240", "240A",
+  "241", "242", "243", "244", "245", "245A", "245B", "245C", "245D", "245E", "245F", "245G", "245H", "245I",
+  "246", "246A", "246B", "246C", "247", "248", "249", "250", "251", "252", "252A", "253", "253A", "253B", "253C",
+  "253D", "254", "254A", "254B", "255", "256", "256A", "256B", "256C", "256D", "256E", "256F", "256G", "256H",
+  "256I", "256J", "256K", "256L", "256M", "256N", "256P", "256Q", "256R", "256S", "257", "257A", "257B", "257C",
+  "257D", "257E", "258", "259", "259A", "260", "260A", "260B", "260C", "260D", "260E", "261", "262", "263", "264",
+  "265", "267", "268", "268A", "268B", "269", "270", "270A", "270B", "270C", "271", "272", "273", "274", "275",
+  "276", "276A", "277", "278", "279", "280", "281", "282", "283", "284", "285", "286", "287", "288", "289",
+  "289A", "290", "290A", "290B", "290C", "291", "292", "293", "294", "295", "296", "296A", "297", "297A", "297B",
+  "297C", "297D", "297E", "297F", "297G", "297H", "297I", "298", "299", "299A", "299B", "299C", "299D", "299E",
+  "299F", "299G", "299H", "299I", "299J", "299K", "299L", "299M", "299N", "300", "301", "301A", "301B", "302",
+  "302A", "303", "304", "304A", "305", "306", "307", "308", "308A", "308B", "308C", "309", "310", "311", "312",
+  "313", "314", "315", "316", "317", "317A", "318", "319", "319A", "319B", "321", "322", "322A", "322B", "322C",
+  "323", "323A", "324", "325", "325A", "325B", "325C", "325D", "325E", "325F", "325G", "325H", "325I", "325J",
+  "325K", "325L", "325M", "325N", "326", "326A", "326B", "327", "327A", "327B", "327C", "328", "329", "330",
+  "331", "331A", "332", "332A", "332B", "332C", "333", "334", "335", "336", "336A", "336B", "337", "338", "340",
+  "340A", "341", "342", "343", "344", "345", "346", "347", "348", "349", "349A", "349B", "350", "351", "352",
+  "352A", "352B", "352C", "352D", "352E", "352F", "353", "353A", "353B", "353C", "353D", "353E", "353F", "353G",
+  "354", "354A", "354B", "354C", "354D", "355", "356", "356A", "356B", "357", "358", "359", "360", "361", "361A",
+  "362", "362A", "363", "363A", "364", "365", "365A", "366", "367", "368", "370", "371", "372", "373", "374",
+  "375", "375A", "375B", "376", "377", "378", "379", "380", "381", "382", "383", "383A", "383B", "383C", "383D",
+  "383E", "384", "385", "386", "387", "388", "389", "390", "391", "392", "393", "394", "395", "396", "397", "398",
+  "398A", "399", "400", "401", "402", "402A", "403", "410", "411", "412", "413", "414", "415", "416", "418",
+  "419", "420", "421", "422", "422A", "423", "423A", "423B", "423C", "424", "424A", "424B", "425", "426", "427",
+  "428", "428A", "428B", "429", "430", "431", "432", "433", "434", "435", "436", "437", "438", "439", "440",
+  "441", "442", "442A", "443", "444", "445", "446", "446A", "447", "448", "449", "450", "451", "452", "453",
+  "453A", "454", "455", "456", "457", "457A", "458", "458A", "458B", "458C", "458D", "459", "460", "461", "462",
+  "462A", "462B", "462C", "462D", "463", "465", "466", "466A", "469", "470", "471", "471A", "472", "472A", "472B",
+  "473", "473A", "473B", "473C", "473D", "473E", "473F", "473G", "473H", "473I", "473J", "474", "474A", "475",
+  "475A", "476", "477", "477A", "477B", "477C", "480", "480A", "480B", "481", "482", "483", "484", "485", "486",
+  "487", "488", "488A", "489", "490", "490A", "491", "491A", "492", "493", "494", "500", "501", "501A", "501B",
+  "501C", "502", "503", "504", "504A", "504B", "505", "507", "508", "508A", "509", "510", "511", "512", "513",
+  "514", "515", "515A", "515B", "517", "518", "518A", "518B", "518C", "518D", "518E", "518F", "519", "519A",
+  "520", "521", "521A", "522", "523", "524", "525", "525A", "526", "527", "528", "529", "530", "531", "532",
+  "540", "541", "542", "543", "544", "545", "546", "547", "548", "549", "550", "551", "552", "553", "554", "555",
+  "556", "557", "558", "558A", "559", "559A", "560", "561", "562", "563", "565", "566", "570", "571", "572",
+  "572A", "572B", "573", "574", "575", "576", "577", "578", "579", "580", "581", "582", "583", "585", "586",
+  "587", "588", "589", "590", "593", "595", "596", "597", "598", "599", "600", "601", "602", "603", "604", "604A",
+  "604B", "605", "606", "607", "609", "609A", "609B", "610", "611", "611A", "612", "613", "614", "615", "616",
+  "617", "618", "619", "620", "621", "622", "623", "624", "625", "626", "626A", "627", "628", "629", "630", "631",
+  "632", "633", "634", "636", "637", "638", "640", "641", "642", "643", "645", "646", "648"
+]
+
+[MN.stat.html]
+root     = "div#xtend"                       # the law; the "Resources" box, header and footer are outside
+# h1.shn section number + headnote; h1.fgh a first-grade heading; h2.subd_no "Subdivision 1.Scope.";
+# h2 "History: " label; p text and history citations; tr one table-of-sections row; div.sr a repealed stub
+blocks   = ["h1", "h2", "p", "tr", "caption", "div.sr"]
+headings = ["h2.chapter_title", "h1.fgh"]
+opening  = ["h1", "b"]                       # the section opening: h1.shn, the plain h1 of div.sr_by_subd ("116J.89 ":
+                                             # a section whose subdivisions are all renumbered/repealed), or the
+                                             # <b>1.14</b> of a stub; h1.fgh never matches the section regex
+                                             # (table-of-sections rows have neither, so they never open a section)
+loose    = ["div.col-sm"]                    # chapter 1: the first-grade heading "SOVEREIGNTY, JURISDICTION, ..." is
+                                             # bare text after the table of sections (no h1.fgh): a block of its own
+drop     = ["a.permalink"]                   # the "§" permalink before every subdivision number
+
+[MN.stat.ladder]
+# inside a subdivision (or a section without subdivisions): (a) paragraph, (1) clause, (i) item, (A) subitem
+# Not a fixed order in practice: (a)(1)(i)(A) is the norm, but 609.52 subd. 3 runs (1)(a)(i) and 609.341-.347 run
+# (a)(i) with no clause between. Each level takes the types seen there; the ladder picks by sequence.
+types = [["lower", "num"], ["num", "roman_lower", "lower"], ["roman_lower", "upper"], "upper"]
+tags  = ["paragraph", "clause", "subparagraph", "subclause"]
+
+[MN.stat.containers]
+chapter = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)\.\s+(?P<heading>.+)$', tag = "chapter", rank = 2, id = "ch{num}" }   # "CHAPTER 1. NAME" in one line
+
+[MN.stat.sections]
+# "645.01 WORDS AND PHRASES." (h1.shn) or "1.14" (the stub's <b>; the rest "[Repealed, ...]" stays as body)
+match   = '^(?P<num>\d+[A-Z]?\.\d+)(?:\s+(?P<heading>.*))?$'
+bold    = true                               # matched on the opening run
+decimal = true                               # 1.0431 sorts between 1.043 and 1.044
+scope   = "title"
+versions = '^MS \d{4}\b'                    # "648.39 MS 1969 [Repealed ...]" then "648.39 MS 1982 [Repealed ...]": two
+                                             # historical sections of one number; the second is kept as a version
+# Subdivisions: "Subdivision 1.Scope." / "Subd. 2a.Name." (h2.subd_no). A group opens a level inside the
+# section; (a)(1)(i)(A) restart under it: /us-mn/stat/ch645/s645.44/subd5/a. (num + heading in one num text
+# until the shared group heading split exists)
+group    = '^(?:Subdivision|Subd\.)\s+(?P<num>\d+[a-z]?)\.'
+group_id = "subd{num}"
+outdent  = [{ class = "bl" }]                # p.bl: flush text after a list ("and shall declare ..." in 1.046) goes
+                                             # back to the section (or subdivision), not into the last item
+# the chapter's table of sections: caption, header row, section rows ("1.01 EXTENT.", "645.03 [Repealed, ...]"),
+# all-caps group rows (tr.fgh "GENERAL PROVISIONS")
+toc     = ['^Table of Sections$', '^Section\s*Headnote$', '^\d+[A-Z]?\.\d+\s*\S', "^[A-Z][A-Z0-9 ,;:&'()-]+$"]
+
+[MN.stat.notes]
+sourceCredit = '^History:\s*$'              # the h2 label; its p.first holds the session-law citations
+# first-grade headings end the open History note and stand as cross headings between sections
+close        = [{ class = "fgh", heading = true }, { class = "loose" }]
+
+# ---------------------------------------------------------------- Constitution of the State of Minnesota
+# /constitution/ : the whole constitution on one page. div#xtend.constitution holds:
+#   p.ce "Adopted October 13, 1857" / "Generally Revised November 5, 1974"; a table of articles;
+#   <h2>Preamble</h2><p class="in">...</p>
+#   <div class="article"><h2>ARTICLE I</h2><h2 class="header">BILL OF RIGHTS</h2>
+#     <div class="section"><h3 class="section_no">Section 1. <span class="headnote">Object of government.</span></h3>
+#       <p class="first">..</p> <p class="in">(a) ..</p> <div class="note"><p class="first">[Amended, November 8, 1988]</p></div>
+[MN.const]
+name    = "Constitution of the State of Minnesota"
+doc     = "/us-mn/const"                     # /us-mn/const/a1/s7
+fetch   = "template"
+url     = "https://www.revisor.mn.gov/constitution/"
+items   = ["full"]                           # always the one page
+file    = "constitution-{item}.htm"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "Official publication of the State of Minnesota, Revisor of Statutes"
+
+[MN.const.html]
+root     = "div#xtend"
+blocks   = ["p", "h2", "h3", "tr"]           # tr: one row of the article list at the top
+loose    = ["div.article"]                   # art. X: "Sec. 7. " is bare text between two sections (the repealed
+                                             # section's number; its p.first "[Repealed, November 5, 1974]" follows)
+headings = ["h2"]                            # "Preamble", "ARTICLE I", and the article name (h2.header)
+opening  = []
+
+[MN.const.ladder]
+types = ["lower", "num", "roman_lower", "upper"]   # art. XI sec. 5 (a)..(j)
+tags  = ["paragraph", "subparagraph", "clause", "subclause"]
+
+[MN.const.containers]
+preamble = { match = '^(?P<heading>Preamble)$', tag = "level", rank = 2, id = "preamble" }   # "CHAPTER 1. NAME" in one line
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[MN.const.sections]
+match = '^(?:Section|Sec\.)\s+(?P<num>\d+[a-z]?)\.\s*(?P<heading>.*)$'   # the h3: "Section 1. Object of government."
+bold  = false
+scope = "container"                          # numbers restart per article
+# art. XI sec. 5: the closing sentence after items (a)..(j) is a p.in like the items; it belongs to the section
+outdent = ['^As authorized by law political subdivisions may engage']
+
+[MN.const.notes]
+sourceCredit = '^\[(?:Amended|Adopted|Repealed|Renumbered)'   # "[Amended, November 8, 1988]" (div.note)
+# Front matter before the preamble (no section open): "Adopted October 13, 1857" / "Generally Revised November 5,
+# 1974" (p.ce) -> one enactment note; then the article list (one tr per article) -> one toc note. Each note opens
+# on its first line only; the lines after it join the open note (notes run to the next container).
+note         = [{ class = "ce", match = '^Adopted ', topic = "enactment" }, { match = '^Article 1\.', topic = "toc" }]

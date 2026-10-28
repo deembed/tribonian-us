@@ -1,0 +1,386 @@
+# ND.toml -- North Dakota Century Code (N.D.C.C.) and the North Dakota Constitution.
+#
+# Source: North Dakota Legislative Council, ndlegis.gov. The official text is one PDF per chapter
+# (https://www.ndlegis.gov/cencode/t01c01.pdf). The title pages (cencode/t01.html) also link "1-01 Sections"
+# (cencode/t01c01.html): believed to be a section LIST linking into the PDF, not text -- a probe is queued in
+# ND.txt to confirm; if it turns out to hold the text, switch to it (HTML preferred).
+# Item = the PDF's base name: t01c01, t04-1c01-1 (title 4.1, chapter 4.1-01.1). Full list: the 2532 cencode/*.pdf
+# links on general-information/north-dakota-century-code/index.html (see ND.txt items:).
+#
+# pdftotext -layout shape (probe cencode_t01c01.pdf):
+#   TITLE 1 / GENERAL PROVISIONS / CHAPTER 1-01 / GENERAL PRINCIPLES AND DEFINITIONS   centred lines (col ~40)
+#   "    1-01-01. This act - How referred to."   section line: number + catchline, own line
+#   "    This revision, whenever cited, ..."      first line indented like the section line (3-5 cols, varies by
+#   "the "North Dakota Century Code". ..."         page), continuation lines at the left margin (col 0)
+#   "   1. The Constitution ..." / "        what is known"   labels at the paragraph indent; a label's wrapped
+#                                                  lines hang deeper (col ~8)
+#   "Page No. 1"                                    centred footer, dropped
+# Indentation is NOT a level hint (1. and a. sit at the same column), so the ladder goes by label type only.
+
+[ND.cc]
+name    = "North Dakota Century Code"
+doc     = "/us-nd/cc"                        # /us-nd/cc/t1/s1-01-49/21/a
+fetch   = "template"
+url     = "https://www.ndlegis.gov/cencode/{item}.pdf"
+file    = "{item}.pdf"
+title_id = ['^t0*(.*)$', 't\1']               # file identifier = the item: t1c01, t4-1c01-1 (one file per chapter)
+family  = "html-paragraphs"
+transform = "pdf-text"
+encoding = "utf-8"
+terms   = "none stated; Legislative Council publication"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (2532) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "t01c01", "t01c02", "t01c03", "t01c04", "t01c05", "t01c06", "t01c07", "t01c08", "t02c01", "t02c02", "t02c03",
+  "t02c04", "t02c05", "t02c06", "t02c07", "t02c08", "t03c01", "t03c02", "t03c03", "t03c04", "t03c05", "t03c06",
+  "t04-1c01-1", "t04-1c01", "t04-1c02", "t04-1c03", "t04-1c04", "t04-1c05", "t04-1c06", "t04-1c07", "t04-1c08",
+  "t04-1c09", "t04-1c10", "t04-1c11", "t04-1c12", "t04-1c13", "t04-1c14", "t04-1c15", "t04-1c16", "t04-1c17",
+  "t04-1c18-1", "t04-1c18", "t04-1c19", "t04-1c20", "t04-1c21", "t04-1c22", "t04-1c23", "t04-1c25", "t04-1c26",
+  "t04-1c27", "t04-1c28", "t04-1c30", "t04-1c31", "t04-1c32", "t04-1c33", "t04-1c34", "t04-1c35", "t04-1c36",
+  "t04-1c37", "t04-1c38", "t04-1c39", "t04-1c40-1", "t04-1c40", "t04-1c41", "t04-1c43", "t04-1c44", "t04-1c45",
+  "t04-1c47", "t04-1c48", "t04-1c52", "t04-1c53", "t04-1c54", "t04-1c55", "t04-1c56", "t04-1c57", "t04-1c58",
+  "t04-1c59", "t04-1c60", "t04-1c61", "t04-1c72", "t04-1c73", "t04-1c74", "t04-1c75", "t04-1c76", "t04-1c83",
+  "t04-1c84", "t04-1c88", "t04-1c89", "t04c01", "t04c02-1", "t04c02", "t04c03", "t04c04", "t04c05-1", "t04c05",
+  "t04c06", "t04c07", "t04c08", "t04c09-1", "t04c09", "t04c10-1", "t04c10-2", "t04c10-3", "t04c10-4", "t04c10-5",
+  "t04c10-6", "t04c10-7", "t04c10", "t04c10a", "t04c11-1", "t04c11", "t04c12-1", "t04c12-2", "t04c12-3", "t04c12",
+  "t04c13-1", "t04c13-2", "t04c13", "t04c14-1", "t04c14-2", "t04c14", "t04c15", "t04c16", "t04c17", "t04c18-1",
+  "t04c18", "t04c18a", "t04c18b", "t04c19", "t04c20", "t04c21-1", "t04c21-2", "t04c21", "t04c22", "t04c23",
+  "t04c24", "t04c25", "t04c26", "t04c27", "t04c28-1", "t04c28", "t04c29", "t04c30", "t04c31", "t04c32", "t04c33",
+  "t04c34", "t04c35-1", "t04c35-2", "t04c35", "t04c36", "t04c37", "t04c38", "t04c39", "t04c40", "t04c41",
+  "t04c42", "t04c43", "t04c44", "t05c01", "t05c02", "t05c03", "t05c04", "t06c01", "t06c02", "t06c03", "t06c04",
+  "t06c05-1", "t06c05-2", "t06c05", "t06c06-1", "t06c06-2", "t06c06", "t06c07-1", "t06c07-2", "t06c07",
+  "t06c08-1", "t06c08-2", "t06c08-3", "t06c08-4", "t06c08-5", "t06c08-6", "t06c08", "t06c09-1", "t06c09-10",
+  "t06c09-11", "t06c09-12", "t06c09-13", "t06c09-14", "t06c09-15", "t06c09-16", "t06c09-17", "t06c09-18",
+  "t06c09-2", "t06c09-3", "t06c09-4", "t06c09-5", "t06c09-6", "t06c09-7", "t06c09-8", "t06c09-9", "t06c09",
+  "t06c10", "t06c11", "t06c12", "t06c13", "t06c14", "t06c15", "t07c01", "t08c01", "t08c02", "t08c03", "t08c04",
+  "t08c05", "t08c06", "t08c07", "t08c08", "t08c09", "t08c10", "t08c11-1", "t08c11", "t08c12", "t09c01", "t09c02",
+  "t09c03", "t09c04", "t09c05", "t09c06", "t09c07", "t09c08", "t09c09", "t09c10", "t09c11", "t09c12", "t09c13",
+  "t09c14", "t09c15-1", "t09c15-2", "t09c15", "t09c16", "t10c01-1", "t10c01", "t10c02", "t10c03", "t10c04",
+  "t10c05", "t10c06-1", "t10c06", "t10c07", "t10c08", "t10c09", "t10c10", "t10c11", "t10c12", "t10c13", "t10c14",
+  "t10c15", "t10c16", "t10c17", "t10c18-1", "t10c18", "t10c19-1", "t10c19", "t10c20", "t10c21", "t10c22",
+  "t10c23", "t10c24", "t10c25", "t10c26", "t10c27", "t10c28", "t10c29", "t10c30-1", "t10c30-2", "t10c30-3",
+  "t10c30-4", "t10c30-5", "t10c30-6", "t10c30", "t10c31", "t10c32-1", "t10c32", "t10c33", "t10c34", "t10c35",
+  "t10c36", "t11c01", "t11c02", "t11c03", "t11c04", "t11c05-1", "t11c05", "t11c06", "t11c07", "t11c08",
+  "t11c09-1", "t11c09-2", "t11c09", "t11c10-1", "t11c10-2", "t11c10-3", "t11c10", "t11c11-1", "t11c11", "t11c12",
+  "t11c13", "t11c14", "t11c15", "t11c16", "t11c17", "t11c18", "t11c19-1", "t11c19", "t11c20", "t11c21", "t11c22",
+  "t11c23", "t11c24", "t11c25", "t11c26", "t11c27", "t11c28-1", "t11c28-2", "t11c28-3", "t11c28", "t11c29",
+  "t11c30", "t11c31", "t11c32", "t11c33-1", "t11c33-2", "t11c33", "t11c34", "t11c35", "t11c36", "t11c37",
+  "t11c38", "t11c39", "t12-1c01", "t12-1c02", "t12-1c03", "t12-1c04-1", "t12-1c04", "t12-1c05", "t12-1c06-1",
+  "t12-1c06-2", "t12-1c06", "t12-1c07", "t12-1c08", "t12-1c09", "t12-1c10", "t12-1c11", "t12-1c12", "t12-1c13",
+  "t12-1c14", "t12-1c15", "t12-1c16", "t12-1c17-1", "t12-1c17", "t12-1c18", "t12-1c19-1", "t12-1c19", "t12-1c20",
+  "t12-1c21-1", "t12-1c21", "t12-1c22", "t12-1c23-1", "t12-1c23", "t12-1c24", "t12-1c25", "t12-1c26",
+  "t12-1c27-1", "t12-1c27-2", "t12-1c27", "t12-1c28", "t12-1c29", "t12-1c30", "t12-1c31-1", "t12-1c31-2",
+  "t12-1c31", "t12-1c32", "t12-1c33", "t12-1c34", "t12-1c35", "t12-1c36-1", "t12-1c36", "t12-1c37", "t12-1c38",
+  "t12-1c39", "t12-1c40", "t12-1c41", "t12c01", "t12c02", "t12c03", "t12c04", "t12c05", "t12c06", "t12c07",
+  "t12c08", "t12c09", "t12c10", "t12c11", "t12c12", "t12c13", "t12c14", "t12c15", "t12c16", "t12c17", "t12c18",
+  "t12c19", "t12c20", "t12c21-1", "t12c21", "t12c22", "t12c23", "t12c24", "t12c25", "t12c26", "t12c27", "t12c28",
+  "t12c29", "t12c30", "t12c31", "t12c32", "t12c33", "t12c34", "t12c35", "t12c36", "t12c37", "t12c38", "t12c39",
+  "t12c40", "t12c41", "t12c42", "t12c43", "t12c44-1", "t12c44", "t12c45", "t12c46", "t12c47", "t12c48-1",
+  "t12c48", "t12c49", "t12c50", "t12c51", "t12c52", "t12c53", "t12c54-1", "t12c54", "t12c55-1", "t12c55",
+  "t12c56-1", "t12c56", "t12c57", "t12c58", "t12c59", "t12c60-1", "t12c60", "t12c61", "t12c62", "t12c63",
+  "t12c64", "t12c65", "t12c66", "t12c67-1", "t12c67", "t12c68", "t13c01-1", "t13c01-2", "t13c01", "t13c02-1",
+  "t13c02", "t13c03-1", "t13c03", "t13c04-1", "t13c04", "t13c05", "t13c06", "t13c07", "t13c08", "t13c09-1",
+  "t13c09", "t13c10", "t13c11", "t13c12", "t13c13", "t14c01", "t14c02-1", "t14c02-2", "t14c02-3", "t14c02-4",
+  "t14c02-5", "t14c02-6", "t14c02", "t14c03-1", "t14c03-2", "t14c03", "t14c04", "t14c05", "t14c06-1", "t14c06",
+  "t14c07-1", "t14c07-2", "t14c07-3", "t14c07-4", "t14c07-5", "t14c07-6", "t14c07-7", "t14c07", "t14c08-1",
+  "t14c08", "t14c09-1", "t14c09-2", "t14c09-3", "t14c09-4", "t14c09", "t14c10-1", "t14c10-2", "t14c10", "t14c11",
+  "t14c12-1", "t14c12-2", "t14c12", "t14c13", "t14c14-1", "t14c14-2", "t14c14", "t14c15-1", "t14c15", "t14c16",
+  "t14c17", "t14c18", "t14c19", "t14c20", "t15-1c01", "t15-1c02", "t15-1c03", "t15-1c04-1", "t15-1c04",
+  "t15-1c05", "t15-1c06", "t15-1c07", "t15-1c08", "t15-1c09-1", "t15-1c09", "t15-1c10", "t15-1c11", "t15-1c12",
+  "t15-1c13", "t15-1c14", "t15-1c15", "t15-1c16", "t15-1c17", "t15-1c18-1", "t15-1c18-2", "t15-1c18", "t15-1c19",
+  "t15-1c20", "t15-1c21", "t15-1c22", "t15-1c23", "t15-1c24", "t15-1c25", "t15-1c26", "t15-1c27", "t15-1c28",
+  "t15-1c29", "t15-1c30", "t15-1c31", "t15-1c32", "t15-1c33", "t15-1c34", "t15-1c35", "t15-1c36", "t15-1c37",
+  "t15-1c38", "t15-1c39", "t15-1c40", "t15c01", "t15c02", "t15c03", "t15c04", "t15c05", "t15c06", "t15c07",
+  "t15c08-1", "t15c08-2", "t15c08", "t15c09", "t15c10-1", "t15c10-2", "t15c10-3", "t15c10-4", "t15c10-5",
+  "t15c10-6", "t15c10-7", "t15c10", "t15c11", "t15c12-1", "t15c12", "t15c13", "t15c14", "t15c15", "t15c16",
+  "t15c17", "t15c18-1", "t15c18-2", "t15c18", "t15c19", "t15c20-1", "t15c20-2", "t15c20-3", "t15c20-4", "t15c20",
+  "t15c21-1", "t15c21-2", "t15c21-3", "t15c21", "t15c22", "t15c23", "t15c24", "t15c25", "t15c26", "t15c27-1",
+  "t15c27-2", "t15c27-3", "t15c27-4", "t15c27-5", "t15c27-6", "t15c27-7", "t15c27", "t15c28", "t15c29", "t15c30",
+  "t15c31", "t15c32", "t15c33", "t15c34-1", "t15c34-2", "t15c34", "t15c35", "t15c36", "t15c37", "t15c38-1",
+  "t15c38-2", "t15c38", "t15c39-1", "t15c39-2", "t15c39", "t15c40-1", "t15c40-2", "t15c40-3", "t15c40",
+  "t15c41-1", "t15c41", "t15c42", "t15c43", "t15c44", "t15c45", "t15c46", "t15c47", "t15c48", "t15c49", "t15c50",
+  "t15c51", "t15c52", "t15c53-1", "t15c53", "t15c54-1", "t15c54", "t15c55-1", "t15c55", "t15c56", "t15c57",
+  "t15c58", "t15c59-1", "t15c59-2", "t15c59-3", "t15c59", "t15c60", "t15c61", "t15c62-1", "t15c62-2", "t15c62-3",
+  "t15c62-4", "t15c62-5", "t15c62", "t15c63", "t15c64", "t15c65", "t15c66", "t15c67", "t15c68-1", "t15c68",
+  "t15c69", "t15c70", "t15c71", "t15c72", "t16-1c01", "t16-1c02", "t16-1c03", "t16-1c04", "t16-1c05", "t16-1c06",
+  "t16-1c07", "t16-1c08-1", "t16-1c08", "t16-1c09", "t16-1c10", "t16-1c11-1", "t16-1c11", "t16-1c12", "t16-1c13",
+  "t16-1c14-1", "t16-1c14", "t16-1c15", "t16-1c16", "t16c01", "t16c02", "t16c03", "t16c04", "t16c05", "t16c06",
+  "t16c07", "t16c08", "t16c09", "t16c10", "t16c11", "t16c12", "t16c13", "t16c14", "t16c15", "t16c16", "t16c17",
+  "t16c18", "t16c19", "t16c20", "t16c21-1", "t16c21", "t16c22", "t17c01", "t17c02", "t17c03", "t17c04", "t17c05",
+  "t17c06", "t17c07", "t17c08", "t17c09", "t18c01", "t18c02", "t18c03", "t18c04", "t18c05-1", "t18c05", "t18c06",
+  "t18c07", "t18c08", "t18c09", "t18c10", "t18c11", "t18c12", "t18c13", "t18c14", "t19c01", "t19c02-1", "t19c02",
+  "t19c03-1", "t19c03-2", "t19c03-3", "t19c03-4", "t19c03-5", "t19c03-6", "t19c03", "t19c04", "t19c05-1",
+  "t19c05", "t19c06-1", "t19c06", "t19c07", "t19c08", "t19c09", "t19c10", "t19c11", "t19c12", "t19c13-1",
+  "t19c13", "t19c14", "t19c15", "t19c16-1", "t19c16", "t19c17", "t19c18", "t19c19", "t19c20-1", "t19c20-2",
+  "t19c20-3", "t19c20", "t19c21", "t19c22-1", "t19c22", "t19c23", "t19c24-1", "t19c24", "t20-1c01", "t20-1c02",
+  "t20-1c03", "t20-1c04", "t20-1c05-1", "t20-1c05", "t20-1c06", "t20-1c07", "t20-1c08", "t20-1c09", "t20-1c10",
+  "t20-1c11", "t20-1c12", "t20-1c13-1", "t20-1c13", "t20-1c14", "t20-1c15", "t20-1c16", "t20-1c17", "t20c01",
+  "t21c01", "t21c02-1", "t21c02", "t21c03-1", "t21c03", "t21c04", "t21c05", "t21c06", "t21c07", "t21c08",
+  "t21c09", "t21c10", "t21c11", "t21c12", "t21c13", "t22c01", "t22c02", "t22c03", "t22c04", "t23-1c01",
+  "t23-1c02", "t23-1c03", "t23-1c04-1", "t23-1c04", "t23-1c05", "t23-1c06", "t23-1c07-1", "t23-1c07", "t23-1c08",
+  "t23-1c09", "t23-1c10", "t23-1c11", "t23-1c12", "t23-1c13", "t23-1c14", "t23-1c15", "t23-1c16", "t23c01-1",
+  "t23c01-2", "t23c01-3", "t23c01", "t23c02-1", "t23c02", "t23c03", "t23c04", "t23c05", "t23c06-1", "t23c06-2",
+  "t23c06-3", "t23c06-4", "t23c06-5", "t23c06-6", "t23c06", "t23c07-1", "t23c07-2", "t23c07-3", "t23c07-4",
+  "t23c07-5", "t23c07-6", "t23c07-7", "t23c07", "t23c08", "t23c09-1", "t23c09-2", "t23c09-3", "t23c09-4",
+  "t23c09-5", "t23c09", "t23c10-1", "t23c10", "t23c11", "t23c12", "t23c13", "t23c14", "t23c15-1", "t23c15",
+  "t23c16-1", "t23c16", "t23c17-1", "t23c17-2", "t23c17-3", "t23c17-4", "t23c17-5", "t23c17-6", "t23c17-7",
+  "t23c17", "t23c18-1", "t23c18-2", "t23c18", "t23c19", "t23c20-1", "t23c20-2", "t23c20-3", "t23c20-4",
+  "t23c20-5", "t23c20", "t23c21-1", "t23c21", "t23c22", "t23c23-1", "t23c23", "t23c24", "t23c25", "t23c26",
+  "t23c27-1", "t23c27-2", "t23c27", "t23c28", "t23c29-1", "t23c29", "t23c30", "t23c31", "t23c32", "t23c33",
+  "t23c34", "t23c35-1", "t23c35", "t23c36", "t23c37", "t23c38-1", "t23c38", "t23c39", "t23c40", "t23c41",
+  "t23c42", "t23c43", "t23c44", "t23c45", "t23c46", "t23c47", "t23c48", "t23c49", "t23c50", "t23c51", "t24c01",
+  "t24c01a", "t24c02", "t24c03", "t24c04", "t24c05", "t24c06", "t24c07", "t24c08", "t24c09", "t24c10", "t24c11",
+  "t24c12", "t24c13", "t24c14", "t24c15", "t24c16", "t24c17", "t24c18", "t25c01-1", "t25c01-2", "t25c01-3",
+  "t25c01", "t25c02", "t25c03-1", "t25c03-2", "t25c03-3", "t25c03", "t25c04-1", "t25c04", "t25c05", "t25c06",
+  "t25c07", "t25c08", "t25c09", "t25c10", "t25c11", "t25c12", "t25c13", "t25c14", "t25c15", "t25c16-1",
+  "t25c16-2", "t25c16", "t25c17", "t25c18", "t26-1c01", "t26-1c02-1", "t26-1c02-2", "t26-1c02", "t26-1c03-1",
+  "t26-1c03-2", "t26-1c03", "t26-1c04", "t26-1c05", "t26-1c06-1", "t26-1c06-2", "t26-1c06", "t26-1c07-1",
+  "t26-1c07", "t26-1c08-1", "t26-1c08", "t26-1c09", "t26-1c10-1", "t26-1c10-2", "t26-1c10-3", "t26-1c10",
+  "t26-1c11", "t26-1c12-1", "t26-1c12-2", "t26-1c12", "t26-1c13", "t26-1c14", "t26-1c15-1", "t26-1c15",
+  "t26-1c16", "t26-1c17-1", "t26-1c17", "t26-1c18-1", "t26-1c18", "t26-1c19", "t26-1c20-1", "t26-1c20",
+  "t26-1c21", "t26-1c22-1", "t26-1c22", "t26-1c23-1", "t26-1c23", "t26-1c24", "t26-1c25-1", "t26-1c25-2",
+  "t26-1c25", "t26-1c26-1", "t26-1c26-2", "t26-1c26-3", "t26-1c26-4", "t26-1c26-5", "t26-1c26-6", "t26-1c26-7",
+  "t26-1c26-8", "t26-1c26-9", "t26-1c26", "t26-1c27-1", "t26-1c27", "t26-1c28", "t26-1c29", "t26-1c30-1",
+  "t26-1c30", "t26-1c31-1", "t26-1c31-2", "t26-1c31", "t26-1c32", "t26-1c33-1", "t26-1c33-2", "t26-1c33-3",
+  "t26-1c33-4", "t26-1c33", "t26-1c34-1", "t26-1c34-2", "t26-1c34", "t26-1c35", "t26-1c36-1", "t26-1c36-10",
+  "t26-1c36-11", "t26-1c36-12", "t26-1c36-2", "t26-1c36-3", "t26-1c36-4", "t26-1c36-5", "t26-1c36-6",
+  "t26-1c36-7", "t26-1c36-8", "t26-1c36-9", "t26-1c36", "t26-1c37", "t26-1c38-1", "t26-1c38", "t26-1c39-1",
+  "t26-1c39-2", "t26-1c39", "t26-1c40-1", "t26-1c40-2", "t26-1c40", "t26-1c41", "t26-1c42-1", "t26-1c42",
+  "t26-1c43", "t26-1c44", "t26-1c45-1", "t26-1c45", "t26-1c46", "t26-1c47", "t26-1c48", "t26-1c49", "t26-1c50",
+  "t26-1c51", "t26-1c52", "t26-1c53-1", "t26-1c53", "t26-1c54", "t26-1c55", "t26-1c57", "t26-1c58", "t26-1c59",
+  "t26c01", "t27c01", "t27c02-1", "t27c02-2", "t27c02", "t27c03", "t27c04", "t27c05-1", "t27c05-2", "t27c05",
+  "t27c06", "t27c07-1", "t27c07", "t27c08-1", "t27c08-2", "t27c08", "t27c09-1", "t27c09", "t27c10", "t27c11",
+  "t27c12", "t27c13", "t27c14", "t27c15", "t27c16", "t27c17", "t27c18", "t27c19-1", "t27c19", "t27c20-1",
+  "t27c20-2", "t27c20-3", "t27c20-4", "t27c20-5", "t27c20-6", "t27c20", "t27c21", "t27c22", "t27c23", "t27c24",
+  "t27c25", "t27c26", "t27c27", "t28c01-1", "t28c01-2", "t28c01-3", "t28c01-4", "t28c01", "t28c02", "t28c03",
+  "t28c04-1", "t28c04", "t28c05", "t28c06-1", "t28c06-2", "t28c06", "t28c07", "t28c08", "t28c09", "t28c10",
+  "t28c11", "t28c12", "t28c13", "t28c14", "t28c15", "t28c16", "t28c17", "t28c18", "t28c19", "t28c20-1",
+  "t28c20-2", "t28c20-3", "t28c20", "t28c21", "t28c22", "t28c23", "t28c24", "t28c25", "t28c26", "t28c27",
+  "t28c28", "t28c29", "t28c30", "t28c31", "t28c32", "t28c33", "t28c34", "t28c35", "t28c36", "t29c01", "t29c02",
+  "t29c03", "t29c04", "t29c05", "t29c06-1", "t29c06", "t29c07", "t29c08", "t29c09", "t29c10-1", "t29c10-2",
+  "t29c10", "t29c11", "t29c12", "t29c13", "t29c14", "t29c15", "t29c16", "t29c17", "t29c18", "t29c19", "t29c20",
+  "t29c21", "t29c22", "t29c23", "t29c24", "t29c25", "t29c26", "t29c27", "t29c28", "t29c29-1", "t29c29-2",
+  "t29c29-3", "t29c29-4", "t29c29-5", "t29c29-6", "t29c29", "t29c30-1", "t29c30-2", "t29c30-3", "t29c30",
+  "t29c31-1", "t29c31", "t29c32-1", "t29c32", "t29c33", "t29c34", "t30-1c01", "t30-1c02", "t30-1c03", "t30-1c04",
+  "t30-1c05", "t30-1c06", "t30-1c07", "t30-1c08-1", "t30-1c08-2", "t30-1c08", "t30-1c09-1", "t30-1c09",
+  "t30-1c10-1", "t30-1c10", "t30-1c11", "t30-1c12", "t30-1c13", "t30-1c14", "t30-1c15", "t30-1c16", "t30-1c17",
+  "t30-1c18", "t30-1c19", "t30-1c20", "t30-1c21", "t30-1c22", "t30-1c23", "t30-1c24", "t30-1c25", "t30-1c26",
+  "t30-1c27", "t30-1c28", "t30-1c29", "t30-1c30", "t30-1c31", "t30-1c32-1", "t30-1c32", "t30-1c33", "t30-1c34",
+  "t30-1c35", "t30-1c36", "t30-1c37", "t30c01", "t30c02", "t30c03", "t30c04", "t30c05", "t30c06", "t30c07",
+  "t30c08", "t30c09", "t30c10", "t30c11", "t30c12", "t30c13", "t30c14", "t30c15", "t30c16", "t30c17", "t30c18",
+  "t30c19", "t30c20", "t30c21-1", "t30c21", "t30c22", "t30c23", "t30c24", "t30c25", "t30c26", "t31c01", "t31c02",
+  "t31c03", "t31c04", "t31c05", "t31c06", "t31c07", "t31c08-1", "t31c08", "t31c09", "t31c10", "t31c11", "t31c12",
+  "t31c13", "t31c14", "t31c15", "t32c01", "t32c02", "t32c03-1", "t32c03-2", "t32c03-3", "t32c03-4", "t32c03",
+  "t32c04", "t32c05", "t32c06", "t32c07-1", "t32c07", "t32c08-1", "t32c08", "t32c09-1", "t32c09", "t32c10-1",
+  "t32c10", "t32c11", "t32c12-1", "t32c12-2", "t32c12", "t32c13", "t32c14", "t32c15", "t32c16", "t32c17",
+  "t32c18", "t32c19-1", "t32c19-2", "t32c19", "t32c20", "t32c21", "t32c22", "t32c23", "t32c24", "t32c25",
+  "t32c26", "t32c27", "t32c28", "t32c29-1", "t32c29-2", "t32c29-3", "t32c29-4", "t32c29", "t32c30", "t32c31",
+  "t32c32", "t32c33", "t32c34", "t32c35", "t32c36", "t32c37", "t32c38", "t32c39", "t32c40-1", "t32c40-2",
+  "t32c40", "t32c41", "t32c42", "t32c43", "t32c44", "t32c45", "t32c46-1", "t32c46-2", "t32c46", "t32c47",
+  "t32c48", "t32c49", "t33c01", "t33c02", "t33c03", "t33c04", "t33c05", "t33c06", "t33c07", "t33c08", "t33c09",
+  "t33c10", "t33c11", "t33c12", "t34c01", "t34c02", "t34c03", "t34c04", "t34c05", "t34c06-1", "t34c06", "t34c07",
+  "t34c08", "t34c09", "t34c10", "t34c11-1", "t34c11", "t34c12", "t34c13", "t34c14", "t34c15", "t34c16", "t35c01",
+  "t35c02", "t35c03", "t35c04", "t35c05", "t35c06", "t35c07", "t35c08", "t35c09", "t35c10", "t35c11", "t35c12",
+  "t35c13", "t35c14", "t35c15", "t35c16", "t35c17", "t35c18", "t35c19", "t35c20", "t35c21", "t35c22", "t35c23",
+  "t35c24", "t35c25", "t35c26", "t35c27", "t35c28", "t35c29", "t35c30", "t35c31", "t35c32", "t35c33", "t35c34",
+  "t35c35", "t35c36", "t35c37", "t36c01", "t36c02", "t36c03", "t36c04", "t36c05-1", "t36c05", "t36c06", "t36c07",
+  "t36c08", "t36c09", "t36c10", "t36c11", "t36c12", "t36c13", "t36c14-1", "t36c14", "t36c15", "t36c16", "t36c17",
+  "t36c18", "t36c19", "t36c20", "t36c21-1", "t36c21-2", "t36c21", "t36c22", "t36c23-1", "t36c23", "t36c24",
+  "t36c25", "t36c26", "t37c01", "t37c02", "t37c03", "t37c04-1", "t37c04", "t37c05", "t37c06", "t37c07-1",
+  "t37c07-2", "t37c07-3", "t37c07", "t37c08", "t37c09", "t37c10", "t37c11", "t37c12-1", "t37c12", "t37c13",
+  "t37c14", "t37c15", "t37c16", "t37c17-1", "t37c17-2", "t37c17-3", "t37c17-4", "t37c17-5", "t37c17", "t37c18-1",
+  "t37c18", "t37c19-1", "t37c19", "t37c20", "t37c21", "t37c22", "t37c23", "t37c24", "t37c25", "t37c26", "t37c27",
+  "t37c28", "t37c29", "t37c30", "t38c01", "t38c02", "t38c03", "t38c04", "t38c05", "t38c06", "t38c07", "t38c08-1",
+  "t38c08", "t38c09", "t38c10", "t38c11-1", "t38c11-2", "t38c11", "t38c12-1", "t38c12", "t38c13-1", "t38c13",
+  "t38c14-1", "t38c14-2", "t38c14-3", "t38c14", "t38c15", "t38c16", "t38c17", "t38c18-1", "t38c18-2", "t38c18",
+  "t38c19", "t38c20", "t38c21", "t38c22", "t38c23", "t38c24", "t38c25", "t39c01", "t39c02", "t39c03-1", "t39c03",
+  "t39c04-1", "t39c04-2", "t39c04", "t39c05", "t39c06-1", "t39c06-2", "t39c06", "t39c07", "t39c08", "t39c09",
+  "t39c10-1", "t39c10-2", "t39c10-3", "t39c10", "t39c11", "t39c12", "t39c13", "t39c14", "t39c15", "t39c16-1",
+  "t39c16-2", "t39c16", "t39c17", "t39c18", "t39c19", "t39c20", "t39c21-1", "t39c21", "t39c22-1", "t39c22-2",
+  "t39c22-3", "t39c22", "t39c23", "t39c24-1", "t39c24", "t39c25", "t39c26", "t39c27", "t39c28", "t39c29-1",
+  "t39c29-2", "t39c29", "t39c30", "t39c31", "t39c32", "t39c33", "t39c34", "t40c01-1", "t40c01", "t40c02",
+  "t40c03-1", "t40c03-2", "t40c03", "t40c04-1", "t40c04", "t40c05-1", "t40c05", "t40c06", "t40c07", "t40c08",
+  "t40c09", "t40c10", "t40c11", "t40c12", "t40c13", "t40c14", "t40c15", "t40c16", "t40c17", "t40c18-1", "t40c18",
+  "t40c19", "t40c20", "t40c21", "t40c22-1", "t40c22", "t40c23-1", "t40c23", "t40c24", "t40c25", "t40c26",
+  "t40c27", "t40c28", "t40c29", "t40c30", "t40c31", "t40c32", "t40c33-1", "t40c33-2", "t40c33-3", "t40c33",
+  "t40c34", "t40c35", "t40c36", "t40c37", "t40c38-1", "t40c38", "t40c39", "t40c40", "t40c41", "t40c42", "t40c43",
+  "t40c44", "t40c45", "t40c46", "t40c47", "t40c48", "t40c49-1", "t40c49", "t40c50-1", "t40c50", "t40c51-1",
+  "t40c51-2", "t40c51", "t40c52", "t40c53-1", "t40c53-2", "t40c53", "t40c54", "t40c55", "t40c56", "t40c57-1",
+  "t40c57-2", "t40c57-3", "t40c57-4", "t40c57", "t40c58", "t40c59", "t40c60", "t40c61", "t40c62", "t40c63",
+  "t41c01", "t41c02-1", "t41c02", "t41c03", "t41c04-1", "t41c04", "t41c05", "t41c06", "t41c07", "t41c08",
+  "t41c09", "t41c10", "t41c11", "t41c12", "t42c01", "t42c02", "t42c03", "t42c04", "t43c01", "t43c02-1",
+  "t43c02-2", "t43c02", "t43c03", "t43c04", "t43c05", "t43c06", "t43c07", "t43c08", "t43c09", "t43c10-1",
+  "t43c10", "t43c11", "t43c12-1", "t43c12-2", "t43c12-3", "t43c12-4", "t43c12-5", "t43c12", "t43c13", "t43c14",
+  "t43c15-1", "t43c15-2", "t43c15-3", "t43c15-4", "t43c15", "t43c16", "t43c17-1", "t43c17-2", "t43c17-3",
+  "t43c17-4", "t43c17-5", "t43c17", "t43c18-1", "t43c18-2", "t43c18", "t43c19-1", "t43c19", "t43c20", "t43c21",
+  "t43c22", "t43c23-1", "t43c23-2", "t43c23-3", "t43c23-4", "t43c23-5", "t43c23", "t43c24", "t43c25", "t43c26-1",
+  "t43c26-2", "t43c26", "t43c27", "t43c28-1", "t43c28", "t43c29-1", "t43c29", "t43c30", "t43c31", "t43c32-1",
+  "t43c32", "t43c33", "t43c34", "t43c35", "t43c36", "t43c37", "t43c38", "t43c39", "t43c40-1", "t43c40",
+  "t43c41-1", "t43c41", "t43c42", "t43c43", "t43c44-1", "t43c44", "t43c45", "t43c46", "t43c47-1", "t43c47",
+  "t43c48", "t43c49", "t43c50", "t43c51-1", "t43c51", "t43c52", "t43c53", "t43c54", "t43c55", "t43c57", "t43c58",
+  "t43c59", "t43c60", "t43c61", "t43c62", "t43c64", "t43c65", "t43c66", "t44c01", "t44c02", "t44c03", "t44c04",
+  "t44c05", "t44c06-1", "t44c06", "t44c07", "t44c08", "t44c09", "t44c10", "t44c11", "t45c01", "t45c02", "t45c03",
+  "t45c04", "t45c05", "t45c06", "t45c07", "t45c08", "t45c09", "t45c10-1", "t45c10-2", "t45c10", "t45c11",
+  "t45c12", "t45c13", "t45c14", "t45c15", "t45c16", "t45c17", "t45c18", "t45c19", "t45c20", "t45c21", "t45c22",
+  "t45c23", "t46c01", "t46c02", "t46c03-1", "t46c03", "t46c04", "t46c05", "t46c06", "t47c01", "t47c02", "t47c03",
+  "t47c04-1", "t47c04", "t47c05", "t47c06", "t47c07", "t47c08", "t47c09", "t47c10-1", "t47c10-2", "t47c10",
+  "t47c11-1", "t47c11", "t47c12", "t47c13", "t47c14", "t47c15-1", "t47c15", "t47c16", "t47c17", "t47c18",
+  "t47c19-1", "t47c19", "t47c20-1", "t47c20-2", "t47c20", "t47c21-1", "t47c21-2", "t47c21", "t47c22", "t47c23",
+  "t47c24-1", "t47c24", "t47c25-1", "t47c25", "t47c26", "t47c27", "t47c28", "t47c29", "t47c30-1", "t47c30-2",
+  "t47c30", "t47c31", "t47c32", "t47c33", "t47c34", "t47c35", "t47c36", "t47c37", "t47c38", "t48c01-1",
+  "t48c01-2", "t48c01", "t48c02-1", "t48c02", "t48c03", "t48c04", "t48c05", "t48c06", "t48c07", "t48c08",
+  "t48c09", "t48c10", "t48c11", "t48c12", "t49c01", "t49c02", "t49c03-1", "t49c03", "t49c04-1", "t49c04",
+  "t49c05", "t49c06", "t49c07", "t49c08", "t49c09-1", "t49c09", "t49c10-1", "t49c10", "t49c11", "t49c12",
+  "t49c13", "t49c14", "t49c15", "t49c16", "t49c17-1", "t49c17-2", "t49c17", "t49c18", "t49c19", "t49c20",
+  "t49c21-1", "t49c21", "t49c22-1", "t49c22", "t49c23", "t49c24", "t49c25", "t50c01-1", "t50c01-2", "t50c01",
+  "t50c02", "t50c03", "t50c04", "t50c05", "t50c06-1", "t50c06-2", "t50c06-3", "t50c06-4", "t50c06-5", "t50c06",
+  "t50c07", "t50c08-1", "t50c08", "t50c09", "t50c10-1", "t50c10-2", "t50c10-3", "t50c10", "t50c10a", "t50c11-1",
+  "t50c11-2", "t50c11-3", "t50c11", "t50c12", "t50c13", "t50c14", "t50c15", "t50c16", "t50c17", "t50c18",
+  "t50c19", "t50c20", "t50c21", "t50c22", "t50c23", "t50c24-1", "t50c24-2", "t50c24-3", "t50c24-4", "t50c24-5",
+  "t50c24-6", "t50c24-7", "t50c24-8", "t50c24", "t50c25-1", "t50c25-2", "t50c25-3", "t50c25", "t50c26", "t50c27",
+  "t50c28", "t50c29", "t50c30", "t50c31", "t50c32", "t50c33", "t50c34", "t50c35", "t50c36", "t50c37", "t51c01",
+  "t51c02", "t51c03", "t51c04", "t51c05-1", "t51c05", "t51c06", "t51c07", "t51c08-1", "t51c08", "t51c09",
+  "t51c10", "t51c11", "t51c12", "t51c13", "t51c14-1", "t51c14", "t51c15", "t51c16-1", "t51c16", "t51c17-1",
+  "t51c17", "t51c18", "t51c19", "t51c20-1", "t51c20-2", "t51c20", "t51c21", "t51c22", "t51c23", "t51c24",
+  "t51c25-1", "t51c25", "t51c26", "t51c27", "t51c28", "t51c29", "t51c30", "t51c31", "t51c32", "t51c33", "t51c34",
+  "t51c35", "t51c36", "t51c37", "t51c38", "t52c01", "t52c02-1", "t52c02", "t52c03", "t52c04", "t52c05",
+  "t52c06-1", "t52c06", "t52c07-1", "t52c07", "t52c08-1", "t52c08", "t52c09", "t52c10", "t52c11", "t52c12",
+  "t53c01", "t53c02", "t53c03", "t53c04-1", "t53c04", "t53c05-1", "t53c05", "t53c06-1", "t53c06-2", "t53c06",
+  "t53c07", "t53c08", "t53c09", "t53c10", "t53c11", "t53c12-1", "t53c12", "t53c13", "t54c01-1", "t54c01",
+  "t54c02", "t54c03-1", "t54c03-2", "t54c03-3", "t54c03", "t54c04", "t54c05-1", "t54c05", "t54c06", "t54c07",
+  "t54c08", "t54c09", "t54c10", "t54c11", "t54c12", "t54c13", "t54c14", "t54c15", "t54c16", "t54c17-1",
+  "t54c17-2", "t54c17-3", "t54c17-4", "t54c17-5", "t54c17-6", "t54c17-7", "t54c17-8", "t54c17", "t54c18",
+  "t54c19", "t54c20", "t54c21-1", "t54c21-2", "t54c21-3", "t54c21-4", "t54c21", "t54c22", "t54c23-1", "t54c23-2",
+  "t54c23-3", "t54c23-4", "t54c23", "t54c24-1", "t54c24-2", "t54c24-3", "t54c24-4", "t54c24", "t54c25", "t54c26",
+  "t54c27-1", "t54c27-2", "t54c27", "t54c28", "t54c29", "t54c30", "t54c31", "t54c32", "t54c33", "t54c34-1",
+  "t54c34-2", "t54c34-3", "t54c34-4", "t54c34", "t54c35-1", "t54c35-2", "t54c35", "t54c36", "t54c37", "t54c38",
+  "t54c39", "t54c40-1", "t54c40-2", "t54c40-3", "t54c40-4", "t54c40-5", "t54c40", "t54c41", "t54c42", "t54c43",
+  "t54c44-1", "t54c44-2", "t54c44-3", "t54c44-4", "t54c44-5", "t54c44-6", "t54c44-7", "t54c44-8", "t54c44",
+  "t54c45", "t54c46-1", "t54c46", "t54c47", "t54c48", "t54c49-1", "t54c49", "t54c50", "t54c51", "t54c52-1",
+  "t54c52-2", "t54c52-3", "t54c52-4", "t54c52-5", "t54c52-6", "t54c52", "t54c53", "t54c54", "t54c55", "t54c56",
+  "t54c57", "t54c58", "t54c59-1", "t54c59", "t54c60-1", "t54c60-2", "t54c60-3", "t54c60", "t54c61", "t54c62",
+  "t54c63-1", "t54c63", "t54c64", "t54c65", "t54c66", "t54c67", "t54c68", "t54c69", "t55c01", "t55c02-1",
+  "t55c02", "t55c03", "t55c04", "t55c05", "t55c06", "t55c07", "t55c08", "t55c09", "t55c10", "t55c11", "t55c12",
+  "t56c01", "t57c01", "t57c02-1", "t57c02-2", "t57c02-3", "t57c02-4", "t57c02", "t57c03", "t57c04", "t57c05",
+  "t57c06", "t57c07", "t57c08", "t57c09", "t57c10", "t57c11-1", "t57c11", "t57c12", "t57c13", "t57c14", "t57c15",
+  "t57c16", "t57c17", "t57c18", "t57c19", "t57c20", "t57c21", "t57c22", "t57c23-1", "t57c23", "t57c24", "t57c25",
+  "t57c26", "t57c27", "t57c28", "t57c29", "t57c30", "t57c31", "t57c32", "t57c33-1", "t57c33-2", "t57c33",
+  "t57c34-1", "t57c34", "t57c35-1", "t57c35-2", "t57c35-3", "t57c35", "t57c36-1", "t57c36", "t57c37-1", "t57c37",
+  "t57c38-1", "t57c38-2", "t57c38-3", "t57c38-4", "t57c38-5", "t57c38-6", "t57c38", "t57c39-1", "t57c39-10",
+  "t57c39-2", "t57c39-3", "t57c39-4", "t57c39-4a", "t57c39-5", "t57c39-6", "t57c39-7", "t57c39-8", "t57c39-9",
+  "t57c39", "t57c40-1", "t57c40-2", "t57c40-3", "t57c40-4", "t57c40-5", "t57c40-6", "t57c40", "t57c41", "t57c42",
+  "t57c43-1", "t57c43-2", "t57c43-3", "t57c43", "t57c43a", "t57c44", "t57c45", "t57c46", "t57c47", "t57c48",
+  "t57c49", "t57c50", "t57c51-1", "t57c51-2", "t57c51", "t57c52", "t57c53", "t57c54-1", "t57c54-2", "t57c54",
+  "t57c55", "t57c56", "t57c57", "t57c58", "t57c59", "t57c60", "t57c61", "t57c62", "t57c63", "t57c64", "t57c65",
+  "t58c01", "t58c02", "t58c03", "t58c04", "t58c05-1", "t58c05", "t58c06", "t58c07", "t58c08", "t58c09", "t58c10",
+  "t58c11", "t58c12", "t58c13", "t58c14", "t58c15", "t58c16", "t58c17", "t58c18", "t59c01", "t59c02", "t59c03",
+  "t59c04-1", "t59c04-2", "t59c04", "t59c05", "t59c06", "t59c07", "t59c08", "t59c09", "t59c10-1", "t59c10",
+  "t59c11", "t59c12", "t59c13", "t59c14", "t59c15", "t59c16-1", "t59c16-2", "t59c16-3", "t59c16", "t59c17",
+  "t59c18", "t59c19", "t59c20", "t59c21", "t59c22", "t60c01", "t60c02-1", "t60c02", "t60c03", "t60c04", "t60c05",
+  "t60c06", "t60c07", "t60c08", "t60c09", "t60c10", "t61c01", "t61c02-1", "t61c02", "t61c03", "t61c04-1",
+  "t61c04", "t61c05", "t61c06", "t61c07", "t61c08", "t61c09", "t61c10", "t61c11", "t61c12", "t61c13", "t61c14",
+  "t61c15", "t61c16-1", "t61c16-2", "t61c16", "t61c17", "t61c18", "t61c19", "t61c20", "t61c21-1", "t61c21",
+  "t61c22", "t61c23", "t61c24-1", "t61c24-2", "t61c24-3", "t61c24-4", "t61c24-5", "t61c24-6", "t61c24-7",
+  "t61c24-8", "t61c24", "t61c25", "t61c26", "t61c27", "t61c28-1", "t61c28-2", "t61c28", "t61c29", "t61c30",
+  "t61c31", "t61c32", "t61c33-1", "t61c33", "t61c34", "t61c35", "t61c36", "t61c37", "t61c38", "t61c39", "t61c40",
+  "t61c41", "t62-1c01", "t62-1c02", "t62-1c03", "t62-1c04", "t62-1c05", "t62c01", "t63c01-1", "t63c01", "t63c02",
+  "t63c03", "t63c04", "t63c05", "t64c01", "t64c02", "t64c03", "t64c04", "t65c01", "t65c02", "t65c03", "t65c04",
+  "t65c05-1", "t65c05-2", "t65c05", "t65c06-1", "t65c06-2", "t65c06", "t65c07-1", "t65c07", "t65c08-1", "t65c08",
+  "t65c09", "t65c10", "t65c11", "t65c12", "t65c13", "t65c14"
+]
+
+[ND.cc.pdf]
+# A wrapped cross-reference can start a line exactly like a section line ("...of section" / "12.1-32-07. Any
+# restitution ..."): a `starts` line opens a paragraph only after a sentence end, a blank line or a page top.
+# (Labels after "; and" still split: hanging mode opens them by column.)
+starts_after = "sentence"
+drop   = ['^\s*Page No\. \d+\s*$']            # page footer
+# "hanging": the left margin moves page to page (aligned by the transform) and a label's wrapped lines hang
+# deeper than its first line. A wrapped line continues the paragraph when it starts at or right of the
+# paragraph's text column. The section number counts as a label (`label` below), so the catchline's text column
+# is ~col 13 and the body's first line (col 3-5) starts its own paragraph; body continuation lines sit at the
+# margin (col 0) and join. Unlabelled paragraphs separated only by a first-line indent still join (1-01-49(21)
+# "For purposes of this subsection": its first line sits on the hanging column -- geometry cannot tell).
+join   = "hanging"
+label  = '(?:\d+(?:\.\d+)?-\d+(?:\.\d+)?[A-Z]?-\d+(?:\.\d+)*\.|\(?[0-9]{1,3}[a-z]?[.)]|\(?[A-Za-z]{1,2}[.)]|\([ivxlcIVXLC]{1,6}\))\s+'
+center = 15                                   # TITLE / CHAPTER lines and their names sit at col ~25-45
+# A section line and a labelled line always start a paragraph. So does an all-capitals line: TITLE 1 / GENERAL
+# PROVISIONS / CHAPTER 1-01 / its name. pdftotext places these bold headings off-centre (GENERAL PROVISIONS spans
+# cols 34-52 on a 104-col page), so `center` catches only "TITLE 1"; [html].headings takes the rest by text.
+starts = ['^\d+(?:\.\d+)?-\d+(?:\.\d+)?[A-Z]?-\d+(?:\.\d+)*\.\s', '^\d+\.\s', '^[a-z]\.\s', '^\(\d+\)\s', '^\([a-z]\)\s', '^(?=.*[A-Z]{2})[^a-z]+$']
+
+[ND.cc.html]
+root     = "div#pdf"
+blocks   = ["p"]
+headings = ["p:centered", "p:matches(^(?=.*[A-Z]{2})[^a-z]+$)"]   # all-capitals blocks (see [pdf].starts)
+opening  = []
+
+[ND.cc.ladder]
+# N.D.C.C. drafting: subsection 1., subdivision a., paragraph (1), subparagraph (a)
+types = ["num.", "lower.", "num", "lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[ND.cc.containers]
+# Items t04c10a, t24c01a, t57c39-4a ... suggest lettered chapters (4-10A?): the optional [A-Z] is unconfirmed.
+# The name may share the block: with starts_after the all-capitals name line is not opened after "CHAPTER 57-39.4A"
+# (no sentence end) unless centring split it, so "CHAPTER 57-39.4A SIMPLIFIED SALES ..." carries its heading.
+# "CHAPTER 04.1-01.1": the zero padding stays out of the number (0*)
+title   = { match = '^TITLE\s+0*(?P<num>\d+(?:\.\d+)?)(?:\s+(?P<heading>[^a-z]+))?$', tag = "title", rank = 1, id = "t{num}" }
+chapter = { match = '^CHAPTER\s+0*(?P<num>\d+(?:\.\d+)?-\d+(?:\.\d+)?[A-Z]?)(?:\s+(?P<heading>[^a-z]+))?$', tag = "chapter", rank = 2, id = "ch{num}" }
+
+[ND.cc.sections]
+# "1-01-01. This act - How referred to." -- number and catchline alone on the line; text starts next paragraph.
+# Titles and chapters carry decimals: 4.1-01.1-02, 1-01-01.1.
+# "hanging" keeps the catchline its own paragraph (a wrapped catchline's second line is back at the margin and
+# joins it; the body's first line is indented less than the catchline's text column and starts a new one), so
+# the heading is the rest of the block, including a status "(Effective through June 30, 2029)".
+match = '^(?P<num>\d+(?:\.\d+)?-\d+(?:\.\d+)?[A-Z]?-\d+(?:\.\d+)*)\.\s+(?P<heading>.*)$'
+versions = '(?i)\(effective'                  # 4.1-01.1-07 printed twice: "(Effective through ...)" / "(Effective after ...)"
+bold  = false
+scope = "root"                                # section numbers carry the title (1-01-01, 4.1-01.1-07): unique code-wide.
+                                              # Only a title's first chapter PDF prints "TITLE n", so per-title scope would
+                                              # give /t1/s1-01-01 in one file and /s1-02-01 in the next
+
+[ND.cc.notes]
+
+# ---------------------------------------------------------------- North Dakota Constitution
+# One PDF per article: https://ndlegis.gov/constit/a01.pdf ... a16.pdf, plus preamble.pdf and
+# transition_schedule.pdf (links on ndlegis.gov/constitution, which holds no text; theenablingact.pdf is the
+# federal Enabling Act, left out). Probe constit_a01.pdf: "ARTICLE I" / "DECLARATION OF RIGHTS" (all-capitals
+# lines), then "Section 1. All individuals ..." -- no catchlines, text on the section line; labels 1. a. as in the
+# Century Code; a second paragraph after a blank line ("For purposes of this section", art. I sec. 16).
+[ND.const]
+inherit = "ND.cc"
+replace = ["containers", "sections", "ladder", "pdf"]
+name    = "Constitution of North Dakota"
+doc     = "/us-nd/const"                      # /us-nd/const/a1/s25/1/a
+url     = "https://ndlegis.gov/constit/{item}.pdf"
+title_id = ['^(.*)$', '\1']
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (18) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "preamble", "a01", "a02", "a03", "a04", "a05", "a06", "a07", "a08", "a09", "a10", "a11", "a12", "a13", "a14",
+  "a15", "a16", "transition_schedule"
+]
+
+[ND.const.pdf]
+drop   = ['^\s*Page No\. \d+\s*$']
+join   = "hanging"                            # as ND.cc; a blank line also ends a paragraph
+center = 15
+starts = ['^Section\s+\d+(?:\.\d+)?\.', '^\d+\.\s', '^[a-z]\.\s', '^\(\d+\)\s', '^\([a-z]\)\s', '^(?=.*[A-Z]{2})[^a-z]+$']
+
+[ND.const.ladder]
+types = ["num.", "lower.", "num", "lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[ND.const.containers]
+article = { match = '^ARTICLE\s+(?P<num>[IVXLC]+)$', tag = "article", rank = 1, id = "a{num}" }
+
+[ND.const.sections]
+match = '^Section\s+(?P<num>\d+(?:\.\d+)?)\.'   # the text after the number is the section's body
+bold  = false
+scope = "container"                           # sections restart in every article: /us-nd/const/a1/s1
+
+[ND.const.notes]

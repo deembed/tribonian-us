@@ -1,0 +1,81 @@
+# New York -- batch 3c. Source: NY Senate Open Legislation API v3 (JSON). nysenate.gov law pages 403 our client.
+# Docs: https://legislation.nysenate.gov/static/docs/html/laws.html ; samples: build/probe/legislation.nysenate.gov/api_3_*
+# Free API key (register at https://legislation.nysenate.gov/), passed as query parameter `key`, filled from the
+# environment by the shared {env:NAME} URL feature (never stored).
+#
+# Fetch: one GET per law (template) returns the whole tree with every node's text as JSON (?full=true; GCN 137 KB,
+# big laws several MB). transform = "nysenate-json" (src/tribonian/uslm/transforms/nysenate.py) turns it into HTML
+# blocks before parsing. Item list: GET /api/3/laws?limit=1000 -> result.items[].lawId where lawType = CONSOLIDATED.
+
+[NY.laws]
+name    = "Consolidated Laws of New York"
+doc     = "/us-ny/laws"                         # /us-ny/laws/gcn/a2/s11-a
+fetch   = "template"
+url     = "https://legislation.nysenate.gov/api/3/laws/{item}?full=true&key={env:NYSENATE_API_KEY}"   # key filled at request time
+file    = "{item}.json"                         # law/ny/laws/GCN.json (raw JSON, kept as fetched)
+transform = "nysenate-json"                     # JSON -> <div id="law"> HTML blocks (see the module docstring)
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (94) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "ABC", "ABP", "ACA", "ACG", "AGM", "BNK", "BSC", "BVO", "CAL", "CAN", "CCO", "CNT", "COM", "COR", "CPL", "CVP",
+  "CVR", "CVS", "DCD", "DOM", "EDN", "EDP", "ELD", "ELN", "EML", "ENG", "ENV", "EPT", "EXC", "FIS", "GAS", "GBS",
+  "GCN", "GCT", "GMU", "GOB", "HAY", "IND", "ISC", "JUD", "LAB", "LEG", "LFN", "LIE", "LLC", "MDW", "MHA", "MHR",
+  "MHY", "MIL", "MRE", "NAV", "NPC", "PAR", "PBA", "PBB", "PBG", "PBH", "PBL", "PBO", "PBS", "PEN", "PEP", "PML",
+  "PPD", "PTR", "PVH", "RAT", "RCO", "REL", "RPA", "RPP", "RPT", "RRD", "RSS", "SAP", "SCC", "SLG", "SOS", "STF",
+  "STL", "STT", "SWC", "TAX", "TCP", "TRA", "TWN", "UCC", "VAT", "VAW", "VET", "VIL", "VOL", "WKC"
+]
+
+[NY.laws.html]
+# extractor output: <div id="law"> <p align=center> heading lines, <p class="front-first"> + <p> front matter
+# (enacting clause, tables of sections), <p><b>§ N. Title.</b> text</p> + <p> one per paragraph </div>
+root     = "div#law"
+blocks   = ["p"]
+headings = ["p:centered"]
+opening  = ["b"]
+
+[NY.laws.containers]
+# the article's own text starts "ARTICLE 2" / "MEANING OF TERMS" (centred lines); heading = the next centred line
+title   = { match = '^TITLE\s+(?P<num>[\dA-Z]+(?:-[A-Za-z\d]+)*)$', tag = "title",   rank = 2, id = "t{num}" }
+article = { match = '^ARTICLE\s+(?P<num>[\dA-Z]+(?:-[A-Za-z\d]+)*)$', tag = "article", rank = 3, id = "a{num}" }
+part    = { match = '^PART\s+(?P<num>[\dA-Z]+(?:-[A-Za-z\d]+)*)$', tag = "part",    rank = 4, id = "p{num}" }
+subpart = { match = '^SUBPART\s+(?P<num>[\dA-Z]+(?:-[A-Za-z\d]+)*)$', tag = "subpart", rank = 5, id = "sp{num}" }
+
+[NY.laws.ladder]
+# 1. (a) (i) (A); some sections open with "a." and number under it "1." (GCN § 65)
+types = [["num.", "lower."], ["lower.", "lower", "num."], ["roman_lower", "lower"], ["upper", "roman_lower"]]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NY.laws.sections]
+# opening run "§ 11-a.  Acquisition." (the extractor bolds "§ N. <node title>.")
+match = '^§\s*(?P<num>\d+[A-Za-z]?(?:[-.]\d*[A-Za-z]*)*)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+
+[NY.laws.notes]
+# front matter of a container node: the chapter's enacting clause, an article's table of sections
+note = [{ class = "front-first", topic = "toc" }]
+
+# The Constitution: law id CNS (lawType MISC). Current: A1S11 carries the 2024 Equal Rights Amendment (activeDate
+# 2025-01-10); tree activeDate 2026-06-05. Articles docLevelId roman ("I"), sections "§ 11. a." (dotted lower).
+[NY.const]
+inherit = "NY.laws"
+name    = "Constitution of the State of New York"
+doc     = "/us-ny/const"                        # /us-ny/const/a1/s11
+# item: CNS (same url template)
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "CNS"
+]
+
+[NY.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+(?:-[A-Z])?)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[NY.const.ladder]
+types = ["lower.", "num.", "lower"]                   # § 11. a. ... -- refine on the CNS full sample
+tags  = ["subsection", "paragraph", "subparagraph"]

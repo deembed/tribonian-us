@@ -13,28 +13,13 @@
 # p.pstablenormal in table.MsoNormalTable.
 [NM.nmsa]
 name    = "New Mexico Statutes Annotated 1978 (unannotated)"
-doc     = "/us-nm/nmsa"                        # /us-nm/nmsa/ch11/a1 ; sections /us-nm/nmsa/ch11/s11-1-1
+doc     = "/us-nm/nmsa"                        # /us-nm/nmsa/ch11/a1/pt1 ; sections /us-nm/nmsa/s11-1-1 (numbers unique statewide)
 fetch   = "template"
 # ids: the URL takes the platform's opaque item id; items stay chapters ("11", "22A").
 # Chapter list: /nmos/nmsa-unanno/en/nav_alpha.do?iframe=true (&page=2..4), "Chapter 22A - Name" -> item/<id>/index.do.
 # The ids are near-sequential but not computable (5 = 18447, 24A = 18974), hence the table (read 2026-10-27).
 # No chapters 32, 59 (only 32A, 59A): the list itself skips them.
 url     = "https://nmonesource.com/w/nmos/n-{id}-en.epub"
-ids = {
-  "1" = "18502", "2" = "18503", "3" = "18504", "4" = "18505", "5" = "18447", "6" = "18506", "7" = "18507",
-  "8" = "18508", "9" = "18509", "10" = "18510", "11" = "18511", "12" = "18512", "13" = "18513", "14" = "18514",
-  "15" = "18515", "16" = "18516", "17" = "18517", "18" = "18518", "19" = "18519", "20" = "18520",
-  "21" = "18521", "22" = "18522", "23" = "18523", "24" = "18524", "24A" = "18974", "25" = "18525",
-  "26" = "18526", "27" = "18527", "28" = "18528", "29" = "18529", "30" = "18530", "31" = "18531",
-  "32A" = "18532", "33" = "18533", "34" = "18534", "35" = "18535", "36" = "18536", "37" = "18537",
-  "38" = "18538", "39" = "18539", "40" = "18540", "41" = "18541", "42" = "18542", "42A" = "18543",
-  "43" = "18544", "44" = "18545", "45" = "18546", "46" = "18547", "46A" = "18548", "46B" = "18549",
-  "47" = "18550", "48" = "18551", "49" = "18552", "50" = "18553", "51" = "18554", "52" = "18555",
-  "53" = "18556", "54" = "18557", "55" = "18558", "56" = "18559", "57" = "18560", "58" = "18561",
-  "59A" = "18562", "60" = "18563", "61" = "18564", "62" = "18565", "63" = "18566", "64" = "18567",
-  "65" = "18568", "66" = "18569", "67" = "18570", "68" = "18571", "69" = "18572", "70" = "18573",
-  "71" = "18574", "72" = "18575", "73" = "18576", "74" = "18577", "75" = "18578", "76" = "18579",
-  "77" = "18580" }
 file    = "n-{item}-en.epub"                   # saved under the chapter, not the id
 title_id = "ch{item}"
 container = "epub"                             # the fetched file is unzipped; its XHTML joined in spine order before parsing
@@ -43,9 +28,106 @@ encoding = "utf-8"
 family  = "html-paragraphs"
 terms   = "Copyright NM Compilation Commission; no scraping terms seen; robots.txt allows /w/ and /nmos/"
 
+
+# chapter label -> the site's item id. A table of its own: a multi-line inline table is TOML 1.1, which
+# Python 3.11+ tomllib rejects (it broke the user's run)
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (81) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "24A", "25", "26", "27", "28", "29", "30", "31", "32A", "33", "34", "35", "36", "37",
+  "38", "39", "40", "41", "42", "42A", "43", "44", "45", "46", "46A", "46B", "47", "48", "49", "50", "51", "52",
+  "53", "54", "55", "56", "57", "58", "59A", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69", "70",
+  "71", "72", "73", "74", "75", "76", "77"
+]
+
+[NM.nmsa.ids]
+"1" = "18502"
+"2" = "18503"
+"3" = "18504"
+"4" = "18505"
+"5" = "18447"
+"6" = "18506"
+"7" = "18507"
+"8" = "18508"
+"9" = "18509"
+"10" = "18510"
+"11" = "18511"
+"12" = "18512"
+"13" = "18513"
+"14" = "18514"
+"15" = "18515"
+"16" = "18516"
+"17" = "18517"
+"18" = "18518"
+"19" = "18519"
+"20" = "18520"
+"21" = "18521"
+"22" = "18522"
+"23" = "18523"
+"24" = "18524"
+"24A" = "18974"
+"25" = "18525"
+"26" = "18526"
+"27" = "18527"
+"28" = "18528"
+"29" = "18529"
+"30" = "18530"
+"31" = "18531"
+"32A" = "18532"
+"33" = "18533"
+"34" = "18534"
+"35" = "18535"
+"36" = "18536"
+"37" = "18537"
+"38" = "18538"
+"39" = "18539"
+"40" = "18540"
+"41" = "18541"
+"42" = "18542"
+"42A" = "18543"
+"43" = "18544"
+"44" = "18545"
+"45" = "18546"
+"46" = "18547"
+"46A" = "18548"
+"46B" = "18549"
+"47" = "18550"
+"48" = "18551"
+"49" = "18552"
+"50" = "18553"
+"51" = "18554"
+"52" = "18555"
+"53" = "18556"
+"54" = "18557"
+"55" = "18558"
+"56" = "18559"
+"57" = "18560"
+"58" = "18561"
+"59A" = "18562"
+"60" = "18563"
+"61" = "18564"
+"62" = "18565"
+"63" = "18566"
+"64" = "18567"
+"65" = "18568"
+"66" = "18569"
+"67" = "18570"
+"68" = "18571"
+"69" = "18572"
+"70" = "18573"
+"71" = "18574"
+"72" = "18575"
+"73" = "18576"
+"74" = "18577"
+"75" = "18578"
+"76" = "18579"
+"77" = "18580"
+
 [NM.nmsa.html]
-blocks   = ["p", "h1", "h5"]
-headings = ["h1", "p.Title1"]                  # ARTICLE n<br>name ; the chapter title block
+blocks   = ["p", "h1", "h2", "h3", "h4", "h5", "h6"]   # h2-h4/h6: Word heading levels, rare (46B has h3 PART n)
+headings = ["h1", "h2", "h3", "h4", "p.Title1"]   # ARTICLE n<br>name ; PART n ; the chapter title block
 opening  = ["h5"]                              # the whole "11-1-1. Short title." line
 verbatim = ["table"]                           # forms and checklists in compacts (Form A of the gaming compact)
 # p.Title1 "UNANNOTATED" (red) and "CHAPTER 11 <name>": the EPUB's own title lines, kept as crossHeadings of the
@@ -59,15 +141,33 @@ tags  = ["subsection", "paragraph", "subparagraph", "clause"]
 
 [NM.nmsa.containers]
 # The <br> in these headings sits inside an <a>, so split_br leaves one line: "ARTICLE 1 Joint Powers Agreements".
-# Number and name in one line: the heading group splits them. The chapter itself is the file's title element
-# (title_id ch{item}); its banner block p.Title1 ("UNANNOTATED" / "CHAPTER 11 name") stays a crossHeading.
+# Number and name in one line: the heading group splits them.
+# p.Title1 "CHAPTER 46B<br>Uniform Power of Attorney Act" (one line) opens the chapter: articles and parts nest
+# under it (/us-nm/nmsa/ch46B/a1/pt1), so article ids are unique across chapter files. The red p.Title1
+# "UNANNOTATED" before it stays a crossHeading.
+chapter = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)\s+(?P<heading>\S.*)$', tag = "chapter", rank = 1, id = "ch{num}" }
 article = { match = '^ARTICLE\s+(?P<num>\d+[A-Z]?)\s+(?P<heading>\S.*)$', tag = "article", rank = 2, id = "a{num}" }
+# h3 "PART 1" inside an article (46B, a recompiled uniform act): no name line follows (the next block is a section)
+part    = { match = '^PART\s+(?P<num>\d+[A-Z]?)(?:\s+(?P<heading>\S.*))?$', tag = "part", rank = 3, id = "pt{num}" }
 
 [NM.nmsa.sections]
 # "11-1-1. Short title." | "11-3-1 to 11-3-8. Repealed." ("Appendix to Article 13": see [notes].close)
-match = '^(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?(?:\s+(?:to|through|and)\s+\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?)?)\.\s*(?P<heading>.*)$'
+# lists too: "1-19-27.1, 1-19-27.2. Repealed." (a comma list: without it the number stopped at 1-19-27)
+match = '^(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?(?:(?:,|\s+(?:to|through|and))\s+\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?)*)\.\s*(?P<heading>.*)$'
 bold  = true                                   # matched on the opening block (h5) only
 scope = "title"
+
+# A section that enacts a whole compact (11-7-1, 11-14-2, 11-21-2, 1-15-4.1, 32A-10-9, 32A-11-1 ...) carries the
+# compact's own article lines -- "ARTICLE II - Definitions", "Article 1 - Purpose and Policy", "ARTICLE I Membership",
+# "ARTICLE I. FINDINGS AND PURPOSE", "ARTICLE I" alone -- and A., (1) restart under each: each opens a level.
+# Whole line only, and a name must start with a capital or " - ", so body sentences ("Article 4 of the compact
+# ...") never match; tried only on unlabeled lines inside a section, so the h1 ARTICLE containers are unaffected.
+# Not caught (left flagged): 11-9-1 runs "Article 2. The board. - A. There is ..." into the body line.
+group    = '^"?(?:ARTICLE|Article)\s+(?P<num>[IVXL]+|\d+[A-Z]?)(?:\s+-\s+[^.;]*|\.?\s+[A-Z][^.;]*\.?|\.)?$'
+group_id = "art{num}"
+# a contingent second text follows the current one under the same number (32A-11-1 .. 32A-11-7):
+# "32A-11-1. Interstate compact. (Contingent effective date. See note below.)" -- searched in the heading
+versions = '\(Contingent effective date'
 
 [NM.nmsa.notes]
 sourceCredit = { class = "history" }           # "History: 1953 Comp., § 4-22-1, enacted by Laws 1961, ch. 135, § 1."
@@ -92,6 +192,12 @@ items   = ["5916"]                             # always the one document
 file    = "n-{item}-en.epub"
 container = "epub"                             # stated again for clarity (also inherited)
 title_id = ""
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "5916"
+]
 
 [NM.const.html]
 blocks   = ["p", "h1", "h3", "h4", "h5", "h6"]

@@ -1,0 +1,87 @@
+# ---------------------------------------------------------------- District of Columbia Official Code
+# Source: the Council's GitHub repo DCCouncil/law-xml (public domain; the publisher says use the repos, do not
+# scrape code.dccouncil.gov). Default branch "main" (the repo is live: pushed 2026-10-27). "master" still answers
+# on raw.githubusercontent.com but is the stale 2016 tree -- never use it.
+# Layout (confirmed batch 3c):
+#   us/dc/council/code/index.xml                      the Code: xi:include of each title's index.xml
+#   us/dc/council/code/titles/{T}/index.xml           a title: nested <container> (prefix/num/heading),
+#                                                     <subheading> lines, <xi:include href="./sections/S.xml"/>
+#   us/dc/council/code/titles/{T}/sections/{S}.xml    one <section> per file (num, heading, text, para, annotations)
+# DC has no constitution (the Home Rule Act is title 1 chapter 2): one formula.
+# Pipeline: fetch = "zip" (the repo's codeload archive) + assemble = "oll-xml" flattens index.xml + its sections into one HTML page
+# per title, which the existing html-paragraphs family reads with the settings below. The transform adds no
+# text except the annotation type labels (from @type), and checks that itself.
+[DC.code]
+name    = "Code of the District of Columbia"
+doc     = "/us-dc/code"                              # /us-dc/code/t1/s1-206.02/c/1
+fetch   = "zip"
+# codeload archive of the live branch (repo 133.5 MB packed per api.github.com; the zip of the XML tree is
+# estimated ~100-200 MB, not measured). One download in <dir>/_bulk/, reused for every title. To pin an
+# edition use https://codeload.github.com/DCCouncil/law-xml/zip/<sha> and member prefix law-xml-<sha>/.
+url     = "https://codeload.github.com/DCCouncil/law-xml/zip/refs/heads/main"
+member  = 'law-xml-main/us/dc/council/code/titles/{item}/index\.xml'   # exactly one title index
+assemble = "oll-xml"                                 # uslm/transforms/oll_xml.py: the title folder -> _work/<item>/,
+                                                     # sections joined in the index's xi:include order, lossless check
+file    = "{item}.html"
+item    = ""                                         # titles 1 .. 51 and 29A (code/index.xml); 99 = "Reserved
+                                                     # sections": (Perm) texts not yet current law -- left out
+family  = "html-paragraphs"
+terms   = "public domain (DC Council); use the GitHub repos, do not scrape code.dccouncil.gov"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (52) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "29A", "30", "31", "32", "33", "34", "35", "36", "37",
+  "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51"
+]
+
+[DC.code.html]
+# transform output: <h1..h5> container lines (prefix+num, then heading), <h6> unit subheadings,
+# <p><b>NUM HEADING</b></p> section starts, <p>(a) text</p> paragraphs (a text-less para merges with its first
+# child: "(c)(1) ..."), <p class="atype">History</p> + <p class="annotation"> for the notes.
+blocks   = ["p"]
+headings = ["h1", "h2", "h3", "h4", "h5", "h6"]
+opening  = ["b"]
+verbatim = ["table"]
+# the transform writes each para line's XML nesting depth as margin-left 10pt per level: the ladder's hint for
+# the line's first label (DC's (aa) under (I) vs a subsection (aa)); a continuation line (<aftertext>, a <text>
+# after sub-paras) is drawn one level deeper than its para and closes the deeper open levels
+indent_css = { unit = 10, base = 0 }
+indent_closes = true
+
+[DC.code.ladder]
+# (a)(1)(A)(i)(I)(aa): the US Code ladder plus a sixth level of doubled letters. Also allowed: (1) at level 0
+# (sections that start with numbered paragraphs), (A) at level 1 ((a)(A) skipping a level -- in the XML too),
+# UCC article 2's (1)(a)(i) (title 28). The transform's depth hint picks between them; checked against the
+# XML's own para nesting with build/dispatch/DC.structcheck.py (t1 98.3%, t28 99.2%, t47 98.2% of para paths;
+# the misses are inserted labels the shared label regex does not read yet: (1A) (2A) (B-i) (3A))
+types = [["lower", "num"], ["num", "lower", "upper"], ["upper", "roman_lower"], ["roman_lower", "upper"], "roman_upper", "lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
+
+[DC.code.containers]
+# every <prefix> in the repo's title indexes (2026-10-28): Title 53, Chapter 1075, Subchapter 1532, Part 455,
+# Subpart 51, Article 13 (UCC title 28: Article 2 > Part 1 ...), Unit 5 (container units; <subheading> "Unit A."
+# lines are cross headings), Subtitle 1
+title      = { match = '^Title\s+(?P<num>\d+[A-Z]?)$', tag = "title", rank = 1, id = "t{num}" }
+subtitle   = { match = '^Subtitle\s+(?P<num>[IVXLC]+)$', tag = "subtitle", rank = 2, id = "st{num}" }
+article    = { match = '^Article\s+(?P<num>\d+[A-Z]?)$', tag = "article", rank = 2, id = "art{num}" }
+chapter    = { match = '^Chapter\s+(?P<num>\d+[A-Z]?)$', tag = "chapter", rank = 2, id = "ch{num}" }
+subchapter = { match = '^Subchapter\s+(?P<num>[IVXLC]+(?:-[A-Z])?|\d+[A-Z]?)$', tag = "subchapter", rank = 3, id = "sch{num}" }
+part       = { match = '^Part\s+(?P<num>[A-Z0-9]+(?:-[A-Za-z0-9]+)?)$', tag = "part", rank = 4, id = "pt{num}" }
+subpart    = { match = '^Subpart\s+(?P<num>[A-Z0-9]+)$', tag = "subpart", rank = 5, id = "spt{num}" }
+unit       = { match = '^Unit\s+(?P<num>[A-Z0-9]+)$', tag = "division", rank = 6, id = "u{num}" }
+# <subheading> ("Unit A. Definitions.", h6) is a line between sections in the XML, not a container: it matches
+# no rule above and stands as a cross heading
+
+[DC.code.sections]
+# opening run "1-206.02 Limitations on the Council." (number and heading from <num>/<heading>);
+# UCC title 28 numbers carry the article: "28:1-201"
+match = '^(?P<num>\d+[A-Z]?(?::\d+[A-Z]?)?-\d+[A-Za-z]*(?:\.\d+[A-Za-z]*)*)\s+(?P<heading>.*)$'
+bold  = true
+scope = "title"
+
+[DC.code.notes]
+# <annotation type="..."> runs, each led by a class="atype" label line from the transform
+sourceCredit  = { class = "atype", match = '^History$' }
+editorialNote = { class = "atype" }

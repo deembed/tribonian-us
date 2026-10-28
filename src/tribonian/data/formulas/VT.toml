@@ -26,6 +26,14 @@ encoding = "utf-8"
 family  = "html-paragraphs"
 terms   = "unofficial copy provided as a convenience (site notice); the official V.S.A. is published by LexisNexis"
 
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (41) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "11A", "11B", "11C", "12", "13", "14", "14A",
+  "15", "15A", "15B", "15C", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "27A", "28",
+  "29", "30", "31", "32", "33"
+]
+
 [VT.vsa.html]
 root     = "div#main-content"
 # <center> carries the bracketed version markers "[Subsection (d) effective until July 1, 2027; see also ...]"
@@ -119,6 +127,12 @@ name    = "Vermont Statutes Annotated, title 9A (Uniform Commercial Code)"
 items   = ["09A"]
 dir     = "vsa"                                # same download folder as VT.vsa: law/vt/vsa/
 
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "09A"
+]
+
 [VT.ucc.ladder]
 types = [["lower", "num"], ["num", "lower"], ["upper", "roman_lower"], ["roman_lower", "upper"], "roman_upper"]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
@@ -133,6 +147,12 @@ inherit = "VT.vsa"
 name    = "Vermont Statutes Annotated, appendix titles"
 item    = "%02d"                               # "3APPENDIX" -> "03APPENDIX"
 items   = ["03APPENDIX", "10APPENDIX", "16APPENDIX", "24APPENDIX"]
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (4) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "03APPENDIX", "10APPENDIX", "16APPENDIX", "24APPENDIX"
+]
 
 [VT.app.sections]
 scope = "container"

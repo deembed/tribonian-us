@@ -1,0 +1,131 @@
+# Indiana -- Indiana Code from the official bulk HTML zip (batch 3c).
+#
+# iga.in.gov is a React app that serves its 691-byte shell to our fetcher on every path, but the IGA also
+# publishes the whole code as one zip: https://iga.in.gov/ic/2026/2026-Indiana-Code-html.zip (43 MB), members
+# 2026-Indiana-Code-html/2026_Indiana_Code_HTML/<title>.html -- one WordPerfect-made HTML file per title (1..37;
+# 17, 18, 19 are one-line "REPEALED" titles). The zip also holds 2026_Additional_Documents_PDF/
+# Indiana_Constitution.pdf (PDF only -> IN.const waits for the pdf family).
+#
+# Page shape (every title alike):
+#   div.title / div.article / div.chapter / div.section   bold heading rows: span#ic_number "IC 1-1-1" +
+#                                                         span#shortdescription "Chapter 1. Implementary ..."
+#   div[style*=font-size: 8pt]                            table-of-contents rows under each heading
+#                                                         ("Art. 1." / "Ch. 1." / "1-1-1-1" + name)
+#   p                                                     law text, "Sec. 1. ..." first; depth by margin-left
+#   p > i "As added by P.L. ..."                          history (source credit); p.derivation recodification note
+#   div[align=left] > table                               statutory forms and charts
+
+[IN.ic]
+name    = "Indiana Code"
+title   = "Indiana Code"
+doc     = "/us-in/ic"                          # /us-in/ic/t35/ar33/ch1/s35-33-1-6
+fetch   = "zip"
+url     = "https://iga.in.gov/ic/{edition}/{edition}-Indiana-Code-html.zip"   # 43 MB, all 37 titles; saved once under _bulk/
+member  = '{edition}-Indiana-Code-html/{edition}_Indiana_Code_HTML/{item}\.html'   # exactly one member per title
+file    = "{item}.html"
+edition = "2026"
+item    = "%s"
+encoding = "utf-8"
+family  = "html-paragraphs"
+manual  = true                                # iga.in.gov answers our client with its app shell, even for the zip:
+                                              # the user downloads it in a browser into _bulk/ (never worked around)
+reject  = '<div id="root"></div>'              # the iga.in.gov app shell is never law
+items   = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19",
+           "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37"]
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (37) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37"
+]
+
+[IN.ic.html]
+blocks   = ["p", "div.section", "div.derivation", "div[style*=font-size: 8pt]"]   # text; section rows; derivation-table rows; TOC rows
+headings = ["div.title", "div.article", "div.chapter"]
+verbatim = ["table"]                           # forms (35-33-4-1's summons) and charts (35-33-1-6)
+opening  = []
+indent_css = { unit = 9, base = 13.3 }         # margin-left 0.185in = depth 0, 0.31in / 0.4375in / 0.56in deeper (hint only)
+
+[IN.ic.ladder]
+types = ["lower", "num", "upper", "roman_lower", "roman_upper"]   # (a)(1)(A)(i)(I)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[IN.ic.containers]
+# heading rows read "IC 35TITLE 35. CRIMINAL LAW AND PROCEDURE" (the two spans of the row, number then name)
+title   = { match = '^IC\s*(?P<num>\d+(?:\.\d+)?)\s*(?P<heading>TITLE\s.*)$', tag = "title", rank = 1, id = "" }   # the file root is already /t{item}
+article = { match = '^IC\s*\d+(?:\.\d+)?-(?P<num>\d+(?:\.\d+)?)\s*(?P<heading>ARTICLE\s.*)$', tag = "article", rank = 2, id = "ar{num}" }
+chapter = { match = '^IC\s*\d+(?:\.\d+)?-\d+(?:\.\d+)?-(?P<num>\d+(?:\.\d+)?)\s*(?P<heading>Chapter\s.*)$', tag = "chapter", rank = 3, id = "ch{num}" }
+
+[IN.ic.sections]
+lead  = '^Sec\.\s+[0-9.]+\.\s*'               # "Sec. 5. (a) ...": the restated number is text, (a) opens a level
+# the section row "IC 1-1-1-2Repeal of prior laws; ..." opens the section; the body's "Sec. 2." stays as text
+match = '^IC\s*(?P<num>\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?)\s*(?P<heading>.*)$'
+class = "section"                              # only the div.section rows open a section
+bold  = false
+scope = "title"
+toc   = ['^(?:Art\.|Ch\.)\s*\d', '^\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?']   # TOC rows under a heading
+
+[IN.ic.notes]
+sourceCredit  = '^(?:As added by|As amended by|Amended by|Formerly:|Repealed by|Pre-\d{4} Recodification Citation)'
+# "Note: This version of section effective until 1-1-2027. See also following version ..." right after the section
+# row: the printed section exists twice (same IC number); the line is a note on this version only
+note          = [{ match = '^Note: This version of', topic = "version", single = true },
+                 { match = "^Revisor's Note:", topic = "revisor" }]
+editorialNote = [{ class = "derivation", topic = "derivation" }]   # p.derivation, and div.derivation rows (35-44: "35-44-1-4 | formerly 17-1-24-12.]")
+
+# ---------------------------------------------------------------- Constitution (PDF inside the same zip)
+# The IGA publishes the constitution only as PDF; the code zip carries it as
+# 2026_Additional_Documents_PDF/Indiana_Constitution.pdf (also at
+# https://iga.in.gov/publications/indiana_constitution/Constitution%20(as%20amended%202024).pdf).
+# pdftotext -layout reads cleanly: centred "PREAMBLE." / "ARTICLE 1." + its name ("Bill of Rights.") / "SCHEDULE",
+# then "   Section 1. ..." paragraphs indented 2-3 spaces, labels "(a)" on indented lines, "(History: ...)" lines.
+# No running heads or page numbers (pages end with a form feed only). One item: the whole constitution.
+[IN.const]
+name    = "Constitution of the State of Indiana"
+title   = "Constitution of the State of Indiana"
+doc     = "/us-in/const"                       # /us-in/const/const/ar1/s13/a
+fetch   = "zip"
+manual  = true                                 # same zip as IN.ic, downloaded by the user in a browser
+dir     = "ic"                                 # shares IN.ic's folder, so its one manual zip serves both
+url     = "https://iga.in.gov/ic/{edition}/{edition}-Indiana-Code-html.zip"
+member  = '{edition}-Indiana-Code-html/{edition}_Additional_Documents_PDF/Indiana_Constitution\.pdf'
+file    = "{item}.pdf"
+edition = "2026"
+item    = "%s"
+items   = ["const"]
+transform = "pdf-text"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[IN.const.pdf]
+# join on starts only: continuation lines are indented too ("      (other than ...", "(c)(4)) that is ..."),
+# so indentation alone would split them; every paragraph opens with one of these (or follows a blank line)
+join   = "blank"
+starts = ['^Section\s+\d+\.', '^\(History:', '^\([a-zA-Z0-9]+\)\s']   # matched on the stripped line
+# Known cost: unlabelled list lines with no blank between them (4 s.22's "Granting divorces;" ..., the Schedule's
+# second paragraph) join into one paragraph -- text kept; telling them apart needs a starts-by-indent option.
+center = 15                                    # headings sit at column ~24
+drop   = []
+
+[IN.const.html]
+blocks   = ["p"]
+headings = ["p:centered"]
+opening  = []
+
+[IN.const.ladder]
+types = ["lower", "num", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[IN.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE\.?)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+schedule = { match = '^(?P<heading>SCHEDULE\.?)$', tag = "level", rank = 2, id = "schedule", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>\d+)\.$', tag = "article", rank = 2, id = "ar{num}" }   # name: next centred line
+
+[IN.const.sections]
+match = '^Section\s+(?P<num>\d+(?:\.\d+)?)\.'  # "Section 8." alone = repealed (History line follows)
+bold  = false
+scope = "container"                            # numbers restart per article
+
+[IN.const.notes]
+sourceCredit = '^\(History:'

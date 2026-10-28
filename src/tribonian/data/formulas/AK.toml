@@ -1,0 +1,119 @@
+# ---------------------------------------------------------------- Alaska Statutes
+# akleg.gov/basis (Legislative Affairs Agency). The browsing page statutes.asp builds its table of contents
+# and text with JavaScript (scripts/statutes.js: loadTOC -> ?media=js&type=TOC&title=01, text -> ?media=print
+# &secStart=..&secEnd=..), so the plain page has no text and no links. The print view is plain HTML and takes
+# a bare title as the range: statutes.asp?media=print&secStart=01&secEnd=01 is the whole title, with its
+# headings: <b><h5>Title 1. ...</h5></b>, <b><h6>Chapter 05. ...</h6></b>, <b><h7>Article 1. ...</h7></b>,
+# then each section as <b>Sec. 01.05.011.   Heading. <BR></b> + <BR>-separated lines, stray <p>/</p> tags.
+# One request per title. (A section range that starts mid-chapter omits that chapter's heading; not used.)
+[AK.statutes]
+name    = "Alaska Statutes"
+doc     = "/us-ak/statutes"                   # /us-ak/statutes/t1/ch05/... sections: /us-ak/statutes/t1/s01.05.016/a/1
+fetch   = "template"
+item    = "%02d"                              # title 1 -> "01": section numbers are zero-padded (01.05.006)
+url     = "https://www.akleg.gov/basis/statutes.asp?media=print&secStart={item}&secEnd={item}"
+file    = "title{item}.html"
+encoding = "cp1252"                           # 0x93/0x94 quotes, 0xA7 section sign
+family  = "html-paragraphs"
+terms   = "none stated"
+# A template build roots the file at doc itself; chapter numbers repeat in every title (ch10 in titles 11
+# and 47), so each file is wrapped in its title and every identifier moves under it: /us-ak/statutes/t47/ch10.
+wrap    = { tag = "title", id = "t{item}", rebase = true }
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (47) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38",
+  "39", "40", "41", "42", "43", "44", "45", "46", "47"
+]
+
+[AK.statutes.html]
+root     = "div.statute"                      # the print view's only content element
+# one line per <BR>-separated run. The <b> is split too and is a block of its own: a repealed section is
+# only its bold line, and its </b> runs straight into the next section's <b> with the <BR> inside the
+# first <b> -- without splitting <b>, three repealed sections hid inside the heading before them.
+split_br = ["div.statute", "b"]
+blocks   = ["p", "b", "h5", "h6", "h7"]          # h5-h7 sit inside the <b>
+headings = ["h5", "h6", "h7"]                 # Title / Chapter / Article lines (h7 is not real HTML; the site uses it)
+opening  = ["b"]                              # "Sec. 01.05.006.   Heading." is the bold run
+# The &nbsp; run is 1 / 7 / 12 / 17 for depth 0-3 on the FIRST item of each list, 1 on the rest; with 4
+# (depth = round(n/4) - 1; under 4 = no hint) that reads 7 -> 1, 12 -> 2, 17 -> 3. As a hint
+# (only consulted between two plausible levels) that is exactly what is needed: the ambiguous label is the
+# first "(i)" under an "(A)" (24.60.037(g)(2)(A)(i)), which carries 17 -> depth 3 = roman; a later "(i)"
+# subsection after "(h)" carries 1 -> no hint, the ladder decides as before.
+indent   = 4
+
+[AK.statutes.ladder]
+# (a)(1)(A)(i)(aa): Alaska's drafting manual order.
+types = ["lower", "num", "upper", "roman_lower", "double_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[AK.statutes.containers]
+# The h5-h7 lines reach the parser as part of their <b> block (split_br on "b"), not as heading blocks, so
+# the rules take any block (any = true). Mixed-case "Chapter 05." / "Article 1." with an arabic number and
+# a period: compacts quoted in the text use "ARTICLE I" and do not match.
+# Chapter and article numbers may carry a letter (none in the probes; allowed anyway). The file's own
+# "Title 1. General Provisions." line is a cross heading ([notes].close below), not a container: as a
+# title container it would repeat the file's identifier (/us-ak/statutes/t1 inside /us-ak/statutes/t1).
+chapter = { match = '^Chapter\s+(?P<num>\d+[A-Z]?)\.\s+(?P<heading>.+)$', tag = "chapter", rank = 2, id = "ch{num}", any = true }
+article = { match = '^Article\s+(?P<num>\d+[A-Z]?)\.\s+(?P<heading>.+)$', tag = "article", rank = 3, id = "a{num}", any = true }
+
+[AK.statutes.sections]
+# "Sec. 01.05.011.   Designation and citation." -- repealed sections keep the bracket in the heading:
+# "Sec. 01.05.010.   Adoption of revision. [Repealed, § 2 ch 1 SLA 1963.]"
+# Runs of repealed/renumbered sections come as one line: "Secs. 11.05.010  — 11.05.060.   Punishments and
+# sentences.  [Repealed, ...]" -> one section, id s11.05.010_-_11.05.060 (the dash normalized).
+match = '^Secs?\.\s+(?P<num>\d+\.\d+\.\d+(?:\s*[—–-]\s*\d+\.\d+\.\d+)?)\.\s*(?P<heading>.*)$'
+scope = "title"
+decimal = true                                # 01.05.081 < 01.05.1 style ordering of the last part
+
+[AK.statutes.notes]
+close = ['^Title\s+\d+\.\s+\S']             # the title's name line at the top of the file
+
+# ---------------------------------------------------------------- Constitution of the State of Alaska
+# ltgov.alaska.gov/?p=64 (Lieutenant Governor; same page as /information/alaskas-constitution/): one WordPress
+# (Divi) page. The law is div.et_pb_section_2; before it are the intro and a toggle TOC (div#index), after it
+# the office's contact block. Each section is one div.et_pb_text_inner: <strong>N. Heading</strong><br />
+# then the text (<br />- or <p>-separated); article headings are <h3> ("Article I – Declaration of Rights");
+# the ordinances number theirs "Section 1. Election". The page ends with the "Amendment Summary" table
+# (1966-2004 amendments and vote counts), kept as a level of its own, the table taken verbatim.
+[AK.const]
+name    = "Constitution of the State of Alaska"
+doc     = "/us-ak/const"                      # /us-ak/const/a1/s24, /us-ak/const/ord1/s2
+fetch   = "template"
+url     = "https://ltgov.alaska.gov/?p={item}"
+items   = ["64"]                              # always the one page
+file    = "constitution.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "none stated"
+
+[AK.const.html]
+root     = "div.et_pb_section_2"
+split_br = ["div.et_pb_text_inner"]           # the section's lines are <br />-separated inside one div
+blocks   = ["p", "h3", "h5"]
+headings = ["h3"]
+opening  = ["strong"]
+verbatim = ["table"]
+drop     = ["div.et_pb_icon", "div.et_pb_text_align_center"]   # the "Back to Top" arrow and link after each article
+
+[AK.const.ladder]
+types = ["lower", "num"]                      # (a) (1): art. VI sec. 8, art. IX sec. 17
+tags  = ["subsection", "paragraph"]
+
+[AK.const.containers]
+preamble  = { match = '^(?P<heading>Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article   = { match = '^(?P<heading>Article\s+(?P<num>[IVXL]+)\s+[–-]\s+.*)$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "self" }
+ordinance = { match = '^(?P<heading>Ordinance\s+No\.\s+(?P<num>\d+))$', tag = "level", rank = 2, id = "ord{num}", heading = "self" }
+summary   = { match = '^(?P<heading>Amendment Summary)$', tag = "level", rank = 2, id = "amendments", heading = "self" }
+
+[AK.const.sections]
+# "1. Inherent Rights" (articles), "Section 1. Election" (ordinances); art. XIV's lone "Apportionment
+# Schedule" (repealed) has no number.
+match = '^(?:Section\s+)?(?P<num>\d+)\.\s+(?P<heading>.+)$'
+scope = "container"
+
+[AK.const.notes]
+# "[Amended 1972]" ends the section's text on the same line: left in the text. Editor's notes are lines of their own.
+editorialNote = '^Editor’s Note:'

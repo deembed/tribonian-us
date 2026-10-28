@@ -33,6 +33,15 @@ terms   = "unverified (public records; no reuse terms stated)"
 # has the same text; the $ keeps <body>, whose text also starts "TITLE IV", from matching).
 title   = { name = ":matches(^(?:[IVXLC]+(?:-[A-Z])?:|TITLE [IVXLC]+(?:-[A-Z])?[A-Z ]+$))" }
 
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (67) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII",
+  "XVIII", "XIX", "XIX-A", "XX", "XXI", "XXII", "XXIII", "XXIV", "XXV", "XXVI", "XXVII", "XXVIII", "XXIX", "XXX",
+  "XXXI", "XXXII", "XXXIII", "XXXIII-A", "XXXIV", "XXXIV-A", "XXXV", "XXXVI", "XXXVII", "XXXVIII", "XXXIX", "XL",
+  "XLI", "XLII", "XLIII", "XLIV", "XLV", "XLVI", "XLVII", "XLVIII", "XLIX", "L", "LI", "LII", "LIII", "LIV", "LV",
+  "LVI", "LVII", "LVIII", "LIX", "LX", "LXI", "LXII", "LXIII", "LXIV"
+]
 
 [NH.rsa.html]
 # The section's catchline <b> and a repealed chapter's "[Repealed by ...]" line sit as bare text/inline runs

@@ -1,0 +1,158 @@
+# ---------------------------------------------------------------- New Jersey
+# Publisher: NJ Legislature, Office of Legislative Services. Bulk files at https://pub.njleg.gov/statutes/
+# (IIS directory listing; _READ_ME.txt: rebuilt every weekday at 2AM, PKZIP 2.50):
+#   STATUTES-TEXT.zip   41.4 MB  "statutes in plain text and rich text format"   <- the statutes route
+#   STATUTES-FOLIO.zip  45.6 MB  Folio Views infobase (needs FOLIO.LCF + Folio software: not used)
+#   LCTOC-TEXT.zip       0.96 MB Legislative Counsel's table of contents, text/RTF (title/chapter list)
+#   NJCONST-TEXT.zip     0.09 MB Constitution, text/RTF -- same packaging as STATUTES-TEXT: the small sample
+# No per-title zip exists: the statutes come as one zip. The online viewer (lis.njleg.state.nj.us NextPage
+# gateway) is not used (state_law_sources.toml: "use the bulk zips, not the gateway").
+
+# ---------------------------------------------------------------- Constitution (HTML page)
+# https://njleg.gov/constitution is a Next.js page rendered server-side: the whole text is in
+# <article class="constitution_fullText__..."> as <p> paragraphs, h3 "Article I <br/> Rights and Privileges",
+# h4 "Section I". The citable unit is the numbered paragraph (N.J. Const. art. IV, sec. VII, para. 2):
+# it is the [sections] element here, so /us-nj/const/a4/sec7/s2 = art. IV, sec. VII, par. 2.
+[NJ.const]
+name    = "New Jersey State Constitution 1947"
+doc     = "/us-nj/const"
+fetch   = "template"
+url     = "https://njleg.gov/constitution"
+edition = "current"
+items   = ["constitution"]                    # always the one page
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[NJ.const.html]
+root     = "article"                          # article.constitution_fullText__<hash>: the class hash is a build
+                                              # artifact of the site, so match the tag (the page has one <article>)
+blocks   = ["p", "h2", "h3", "h4"]
+headings = ["h2", "h3", "h4"]
+opening  = []                                 # no bold runs: paragraphs open on their plain "1.   " number
+
+[NJ.const.ladder]
+# paragraphs subdivide as "a." or "(a)" (both styles occur, e.g. art. V sec. I par. 14 (a)(b)(1)), then (1),
+# then (a) under (1) (art. VIII sec. II par. 5)
+types = [["lower.", "lower"], "num", "lower"]
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[NJ.const.containers]
+# h2 is the title; the h3 after it, "(Updated Through Amendments Adopted in November, 2021)", becomes its name
+title    = { match = '^New Jersey State Constitution 1947$', tag = "title", rank = 1, id = "" }
+# "Article I <br/> Rights and Privileges" is one h3 (the <br> reads as a space): number and name in one block
+article  = { match = '^Article\s+(?P<num>[IVXL]+)\s+(?P<heading>.+)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+# "Section I": no name of its own (the paragraph after it is law text, not a heading). Tagged subarticle, not
+# section: in USLM <section> is the citable unit, which here is the numbered paragraph
+section  = { match = '^Section\s+(?P<num>[IVXL]+)$', tag = "subarticle", rank = 3, id = "sec{num_arabic}" }
+
+[NJ.const.sections]
+# "1.   All persons are by nature free ..." -- no headings. SOURCE QUIRK: four paragraphs are typed with a
+# lowercase L for the digit one ("l.  Every State officer ..." art. VII sec. I, sec. II, sec. III; art. VIII
+# sec. I): matched here so they open their paragraph; their id comes out "sl" until a num map exists
+match = '^(?P<num>\d+|l(?=\.\s))\.\s+'
+bold  = false                                 # the rest of the paragraph is the paragraph's body
+scope = "container"                           # paragraph numbers restart in each article / section
+
+# ---------------------------------------------------------------- Statutes (bulk zip)
+# STATUTES-TEXT.zip = STATUTES.TXT (one file, every title) + STATUTES.RTF. Layout: "TITLE 2A <tab> NAME" lines,
+# then per section a catchline at column 0 ("2A:4-30.124  Short title."), body lines indented (one paragraph per
+# line, the first often repeating the number), history lines ("L.2016, c.1, s.1." / "amended 1948, c.4; ...").
+# No chapter or article lines: the chapter lives only in the section number.
+[NJ.statutes]
+name    = "New Jersey Statutes"
+doc     = "/us-nj/statutes"                   # /us-nj/statutes/t2A/s2A:4-30.124
+fetch   = "zip"                               # statelaw._fetch_zip: zip saved once under <dir>/_bulk/
+url     = "https://pub.njleg.gov/statutes/STATUTES-TEXT.zip"   # 41.4 MB; rebuilt weekdays 2AM
+member  = 'STATUTES\.TXT'                    # 84 MB, cp1252, every title in one file (+ STATUTES.RTF, unused)
+split   = '^TITLE\s+(?P<item>[0-9]+[A-Z]?)\s' # "TITLE 1         ACTS, LAWS AND STATUTES": one item per title
+                                              # (69 titles in the file; the 2 header lines before TITLE 1 are not law)
+file    = "{item}.txt"
+transform = "text-lines"                      # one <p> per non-blank line, then html-paragraphs
+text_encoding = "cp1252"
+edition = "current"
+family  = "html-paragraphs"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (69) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2A", "2B", "2C", "3A", "3B", "4", "5", "6", "7", "8A", "9", "10", "11", "11A", "12", "12A", "13", "14",
+  "14A", "15", "15A", "16", "17", "17B", "18A", "19", "20", "21", "22A", "23", "24", "25", "26", "27", "28", "29",
+  "30", "31", "32", "33", "34", "35", "36", "37", "38", "38A", "39", "40", "40A", "41", "42", "43", "44", "45",
+  "46", "47", "48", "49", "50", "51", "52", "53", "54", "54A", "55", "56", "58", "59"
+]
+
+[NJ.statutes.html]
+blocks   = ["p"]
+headings = []                                 # plain text has no markup: the title container uses any = true
+opening  = []
+
+[NJ.statutes.ladder]
+types = [["lower.", "lower"], ["num", "num."], ["lower", "roman_lower"], ["roman_lower", "upper"]]   # a. (1) (a) (i)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NJ.statutes.containers]
+# no chapter lines in the text: the chapter is only in the section number (2A:4-30.124)
+title   = { match = '^TITLE\s+(?P<num>\d+[A-Z]?)\s+(?P<heading>.+)$', tag = "title", rank = 1, id = "t{num}", any = true }
+
+[NJ.statutes.sections]
+# the catchline at column 0: "1:1-2  Words and phrases defined." / "1:1-1.  General rules of construction".
+# The body's first line repeats the number ("\t1:1-2.  Unless ...") but is indented: class "flush" (a line with
+# no leading whitespace) tells them apart.
+match = '^(?P<num>\d+[A-Z]?:\d+[A-Z]*-\d+(?:\.\d+)*[a-z]?)\.?\s+(?P<heading>.*)$'
+class = "flush"
+bold  = false
+scope = "title"                               # (no decimal = true: NJ numbers 1.1 ... 1.9, 1.10 as integers)
+# [sections].lead (shared, html_paragraphs): at the start of the first body line, the repeated number "59:3-1."
+# and/or the session-law section number "4." are the section's text, not ladder labels, when labels follow.
+# Must not match the empty string (it would add an empty paragraph). 
+# PROPOSED shared key lead_always = true: apply lead to the section's first body line even when no label follows
+# on that line ("2.\tDefinitions." then "a." lines below) -- simulated in build/dispatch/NJ.build_local.py;
+# without it the act number "2." becomes a ladder level (2A: 892 anomalies; with it: 77).
+lead  = '^(?:\d+[A-Z]?:\d+[A-Z]*-\d+(?:\.\d+)*[a-z]?\.\s+(?:\d+[A-Za-z]?\.\s+)?|\d+[A-Za-z]?\.\s+)(?=\S)'
+lead_always = true
+
+[NJ.statutes.notes]
+sourceCredit = ['^(?:L\.\s*\d{4}|amended\s+\d{4}|Amended\s+\d{4}|R\.S\.\s*\d{4}|Source)']   # "L.2016, c.1, s.1."; "amended 1948, c.4; ..."
+
+# ---------------------------------------------------------------- Constitution from NJCONST-TEXT.zip (NJCONST.TXT)
+# Same text as the HTML page, plus the amendment history lines ("Article II, Section I, paragraph 1 amended
+# effective January 17, 2006."). Plain ASCII, CRLF, one paragraph per line; headings are lines indented with
+# tabs ("\t\t\t\tARTICLE I" then the name on the next line). Read through the proposed text -> blocks step
+# (each non-blank line one <p>): test with build/dispatch/NJ.txt2html.py. This formula is the stand-in for the
+# statutes text, which comes from the same publishing system (STATUTES-TEXT.zip).
+[NJ.consttxt]
+inherit = "NJ.const"
+replace = ["containers", "html", "sections"]
+name    = "New Jersey State Constitution 1947 (bulk text)"
+fetch   = "zip"                               # statelaw._fetch_zip
+url     = "https://pub.njleg.gov/statutes/NJCONST-TEXT.zip"   # 86,969 bytes; members NJCONST.TXT, NJCONST.RTF
+member  = 'NJCONST\.TXT'                     # full match, exactly one member
+items   = ["constitution"]
+file    = "{item}.txt"
+transform = "text-lines"                      # plain text -> one <p> per non-blank line, then html-paragraphs
+text_encoding = "cp1252"                      # the file is pure ASCII today; cp1252 is the safe superset
+
+[NJ.consttxt.html]
+blocks   = ["p"]
+headings = []                                 # no markup: containers below use any = true
+opening  = []
+
+[NJ.consttxt.containers]
+# the first line is the title, the second its status line (taken as its name)
+title    = { match = '^NEW JERSEY STATE CONSTITUTION 1947$', tag = "title", rank = 1, id = "", any = true }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}", any = true }
+# WORKAROUND: with any = true a container takes the next block as its name even when that block opens a
+# section ("1. General elections ..."); heading = "self" with the whole line as heading stops the wait.
+# The words "SECTION I" end up in <heading>, not <num>, until the shared fix (NJ.status.md) lands.
+section  = { match = '^(?P<heading>SECTION\s+(?P<num>[IVXL]+))$', tag = "subarticle", rank = 3, id = "sec{num_arabic}", any = true, heading = "self" }
+
+[NJ.consttxt.sections]
+match = '^(?P<num>\d+|l(?=\.\s))\.\s+'        # as NJ.const (the lowercase-L quirk is in this file too)
+bold  = false
+scope = "container"
+
+[NJ.consttxt.notes]
+# amendment history, one line after the paragraph it describes
+editorialNote = [{ match = '^Article\s+[IVXL]+,\s+(?:Section|section)\s+[IVXL]+.*(?:amended|added|repealed|deleted|effective)', topic = "amendments" },
+                 { match = '^Article\s+[IVXL]+,?\s+(?:paragraph|Paragraph).*(?:amended|added|effective)', topic = "amendments" }]

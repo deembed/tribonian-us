@@ -1,0 +1,256 @@
+# IL.toml -- Illinois Compiled Statutes (ILCS) and the Illinois Constitution of 1970.
+#
+# STATUS: ilcs parses the one probed section file (5 ILCS 70/1) cleanly; act-title (F) and article-heading (H)
+# files, a section with a catchline and subsections, and Section Sequence.txt are still unprobed.
+# const: the only full text is one <pre> block of hard-wrapped lines (needs a shared feature, see status).
+#
+# Site layout (build/probe/www.ilga.gov/, batch 2):
+#   The old per-act viewers (legislation/ilcs/ilcs*.asp) are gone: 404 since the site redesign.
+#   /Legislation/ILCS/Chapters  lists the 70 chapters as /Legislation/ILCS/Acts?ChapterID=<db id>&ChapterNumber=<n>&...
+#                               (the act list and any whole-act view behind it are NOT probed yet)
+#   /ftp/ILCS/                  IIS directory listing (uppercase <A HREF>): aReadMe/ and "Ch 0005/" ... "Ch 0820/"
+#   /ftp/ILCS/Ch 0815/Act 0555/ one folder per act (seen in search results, not probed), one static HTML file per
+#                               document: "ccccaaaaats" = chapter(4) act(4) ... type letter (K = section) and the
+#                               section number: 081505550K999.html is 815 ILCS 555/999. Other type letters carry
+#                               the chapter header, act title and article headings (aReadMe.txt). File names do
+#                               NOT sort in reading order; the LRB ships "Section Sequence.txt" for the order.
+#   The FTP copy is a yearly snapshot (last 11/21/2025, through P.A. 104-433), not the live database.
+#
+# Strategy: index fetch over the FTP tree, item = chapter (5, 10, ... 820), one USLM file per chapter:
+#   Ch folder -> Act folders -> document files. Only per-document files exist there (no whole-act file), so a
+#   big chapter is thousands of small requests; a whole-act HTML view on the new site would be better if the
+#   Acts?ChapterID= page leads to one (probe pending).
+
+[IL.ilcs]
+name    = "Illinois Compiled Statutes"
+doc     = "/us-il/ilcs"                        # /us-il/ilcs/t5/... (chapter number as the title)
+fetch   = "index"
+item    = "%04d"                               # folders are "Ch 0005"
+index_file = "ch{item}.html"                   # the chapter's act listing, saved per chapter
+# IIS listing links are absolute paths with %20: HREF="/ftp/ILCS/Ch%200005/Act%200070/"
+# level 1: chapter listing -> act folders; level 2: act folder listing -> document files
+links   = ['HREF="(/ftp/ILCS/Ch%20\d{4}/Act%20[^"/]+/)"',
+           'HREF="(/ftp/ILCS/Ch%20\d{4}/Act%20[^"/]+/[^"/]+\.html)"']
+save_as = "path"                               # act folder links end in "/": the last path part would be empty
+title_id = ['^0*(\d+)$', 't\1']                 # item "0005" -> /us-il/ilcs/t5
+# leaf_sort natural fixes K2 < K10, but NOT the whole ILCS order (see IL.status.md): it puts K1.01..K1.46 before
+# K1 and K5-45.1 before K5-45 (".html" sorts after "."), and all article heading files (HArt. 1, HArt. 5 ...)
+# in a block after the act title F and before every K section. Section Sequence.txt is the real order.
+leaf_sort = "natural"
+carry   = true                                 # one file per document: the act (F) and article (H) files
+                                               # stay open over the section files that follow
+layers  = [ { name = "current", url = "https://www.ilga.gov/ftp/ILCS/Ch%20{item}/" } ]
+encoding = "windows-1252"                      # UNCONFIRMED: LRB static HTML is usually cp1252; check a section file
+family  = "html-paragraphs"
+
+[IL.ilcs.html]
+# A document file: table > tr > td > div[align=justify] of <code><font> runs, lines split by <br>, indentation
+# as leading <code>&nbsp;&nbsp;&nbsp;&nbsp;</code>. A long line can continue in a further <tr><td> holding a
+# nested table (indent cell + div): so the root is the whole body, not the first td.
+blocks   = ["p"]                               # split_br turns each <br> line into a <p class="br-line">
+split_br = ["div"]
+# nested width=100% tables: a long paragraph's continuation (indent cell + div, mid-sentence) and statutory
+# tables (colgroups, cells with align=; 820 ILCS 140/... hours table): one text item each, cells joined
+verbatim = ["table[width*=100%]"]
+headings = []
+opening  = []
+# no indent hint: older acts indent every label alike (820 ILCS 305/4a-6: (a) (i) (b) (1) all one level), and
+# with indent = 4 + indent_closes the four samples had 48 numbering flags against 37 without
+
+[IL.ilcs.ladder]
+# (a)(1)(A)(i)(I) seen in 5 ILCS 100/1-5 and 10-65; older acts use (1)(a)(i): both offered per level
+types = [["lower", "num"], ["num", "lower"], ["upper", "roman_lower"], ["roman_lower", "upper"], "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[IL.ilcs.containers]
+# Act title file (F): "(5 ILCS 100/) (Illinois Administrative Procedure Act.)" then lines "Title: ...",
+# "Cite: ...", "Source: ...", "Short title: ...". Article heading file (HArt. 1):
+# "(5 ILCS 100/Art. 1 heading) ARTICLE 1. TITLE AND GENERAL PROVISIONS" (the <center> is inline in the line).
+# Neither is a heading element: any = true.
+act     = { match = '^\((?P<ch>\d+)\s+ILCS\s+(?P<num>\d+)/\)\s*(?P<heading>\(.*\))$', tag = "chapter", rank = 2, id = "act{num}", any = true }
+article = { match = '^\(\d+\s+ILCS\s+\d+/Art\.\s*(?P<num>[^ )]+)\s+heading\)\s*ARTICLE\s+\S+?\.?\s+(?P<heading>.*)$', tag = "article", rank = 3, id = "art{num}", any = true }
+# act: tag "chapter" (USLM has no <act>; "level" is not a container for carry); num "(5 ILCS 100/)", heading "(Illinois ... Act.)"
+
+[IL.ilcs.sections]
+# "Sec. 1-5. Applicability." alone on its line, "Sec. 0.01. Short title. This Act may be cited ..." (catchline
+# and body on one line), or "Sec. 1. In the construction ..." (no catchline, 5 ILCS 70/1). The markup does not
+# tell a catchline from body (each is its own <code> run), so: heading = the first sentence after the number
+# when it is at most 100 characters; otherwise the match stops after the number and the rest is body.
+# Known misses (text kept): a catchline with an inner ". " (U.S. ...) is cut there; a section with no catchline
+# whose first sentence is short gets that sentence as its heading.
+match = '^Sec\.\s+(?P<num>[0-9][0-9A-Za-z.\-]*?)\.\s+(?:(?P<heading>[^.]{1,100}\.)(?=\s|$))?'
+bold  = false
+scope = "container"                            # 5 ILCS 70/1 and 5 ILCS 100/1-5 share a chapter: ids under the act
+# "(Text of Section before amendment by P.A. 104-598)" / "(... after amendment ...)" / "(Text of Section from
+# P.A. 104-466)" on the line after the citation: the same section number follows again as another version
+versions = '^\(Text of Section'
+
+[IL.ilcs.notes]
+sourceCredit = { match = '^\(Source:', single = true }   # "(Source: P.A. 86-451.)"
+actInfo      = { tag = "note", topic = "actInfo", match = '^(Title|Cite|Source|Short title):' }   # F file lines
+# the citation line "(5 ILCS 100/1-5) (from Ch. 127, par. 1001-5)" ends the previous section and stands as a
+# cross heading before the "Sec." line (section cites have a digit after the slash; act/article lines do not)
+close = ['^\(\d+\s+ILCS\s+\d+/\d[^)]*\)',
+         '^\((Text of Section|This Section may contain|This Section was added by|This Section will be renumbered|Section scheduled to be repealed)[^)]*\)$']
+# ^ editorial lines between the citation and the "Sec." line: version marker ("(Text of Section from P.A.
+#   104-466)"), delayed-effective-date and scheduled-repeal notices -- cross headings before the section
+
+# ---------------------------------------------------------------- ILCS, whole-act pages (preferred)
+# Chapter act list /Legislation/ILCS/Acts?ChapterID=<id>&ChapterNumber=<n> (the minimal URL works, probed for
+# chapter 10) links each act as <a class="list-group-item" href="/Legislation/ILCS/Articles?ActID=83&ChapterID=2
+# &...">5 ILCS 100/ Illinois Administrative Procedure Act.</a>. The act page links a full-text view; the link
+# is rewritten straight to it (skips one request per act; the minimal URL returns the same page, probed):
+#   /legislation/ILCS/details?ActID=83&ChapterID=2&SeqStart=&ChapAct=FullText
+# The full-text page: div.billtext-scale holds one <table> per document, the same markup as the FTP files
+# (article heading lines, then citation line / "Sec." line / text / "(Source: ...)"), in publication order.
+# It has NO act title: the act's link text on the list page becomes an outline heading before its page, and
+# the act container rule below reads it ("5 ILCS 100/ Illinois Administrative Procedure Act."); carry keeps the
+# act open over its full-text page.
+[IL.ilcsweb]
+inherit = "IL.ilcs"
+replace = ["containers"]
+name    = "Illinois Compiled Statutes (whole-act pages)"
+dir     = "ilcs"
+item    = "%d"
+index_file = "acts-{item}.html"                # the chapter's act list
+layers  = [ { name = "current", url = "https://www.ilga.gov/Legislation/ILCS/Acts?ChapterID={id}&ChapterNumber={item}" } ]
+links   = 'href="(/Legislation/ILCS/Articles\?ActID=\d+&ChapterID=\d+)&'
+rewrite = ['^.*\?ActID=(\d+)&ChapterID=(\d+)$', 'https://www.ilga.gov/legislation/ILCS/details?ActID=\1&ChapterID=\2&SeqStart=&ChapAct=FullText']
+outline = ['<a class="list-group-item" href="/Legislation/ILCS/Articles\?[^"]*">(?P<text>[^<]*)</a>']
+outline_html = '<div class="billtext-scale"><p class="outline">{text}</p></div>'
+leaf_sort = ""                                 # the act list is already in ILCS order
+encoding = "utf-8"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (68) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "5", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55", "60", "65", "70", "75", "105", "110", "115",
+  "205", "210", "215", "220", "225", "230", "235", "240", "305", "310", "315", "320", "325", "330", "405", "410",
+  "415", "420", "425", "430", "505", "510", "515", "520", "525", "605", "610", "615", "620", "625", "630", "705",
+  "710", "715", "720", "725", "730", "735", "740", "745", "750", "755", "760", "765", "770", "775", "805", "810",
+  "815", "820"
+]
+
+[IL.ilcsweb.html]
+root     = "div.billtext-scale"                # site menus, notices and footer are outside it
+
+[IL.ilcsweb.containers]
+act     = { match = '^(?P<ch>\d+)\s+ILCS\s+(?P<num>\d+)/\s*(?P<heading>.*)$', tag = "chapter", rank = 2, id = "act{num}", any = true }
+# Heading lines "(N ILCS A/<path> heading) <text>": the LAST part of the path names the level --
+#   Art. 1 / Ch. II / Ch. II Art. II / Art. II Pt. 3 / Art. 95, Pt. 1 (counts over 7 sampled chapters:
+#   Art 306, Art+Pt 94, Ch+Art 22, Ch 6). The heading keeps its own text ("ARTICLE II. PROCEDURES", "Part 3.
+#   Appearance", a bare "Article 5"), so it is never empty (an empty one would take the next citation line).
+actch   = { match = '^\(\d+\s+ILCS\s+\d+/Ch\.\s*(?P<num>[^ ),]+)\s+heading\)\s*(?P<heading>\S.*)$', tag = "subchapter", rank = 3, id = "ch{num}", any = true }
+article = { match = '^\(\d+\s+ILCS\s+\d+/(?:Ch\.\s*[^ ),]+,?\s+)?Art\.\s*(?P<num>[^ ),]+)\s+heading\)\s*(?P<heading>\S.*)$', tag = "article", rank = 4, id = "art{num}", any = true }
+part    = { match = '^\(\d+\s+ILCS\s+\d+/[^)]*?\bPt\.\s*(?P<num>[^ ),]+)\s+heading\)\s*(?P<heading>\S.*)$', tag = "part", rank = 5, id = "pt{num}", any = true }
+
+[IL.ilcsweb.ids]
+# chapter number -> the site's ChapterID (from /Legislation/ILCS/Chapters)
+"5" = 2
+"10" = 3
+"15" = 4
+"20" = 5
+"25" = 6
+"30" = 7
+"35" = 8
+"40" = 9
+"45" = 10
+"50" = 11
+"55" = 12
+"60" = 13
+"65" = 14
+"70" = 15
+"75" = 16
+"105" = 17
+"110" = 18
+"115" = 19
+"205" = 20
+"210" = 21
+"215" = 22
+"220" = 23
+"225" = 24
+"230" = 25
+"235" = 26
+"240" = 27
+"305" = 28
+"310" = 29
+"315" = 30
+"320" = 31
+"325" = 32
+"330" = 33
+"405" = 34
+"410" = 35
+"415" = 36
+"420" = 37
+"425" = 38
+"430" = 39
+"505" = 40
+"510" = 41
+"515" = 42
+"520" = 43
+"525" = 44
+"605" = 45
+"610" = 46
+"615" = 47
+"620" = 48
+"625" = 49
+"630" = 74
+"705" = 50
+"710" = 51
+"715" = 52
+"720" = 53
+"725" = 54
+"730" = 55
+"735" = 56
+"740" = 57
+"745" = 58
+"750" = 59
+"755" = 60
+"760" = 61
+"765" = 62
+"770" = 63
+"775" = 64
+"805" = 65
+"810" = 66
+"815" = 67
+"820" = 68
+
+# ---------------------------------------------------------------- Illinois Constitution of 1970
+# /legislation/constitution links articles con1.htm ... con14.htm, conp.htm (preamble), contrans.htm
+# (transition schedule) and conent.htm, "ENTIRE CONSTITUTION IN A SINGLE DOCUMENT": one request. The relative
+# links resolve under /legislation/ (404); the LRB copy works. conent.htm is ONE <pre> of hard-wrapped lines:
+# centered-by-spaces "ARTICLE I" / "BILL OF RIGHTS", "SECTION 1. INHERENT ...", paragraphs opened by a 4-space
+# indent, "(Source: Illinois Constitution.)" after each section. The settings below do NOT read it yet (0 blocks):
+# the parser has no <pre> line mode. Kept as the target shape for when it does.
+[IL.const]
+inherit = "IL.ilcs"
+replace = ["containers", "html", "sections", "ladder", "notes"]
+name    = "Illinois Constitution of 1970"
+doc     = "/us-il/const"
+fetch   = "template"
+item    = ""
+items   = ["1970"]
+url     = "https://lrb.ilga.gov/Commission/lrb/conent.htm"   # www.ilga.gov/legislation/conent.htm is 404
+file    = "const-{item}.html"
+dir     = "const"
+
+[IL.const.html]
+blocks   = ["p"]
+headings = ["p:centered", "h1", "h2", "h3", "h4"]
+opening  = ["b", "strong"]
+
+[IL.const.ladder]
+types = ["lower", "num"]
+tags  = ["subsection", "paragraph"]
+
+[IL.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)\b.*$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "next" }
+
+[IL.const.sections]
+match = '^SECTION\s+(?P<num>\d+)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+
+[IL.const.notes]
+sourceCredit = '^\(Source:'

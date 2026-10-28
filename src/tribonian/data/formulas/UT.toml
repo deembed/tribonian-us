@@ -1,0 +1,111 @@
+# UT.toml -- Utah Code and Utah Constitution (le.utah.gov/xcode, Office of Legislative Research and General
+# Counsel, the official publisher: "the current and official electronic record").
+#
+# Route (batch 3c, settled on real samples): the xcode site's versioned static files, no key.
+#   Every level is published as C<cite>_<v>.{html,xml,pdf,rtf}, v = 16 digits (two yyyymmdd dates;
+#   1800010118000101 = never amended; changes on amendment, so names are read from the index each fetch).
+#   - code.html is a JS loader with versionDefault="C_1800010118000101": the root index C_1800010118000101.html
+#     (static) links every title with its current version in the query: href="Title3/3.html?v=C3_1800010118000101".
+#   - Title3/C3_<v>.xml is the WHOLE title with full text (127 KB for title 3): one request per title.
+#   - The constitution: constitution.html -> versionDefault="UC_1800010118000101"; UC_1800010118000101.xml is
+#     the whole constitution (175 KB).
+#   Fallback (not used): glen.le.utah.gov/code/<3|3-1|3-1-1>/<token>, same XML, needs a developer token.
+#
+# Parsing: transform = "utah-xml" (src/tribonian/uslm/transforms/utah_xml.py, applied in build before parsing)
+# writes <h1>/<h2>/<p> blocks that the html-paragraphs family reads with the settings below.
+
+# ---------------------------------------------------------------- Utah Code
+[UT.code]
+name     = "Utah Code"
+doc      = "/us-ut/code"                    # /us-ut/code/t3/ch1/s3-1-2/10/a
+fetch    = "index"
+index_file = "_root.html"                   # the same root page for every item
+layers   = [ { name = "current", url = "https://le.utah.gov/xcode/C_1800010118000101.html" } ]
+links    = 'href="(Title{item}/{item}\.html\?v=C{item}_\d{16})"'
+# loader link -> versioned whole-title XML: .../Title3/3.html?v=C3_X -> .../Title3/C3_X.xml
+rewrite  = ['/(Title[0-9A-Z]+)/[0-9A-Z]+\.html\?v=(C[0-9A-Z]+_\d{16})$', '/\1/\2.xml']
+save_as  = "path"
+encoding = "utf-8"
+transform = "utah-xml"                      # Utah XML -> <h2>/<p> blocks (labels from @number)
+family   = "html-paragraphs"
+terms    = "free personal use; commercial use needs attribution; abusive use may be blocked (developer page)"
+items    = ["3", "4", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "15A", "16", "17", "17B", "17C",
+            "17D", "17E", "18", "19", "20A", "23A", "25", "26A", "26B", "29", "31A", "32B", "34", "34A", "35A",
+            "36", "38", "39A", "40", "41", "42", "43", "45", "46", "48", "49", "50", "51", "52", "53", "53C",
+            "53D", "53E", "53F", "53G", "53H", "54", "55", "56", "57", "58", "59", "61", "63A", "63B", "63C",
+            "63D", "63E", "63G", "63H", "63I", "63J", "63L", "63M", "63N", "63O", "64", "65A", "67", "68",
+            "69", "70", "70A", "70C", "70D", "71A", "72", "73", "75", "75A", "75B", "75E", "76", "77", "78A",
+            "78B", "79", "80", "81"]   # all 96 titles of the root index (no 1, 2, 5 ...: unassigned)
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (96) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "3", "4", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "15A", "16", "17", "17B", "17C", "17D", "17E",
+  "18", "19", "20A", "23A", "25", "26A", "26B", "29", "31A", "32B", "34", "34A", "35A", "36", "38", "39A", "40",
+  "41", "42", "43", "45", "46", "48", "49", "50", "51", "52", "53", "53C", "53D", "53E", "53F", "53G", "53H",
+  "54", "55", "56", "57", "58", "59", "61", "63A", "63B", "63C", "63D", "63E", "63G", "63H", "63I", "63J", "63L",
+  "63M", "63N", "63O", "64", "65A", "67", "68", "69", "70", "70A", "70C", "70D", "71A", "72", "73", "75", "75A",
+  "75B", "75E", "76", "77", "78A", "78B", "79", "80", "81"
+]
+
+[UT.code.html]
+root     = "div#law"
+blocks   = ["p"]
+headings = ["h1", "h2"]
+opening  = ["b"]
+# depth hint from the transform: subsection depth (count of "(" in @number, minus 1) as margin-left 10pt per
+# level (needs utah_xml to emit it, see UT.status.md); settles (i) letter vs roman. Unstyled blocks: no hint.
+indent_css = { unit = 10, base = 0 }
+
+[UT.code.ladder]
+# Utah drafting: (1)(a)(i)(A)(I)(Aa)
+types = ["num", "lower", "roman_lower", "upper", "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[UT.code.containers]
+# the transform's root block "Title 3 Name" (once it emits one, see UT.status.md): the build's title itself
+title   = { match = '^Title (?P<num>\d+[A-Z]?) (?P<heading>.+)$', tag = "title", rank = 1, id = "" }
+chapter = { match = '^Chapter (?P<num>\d+[a-z]?) (?P<heading>.+)$', tag = "chapter", rank = 2, id = "ch{num}" }
+part    = { match = '^Part (?P<num>\d+[a-z]?) (?P<heading>.+)$', tag = "part", rank = 3, id = "pt{num}" }
+subpart = { match = '^Subpart (?P<num>\d+[a-z]?) (?P<heading>.+)$', tag = "subpart", rank = 4, id = "spt{num}" }
+
+[UT.code.sections]
+# "§ 3-1-1.1. General corporation laws do not apply." (title-chapter-section; 10-9a-103, 63G-2-305)
+match    = '^§\s*(?P<num>\d+[A-Z]?(?:-\d+[a-z]?(?:\.\d+)?)+)\.\s*(?P<heading>.*)$'
+bold     = true
+scope    = "title"
+versions = '\[Effective'                    # pre-pass markers on the two texts of one section
+# interstate compacts set inside one section (77-28-1, 77-28c-103): centered "ARTICLE VI" lines, each article
+# restarting its own (a)(1)(i) labels -> a group per article, so the labels do not collide across articles
+group    = '^ARTICLE [IVXLC]+$'
+
+[UT.code.notes]
+sourceCredit = { class = "history" }        # "Amended by Chapter 378, 2010 General Session"
+
+# ---------------------------------------------------------------- Utah Constitution
+[UT.const]
+inherit  = "UT.code"
+name     = "Constitution of Utah"
+doc      = "/us-ut/const"                   # /us-ut/const/a1/s8
+fetch    = "template"
+url      = "https://le.utah.gov/xcode/UC_1800010118000101.xml"   # versionDefault of constitution.html
+file     = "UC.xml"
+items    = ["all"]
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "all"
+]
+
+[UT.const.containers]
+# template build: the root is lawDoc /us-ut/const; this container is its title, same identifier (as VT.const)
+title    = { match = '^(?P<heading>Constitution)$', tag = "title", rank = 1, id = "", heading = "self" }
+preamble = { match = '^(?P<heading>Preamble)$', tag = "article", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^Article (?P<num>[IVXL]+) (?P<heading>.+)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[UT.const.sections]
+match    = '^Section (?P<num>\d+[a-z]?)\.\s*(?P<heading>.*)$'
+bold     = true
+scope    = "container"                      # Section 1 in every article
+versions = '\[Effective'

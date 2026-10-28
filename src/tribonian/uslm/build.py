@@ -47,7 +47,9 @@ def epub_join(raw_bytes):
 def _decode(raw_bytes, formula):
     if formula.get("container") == "epub":
         raw_bytes = epub_join(raw_bytes)
-    enc = formula.get("encoding", "utf-8")
+    from tribonian.uslm import transforms
+    raw_bytes, done = transforms.apply(raw_bytes, formula)     # JSON / XML / text sources -> HTML blocks
+    enc = "utf-8" if done else formula.get("encoding", "utf-8")
     return raw_bytes.decode(enc, errors="cp1252fallback" if enc.lower().replace("-", "") == "utf8" else "replace")
 
 
@@ -104,14 +106,82 @@ def _overlay(base_ch, sup_ch, log):
         log["added"].append(n.ident)
 
 
+def _is_container(n):
+    return n.tag not in ("section", "level") and 0 < n.rank < 99
+
+
+def _reprefix(node, old, new):
+    """A node moved under another parent: its identifier and every descendant's that starts with the old one."""
+    def walk(n):
+        if n.ident == old or n.ident.startswith(old + "/"):
+            n.ident = new + n.ident[len(old):]
+        for x in n.items:
+            if x[0] == "node":
+                walk(x[1])
+    walk(node)
+
+
+def _merge(target, new):
+    """Join a repeated container into the one already built: a nested container with the same identifier merges
+    too, at any depth (Montana's section pages each repeat chapter > part), everything else appends in order."""
+    have = {x[1].ident: x[1] for x in target.items if x[0] == "node" and _is_container(x[1])}
+    for x in new.items:
+        if x[0] == "node" and _is_container(x[1]) and x[1].ident in have:
+            _merge(have[x[1].ident], x[1])
+        else:
+            target.items.append(x)
+
+
+def _carry(it, title, stack, chapters, seen_here, path_of, log, name, scope_container=False):
+    """carry = true (index builds of one page per section): a container opened on one page (a chapter heading on
+    the chapter's first section page, an outline heading) holds the sections of the following pages until a
+    container of the same or higher rank opens. A container moved under an open one takes that parent's
+    identifier as prefix (an outline's second "Article 1" is /ch2/a1, not a repeat of /ch1/a1); with
+    [sections].scope = "container", so do moved sections. Returns the open stack, outermost first."""
+    def descend(st):
+        while True:
+            kids = [x[1] for x in st[-1].items if x[0] == "node"]
+            if kids and _is_container(kids[-1]):
+                st.append(kids[-1])
+                path_of.setdefault(kids[-1].ident, list(st[:-1]))
+            else:
+                return st
+    if it[0] == "node" and _is_container(it[1]):
+        ch = it[1]
+        st = list(stack)
+        while st and st[-1].rank >= ch.rank:
+            st = st[:-1]
+        parent = st[-1] if st else title
+        if parent is not title and not ch.ident.startswith(parent.ident + "/"):
+            _reprefix(ch, ch.ident, parent.ident + "/" + ch.ident.rsplit("/", 1)[-1])
+        if ch.ident in chapters and ch.ident in seen_here:          # the same container again: merge into it
+            _merge(chapters[ch.ident], ch)
+            log.setdefault("joined", []).append("%s <- %s" % (ch.ident, name))
+            return descend(list(path_of.get(ch.ident, [])) + [chapters[ch.ident]])
+        parent.add("node", ch)
+        chapters[ch.ident] = ch
+        seen_here.add(ch.ident)
+        path_of[ch.ident] = list(st)
+        return descend(st + [ch])
+    target = stack[-1] if stack else title
+    if scope_container and it[0] == "node" and target is not title and it[1].tag == "section":
+        n = it[1]
+        if not n.ident.startswith(target.ident + "/"):
+            _reprefix(n, n.ident, target.ident + "/" + n.ident.rsplit("/", 1)[-1])
+    target.items.append(it)
+    return stack
+
+
 def convert_layers(layers, formula, title_ident, title_num_text, title_heading, meta, title_num=None):
     """layers: [(layer name, [(file name, raw bytes), ...]), ...], base first.
     -> (USLM ElementTree, report with per-file results and the overlay log)."""
     fam = families.get(formula["family"])
-    title = Node("title", num_text=title_num_text, num=title_num or title_ident.rsplit("/t", 1)[-1], heading=title_heading,
+    title = Node("title", num_text=title_num_text, num=title_num or re.sub(r"^[a-z]+(?=[0-9IVXL])", "", title_ident.rsplit("/", 1)[-1]), heading=title_heading,
                  ident=title_ident, rank=1)
     files, logs, versions, ambiguous, anomalies = [], {}, [], [], []
     chapters = {}
+    carry = bool(formula.get("carry"))       # containers stay open across the pages of one item
+    open_stack, path_of = [], {}
     for li, (layer, pages) in enumerate(layers):
         log = logs.setdefault(layer, {"replaced": [], "added": [], "chapters_added": []})
         seen_here = set()
@@ -127,6 +197,33 @@ def convert_layers(layers, formula, title_ident, title_num_text, title_heading, 
             anomalies += ["%s/%s: %s" % (layer, name, a) for a in ladder.anomalies]
             versions += ladder.versions
             for it in root.items:
+                if it[0] == "node" and it[1].ident == title_ident:
+                    # the page names the file's own level (Utah's whole-title XML: <h1>Title 3 ...</h1> matched by a
+                    # container rule with the title's id): it IS the title -- take its number and heading, splice
+                    # in what it holds, instead of nesting a second /t3 inside /t3
+                    t = it[1]
+                    if li == 0:
+                        title.num_text, title.heading = title.num_text or t.num_text, title.heading or t.heading
+                    for x in t.items:
+                        (title.items.append(x) if x[0] != "node" else None)
+                        if x[0] == "node":
+                            sub = x[1]
+                            if carry and li == 0:
+                                open_stack = _carry(x, title, open_stack, chapters, seen_here, path_of, log, name,
+                                                    formula.get("sections", {}).get("scope") == "container")
+                            elif _is_container(sub) and sub.ident not in chapters:
+                                chapters[sub.ident] = sub
+                                title.add("node", sub)
+                                seen_here.add(sub.ident)
+                            elif _is_container(sub):
+                                _overlay(chapters[sub.ident], sub, log) if li else _merge(chapters[sub.ident], sub)
+                            else:
+                                title.add("node", sub)
+                    continue
+                if carry and li == 0:
+                    open_stack = _carry(it, title, open_stack, chapters, seen_here, path_of, log, name,
+                                        formula.get("sections", {}).get("scope") == "container")
+                    continue
                 if it[0] != "node":                             # text before the chapter heading
                     if li == 0:
                         title.items.append(it)
@@ -135,7 +232,7 @@ def convert_layers(layers, formula, title_ident, title_num_text, title_heading, 
                 if ch.ident in chapters and ch.ident in seen_here:
                     # the same chapter again in the SAME layer (Delaware's subchapter pages repeat the chapter
                     # heading): everything it holds joins the chapter, in page order -- nothing is replaced
-                    chapters[ch.ident].items.extend(x for x in ch.items)
+                    _merge(chapters[ch.ident], ch)          # nested repeats (chapter > part) merge too
                     log.setdefault("joined", []).append("%s <- %s" % (ch.ident, name))
                 elif ch.ident in chapters:
                     _overlay(chapters[ch.ident], ch, log)

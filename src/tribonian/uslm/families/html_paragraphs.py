@@ -448,20 +448,23 @@ class Builder:
         self.awaiting_heading = None
         self.toc_rx = _regex_list(s.get("toc"))
         self.version_rx = re.compile(s["versions"]) if s.get("versions") else None
+        self.lead_rx = re.compile(s["lead"]) if s.get("lead") else None   # text before a body line's first label
+        self.lead_always = bool(s.get("lead_always"))
         self.versions = []                 # labels that repeat as another version (effective-date variants)
         self.version_next = False          # a version marker stood alone on the line before
         n = f.get("notes", {})
         self.annot_rx = re.compile(n["annotation"]) if n.get("annotation") else None
-        self.note_rules = []               # (element, topic, regex or None, class or None)
+        self.note_rules = []               # (element, topic, regex or None, class or None, single)
         for tag, v in n.items():
             if tag in ("annotation", "close"):
                 continue
             for r in (v if isinstance(v, list) else [v]):
                 if isinstance(r, str):
-                    self.note_rules.append((tag, tag, re.compile(r), None))
+                    self.note_rules.append((tag, tag, re.compile(r), None, False))
                 else:
-                    self.note_rules.append((r.get("tag", tag), r.get("topic", tag),
-                                            re.compile(r["match"]) if r.get("match") else None, r.get("class")))
+                    self.note_rules.append((r.get("tag", tag), r.get("topic", tag),       # single = true: the note is
+                                            re.compile(r["match"]) if r.get("match") else None, r.get("class"),
+                                            bool(r.get("single"))))  # this block only; the next goes back to the body
         self.root = Node("lawDoc", ident=root_ident or self.doc, rank=0)
         # [notes].close: blocks that end the open section or its notes and stand as a cross heading in the
         # container (a group heading between sections: Nevada after a history line, Oregon's "COURT FACILITIES"
@@ -485,7 +488,7 @@ class Builder:
     # ---------------------------------------------------------------- helpers
 
     def here(self):
-        return self.levels[-1] if self.levels else self.section or self.stack[-1]
+        return self.levels[-1] if self.levels else (self.group or self.section or self.stack[-1])   # text after a group line belongs to the group
 
     def unique(self, ident, where, version=False):
         n = self.ids.get(ident, 0) + 1
@@ -517,7 +520,14 @@ class Builder:
             fields = {k: (v or "") for k, v in g.items()}      # every named group can go in the id template:
             fields.update(num=num, num_arabic=roman_value(num) or num)   # id = "act{year}-{no}"
             self.close_section()
-            while len(self.stack) > 1 and self.stack[-1].rank >= c["rank"]:
+            rank = c["rank"]
+            if c.get("rank_class"):            # rank from the block's class, e.g. "lvl(\d+)" -> lvl3 = 3: California's
+                for k in self.cur_classes:     # headings nest TITLE > DIVISION in one code and PART > TITLE in another,
+                    mm = re.fullmatch(c["rank_class"], k)   # so the word cannot rank them; the table's depth does
+                    if mm:
+                        rank = int(mm.group(1))
+                        break
+            while len(self.stack) > 1 and self.stack[-1].rank >= rank:
                 self.stack.pop()
             parent = self.stack[-1]
             local = c.get("id", "").format(**fields)
@@ -529,7 +539,7 @@ class Builder:
                 num_text, head = text[:m.start("heading")].strip(), g["heading"].strip()
             else:
                 num_text, head = text, ""
-            node = Node(c["tag"], num_text=num_text, num=num, heading=head, ident=ident, rank=c["rank"])
+            node = Node(c["tag"], num_text=num_text, num=num, heading=head, ident=ident, rank=rank)
             parent.add("node", node)
             self.stack.append(node)
             if c.get("sections") == "here":
@@ -566,7 +576,8 @@ class Builder:
         own = next((n for n in reversed(self.stack) if id(n) in self.scope_here), None)
         # a container rule with sections = "here" scopes the sections inside it (Pennsylvania's appendix acts,
         # whose sections 1, 2, 3 ... would collide with the title's own); otherwise [sections].scope decides
-        base = own.ident if own is not None else (parent.ident if self.scope == "container" else title.ident)
+        base = own.ident if own is not None else (parent.ident if self.scope == "container"
+                                                  else self.root.ident if self.scope == "root" else title.ident)
         is_version = bool(self.version_rx and (self.version_rx.match(text[len(probe):].strip())
                                                or self.version_rx.search(heading)    # marker in the heading (NC)
                                                or self.version_next))                # or on the line before (NH)
@@ -590,6 +601,14 @@ class Builder:
     # ---------------------------------------------------------------- numbered paragraphs
 
     def body(self, text, indent=None):
+        if self.lead_rx is not None and self.section is not None and not self.levels:
+            m = self.lead_rx.match(text)       # [sections].lead: "Sec. 5. (a) ..." -- the restated number is the
+            if m and m.group(0).strip() and (self.lead_always or split_labels(text[m.end():], self.ladder.dotted)[0]):
+                # section's text, the labels after it; lead_always: strip it even with no label after (NJ "2.  Defs.")
+                self.section.add("text", m.group(0).strip())               # open levels (Indiana)
+                text = text[m.end():]
+                if not text.strip():
+                    return
         labels, raws, rest = split_labels(text, self.ladder.dotted)
         if self.section is not None and not labels and indent is not None and self.indent_closes and self.levels:
             # an unnumbered paragraph indented at depth d belongs to the open level at depth d - 1 (0: the section)
@@ -657,9 +676,9 @@ class Builder:
         return False
 
     def note_rule(self, text, classes):
-        for tag, topic, rx, cls in self.note_rules:
+        for tag, topic, rx, cls, single in self.note_rules:
             if (rx is None or rx.match(text)) and (cls is None or cls in classes):
-                return tag, topic
+                return tag, topic, single
         return None
 
     def start_note(self, tag, topic, text):
@@ -722,7 +741,10 @@ class Builder:
             return
         rule = self.note_rule(text, classes)
         if rule and not (self.in_notes and self.in_notes[2] == "annotation" and rule[1] != "annotation"):
+            prev = self.in_notes
             self.start_note(rule[0], rule[1], text)
+            if rule[2]:                         # single: Ohio's "Effective:" line before the section's text
+                self.in_notes = prev
             return
         if self.closes_notes(text, classes, centered) and not self.section_start_probe(text, bold):
             # also with nothing open: a group heading between the table of contents and the first section

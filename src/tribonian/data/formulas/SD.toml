@@ -32,6 +32,15 @@ encoding = "utf-16-le"                        # ?all=true pages are UTF-16LE wit
 family  = "html-paragraphs"
 terms   = "none stated; the printed SDCL volumes are official (SDCL 2-16-13), this online text is not"
 
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (61) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21",
+  "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39",
+  "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57",
+  "58", "59", "60", "61", "62"
+]
+
 [SD.sdcl.html]
 # Two generators share one page. Current sections: PowerTools (<p class="<prefix>Normal">, centering and bold
 # only in CSS class rules -- read by :centered). Chapter tables of contents and repealed / transferred

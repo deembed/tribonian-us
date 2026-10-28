@@ -29,6 +29,13 @@ layers  = [ { name = "current", url = "https://delcode.delaware.gov/title{item}/
 encoding = "utf-8"
 family  = "html-paragraphs"
 
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (31) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31"
+]
+
 [DE.code.html]
 root     = "div#content"                      # page header, menus and footer are outside it
 blocks   = ["p", "div.SectionHead"]
@@ -100,6 +107,12 @@ links   = 'href="(constitution-\d+\.shtml)#'      # 01 (preamble) is linked at #
 save_as = "name"                               # flat folder, unique names: plain file names (overrides DE.code's "path")
 layers  = [ { name = "current", url = "https://delcode.delaware.gov/constitution/index.shtml" } ]
 dir     = "const"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1897"
+]
 
 [DE.const.html]
 root     = "div#content"

@@ -28,6 +28,24 @@ how     = "index fetch with links = [regex per level]; save_as = \"path\" when p
 claimed = ""
 unlocks = ["AZ", "KS", "ME", "MT", "OH", "RI", "MN", "WI", "HI", "ID", "IL", "KY", "LA", "MA", "AK"]
 
+[pieces.scroll]
+what    = "fetch strategy: windowed documents joined by block key (fetch = \"scroll\")"
+status  = "done"
+claimed = ""
+unlocks = ["WI"]
+
+[pieces.postback]
+what    = "fetch: index level that follows ASP.NET postback links (__VIEWSTATE / __EVENTTARGET)"
+status  = "done"
+claimed = ""
+unlocks = ["LA"]
+
+[pieces.pre_lines]
+what    = "parser: <pre> line mode (indent/blank line starts a paragraph, wrapped lines join)"
+status  = "todo"
+claimed = ""
+unlocks = ["IL const"]
+
 [pieces.xml]
 what    = "parser family: XML with a config tag map to USLM"
 status  = "todo"
@@ -89,15 +107,15 @@ branch   = ""
 
 # ---------------------------------------------------------------- fits (static HTML)
 [AK]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html table of contents by title (2024 edition)"
 claimed = ""
 branch = ""
 
 [AZ]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html one file per section: azleg.gov/ars/36/00101.htm"
 claimed = ""
 branch = ""
@@ -106,7 +124,7 @@ branch = ""
 status = "working"
 needs  = []
 source = "html index per title/chapter; authenticated PDF per title"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "code titles 1 6 11 16 31 PASS, const PASS (real builds); full list 1-31"
 
@@ -114,69 +132,69 @@ verified = "code titles 1 6 11 16 31 PASS, const PASS (real builds); full list 1
 status = "working"
 needs  = []
 source = "html browse by title/chapter; a 'Statutes Download' mode (format unverified)"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "const PASS (real build, 213 sections); statutes FL.fs PASS on ch. 1 and 768 probes"
 
 [HI]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html open directory tree /hrscurrent/<Volume>/<Chapter>/, one .htm per section"
 claimed = ""
 branch = ""
 
 [ID]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section; pdf per chapter"
 claimed = ""
 branch = ""
 
 [IL]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section; FTP static HTML copy with a section sequence file"
 claimed = ""
 branch = ""
 
 [KS]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section; chapter index /statutes/ksa_chNN.html"
 claimed = ""
 branch = ""
 
 [KY]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "per section statute.aspx?id=<db id>; chapter.aspx?id=<db id> (file type unverified)"
 claimed = ""
 branch = ""
 
 [LA]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html Law.aspx?d=<id> per section; table of contents by folder id"
 claimed = ""
 branch = ""
 
 [MA]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html /Laws/GeneralLaws/PartI/TitleXXI/Chapter149/Section24L"
 claimed = ""
 branch = ""
 
 [ME]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section; PDF/Word per title"
 claimed = ""
 branch = ""
 
 [MN]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section /statutes/cite/14.47 with history"
 claimed = ""
 branch = ""
@@ -185,13 +203,13 @@ branch = ""
 status = "working"
 needs  = []
 source = "html OneChapter.aspx?chapter=N (whole chapter)"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "rsmo ch. 1 PASS, const art. I PASS (real builds); full list of 468 chapters ready"
 
 [MT]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section /bills/<year>/mca/<title>/<chapter>/<t-c-sss>.htm"
 claimed = ""
 branch = ""
@@ -200,7 +218,7 @@ branch = ""
 status = "working"
 needs  = []
 source = "html per chapter /EnactedLegislation/Statutes/HTML/ByChapter/Chapter_1.html"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "gs 1A PASS (72 sections), const PASS (real builds)"
 
@@ -208,7 +226,7 @@ verified = "gs 1A PASS (72 sections), const PASS (real builds)"
 status = "working"
 needs  = []
 source = "html whole chapter /laws/display-chapters.php?chapter=N"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "rs 1 PASS (85 sections, real build); const PASS on probe (239 sections)"
 
@@ -216,7 +234,7 @@ verified = "rs 1 PASS (85 sections, real build); const PASS on probe (239 sectio
 status = "working"
 needs  = []
 source = "html: title index, whole chapter in one merged file"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 skipped = "constitution: www.nh.gov blocks every non-browser client (bot protection, even robots.txt); deferred by the user 2026-10-26 -- revisit when needed"
 verified = "rsa titles I IV XI XIX-A XXXIV-A LXIV PASS (real builds); constitution skipped"
@@ -225,13 +243,13 @@ verified = "rsa titles I IV XI XIX-A XXXIV-A LXIV PASS (real builds); constituti
 status = "working"
 needs  = []
 source = "html one file per chapter: leg.state.nv.us/NRS/NRS-XXX.html"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "nrs 1 PASS, const PASS (246 sections) (real builds)"
 
 [OH]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section; authenticated pdf per section"
 claimed = ""
 branch = ""
@@ -240,13 +258,13 @@ branch = ""
 status = "working"
 needs  = []
 source = "html per chapter (static, /bills_laws/ors/); file name pattern unverified"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "const PASS (real build); ors PASS on ch. 1, 2, 72A, 90 probes"
 
 [RI]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section webserver.rilegislature.gov/Statutes/TITLE16/16-57/16-57-1.htm"
 claimed = ""
 branch = ""
@@ -255,7 +273,7 @@ branch = ""
 status = "working"
 needs  = []
 source = "html one .php page per chapter (/code/t01c023.php)"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "code title 1 PASS (481 sections, real build); constitution has no HTML (PDF/Word only)"
 
@@ -263,7 +281,7 @@ verified = "code title 1 PASS (481 sections, real build); constitution has no HT
 status = "working"
 needs  = []
 source = "JavaScript app, but static HTML via /api/Statutes/{cite}.html (?all=true for a chapter; unverified)"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "sdcl title 1 PASS (2,031 sections), const PASS (real builds)"
 
@@ -271,7 +289,7 @@ verified = "sdcl title 1 PASS (2,031 sections), const PASS (real builds)"
 status = "working"
 needs  = []
 source = "html full chapter /statutes/fullchapter/{title}/{chapter}"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "const PASS (98 sections, real build); vsa PASS on probes"
 
@@ -279,13 +297,13 @@ verified = "const PASS (98 sections, real build); vsa PASS on probes"
 status = "working"
 needs  = []
 source = "html per section; archive one HTML per title"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "const PASS (273 sections), rcw 9A.04 PASS (real builds); fetch by title"
 
 [WI]
-status = "fits"
-needs  = ["index2"]
+status = "working"
+needs  = []
 source = "html per section; pdf per chapter"
 claimed = ""
 branch = ""
@@ -294,7 +312,7 @@ branch = ""
 status = "working"
 needs  = []
 source = "html per article /{ch}-{art}/"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 
 # ---------------------------------------------------------------- unclear (probe first)
@@ -304,7 +322,7 @@ verified = "code ch. 1 PASS, const PASS (203 sections) (real builds); per-sectio
 status = "working"
 needs  = []
 source = "NMOneSource document.do (nmsa-unanno); possibly a JavaScript app"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 verified = "nmsa ch. 11 PASS, const PASS via ePub (probe files); sample fetch pending"
 
@@ -312,136 +330,136 @@ verified = "nmsa ch. 11 PASS, const PASS via ePub (probe files); sample fetch pe
 status = "working"
 needs  = []
 source = "palegis.us (new site, format unverified); legacy html/pdf per title or act"
-claimed = "agent, round 2 (2026-10-26)"
+claimed = ""
 branch = ""
 
 # ---------------------------------------------------------------- bulk / API
 verified = "cs titles 1 18 40 42 75 79 PASS, const PASS (real builds); full list of 74 titles"
 
 [DC]
-status = "bulk"
-needs  = ["xml"]
+status = "working"
+needs  = []
 source = "github.com/dccouncil/law-xml"
 claimed = ""
 branch = ""
 
 [UT]
-status = "bulk"
-needs  = ["xml"]
+status = "working"
+needs  = []
 source = "XML via le.utah.gov/data/developer.htm"
 claimed = ""
 branch = ""
 
 [VA]
-status = "bulk"
-needs  = ["json_api"]
+status = "working"
+needs  = []
 source = "law.lis.virginia.gov/developers (JSON and XML APIs)"
 claimed = ""
 branch = ""
 
 [NY]
-status = "bulk"
-needs  = ["json_api"]
+status = "working"
+needs  = []
 source = "legislation.nysenate.gov/api/3/laws (Open Legislation; API key)"
 claimed = ""
 branch = ""
 
 [CA]
-status = "bulk"
-needs  = ["zip"]
+status = "working"
+needs  = []
 source = "downloads.leginfo.legislature.ca.gov pubinfo_YYYY.zip (~1.1 GB database dump, tab-delimited .dat)"
 claimed = ""
 branch = ""
 
 [NJ]
-status = "bulk"
-needs  = ["zip"]
+status = "working"
+needs  = []
 source = "pub.njleg.gov/statutes/ STATUTES-TEXT.zip (plain text)"
 claimed = ""
 branch = ""
 
 [TX]
-status = "bulk"
-needs  = ["zip"]
+status = "working"
+needs  = []
 source = "statutes.capitol.texas.gov/Download.aspx (zip per code: HTML, PDF, Word)"
 claimed = ""
 branch = ""
 
 # ---------------------------------------------------------------- pdf only
 [WY]
-status = "pdf"
-needs  = ["pdf"]
+status = "working"
+needs  = []
 source = "wyoleg.gov/statutes/compress/titleNN.pdf; ladder (a)(i)(A)(I)"
 claimed = ""
 branch = ""
 
 [IA]
-status = "pdf"
-needs  = ["pdf"]
+status = "working"
+needs  = []
 source = "8 official volume PDFs"
 claimed = ""
 branch = ""
 
 [ND]
-status = "pdf"
-needs  = ["pdf"]
+status = "working"
+needs  = []
 source = "pdf per chapter ndlegis.gov/cencode/t01c01.pdf"
 claimed = ""
 branch = ""
 
 [OK]
-status = "pdf"
-needs  = ["pdf"]
+status = "working"
+needs  = []
 source = "pdf per title (oklegislature.gov); OSCN HTML as an alternative to probe"
 claimed = ""
 branch = ""
 
 [MI]
-status = "pdf"
-needs  = ["pdf"]
+status = "working"
+needs  = []
 source = "pdf per section; html search and chapter index (probe: may fit html)"
 claimed = ""
 branch = ""
 
 # ---------------------------------------------------------------- vendor / JavaScript-only
 [AL]
-status = "vendor"
-needs  = ["openjurist"]
+status = "working"
+needs  = []
 source = "ALISON single-page app"
 claimed = ""
 branch = ""
 
 [AR]
 status = "vendor"
-needs  = ["openjurist"]
-source = "Lexis free-access viewer"
+needs  = []
+source = "Lexis free-access viewer; vendor-only: LexisNexis terms forbid automated access; open copies stale (see DATASOURCES.md)"
 claimed = ""
 branch = ""
 
 [GA]
 status = "vendor"
-needs  = ["openjurist"]
-source = "Lexis viewer; Public.Resource.Org mirror law.resource.org/pub/us/ as an alternative"
+needs  = []
+source = "Lexis viewer; Public.Resource.Org mirror law.resource.org/pub/us/ as an alternative; vendor-only: LexisNexis terms forbid automated access; open copies stale (see DATASOURCES.md)"
 claimed = ""
 branch = ""
 
 [MS]
 status = "vendor"
-needs  = ["openjurist"]
-source = "Lexis viewer"
+needs  = []
+source = "Lexis viewer; vendor-only: LexisNexis terms forbid automated access; open copies stale (see DATASOURCES.md)"
 claimed = ""
 branch = ""
 
 [TN]
 status = "vendor"
-needs  = ["openjurist"]
-source = "Lexis viewer"
+needs  = []
+source = "Lexis viewer; vendor-only: LexisNexis terms forbid automated access; open copies stale (see DATASOURCES.md)"
 claimed = ""
 branch = ""
 
 [IN]
-status = "vendor"
-needs  = ["openjurist"]
+status = "working"
+needs  = []
 source = "JavaScript app; iga.in.gov/laws/ic/downloads unverified (probe: may be bulk)"
 claimed = ""
 branch = ""

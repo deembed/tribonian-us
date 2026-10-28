@@ -1,0 +1,142 @@
+# VA.toml -- Virginia: Code of Virginia (VA.code) and the Constitution of Virginia (VA.const).
+# Source: law.lis.virginia.gov, Virginia General Assembly, Division of Legislative Automated Systems (DLAS).
+#
+# ROUTE (Batch 3): plain HTML, one page per TITLE. Of the site's machine-readable routes --
+#   /jsonapi/ and /xmlapi/ (developers page; REST, coverage/registration not yet read),
+#   /CSV/CoVTitle_<n>.csv (law library: one CSV per title, body column is HTML),
+#   /vacodefull/title<n>/ ("Read Title" link on each title page: the whole title as HTML)
+# -- the whole-title page is the simplest: no new fetch or parser code, one request per title, and its
+# markup should be the per-section page's (h2 "§ 1-200. The common law." + section.body of <p>).
+# Tested offline on the probe of vacodefull/title1 (PASS) and constitutionfull (PASS); build/dispatch/VA.test.py.
+#
+# Section page markup (vacode/title1/chapter1/section1-200):
+#   <span id='va_code' class="content"><h2> <span id='v0'>§ 1-200</span>. The common law.</h2>
+#     <section class='body editable' ...><p>law text</p><p>Code 1919, § 2, § 1-10; 2005, c. <a>839</a>.</p></section>
+#     <input type='hidden' .../></span>
+# The last <p> is the history line (source credit): "Code 1919, ...", "1950, ...", "2005, c. 839."
+
+[VA.code]
+name    = "Code of Virginia"
+doc     = "/us-va/code"                       # sections /us-va/code/s1-200/A (numbers unique statewide: 1-200, 8.01-1, 58.1-3)
+fetch   = "template"
+url     = "https://law.lis.virginia.gov/vacodefull/title{item}/"
+edition = "current"                           # the site shows the Code in force; no edition in the URL
+item    = ""                                  # titles as printed: 1, 2.2, 8.01, 58.1
+file    = "title-{item}.html"
+title_id = ['^(.*)$', 't\1']                  # /us-va/code/t8.01
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "LIS terms https://lis.virginia.gov/tos (not read); robots.txt allows /vacode*, /constitution*"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (69) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2.2", "3.2", "4.1", "5.1", "6.2", "8.01", "8.2", "8.4", "8.7", "8.10", "8.11", "8.12", "8.13", "9.1",
+  "10.1", "11", "12.1", "13.1", "15.2", "16.1", "17.1", "18.2", "19.2", "20", "21", "22.1", "23.1", "24.2",
+  "25.1", "27", "28.2", "29.1", "30", "32.1", "33.2", "34", "35.1", "36", "37.2", "38.2", "40.1", "41.1", "42.1",
+  "43", "44", "45.2", "46.2", "47.1", "48", "49", "50", "51.1", "51.5", "52", "53.1", "54.1", "55.1", "56", "57",
+  "58.1", "59.1", "60.2", "61.1", "62.1", "63.2", "64.2", "65.2", "66"
+]
+
+[VA.code.html]
+# vacodefull/title<N>/: span#va_code holds the whole title, flat:
+#   <h2>General Provisions</h2>                       title name (no number)
+#   <h3>Chapter 2.1. Common Law ...</h3> / <h3>Article 1. ...</h3>
+#   <b>§ 1-200. The common law.</b><p>text</p>...<p>history line</p>      the <b> is BARE inside the span (no <p>)
+#   <p class="sidenote">This section has more than one version ...</p>   before each version of a multi-version section
+root     = "span#va_code"                     # outside: menus, breadcrumbs, sign-in form, footer, print buttons
+blocks   = ["h2", "h3", "p", "table"]
+loose    = ["span#va_code"]                   # the bare <b>§ ...</b> section lines become blocks of their own
+headings = ["h2", "h3"]
+opening  = ["b"]
+verbatim = ["table"]                          # statutory tables (8.01-419 life expectancy): one text item, cells joined
+# the site's banner before each version of a multi-version section ("This section has more than one version ...
+# see Table of Contents"): a UI notice pointing at the site's TOC, not law text. Kept, it lands in the PREVIOUS
+# section's history (it stands before the section it is about). The versions themselves are kept from the headings.
+drop     = ["p.sidenote", "td.hiddenTable"]   # + the editor's row letters a b c ... in each table row, hidden by the
+                                              # page's CSS (.hiddenTable {display: none !important}), never shown
+
+[VA.code.ladder]
+# Virginia: A. subsection, 1. paragraph, a. subparagraph, (i) clause; some sections use (a)(1) instead
+types = [["upper.", "num.", "lower", "num"], ["num.", "lower", "num", "lower."], ["lower.", "roman_lower", "upper"], ["roman_lower", "upper"]]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[VA.code.containers]
+# h2 "General Provisions": the title's name only (the number is the item). id = "": no identifier level (the
+# template build's root is /us-va/code; section numbers are unique statewide).
+title    = { match = '^(?P<heading>(?!(?:Subtitle|Part|Chapter|Article)\s).+)$', tag = "title", rank = 1, id = "", heading = "self" }
+# h2 "Subtitle I. General Provisions and Transportation Entities" (Title 33.2 and other big titles)
+subtitle = { match = '^Subtitle\s+(?P<num>[IVXL]+)\.\s+(?P<heading>.*)$', tag = "subtitle", rank = 2, id = "st{num}" }
+# h3 "Chapter 2.1. Common Law and Rules of Construction." / "Chapter 3. Citizenship [Repealed]." / "Article 1. ..."
+chapter  = { match = '^Chapter\s+(?P<num>\d+(?:\.\d+)*)\.\s+(?P<heading>.*)$', tag = "chapter", rank = 3, id = "ch{num}" }
+article  = { match = '^Article\s+(?P<num>\d+(?:\.\d+)*)\.\s+(?P<heading>.*)$', tag = "article", rank = 4, id = "art{num}" }
+
+[VA.code.sections]
+# <b>§ 1-200. The common law.</b> ; "§ 8.01-1." ; "§§ 1-10 through 1-12. Repealed." ; "§ 1-600. (For contingent
+# expiration date, see Acts 2025, cc. 91 and 109, cl. 2) Virginia coordinate systems designated."
+# ranges/lists: "§§ 1-10 through 1-17.2." "§§ 8.01-654.1 , 8.01-654.2. Repealed."
+# number: title-section[.n][:n] -- "8.01-44.5:1", "8.01-581.01", "2.2-2009:1" (colon = inserted section)
+match = '^§§?\s*(?P<num>\d+(?:\.\d+)?-\d+(?:\.\d+)*(?::\d+)?(?:\s*(?:,|through|and)\s*\d+(?:\.\d+)?-\d+(?:\.\d+)*(?::\d+)?)*)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+# Virginia orders inserted numbers .01 .02 .03 .1 .2 ... .9 .10 (zero-led parts first, then whole numbers):
+# neither decimal = true (flags .10 after .9) nor false (flags .1 after .03) fits; false flags fewer.
+decimal = false
+# the same number twice, told apart by a lead parenthesis: "(For contingent expiration date, see Acts ...)",
+# "(Effective until July 1, 2027)" / "(Effective July 1, 2027)" -> s1-600, s1-600_v2
+versions = '^\((For (contingent )?(effective|expiration) date|Effective )'
+
+[VA.code.notes]
+# history line: "Code 1919, § 2 ...", "1950, § 1-13.1; ...", "2005, c. 839." / "Acts 1950, ..." -- year-led
+sourceCredit = ['^(Code \d{4}|\d{4}[,;]|Acts \d{4}|R\. P\. \d{4})']   # also "R. P. 1948, § 1-2.1." (Revision of 1948)
+
+# ---------------------------------------------------------------- Constitution of Virginia (1971)
+# /constitutionfull ("Read Full Constitution"): the whole constitution on one page, span#va_constitution:
+#   <h2 class='heading-name'>Article I. <span class='heading-text'>Bill of Rights</span></h2>
+#   <p>A DECLARATION OF RIGHTS ...</p>                         article preamble (Article I only)
+#   <h5>Section 8-A. Rights of victims of crime.</h5>
+#   <p class="section-text">text</p>  or  <ul class="section-outline"><li>text</li><ul class="section-outline-child">
+#       <li>1. The right ...</li></ul></ul>                     numbered lists as <li>
+#   <p class="amendment">The amendment ratified November 5, 1996 ...—Added a new section (8-A).</p>   history note
+[VA.const]
+inherit = "VA.code"
+replace = ["html", "containers", "sections", "notes", "ladder"]
+name    = "Constitution of Virginia"
+doc     = "/us-va/const"                      # /us-va/const/artI/s8-A
+url     = "https://law.lis.virginia.gov/constitutionfull"
+item    = ""
+items   = ["full"]                            # always the one file -> /us-va/const/const
+file    = "constitution-{item}.html"
+title_id = ['^(.*)$', 'const']
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "full"
+]
+
+[VA.const.html]
+root     = "span#va_constitution"
+blocks   = ["h2", "h5", "p", "li"]
+headings = ["h2"]                             # article headings; the h5 section lines are read by [sections]
+opening  = []
+drop     = ["div#printDate"]                  # the page's print date (site furniture)
+
+[VA.const.ladder]
+# (a) (1) inside sections; the li lists are "1." "2."
+types = [["lower", "num.", "num"], ["num", "roman_lower", "lower"], ["roman_lower", "upper"]]   # (b)(i)(ii): roman first at level 2
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[VA.const.containers]
+article = { match = '^Article\s+(?P<num>[IVXL]+)\.\s+(?P<heading>.*)$', tag = "article", rank = 2, id = "art{num}" }
+# last h2: "Schedule <span class='heading-text'></span>" (empty name) -- the 1971 transition schedule, Sections 1-..
+schedule = { match = '^(?P<heading>Schedule)$', tag = "article", rank = 2, id = "sched", heading = "self" }
+
+[VA.const.sections]
+match = '^Section\s+(?P<num>\d+(?:-[A-Z])?)\.\s+(?P<heading>.*)$'   # "Section 8-A. Rights of victims of crime."
+bold  = false
+scope = "container"                           # Section 1 repeats in every article: /us-va/const/artI/s1
+
+[VA.const.notes]
+# amendment history after a section (class "amendment", once "section-text amendment")
+note = [{ class = "amendment", topic = "amendments" }]
