@@ -1152,7 +1152,8 @@ def repro_for(repro, key):
 
 
 def law_anchor(key):
-    return "law-" + re.sub(r"[^A-Za-z0-9]+", "-", key).strip("-")
+    from tribonian import lawappendix
+    return lawappendix.anchor(key)
 
 
 def law_paras(text):
@@ -1170,20 +1171,12 @@ def law_paras(text):
     return out
 
 
-def law_missing(lc, fetch, warnings):
-    """The law in question whose text is not local. fetch: get it first (lawtext.run_fetch: never fails the
-    build; what could not be fetched is reported). -> [(key, hint)] still missing, printed at the end."""
-    from tribonian import lawtext
-    todo = [k for k in lc["liq"] if lawtext.text_of(k) is None]
-    if fetch and todo:
-        specs = list(dict.fromkeys(s for s in map(lawtext.fetch_spec, todo) if s))
-        for spec in specs:
-            print("fetch: %s" % " ".join(spec[1:] if spec[0] == "state" else spec), flush=True)
-            ok, why = lawtext.run_fetch(spec)
-            if not ok:
-                warnings.append("could not fetch %s: %s" % (" ".join(spec[1:]), why))
-        todo = [k for k in todo if lawtext.text_of(k) is None]
-    return [(k, lawtext.fetch_hint(k)) for k in todo]
+def law_missing(lc, fetch, warnings, fetch_state=False):
+    """Every cited provision whose text is not local. fetch: get the federal ones first (C.F.R. titles, the
+    Constitution); fetch_state: the state ones (lawappendix.fetch_missing: never fails the build; what could not
+    be fetched is reported). -> [(key, hint)] still missing, printed at the end."""
+    from tribonian import lawappendix
+    return lawappendix.fetch_missing([k for k, _ in law_rows(lc)], federal=fetch, state=fetch_state, warnings=warnings)
 
 
 def repro_links(where, fs, appendix):
@@ -1200,43 +1193,42 @@ def repro_links(where, fs, appendix):
 
 
 def law_appendix_tex(lc, fs, appendix=False):
-    """The last part of the PDF: the law in question, as the parties set it out and, where it is
-    stored locally, its text. Every cite of these provisions in the filings links here."""
-    from tribonian import lawtext
-    if not lc["liq"]:
+    """The last part of the PDF: every provision the filings cite, the law in question first (as the parties set it
+    out, then its text), then the rest by side; each with its text where it is stored locally. Every cite of a
+    provision anywhere in this PDF links to its entry here."""
+    from tribonian import lawappendix
+    rows = law_rows(lc)
+    if not rows:
         return ""
     E = lambda t: c.esc(t, "tex")
     secs, repro = law_sources(fs)
-    out = ["\\clearpage\\recordcover{none}\\recordpath{The Law in Question}\\noindent\\tocback\\tocadd{tocstage}{The Law in Question}\\pdfbookmark[0]{The Law in Question}{lawq}"
-           "{\\Large\\bfseries The Law in Question\\par}\\vspace{4pt}",
-           "{\\scriptsize\\itshape Not part of the record. The provisions the questions presented and the parties' "
-           "provisions-involved sections name: first as each party sets them out, then each provision's text where it is "
-           "stored locally (the US Code from the Code's XML; the Constitution, C.F.R. and state law once their local copies "
-           "are built). A cite of one of these provisions anywhere in this PDF links to its entry here.\\par}\\vspace{6pt}"]
+    out = ["\\clearpage\\recordcover{none}\\recordpath{The Law Cited}\\noindent\\tocback\\tocadd{tocstage}{The Law Cited}\\pdfbookmark[0]{The Law Cited}{lawq}"
+           "{\\Large\\bfseries The Law Cited\\par}\\vspace{4pt}",
+           "{\\scriptsize\\itshape Not part of the record. Every statute, constitutional provision and regulation the filings cite: "
+           "the law in question first (what the questions presented and the parties' provisions-involved sections name, as each "
+           "party sets it out), then the rest by who cites it. Each with its text where it is stored locally (current text, "
+           "not as of the decision below). A cite of one of these provisions anywhere in this PDF links to its entry here.\\par}\\vspace{6pt}"]
     for n, (abbr, t) in enumerate(secs):
         out.append("\\headroom{6}\\pdfbookmark[1]{%s: provisions involved}{lawq-src%d}\\noindent{\\large\\bfseries %s: provisions involved\\par}\\vspace{2pt}" % (E(abbr), n, E(abbr)))
         out += ["{\\small %s\\par}\\vspace{2pt}" % E(p) for p in law_paras(t)]
         out.append("\\vspace{6pt}")
-    for k in lc["liq"]:
-        lab = lawcites.label(k)
-        out.append("\\headroom{6}\\vspace{6pt}\\hypertarget{%s}{}\\pdfbookmark[1]{%s}{%s}\\noindent{\\large\\bfseries %s\\par}\\vspace{2pt}" % (
-            law_anchor(k), E(lab), law_anchor(k), E(lab)))
-        out.append("{\\footnotesize Cited by the petitioners %d times (%d filings) and their amici %d (%d); by the respondent %d (%d) "
-                   "and its amici %d (%d).%s\\par}\\vspace{2pt}" % (
-            lc["Pp"][k], lc["nPp"][k], lc["Pa"][k], lc["nPa"][k], lc["Rp"][k], lc["nRp"][k], lc["Ra"][k], lc["nRa"][k],
-            " Reproduced in: %s." % "; ".join(repro_links(w, fs, appendix) for w in repro_for(repro, k)) if repro_for(repro, k) else ""))
-        got = lawtext.text_of(k)
-        if got is None:
-            hint = lawtext.fetch_hint(k)
-            out.append("{\\small\\itshape Text not stored locally%s.\\par}" % (
-                " (\\texttt{%s} gets it)" % E(hint) if hint.startswith("tribonian ") else ""))
-            continue
-        head, rows = got
-        if head:
-            out.append("{\\small\\bfseries %s\\par}" % head)
-        for depth, label, heading, text in rows:
-            out.append("%s{\\small\\leftskip=%.1fem %s%s%s\\par}" % (
-                "\\headroom{4}" if label and heading and not text else "", 1.2 * depth, "\\textbf{%s} " % label if label else "", "\\emph{%s.} " % heading if heading else "", text))
+
+    def note(k):
+        return ("Cited by the petitioners %d times (%d filings) and their amici %d (%d); by the respondent %d (%d) "
+                "and its amici %d (%d).%s" % (
+                    lc["Pp"][k], lc["nPp"][k], lc["Pa"][k], lc["nPa"][k], lc["Rp"][k], lc["nRp"][k], lc["Ra"][k], lc["nRa"][k],
+                    " Reproduced in: %s." % "; ".join(repro_links(w, fs, appendix) for w in repro_for(repro, k)) if repro_for(repro, k) else ""))
+    editions = {}
+    for f in fs:
+        editions.update(f["laws"].get("editions") or {})
+    by_group = {}
+    for k, g in rows:
+        by_group.setdefault(g, []).append(k)
+    for g in ("liq", "both", "pet", "resp", "amici"):
+        if by_group.get(g):
+            out.append("\\headroom{8}\\vspace{8pt}\\pdfbookmark[1]{%s}{lawband-%s}\\noindent{\\Large\\bfseries %s\\par}\\vspace{2pt}" % (
+                E(LAW_GROUP[g]), g, E(LAW_GROUP[g])))
+            out += lawappendix.entries_tex(by_group[g], note, editions, level=2)
     return "\n".join(out) + "\n"
 
 
@@ -1323,7 +1315,7 @@ def law_tex(lc):
             prev = g
         lab = E(lawcites.label(k))
         cells, fil = split_cells(lc, k)
-        rows.append(" & ".join([str(i), "\\hyperlink{%s}{%s}" % (law_anchor(k), lab) if g == "liq" else lab] + cells + [fil,
+        rows.append(" & ".join([str(i), "\\hyperlink{%s}{%s}" % (law_anchor(k), lab)] + cells + [fil,
                                 "%d/%d" % (lc["nameP"][k], lc["nameR"][k]) if lc["nameP"][k] or lc["nameR"][k] else ""]))
     return ("\\pdfbookmark[0]{Statutes and provisions the filings cite}{laws}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!40!black, boxrule=0.4pt, arc=1.5pt,\n"
@@ -1561,7 +1553,7 @@ def header_lines(f, h, fmt, link=None):
     if h["laws"]:
         def one(k, n, area):
             lab = E(lawcites.label(k))
-            if fmt == "tex" and k in h["liq"]:
+            if fmt == "tex":
                 lab = "\\hyperlink{%s}{%s}" % (law_anchor(k), lab)
             elif fmt == "md" and link:
                 lab = link(k)
@@ -1993,6 +1985,9 @@ def build(args):
     warnings = []
 
     # ---- the filings
+    from tribonian import lawappendix, statecites
+    # forms that do not name their state ("Penal Code § 187") are read as the court below's state('s)
+    statecites.CONTEXT["states"] = statecites.court_name_states(data["feed"].get("LowerCourt"))
     fs = filings(data, con)
     vocab = words_of(*(f["brief"] for f in fs)) if fs else None
     for i, f in enumerate(fs):
@@ -2039,7 +2034,7 @@ def build(args):
     # ---- the analysis
     cp = coupling(fs, below_cites, con)
     lc = law_analysis(fs, qp_paragraphs(data))
-    missing = law_missing(lc, getattr(args, "fetch", False), warnings)
+    missing = law_missing(lc, getattr(args, "fetch", False), warnings, getattr(args, "fetch_state_law", False))
     allc = set(cp["P"]) | set(cp["R"]) | cp["below"] | {k for f in fs for k in f["cites"]}
     names = case_names(con, allc)
     areas = []
@@ -2088,7 +2083,10 @@ def build(args):
         o["tree"] = c.tree_of(o, o["levels"])
         o["stage"] = f["stage"]
         ops.append(o)
-    targets = {k: law_anchor(k) for k in lc["liq"]}
+    targets = {k: law_anchor(k) for k, _ in law_rows(lc)}       # every provision has its entry at the end
+    for o in ops:                                # the decision below is read from HTML: mark its statute cites too
+        for b in o.get("flat", []):
+            c.mark_law(b[1])
     for n, o in enumerate(ops):                  # unique ids for bookmarks and footnote keys across the documents
         o["oi"] = o["ctx"].oi = n
         o["ctx"].lawtargets = targets
@@ -2199,7 +2197,8 @@ def build(args):
     for w in warnings:
         print("  note:", w)
     if missing:
-        print("  law in question not stored locally (%s):" % ("could not fetch" if getattr(args, "fetch", False) else "--fetch gets what it can"))
+        print("  cited law not stored locally (%s):" % ("could not fetch" if getattr(args, "fetch", False) else
+                                                     "--fetch (federal) and --fetch-state-law get what they can"))
         for k, hint in missing:
             print("    %-34s %s" % (lawcites.label(k), hint or "no reader yet"))
     return data, fs, cp, cid
@@ -2595,8 +2594,10 @@ def main():
     b.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
     b.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
-    b.add_argument("--fetch", action="store_true", help="download the text of the law in question that is not local "
-                   "(C.F.R. titles, Colorado law); a refusal or a dropped connection is reported and the build goes on")
+    b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
+                   help="download and build the cited state law that is not local (each code's item: a title or chapter)")
+    b.add_argument("--fetch", action="store_true", help="download the text of the cited federal law that is not local "
+                   "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     b.set_defaults(func=build_cmd)
     sw = sub.add_parser("swatches", help="one page of the cover colors, to check the tints on the tablet -> pdf/cover-swatches.pdf")
     sw.add_argument("--font", default="XCharter")

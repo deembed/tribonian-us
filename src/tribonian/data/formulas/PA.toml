@@ -115,6 +115,18 @@ sourceCredit  = '^\((?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.? \d
 editorialNote = ['^(?!Schedule\.)(?:\d{4} )?[A-Z][a-z]+(?: (?:[A-Z][a-z]+|of|by|in|to|on|for|and|the|\d{4}))*\.\s',
                  '^Editorial Note:']           # Title 79 (reserved) holds only this note, at the top level
 
+[PA.cs.cite]
+# "18 Pa.C.S. § 2501" (Pennsylvania courts), "18 Pa.C.S.A. § 2501" (West), "18 Pa. Cons. Stat. § 2501" (Bluebook)
+full    = ['(?P<title>\d{1,2})\s*Pa\.\s?C\.\s?S\.(?:\s?A\.)?', '(?P<title>\d{1,2})\s*Pa\.\s?Cons\.\s?Stat\.(?:\s?Ann\.)?']
+section = '\d+(?:\.\d+)?[A-Z]?'
+key     = "{title}/{sec}"
+item    = "{title}"
+label   = "{title} Pa. Cons. Stat. § {sec}"
+examples = [["18 Pa.C.S. § 2501(a)", "pa-cs:18/2501", "18 Pa. Cons. Stat. § 2501"],
+            ["18 Pa. Cons. Stat. Ann. § 6105 (West 2015)", "pa-cs:18/6105"],
+            ["1 Pa.C.S.A. § 1921(b)", "pa-cs:1/1921", "1 Pa. Cons. Stat. § 1921"],
+            ["42 Pa.C.S. § 9545(b)(1)(ii)", "pa-cs:42/9545"]]
+
 # ---------------------------------------------------------------- Constitution of Pennsylvania (ttl=0)
 [PA.const]
 inherit = "PA.cs"
@@ -122,9 +134,10 @@ name    = "Constitution of Pennsylvania"
 doc     = "/us-pa/const"                      # /us-pa/const/a1/s7
 item    = ""
 items   = [""]                                # the one file; an empty item gives {n} = 0 -> "ttl=0000." in the URL
+catalog = [""]                                # its own (one) item, not the inherited list of Pa.C.S. titles
 file    = "constitution{item}.htm"           # -> constitution.htm ({item} present: build matches the name against it)
 dir     = "cs"                                # shares the folder: law/pa/cs/constitution.htm
-replace = ["containers", "sections", "notes", "ladder", "wrap", "html"]   # the Constitution's own structure (taken whole)
+replace = ["containers", "sections", "notes", "ladder", "wrap", "html", "cite"]   # the Constitution's own structure (taken whole)
 wrap    = {}                                  # no title wrapper: articles hang off /us-pa/const directly
 
 [PA.const.html]
@@ -170,3 +183,44 @@ editorialNote = ['^(?!Schedule\.)(?:\d{4} )?[A-Z][a-z]+(?: (?:[A-Z][a-z]+|of|by|
 # Article I's closing clause ("That the general, great and essential principles of liberty ...") follows the
 # article's "Adoption." note; it is law text, so it ends the notes and stands as a cross heading.
 close = ['^That the general, great and essential principles']
+
+[PA.const.cite]
+full    = ['Pa\.\s?Const\.', 'PA\.\s?CONST\.', 'Pennsylvania\s+Constitution',
+           '[Aa]rticle\s+(?P<art>[IVXL]+),\s*[Ss]ection\s+(?P<sec>\d+[a-z]?)(?:\([A-Za-z0-9]{1,4}\))*,?\s*of\s+the\s+Pennsylvania\s+Constitution']
+section = '\d{1,2}[a-z]?'                    # sections are 1-2 digits (10a): a later bare "§ 790.01" is not one
+item    = ""
+label   = "Pa. Const. art. {roman}[, § {sec}]"
+examples = [["Pa. Const. art. I, § 8", "pa-const:art-1:8", "Pa. Const. art. I, § 8"],
+            ["PA. CONST. art. V, § 10(c)", "pa-const:art-5:10"],
+            ["Article I, Section 7 of the Pennsylvania Constitution", "pa-const:art-1:7"]]
+
+# ---------------------------------------------------------------- Purdon's Pennsylvania Statutes (cite-only)
+# The unconsolidated statutes: "43 P.S. § 951" (Pennsylvania courts), "43 Pa. Stat. Ann. § 951" (Bluebook),
+# "Pa. Stat. Ann. tit. 43, § 951" (older Bluebook).
+[PA.ps]
+name    = "Pennsylvania Statutes (Purdon's, unconsolidated)"
+source_error = "no source: the unconsolidated statutes (P.S.) have no official free publication; the only compilation is West's Purdon's Pennsylvania Statutes"
+
+[PA.ps.cite]
+full    = ['(?P<title>\d{1,2})\s*(?:P\.\s?S\.|Pa\.\s?Stat\.(?:\s?Ann\.)?)', 'Pa\.\s?Stat\.(?:\s?Ann\.)?\s*tit\.\s*(?P<title>\d{1,2}),?']
+section = '\d+(?:\.\d+)?(?:-\d+(?:\.\d+)?)?[A-Za-z]?'
+key     = "{title}/{sec}"
+label   = "{title} Pa. Stat. Ann. § {sec}"
+examples = [["43 P.S. § 951", "pa-ps:43/951", "43 Pa. Stat. Ann. § 951"],
+            ["43 Pa. Stat. Ann. § 955(a)", "pa-ps:43/955"],
+            ["35 P.S. § 780-113(a)(30)", "pa-ps:35/780-113"],
+            ["Pa. Stat. Ann. tit. 43, § 1301.402(b)", "pa-ps:43/1301.402"]]
+
+# ---------------------------------------------------------------- Pennsylvania Code (regulations, cite-only)
+[PA.code]
+name    = "Pennsylvania Code"
+kind    = "regs"
+source_error = "no formula yet: the Pennsylvania Code (pacodeandbulletin.gov, Legislative Reference Bureau) is not fetched by this pipeline"
+
+[PA.code.cite]
+full    = ['(?P<title>\d{1,3})\s*Pa\.\s?Code']
+section = '\d+[a-z]?\.\d+[a-z]?'
+key     = "{title}/{sec}"
+label   = "{title} Pa. Code § {sec}"
+examples = [["34 Pa. Code § 123.1", "pa-code:34/123.1", "34 Pa. Code § 123.1"],
+            ["25 Pa. Code § 93.4a(b)", "pa-code:25/93.4a"]]

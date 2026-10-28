@@ -100,3 +100,32 @@ editorialNote = ['^Revision note\.', "^Editor's note", '^Effective Date note', '
 # section as a cross heading over the paragraph version it introduces. "[RSA ...]" lines (about the next
 # section) do close the previous section.
 close = [{ heading = true, match = '^(?:[^\[]|\[RSA)' }]
+
+[NH.rsa.cite]
+# "RSA 630:1, I(a)" (the N.H. courts' form), "N.H. Rev. Stat. Ann. § 630:1"; the chapter:section shape is the tell.
+# The fetch item is the Roman title, which the number does not show: the item rule maps the chapter to its title
+# (ranges from the title list, gaps given to the title before; 227-G..M, 361-A..E and 382-A are their own titles).
+full    = ['N\.\s?H\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?', '(?:N\.\s?H\.\s?)?RSA', 'New\s+Hampshire\s+Revised\s+Statutes(?:\s+Annotated)?']
+section = '\d+(?:-[A-Z]{1,2})?:\d+(?:-\d+)?(?:-[a-z]{1,2})?'
+item = ['^(?:(?P<t_XIX_A>)227-[G-M]:|(?P<t_XXXIII_A>)361-[A-E]:|(?P<t_XXXIV_A>)382-A:|(?P<t_I>)(?:[1-9]|1[0-9]|2[0-1])(?:-[A-Z]+)?:|(?P<t_II>)(?:2[2-9]|30)(?:-[A-Z]+)?:|(?P<t_III>)(?:3[1-9]|4[0-9]|5[0-3])(?:-[A-Z]+)?:|(?P<t_IV>)(?:5[4-9]|6[0-9]|70)(?:-[A-Z]+)?:|(?P<t_V>)(?:7[1-9]|8[0-9]|90)(?:-[A-Z]+)?:|(?P<t_VI>)(?:9[1-9]|10[0-3])(?:-[A-Z]+)?:|(?P<t_VII>)(?:10[4-6])(?:-[A-Z]+)?:|(?P<t_VIII>)(?:10[7-9]|11[0-9])(?:-[A-Z]+)?:|(?P<t_IX>)(?:12[0-4])(?:-[A-Z]+)?:|(?P<t_X>)(?:12[5-9]|1[3-4]\d)(?:-[A-Z]+)?:|(?P<t_XI>)(?:15[0-2])(?:-[A-Z]+)?:|(?P<t_XII>)(?:15[3-9]|16[0-9]|17[0-4])(?:-[A-Z]+)?:|(?P<t_XIII>)(?:17[5-9]|18[0-2])(?:-[A-Z]+)?:|(?P<t_XIV>)(?:18[3-5])(?:-[A-Z]+)?:|(?P<t_XV>)(?:18[6-9]|19[0-9]|200)(?:-[A-Z]+)?:|(?P<t_XVI>)(?:20[1-2])(?:-[A-Z]+)?:|(?P<t_XVII>)(?:20[3-5])(?:-[A-Z]+)?:|(?P<t_XVIII>)(?:20[6-9]|21[0-5])(?:-[A-Z]+)?:|(?P<t_XIX>)(?:21[6-9]|22[0-7])(?:-[A-Z]+)?:|(?P<t_XX>)(?:22[8-9]|2[3-4]\d|25[0-8])(?:-[A-Z]+)?:|(?P<t_XXI>)(?:259|26[0-9])(?:-[A-Z]+)?:|(?P<t_XXII>)(?:27[0-2])(?:-[A-Z]+)?:|(?P<t_XXIII>)(?:27[3-9]|28[0-3])(?:-[A-Z]+)?:|(?P<t_XXIV>)(?:28[4-7])(?:-[A-Z]+)?:|(?P<t_XXV>)(?:288)(?:-[A-Z]+)?:|(?P<t_XXVI>)(?:289|29[0-1])(?:-[A-Z]+)?:|(?P<t_XXVII>)(?:29[2-9]|30[0-3])(?:-[A-Z]+)?:|(?P<t_XXVIII>)(?:30[4-5])(?:-[A-Z]+)?:|(?P<t_XXIX>)(?:30[6-8])(?:-[A-Z]+)?:|(?P<t_XXX>)(?:309|3[1-2]\d|33[0-2])(?:-[A-Z]+)?:|(?P<t_XXXI>)(?:33[3-9]|3[4-5]\d)(?:-[A-Z]+)?:|(?P<t_XXXII>)(?:360)(?:-[A-Z]+)?:|(?P<t_XXXIII>)(?:361)(?:-[A-Z]+)?:|(?P<t_XXXIV>)(?:36[2-9]|37[0-9]|38[0-2])(?:-[A-Z]+)?:|(?P<t_XXXV>)(?:38[3-9]|39[0-7])(?:-[A-Z]+)?:|(?P<t_XXXVI>)(?:39[8-9])(?:-[A-Z]+)?:|(?P<t_XXXVII>)(?:4[0-1]\d|420)(?:-[A-Z]+)?:|(?P<t_XXXVIII>)(?:421)(?:-[A-Z]+)?:|(?P<t_XXXIX>)(?:42[2-4])(?:-[A-Z]+)?:|(?P<t_XL>)(?:42[5-9]|43[0-9]|44[0-3])(?:-[A-Z]+)?:|(?P<t_XLI>)(?:44[4-9]|45[0-4])(?:-[A-Z]+)?:|(?P<t_XLII>)(?:45[5-6])(?:-[A-Z]+)?:|(?P<t_XLIII>)(?:45[7-9]|46[0-1])(?:-[A-Z]+)?:|(?P<t_XLIV>)(?:46[2-5])(?:-[A-Z]+)?:|(?P<t_XLV>)(?:46[6-9]|470)(?:-[A-Z]+)?:|(?P<t_XLVI>)(?:471)(?:-[A-Z]+)?:|(?P<t_XLVII>)(?:47[2-6])(?:-[A-Z]+)?:|(?P<t_XLVIII>)(?:47[7-9])(?:-[A-Z]+)?:|(?P<t_XLIX>)(?:480)(?:-[A-Z]+)?:|(?P<t_L>)(?:48[1-9])(?:-[A-Z]+)?:|(?P<t_LI>)(?:49[0-9]|50[0-5])(?:-[A-Z]+)?:|(?P<t_LII>)(?:50[6-9]|51[0-3])(?:-[A-Z]+)?:|(?P<t_LIII>)(?:51[4-9]|52[0-6])(?:-[A-Z]+)?:|(?P<t_LIV>)(?:52[7-9]|53[0-3])(?:-[A-Z]+)?:|(?P<t_LV>)(?:53[4-9]|54[0-6])(?:-[A-Z]+)?:|(?P<t_LVI>)(?:54[7-9]|55[0-9]|56[0-7])(?:-[A-Z]+)?:|(?P<t_LVII>)(?:56[8-9])(?:-[A-Z]+)?:|(?P<t_LVIII>)(?:5[7-8]\d|59[0-1])(?:-[A-Z]+)?:|(?P<t_LIX>)(?:59[2-9]|60[0-9]|61[0-4])(?:-[A-Z]+)?:|(?P<t_LX>)(?:61[5-9]|62[0-3])(?:-[A-Z]+)?:|(?P<t_LXI>)(?:624)(?:-[A-Z]+)?:|(?P<t_LXII>)(?:62[5-9]|6[3-4]\d|65[0-1])(?:-[A-Z]+)?:|(?P<t_LXIII>)(?:65[2-9]|66[0-9]|67[0-1])(?:-[A-Z]+)?:|(?P<t_LXIV>)(?:67[2-9])(?:-[A-Z]+)?:)',
+        '[XIX-A{t_XIX_A}][XXXIII-A{t_XXXIII_A}][XXXIV-A{t_XXXIV_A}][I{t_I}][II{t_II}][III{t_III}][IV{t_IV}][V{t_V}][VI{t_VI}][VII{t_VII}][VIII{t_VIII}][IX{t_IX}][X{t_X}][XI{t_XI}][XII{t_XII}][XIII{t_XIII}][XIV{t_XIV}][XV{t_XV}][XVI{t_XVI}][XVII{t_XVII}][XVIII{t_XVIII}][XIX{t_XIX}][XX{t_XX}][XXI{t_XXI}][XXII{t_XXII}][XXIII{t_XXIII}][XXIV{t_XXIV}][XXV{t_XXV}][XXVI{t_XXVI}][XXVII{t_XXVII}][XXVIII{t_XXVIII}][XXIX{t_XXIX}][XXX{t_XXX}][XXXI{t_XXXI}][XXXII{t_XXXII}][XXXIII{t_XXXIII}][XXXIV{t_XXXIV}][XXXV{t_XXXV}][XXXVI{t_XXXVI}][XXXVII{t_XXXVII}][XXXVIII{t_XXXVIII}][XXXIX{t_XXXIX}][XL{t_XL}][XLI{t_XLI}][XLII{t_XLII}][XLIII{t_XLIII}][XLIV{t_XLIV}][XLV{t_XLV}][XLVI{t_XLVI}][XLVII{t_XLVII}][XLVIII{t_XLVIII}][XLIX{t_XLIX}][L{t_L}][LI{t_LI}][LII{t_LII}][LIII{t_LIII}][LIV{t_LIV}][LV{t_LV}][LVI{t_LVI}][LVII{t_LVII}][LVIII{t_LVIII}][LIX{t_LIX}][LX{t_LX}][LXI{t_LXI}][LXII{t_LXII}][LXIII{t_LXIII}][LXIV{t_LXIV}]']
+label   = "N.H. Rev. Stat. Ann. § {sec}"
+examples = [["RSA 625:1", "nh-rsa:625:1", "N.H. Rev. Stat. Ann. § 625:1"],
+            ["N.H. Rev. Stat. Ann. § 151:2-a (2015)", "nh-rsa:151:2-a"],
+            ["RSA 382-A:1-101", "nh-rsa:382-A:1-101"],
+            ["RSA 227-G:1", "nh-rsa:227-G:1"],
+            ["RSA 12-O:14, II", "nh-rsa:12-O:14"]]
+
+# ---------------------------------------------------------------- New Hampshire Constitution (cite only)
+# Cited by part and article: "N.H. Const. pt. I, art. 15" (also "N.H. CONST." in the court's own opinions)
+[NH.const]
+name    = "Constitution of New Hampshire"
+source_error = "no source: www.nh.gov (the constitution's only official host) blocks non-browser clients"
+
+[NH.const.cite]
+full    = ['N\.\s?H\.\s?C(?:onst|ONST)\.?', 'New\s+Hampshire\s+Constitution']
+tail    = ',?\s*(?:[Pp]t\.|[Pp]art)\s*(?P<pt>II|I)\b(?:,?\s*(?:[Aa]rt(?:icle)?s?\.?)\s*(?P<art>\d+(?:-[a-z])?))?'
+key     = "pt-{pt}[:art-{art}]"
+label   = "N.H. Const. pt. {pt}[, art. {art}]"
+examples = [["N.H. Const. pt. I, art. 15", "nh-const:pt-I:art-15", "N.H. Const. pt. I, art. 15"],
+            ["N.H. CONST. pt. II, art. 83", "nh-const:pt-II:art-83"]]

@@ -93,6 +93,22 @@ toc   = ['^§', '.*\.{5,}\s*\d*\s*$']               # TOC entries, their cut-off
 sourceCredit  = ['^Added by Laws', '^R\.L\.']
 editorialNote = ['^NOTE:']
 
+[OK.os.cite]
+# how cases cite it (statecites.py): "Okla. Stat. tit. 21, § 701.7" (Bluebook), "21 O.S. § 701.7",
+# "21 O.S.2011, § 701.7", "21 O.S. Supp. 2019 § 701.7" (Oklahoma courts). Title before section: explicit groups.
+full    = ['Okla\.\s?Stat\.(?:\s?Ann\.)?\s*tit\.\s*(?P<tit>\d+[A-Za-z]?),?\s*(?:§§?\s*)?{section}',
+           '(?P<tit>\d+[A-Za-z]?)\s*O\.\s?S\.(?:\s?(?:Supp\.\s?)?(?:19|20)\d\d)?,?\s*§§?\s*{section}',
+           'Oklahoma\s+Statutes,?\s*[Tt]itle\s+(?P<tit>\d+[A-Za-z]?),?\s*(?:§§?|[Ss]ection)\s*{section}']
+section = '\d+[A-Za-z]?(?:[.-]\d+[A-Za-z]?)*'   # 701.7, 1-1-105, 540A
+key     = "{tit}-{sec}"                         # the site's own number: 21-701.7
+item    = "{tit}"
+num     = "{tit}-{sec}"                         # the build numbers sections the same way
+label   = "Okla. Stat. tit. {tit}, § {sec}"
+examples = [["Okla. Stat. tit. 21, § 701.7", "ok-os:21-701.7", "Okla. Stat. tit. 21, § 701.7"],
+            ["21 O.S.2011, § 1", "ok-os:21-1"],
+            ["85A O.S. Supp. 2019 § 2(9)", "ok-os:85A-2", "Okla. Stat. tit. 85A, § 2"],
+            ["12 O.S. § 2004", "ok-os:12-2004"]]
+
 # ---------------------------------------------------------------- Oklahoma Constitution
 # /ok_constitution.html (probe 2026-10-28) links one RTF per article (OKStatutes/CompleteTitles/oc{N}.rtf: oc1 ... oc30,
 # oc7A oc7B oc12A oc13A oc13B, lowercase oc25a oc28a) and the WHOLE text in one file, AllOKConstitutionArticles.rtf
@@ -155,3 +171,10 @@ toc   = ['^(?:PREAMBLE|ARTICLE|SECTION)\b.*\s\d+$']   # the generated TOC, kept 
 sourceCredit  = ['^Added by ', '^Amended by ', '^Adopted by ', '^Renumbered ']
 editorialNote = ['^NOTE:']
 note          = [{ match = '^Text effective ', topic = "version", single = true }]   # "Text effective until Oct. 1, 2018" heads a version's text
+
+
+[OK.const.cite]
+full    = ['Okla\.\s?Const\.?', 'Oklahoma\s+Constitution']        # then "art. II, § 7" or "art. 2, § 7"
+label   = "Okla. Const. art. {roman}[, § {sec}]"
+examples = [["Okla. Const. art. II, § 7", "ok-const:art-2:7", "Okla. Const. art. II, § 7"],
+            ["Okla. Const. art. 5, § 57", "ok-const:art-5:57"]]

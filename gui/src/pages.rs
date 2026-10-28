@@ -881,6 +881,11 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
     ui.horizontal(|ui| {
         let queued = app.is_queued(c.r#ref);
         let title = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
+        ui.checkbox(&mut app.fetch_state_law, "Fetch state law").on_hover_text(
+            "also download and build the state law the case cites that is not stored here (--fetch-state-law), so the PDF's \
+                 last part, The Law Cited, prints its text. Each state's source is asked once per title or chapter, then it is local; \
+                 codes with no usable source (Purdon's, LexisNexis-only states) print a source error instead.",
+        );
         let quick = ui
             .add_enabled(!queued, egui::Button::new("Quick build"))
             .on_hover_text(format!(

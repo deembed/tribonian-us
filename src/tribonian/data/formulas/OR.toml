@@ -74,6 +74,16 @@ editorialNote = [{ match = '^Note(?:\s+\d+)?:', topic = "note" }]
 close = [{ match = '^(?!PART\s+\d)(?=[^a-z]*[A-Z]{3})[^a-z]+$', heading = false },
          { match = '^\((?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with)(?:\s+(?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with))*\)$', heading = false }]
 
+[OR.ors.cite]
+# how cases cite it (statecites.py): "ORS 163.115(1)(a)" (Oregon courts), "Or. Rev. Stat. § 163.115" (Bluebook)
+full    = ['Or\.\s?Rev\.\s?Stat\.(?:\s?Ann\.)?', 'O\.?R\.?S\.?', 'Oregon\s+Revised\s+Statutes?']
+section = '\d{1,3}[A-Z]?\.\d{3,4}'             # 163.115, 475C.005
+item    = ['^(\d+[A-Z]?)\.', '{1}']             # 475C.005 -> chapter 475C (file ors475C.html)
+label   = "Or. Rev. Stat. § {sec}"
+examples = [["ORS 90.100(1)", "or-ors:90.100", "Or. Rev. Stat. § 90.100"],
+            ["Or. Rev. Stat. § 1.002 (2023)", "or-ors:1.002", "Or. Rev. Stat. § 1.002"],
+            ["ORS 475C.005", "or-ors:475C.005"]]
+
 # ---------------------------------------------------------------- Oregon Constitution
 # One SharePoint page holds the whole text, split over two rich-text web parts (Preamble to Art. VIII in
 # WebPartWPQ2, Art. IX to XVIII in WebPartWPQ4), each article as: <h2> ARTICLE I, centered name, a section
@@ -81,7 +91,7 @@ close = [{ match = '^(?!PART\s+\d)(?=[^a-z]*[A-Z]{3})[^a-z]+$', heading = false 
 # "[Constitution of 1859; Amendment proposed by ...]" close a section, either inline or as their own <p>.
 [OR.const]
 inherit = "OR.ors"
-replace = ["html", "ladder", "containers", "sections", "notes"]
+replace = ["html", "ladder", "containers", "sections", "notes", "cite"]
 name    = "Constitution of Oregon"
 doc     = "/us-or/const"                     # /us-or/const/a1/s11, /us-or/const/a11-a/s2
 url     = "https://www.oregonlegislature.gov/bills_laws/Pages/ORConst.aspx"
@@ -127,3 +137,15 @@ toc   = ['^Sec\.\s+\d', '^\d+[a-z]?\.\s']    # the article's section list
 [OR.const.notes]
 sourceCredit  = '^\[(?:Constitution of 1859|Created|Added|Amended|Amendment|Repeal)'
 editorialNote = [{ match = '^Note(?:\s+\d+)?:', topic = "note" }]
+
+
+[OR.const.cite]
+# "Or. Const. art. I, § 11" (Bluebook); Oregon courts write "Article I, section 11, of the Oregon Constitution".
+# Articles are Roman with letter suffixes (XI-A) and two versions of VII ("Amended", "Original").
+full    = ['Or\.\s?Const\.?', 'Oregon\s+Constitution',
+           '[Aa]rticle\s+(?P<art>[IVXLC]+(?:-[A-Z])?)(?:\s*\((?:[Aa]mended|[Oo]riginal)\))?(?:,\s*[Ss]ection\s+(?P<sec>\d+[a-zA-Z]?)(?:\s?\([0-9a-z]{1,4}\))*)?,?\s+of\s+the\s+Oregon\s+Constitution']
+tail    = ',?\s*(?:[Aa]rt(?:icle)?\.?)\s*(?P<art>[IVXLC]+(?:-[A-Z])?|\d+[A-Za-z]?)\b(?:\s*\((?:[Aa]mended|[Oo]riginal)\))?(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+[a-zA-Z]?))?(?:\s?\((?!(?:1[89]|20)\d\d\))[A-Za-z0-9]{1,4}\))*'
+label   = "Or. Const. art. {roman}[, § {sec}]"
+examples = [["Or. Const. art. I, § 11", "or-const:art-1:11", "Or. Const. art. I, § 11"],
+            ["Article I, section 9, of the Oregon Constitution", "or-const:art-1:9"],
+            ["Or. Const. art. XI-H, § 1", "or-const:art-XI-H:1", "Or. Const. art. XI-H, § 1"]]

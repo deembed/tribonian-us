@@ -828,6 +828,25 @@ editorialNote = { match = '^\[\s*(?:Text of section|First paragraph|Introductory
 "282" = "PartV/TitleI"
 "281" = "PartV/TitleI"
 
+[MA.gl.cite]
+# Chapter before section: "Mass. Gen. Laws ch. 93A, § 2", "G. L. c. 93A, § 2" (Massachusetts courts), "M.G.L. c. 93A,
+# § 9". A chapter alone ("Mass. Gen. Laws ch. 93A") keys the chapter. "G. L. c." is
+# taken as naming the state (Rhode Island's "G.L. 1956 § 9-1-14" has no chapter), so its "§§ 2, 9" lists are read. Bare "c. 231, § 6F" (the SJC's short form after a
+# first G. L. cite), not a session-law chapter ("St. 2018, c. 69, § 1", "Acts c. 5").
+full    = ['(?:Mass\.\s?Gen\.\s?L(?:aws|\.)(?:\s?Ann\.)?|Mass\.\s?G\.\s?L\.|G\.\s?L\.|M\.\s?G\.\s?L\.(?:\s?A\.)?|Massachusetts\s+General\s+Laws(?:\s+Annotated)?),?\s*(?:c|ch|chap|chapter)\.?\s*(?P<ch>\d+[A-Z]{0,2})\b(?:\s*,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?|s\.)\s*(?P<sec>\d+[A-Za-z]*(?:\s?[13]/[24]|½|¾)?))?(?:\s?\((?!(?:1[89]|20)\d\d\))[A-Za-z0-9]{1,4}\))*']
+bare    = ['Gen\.\s?Laws,?\s*(?:c|ch|chap|chapter)\.?\s*(?P<ch>\d+[A-Z]{0,2})\b(?:\s*,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?|s\.)\s*(?P<sec>\d+[A-Za-z]*(?:\s?[13]/[24]|½|¾)?))?(?:\s?\((?!(?:1[89]|20)\d\d\))[A-Za-z0-9]{1,4}\))*',
+           '(?<!\d{4},\s)(?<!Acts\s)(?<!Laws\s)(?:c|ch)\.\s*(?P<ch>\d+[A-Z]{0,2}),\s*§§?\s*(?P<sec>\d+[A-Za-z]*(?:\s?[13]/[24]|½|¾)?)(?:\s?\((?!(?:1[89]|20)\d\d\))[A-Za-z0-9]{1,4}\))*']
+section = '\d+[A-Za-z]*(?:\s?[13]/[24]|½|¾)?'
+key     = "{ch}[/{sec}]"
+item    = "{ch}"
+label   = "Mass. Gen. Laws ch. {ch}[, § {sec}]"
+examples = [["Mass. Gen. Laws ch. 93A, § 2(a)", "ma-gl:93A/2", "Mass. Gen. Laws ch. 93A, § 2"],
+            ["G. L. c. 265, § 13A", "ma-gl:265/13A", "Mass. Gen. Laws ch. 265, § 13A"],
+            ["M.G.L. c. 93A, § 9", "ma-gl:93A/9"],
+            ["Mass. Gen. Laws Ann. ch. 231A, § 1 (West 2000)", "ma-gl:231A/1"],
+            ["c. 209A, § 3", "ma-gl:209A/3"],
+            ["Mass. Gen. Laws ch. 93A", "ma-gl:93A", "Mass. Gen. Laws ch. 93A"]]
+
 # ---------------------------------------------------------------- Constitution of the Commonwealth
 # One page, /Laws/Constitution, clean semantic markup: h2 parts, h3 chapter/section lines and amendment
 # articles, h4 articles of the Declaration of Rights and the Frame of Government, <p> text.
@@ -882,3 +901,44 @@ alone = true
 scope = "container"
 
 [MA.const.notes]
+
+[MA.const.cite]
+# Three parts, each numbered on its own: the Declaration of Rights (Part the First: "pt. 1, art. 14", "art. 14 of the
+# Massachusetts Declaration of Rights"), the Frame of Government (Part the Second: "pt. 2, c. 1, § 1, art. 4"), and the
+# Articles of Amendment ("amend. art. 48", "art. 48 of the Amendments"). Keyed by sub: decl-14, frame-c1-s1-4,
+# amend-48 (the article Arabic). The forms name the sub groups themselves (s0 = decl, s1 = amend, s2 = frame: the
+# order of `sub`); the sub patterns below only fix that order.
+sub     = { decl = 'Declaration\s+of\s+Rights', amend = 'Amendments', frame = 'Frame\s+of\s+Government' }
+names   = { decl = "Mass. Const. pt. 1,", amend = "Mass. Const. amend.", frame = "Mass. Const. pt. 2," }
+full    = ['Mass\.\s?Const\.?,?\s*(?:(?P<s0>[Pp](?:ar)?t\.?\s*(?:1|I|[Tt]he\s+[Ff]irst)\b|Decl(?:\.|aration)\s*of\s*Rights)|(?P<s1>[Aa]mend(?:s?\.|ments?)))\s*,?\s*[Aa]rt(?:icle)?s?\.?\s*(?P<art>[IVXLC]+|\d+)\b',
+           'Mass\.\s?Const\.?,?\s*(?P<s2>[Pp](?:ar)?t\.?\s*(?:2|II|[Tt]he\s+[Ss]econd))\b,?\s*(?:c|ch|chap|chapter)\.?\s*(?P<ch>\d+)\b(?:,?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<chs>\d+)\b)?,?\s*[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXLC]+|\d+)\b',
+           'Mass\.\s?(?P<s0>Decl(?:\.|aration)\s*of\s*Rights),?\s*[Aa]rt(?:icle)?s?\.?\s*(?P<art>[IVXLC]+|\d+)\b',
+           '[Aa]rt(?:icle)?s?\.?\s*(?P<art>[IVXLC]+|\d+)\b,?\s*of\s+the\s+(?P<s0>Massachusetts\s+Declaration\s+of\s+Rights)',
+           '[Aa]rt(?:icle)?s?\.?\s*(?P<art>[IVXLC]+|\d+)\b,?\s*of\s+the\s+(?P<s1>Amendments?)\s+to\s+the\s+(?:Massachusetts\s+Constitution|Constitution\s+of\s+(?:the\s+Commonwealth|Massachusetts))',
+           '(?P<s2>[Pp](?:ar)?t\.?\s*(?:2|II|[Tt]he\s+[Ss]econd))\b,?\s*(?:c|ch|chap|chapter)\.?\s*(?P<ch>\d+)\b(?:,?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<chs>\d+)\b)?,?\s*[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXLC]+|\d+)\b,?\s*of\s+the\s+(?:Massachusetts\s+Constitution|Constitution\s+of\s+(?:the\s+Commonwealth|Massachusetts))']
+# Massachusetts's courts: "art. 12 of the Declaration of Rights", "art. 48 of the Amendments (to the Constitution)"
+bare    = ['[Aa]rt(?:icle)?s?\.?\s*(?P<art>[IVXLC]+|\d+)\b,?\s*of\s+the\s+(?P<s0>Declaration\s+of\s+Rights)',
+           '[Aa]rt(?:icle)?s?\.?\s*(?P<art>[IVXLC]+|\d+)\b,?\s*of\s+the\s+(?P<s1>Amendments?)(?!\s+to\s+the\s+(?:United|Federal|U\.))']
+key     = "{sub}-[c{ch}-][s{chs}-]{art}"
+item    = "constitution"
+label   = "{name}[ ch. {ch},][ § {chs},] art. {roman}"
+examples = [["Mass. Const. pt. 1, art. 14", "ma-const:decl-14", "Mass. Const. pt. 1, art. XIV"],
+            ["art. 12 of the Massachusetts Declaration of Rights", "ma-const:decl-12"],
+            ["art. 12 of the Declaration of Rights", "ma-const:decl-12"],
+            ["Mass. Const. amend. art. 48", "ma-const:amend-48", "Mass. Const. amend. art. XLVIII"],
+            ["art. 89 of the Amendments to the Massachusetts Constitution", "ma-const:amend-89"],
+            ["Mass. Const. pt. 2, c. 1, § 1, art. 4", "ma-const:frame-c1-s1-4", "Mass. Const. pt. 2, ch. 1, § 1, art. IV"]]
+
+# ---------------------------------------------------------------- cite-only (no formula): recognized in cites, no text
+[MA.cmr]
+name    = "Code of Massachusetts Regulations"
+kind    = "regs"
+source_error = "no formula yet: the C.M.R. is published per regulation at mass.gov (the official print is the Secretary of the Commonwealth's)"
+
+[MA.cmr.cite]
+# "940 CMR 3.16(3)", "940 C.M.R. § 3.16", "940 Mass. Code Regs. 3.16"
+full    = ['(?P<title>\d{3})\s*(?:C\.\s?M\.\s?R\.|CMR|Mass\.\s?Code\s?Regs\.)\s*(?:§\s*)?(?P<sec>\d+\.\d+[A-Za-z]?)']
+key     = "{title}/{sec}"
+label   = "{title} Mass. Code Regs. {sec}"
+examples = [["940 CMR 3.16(3)", "ma-cmr:940/3.16", "940 Mass. Code Regs. 3.16"],
+            ["105 Mass. Code Regs. 410.500", "ma-cmr:105/410.500"]]

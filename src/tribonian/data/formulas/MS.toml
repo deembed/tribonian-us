@@ -1,0 +1,26 @@
+# MS.toml -- Mississippi: cite-only tables. The Mississippi Code of 1972 Annotated is published online only through
+# LexisNexis, whose terms forbid automated access; the open copies are stale (DATASOURCES.md). Cites are recognized
+# and keyed; the appendix says why there is no text.
+
+[MS.code]
+name    = "Mississippi Code of 1972 Annotated"
+source_error = "LexisNexis-only publication; its terms forbid automated access (see DATASOURCES.md)"
+
+[MS.code.cite]
+full    = ['Miss\.\s?Code(?:\s?Ann\.)?', 'Mississippi\s+Code(?:\s+Annotated)?(?:\s+of\s+1972)?']
+section = '\d+-\d+-\d+(?:\.\d+)?'
+label   = "Miss. Code Ann. § {sec}"
+examples = [["Miss. Code Ann. § 97-3-19(1)(a) (Rev. 2020)", "ms-code:97-3-19", "Miss. Code Ann. § 97-3-19"],
+            ["Mississippi Code Annotated Section 99-19-101", "ms-code:99-19-101"],
+            ["Miss. Code § 11-46-9", "ms-code:11-46-9"]]
+
+[MS.const]
+name    = "Constitution of the State of Mississippi"
+kind    = "const"
+source_error = "not sourced: the state's code (LexisNexis-only, terms forbid automated access; see DATASOURCES.md) carries it, and no separately published official text has been evaluated yet"
+
+[MS.const.cite]
+full    = ['Miss\.\s?Const\.?(?:\s+of\s+1890)?', 'Mississippi\s+Constitution(?:\s+of\s+1890)?']
+label   = "Miss. Const. art. {art}[, § {sec}]"       # Arabic article numbers
+examples = [["Miss. Const. art. 3, § 14", "ms-const:art-3:14", "Miss. Const. art. 3, § 14"],
+            ["Mississippi Constitution of 1890, Article 3, Section 26", "ms-const:art-3:26"]]

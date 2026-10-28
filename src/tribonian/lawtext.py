@@ -1,11 +1,11 @@
 """lawtext.py -- the text of a cited provision, from what is stored locally.
 
 U.S.C. sections from the US Code XML in xml/ (usc2md.py's parser); C.F.R. sections and parts
-from eCFR's title XML in <law_dir>/cfr/ (cfr.py fetch); Colorado statutes and constitution from
-the OLLS title files in <law_dir>/co/crs/ (statelaw.py). Code of Colorado Regulations rules from
-the Secretary of State's Word files in <law_dir>/co/ccr/. The U.S. Constitution from govinfo's
-House Document 110-50 in <law_dir>/us/const/. Other states come once their local copies exist (scope-scotus-law.md §3); until then text_of() returns None and
-the caller says the text is not local.
+from eCFR's title XML in <law_dir>/cfr/ (cfr.py fetch); the U.S. Constitution from govinfo's
+House Document 110-50 in <law_dir>/us/const/. Every state's statutes, constitution and regulations
+from the USLM that `tribonian state build` writes (<law_dir>/<st>/uslm/<code>/<item>.xml), found
+through the code's [cite] table (statecites.py). Text that is not local: text_of() returns None
+and fetch_hint() says what gets it, or why nothing can (a code with no source).
 """
 import re
 
@@ -48,7 +48,15 @@ def usc(title, section):
     root = _usc_root(title)
     if root is None:
         return None
-    el = usc2md.find_by_identifier(root, "/us/usc/t%s/s%s" % (title.lower(), section), "section")
+    # keys are lower case ("2252b"); the Code writes 2252B but 2000e, and 2000bb–1 with an en dash
+    el = None
+    for cand in dict.fromkeys([section, section.upper(), section.lower()]):
+        for form in dict.fromkeys([cand, cand.replace("-", "\u2013")]):
+            el = usc2md.find_by_identifier(root, "/us/usc/t%s/s%s" % (title.lower(), form), "section")
+            if el is not None:
+                break
+        if el is not None:
+            break
     if el is None:
         return None
     node = usc2md.build(el, el.get("identifier"))
@@ -58,7 +66,8 @@ def usc(title, section):
     if not node.children:
         lead = " ".join(x for x in (node.chapeau[1], node.content[1]) if x)
         rows = [(0, "", "", lead)] + [(0, "", "", t) for _, t in node.more]
-    return node.heading[1], rows
+    fn = lambda t: re.sub("\x00FN:[^\x00]*\x00", "", t or "")    # usc2md's footnote placeholders: its notes are not printed here
+    return fn(node.heading[1]), [(d, fn(l), fn(h), fn(t)) for d, l, h, t in rows]
 
 
 # ---------------------------------------------------------------- C.F.R. (cfr.py fetches eCFR's title XML)
@@ -149,42 +158,7 @@ def cfr(title, section):
     return head, rows
 
 
-# ---------------------------------------------------------------- Colorado (statelaw.py fetches the OLLS title files)
-
-def _co_paras(title):
-    """An OLLS C.R.S. title file (Word-filtered HTML) -> [(text, bold_start, centered)], or None if not local."""
-    import html
-    key = "co" + title
-    if key not in _ROOTS:
-        from tribonian import statelaw
-        path = statelaw.state_dir("CO") / "crs" / ("title-%s.htm" % statelaw.crs_title_name(title))
-        paras = None
-        if path.exists():
-            raw = path.read_text(encoding="cp1252", errors="replace")
-            paras = []
-            for m in re.finditer(r"<p\b([^>]*)>(.*?)</p>", raw, re.S | re.I):
-                body = m.group(2)
-                text = " ".join(html.unescape(re.sub(r"<[^>]+>", "", body)).split())
-                if text:
-                    paras.append((text, re.match(r"\s*(<span[^>]*>\s*)?<b>", body, re.I) is not None, "center" in m.group(1)))
-        _ROOTS[key] = paras
-    return _ROOTS[key]
-
-
-CO_LABEL_RE = re.compile(r"\(([0-9]+(?:\.[0-9]+)?|[a-z]+(?:\.[0-9]+)?|[IVXL]+(?:\.[0-9]+)?|[A-Z](?:\.[0-9]+)?)\)")
-
-
-def _co_depth(label, prev_cap):
-    """C.R.S. paragraphs: (1) 0, (a) 1, (I) 2, (A) 3. (I), (V), (X) are letters after (H), (U), (W)."""
-    lab = label.split(".")[0]
-    if lab.isdigit():
-        return 0
-    if lab.islower():
-        return 1
-    if set(lab) <= set("IVXL") and not (len(lab) == 1 and prev_cap == chr(ord(lab) - 1)):
-        return 2
-    return 3
-
+# ---------------------------------------------------------------- state law: one reader for every state, from USLM
 
 def _E(t, fmt):
     return c.esc(t, fmt)
@@ -195,150 +169,210 @@ def _small(t, fmt):
     return "{\\footnotesize %s}" % t if fmt == "tex" else "*%s*" % t
 
 
-def _co_rows(paras, start, stop, fmt="tex"):
-    """Body paragraphs -> rows; the Source note in small type; annotations left out."""
-    rows, depth, cap = [], 0, None
-    for text, bold, centered in paras[start:stop]:
-        if text.startswith("Source:") or text.startswith("Editor's note") or text.startswith("Cross references"):
-            rows.append((0, "", "", _small(_E(text, fmt), fmt)))
-            continue
-        labels = []
-        rest = text
-        while True:
-            m = CO_LABEL_RE.match(rest)
-            if not m:
-                break
-            labels.append(m.group(1))
-            rest = rest[m.end():].lstrip()
-        if labels:
-            depth = _co_depth(labels[-1], cap)
-            if depth == 3:
-                cap = labels[-1].split(".")[0]
-        rows.append((depth if labels else 0, "", "", _E(text, fmt)))
-    return rows
-
-
-def _co_end(paras, i, is_start):
-    """Index of the paragraph after a section's text: the next section, a centered heading, or ANNOTATION."""
-    j = i + 1
-    while j < len(paras):
-        text, bold, centered = paras[j]
-        if centered or is_start(paras[j]) or text == "ANNOTATION":
-            break
-        j += 1
-    return j
-
-
-CRS_START = re.compile(r"^(\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?)\.\s+(.*)")
-
-
-def co_crs(section, fmt="tex"):
-    """'26.5-4-205' -> (heading, rows) from the local OLLS title file, or None."""
-    from tribonian import statelaw
-    paras = _co_paras(section.split("-")[0])
-    if paras is None:
-        return None
-    is_start = lambda p: p[1] and CRS_START.match(p[0]) is not None
-    i = next((k for k, p in enumerate(paras) if is_start(p) and CRS_START.match(p[0]).group(1) == section), None)
-    if i is None:
-        return None
-    head = _E(CRS_START.match(paras[i][0]).group(2), fmt)
-    meta = statelaw.local_meta(statelaw.state_dir("CO") / "crs" / ("title-%s.htm" % statelaw.crs_title_name(section.split("-")[0]))) or {}
-    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") and fmt == "tex" else ""
-    return head + when, _co_rows(paras, i + 1, _co_end(paras, i, is_start), fmt)
-
-
-SEC_START = re.compile(r"^Section (\d+[a-z]?)\.\s+(.*)")
-
-
-def co_const(article, section=None, fmt="tex"):
-    """Colo. Const. art. IX, § 7 -> (heading, rows); the article alone lists its sections. From title 00."""
-    from tribonian import lawcites, statelaw
-    paras = _co_paras("0")
-    if paras is None:
-        return None
-    roman = c.to_roman(int(article))
-    a = next((k for k, p in enumerate(paras) if p[0] == "ARTICLE %s" % roman and p[2]), None)
-    if a is None:
-        return None
-    end = next((k for k in range(a + 1, len(paras)) if re.fullmatch(r"ARTICLE [IVXL]+", paras[k][0]) and paras[k][2]), len(paras))
-    is_start = lambda p: SEC_START.match(p[0]) is not None
-    meta = statelaw.local_meta(statelaw.state_dir("CO") / "crs" / "title-00.htm") or {}
-    when = " {\\normalfont\\footnotesize (C.R.S. %s)}" % meta["edition"] if meta.get("edition") and fmt == "tex" else ""
-    if section is None:
-        title = paras[a + 1][0] if a + 1 < end and paras[a + 1][2] else ""
-        rows, seen = [], set()
-        for k in range(a + 1, end):
-            m = SEC_START.match(paras[k][0])
-            if m and m.group(1) not in seen:
-                seen.add(m.group(1))
-                rows.append((0, _E("§ " + m.group(1), fmt), _E(m.group(2).rstrip("."), fmt), ""))
-        return _E(("Article %s. %s" % (roman, title.title())).strip(), fmt) + when, rows
-    i = next((k for k in range(a + 1, end) if is_start(paras[k]) and SEC_START.match(paras[k][0]).group(1) == section), None)
-    if i is None:
-        return None
-    return _E(SEC_START.match(paras[i][0]).group(2), fmt) + when, _co_rows(paras, i + 1, min(_co_end(paras, i, is_start), end), fmt)
-
-
-def _ccr_paras(series):
-    """A Code of Colorado Regulations rule's Word file -> [(style, text)], or None if not local."""
-    import html, zipfile
-    key = "ccr" + series
+def _uslm(path):
+    """A built USLM file -> its root (namespace stripped), cached."""
+    key = "uslm:%s" % path
     if key not in _ROOTS:
-        from tribonian import statelaw
-        path, paras = statelaw.state_dir("CO") / "ccr" / ("%s.docx" % series), None
-        if path.exists():
-            xml = zipfile.ZipFile(path).read("word/document.xml").decode("utf-8")
-            paras = []
-            for p in re.findall(r"<w:p[ >].*?</w:p>", xml, re.S):
-                st = re.search(r'<w:pStyle w:val="([^"]+)"', p)
-                text = "".join(html.unescape(m.group(1)) if m.group(1) is not None else " "
-                               for m in re.finditer(r"<w:t(?:\s[^>]*)?>([^<]*)</w:t>|<w:tab/>", p))
-                text = " ".join(text.split())
-                if text:
-                    paras.append((st.group(1) if st else "", text))
-        _ROOTS[key] = paras
+        from lxml import etree
+        root = etree.parse(str(path), etree.XMLParser(huge_tree=True, remove_comments=True)).getroot()
+        for el in root.iter():
+            if isinstance(el.tag, str) and "}" in el.tag:
+                el.tag = el.tag.split("}", 1)[1]
+        _ROOTS[key] = root
     return _ROOTS[key]
 
 
-CCR_SEC = re.compile(r"^(\d+\.\d+[A-Za-z]?)\s*(.*)")
+def _ptext(el):
+    return " ".join("".join(el.itertext()).split())
 
 
-def co_ccr(series, section=None, fmt="tex"):
-    """8 CCR 1404-1 ('8-1404-1') -> the whole rule, section by section; with a section ('4.109') -> its text.
-    From the rule's current Word version (statelaw.py). Paragraph depth from the SOS styles par1/par2/par3."""
-    from tribonian import statelaw
-    paras = _ccr_paras(series)
-    if paras is None:
-        return None
-    meta = statelaw.local_meta(statelaw.state_dir("CO") / "ccr" / ("%s.docx" % series)) or {}
-    when = " {\\normalfont\\footnotesize (effective %s)}" % c.long_date(meta["effective"]) if meta.get("effective") and fmt == "tex" else ""
-    heads = [(k, CCR_SEC.match(t)) for k, (st, t) in enumerate(paras) if st.startswith("Heading2")]
-    if section is None:                  # the whole rule: every section, heading then text (a rule runs to tens of pages)
-        title = next((t for st, t in paras if st == "Heading1"), "")
-        rows = []
-        for k, m in heads:
-            if not m:
+LEVELS = {"subsection", "paragraph", "subparagraph", "clause", "subclause", "item", "subitem", "subsubitem", "level"}
+SKIP_NOTES = {"annotation", "toc"}
+
+
+def _uslm_rows(el, fmt, depth=0, rows=None):
+    """A USLM section (or level) -> [(depth, label, heading, text)]: its chapeau, content and continuation
+    paragraphs; nested levels one deeper, their number as the label of their first line; source credits and
+    editorial notes in small type; case annotations and tables of contents left out."""
+    rows = [] if rows is None else rows
+    for k in el:
+        if not isinstance(k.tag, str) or k.tag in ("num", "heading"):
+            continue
+        if k.tag in LEVELS:
+            num = k.find("num")
+            head = k.find("heading")
+            label = _E(_ptext(num), fmt) if num is not None else ""
+            first = len(rows)
+            d = depth if el.tag == "section" else depth + 1   # a section's subsections at 0, as the Code prints them
+            _uslm_rows(k, fmt, d, rows)
+            if len(rows) > first:                              # "(1) (a) The department ...": one line
+                d0, lab0, h, t = rows[first]
+                rows[first] = (min(d0, d), (label + " " + lab0).strip(), _E(_ptext(head), fmt) if head is not None else h, t)
+            else:
+                rows.append((d, label, _E(_ptext(head), fmt) if head is not None else "", ""))
+        elif k.tag in ("chapeau", "content", "continuation", "proviso"):
+            ps = [p for p in k.iter("p")] or [k]
+            for p in ps:
+                t = _ptext(p)
+                if t:
+                    rows.append((depth, "", "", _E(t, fmt)))
+        elif k.tag == "sourceCredit":
+            t = _ptext(k)
+            if t:
+                rows.append((depth, "", "", _small(_E(t, fmt), fmt)))
+        elif k.tag == "note":
+            if k.get("topic") in SKIP_NOTES or k.get("role") in ("crossHeading",):
                 continue
-            rows.append((0, _E("§ " + m.group(1), fmt), _E(c.titlecase(m.group(2)), fmt), ""))
-            rows += _ccr_body(paras, k, fmt)
-        return _E(c.titlecase(title), fmt) + when, rows
-    k = next((k for k, m in heads if m and m.group(1) == section), None)
-    if k is None:
-        return None
-    m = CCR_SEC.match(paras[k][1])
-    return _E(c.titlecase(m.group(2)), fmt) + when, _ccr_body(paras, k, fmt)
-
-
-def _ccr_body(paras, k, fmt="tex"):
-    """The paragraphs after the section heading at k, to the next heading; depth from the style (par1 = 0)."""
-    rows = []
-    for st, t in paras[k + 1:]:
-        if st.startswith("Heading"):
-            break
-        d = re.search(r"par(\d)", st)
-        rows.append((int(d.group(1)) - 1 if d else 0, "", "", _E(t, fmt)))
+            for p in k.iter("p"):
+                t = _ptext(p)
+                if t and t != "ANNOTATION":
+                    rows.append((depth, "", "", _small(_E(t, fmt), fmt)))
+        elif k.tag == "p":
+            t = _ptext(k)
+            if t:
+                rows.append((depth, "", "", _E(t, fmt)))
     return rows
+
+
+def _num(el):
+    n = el.find("num")
+    return (n.get("value") or _ptext(n)).strip().rstrip(".") if n is not None else ""
+
+
+def _same(a, b):
+    """Section or article numbers equal: case, leading zeros and Roman vs Arabic ("XIV" = "14") aside."""
+    from tribonian import statecites
+    if a.casefold().lstrip("0") == b.casefold().lstrip("0") or a.casefold() == b.casefold():
+        return True
+    return statecites.arabic(a) == statecites.arabic(b) != ""
+
+
+def _article_of(sec):
+    """The article (or level) number a constitution's section sits in: from its identifier (/a2/s1) or an ancestor."""
+    from tribonian import statecites
+    m = re.search(r"/(?:a|ar|art|t)([^/]+)/s[^/]+$", sec.get("identifier", ""))
+    if m:
+        return statecites.arabic(m.group(1))
+    p = sec.getparent()
+    while p is not None:
+        if p.tag in ("article", "level", "chapter", "part", "title") and p.find("num") is not None:
+            return statecites.arabic(_num(p))
+        p = p.getparent()
+    return ""
+
+
+def article_heading(tb, art):
+    """A constitution article's own heading ("Revenue"), or ''."""
+    from tribonian import statecites
+    path, _ = state_file(tb, {"art": art})
+    if path is None:
+        return ""
+    for x in _uslm(path).iter("section"):
+        if _same(_article_of(x), art):
+            p = x.getparent()
+            while p is not None and p.find("heading") is None:
+                p = p.getparent()
+            return _ptext(p.find("heading")).title() if p is not None else ""
+    return ""
+
+
+def _when(root, path, fmt):
+    """'(retrieved 2026-10-28; 2025 edition)' from the USLM meta and the source's .json."""
+    props = {p.get("role"): (p.text or "").strip() for p in root.iter("property")}
+    ed = props.get("edition")
+    got = props.get("retrieved")
+    bits = []
+    if ed and ed not in ("current", "None"):
+        bits.append("%s edition" % ed)
+    if got:                                      # index builds record "<layer> fetched <date>; ...": the dates only
+        dates = list(dict.fromkeys(re.findall(r"\d{4}-\d\d-\d\d", got))) or [got]
+        bits.append("retrieved %s" % ", ".join(dates))
+    if not bits:
+        return ""
+    t = "current text, " + "; ".join(bits)
+    return " {\\normalfont\\footnotesize (%s)}" % t if fmt == "tex" else ""
+
+
+def state_file(tb, vals):
+    """(path to the item's USLM, item) for a parsed state key: the first of the code's formulas (and `also`)
+    that has the item built here; (None, item) when none has."""
+    from tribonian import statelaw
+    item = tb.item_of(vals)
+    if item is None:
+        return None, None
+    for code in [tb.code] + tb.also:
+        p = statelaw.uslm_file(tb.st, code, item)
+        if p is not None:
+            return p, item
+    return None, item
+
+
+def state(key, fmt="tex"):
+    """Any state's statute section, constitution article/section or rule (statecites key) -> (heading, rows) from
+    its built USLM, or None. A constitution's article alone lists its sections; a rule alone gives every section."""
+    from tribonian import statecites
+    tb, vals = statecites.parse(key)
+    if tb is None or vals is None or tb.source_error:
+        return None
+    path, item = state_file(tb, vals)
+    if path is None:
+        return None
+    root = _uslm(path)
+    when = _when(root, path, fmt)
+    sec = vals.get("sec")
+    secs = list(root.iter("section"))
+    want = statecites.fill(tb.num_t, statecites.with_roman(vals)) if tb.num_t and sec is not None else None
+    if tb.ident_t:                                         # the number repeats in the file: only this act's sections
+        frag = statecites.fill(tb.ident_t, vals)
+        if frag:
+            secs = [x for x in secs if frag.lower() in x.get("identifier", "").lower()]
+    if want is not None and ("{art}" in tb.num_t or "{roman}" in tb.num_t or tb.kind != "const"):
+        hit = next((x for x in secs if _same(_num(x), want)), None)
+    elif tb.kind == "const":
+        art = vals.get("art", "")
+        inart = [x for x in secs if _same(_article_of(x), art)]
+        if sec is None:
+            if not inart:
+                return None
+            rows = [(0, _E("§ " + _num(x), fmt), _E(_ptext(x.find("heading")) if x.find("heading") is not None else "", fmt).rstrip("."), "")
+                    for x in inart]
+            return _E(tb.label({"art": art}), fmt) + when, rows
+        hit = next((x for x in inart if _same(_num(x), sec)), None)
+    elif sec is None:                                     # a whole rule (regs) or item
+        rows = []
+        for x in secs:
+            h = x.find("heading")
+            rows.append((0, _E("§ " + _num(x), fmt), _E(_ptext(h), fmt) if h is not None else "", ""))
+            rows += _uslm_rows(x, fmt, 1)
+        lvl = next((e for e in root.iter() if e.tag in ("title", "level", "chapter") and e.find("heading") is not None), None)
+        return (_E(_ptext(lvl.find("heading")), fmt) if lvl is not None else _E(tb.label(vals), fmt)) + when, rows
+    else:
+        sub = vals.get("sub")
+        hits = [x for x in secs if _same(_num(x), sec)]
+        if len(hits) > 1 and sub:                          # sections repeat across sub-codes in one file: by identifier
+            hits = [x for x in hits if ("/%s" % sub.lower()) in x.get("identifier", "").lower()] or hits
+        hit = hits[0] if hits else None
+    if hit is None:
+        return None
+    h = hit.find("heading")
+    rows = _uslm_rows(hit, fmt)
+    return (_E(_ptext(h), fmt).rstrip(".") if h is not None else "") + when, rows
+
+
+def state_hint(key):
+    """Why a state key has no text: its source error, the fetch command, or that the item has no such section."""
+    from tribonian import statecites
+    tb, vals = statecites.parse(key)
+    if tb is None or vals is None:
+        return ""
+    if tb.source_error:
+        return "source error: %s" % tb.source_error
+    path, item = state_file(tb, vals)
+    if item is None:
+        return "no item for %s (its [cite] table has no item rule)" % tb.label(vals)
+    if path is not None:
+        return "not in %s (renumbered or repealed since, or a cite we misread)" % path.name
+    return "tribonian state fetch %s %s %s" % (tb.st, tb.fetch_code() or tb.code, item)
 
 
 # ---------------------------------------------------------------- the U.S. Constitution (govinfo, H. Doc. 110-50)
@@ -415,43 +449,51 @@ def text_of(key):
             return usc(p[1], p[2])
         if p[0] == "cfr":
             return cfr(p[1], p[2])
-        if p[0] == "co-crs":
-            return co_crs(p[1])
-        if p[0] == "co-const":
-            return co_const(p[1].split("-")[1], p[2] if len(p) > 2 else None)
-        if p[0] == "co-ccr":
-            return co_ccr(p[1], p[2] if len(p) > 2 else None)
         if p[0] == "const":
             kind, n = p[1].split("-")
             return us_const(kind, n, p[2] if len(p) > 2 else None)
+        if "-" in p[0]:
+            return state(key)
     except Exception:
         return None
     return None
 
 
 def fetch_spec(key):
-    """What would store a provision's text locally: ("cfr", title) | ("state", state, code, item) | None."""
+    """What would store a provision's text locally: ("cfr", title) | ("state", state, code, item) | None
+    (None for a code with no source: its hint says why)."""
     p = key.split(":")
     if p[0] == "cfr":
         return ("cfr", p[1])
-    if p[0] == "co-crs":
-        return ("state", "CO", "crs", p[1].split("-")[0])
-    if p[0] == "co-const":
-        return ("state", "CO", "const", "")
-    if p[0] == "co-ccr":
-        return ("state", "CO", "ccr", p[1])
     if p[0] == "const":
         return ("state", "US", "const", "")
+    if "-" in p[0]:
+        from tribonian import statecites
+        tb, vals = statecites.parse(key)
+        if tb is None or vals is None or tb.source_error:
+            return None
+        item, code = tb.item_of(vals), tb.fetch_code()
+        return ("state", tb.st, code, item) if item is not None and code else None
     return None
 
 
 def fetch_hint(key):
-    """The command that would store a provision's text locally, or '' when there is none yet."""
+    """The command that would store a provision's text locally, a source error, or ''."""
+    p = key.split(":")
+    if "-" in p[0]:
+        return state_hint(key)
     spec = fetch_spec(key)
     if spec is None:
-        p = key.split(":")
-        return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1] if p[0] == "usc" else ""
+        if p[0] == "usc":
+            if _usc_root(p[1]) is not None:
+                return "not in the title %s XML (renumbered or repealed, or a cite we misread)" % p[1].upper()
+            return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1]
+        return ""
     return "tribonian cfr fetch %s" % spec[1] if spec[0] == "cfr" else ("tribonian state fetch %s %s %s" % spec[1:]).rstrip()
+
+
+def is_state_spec(spec):
+    return spec is not None and spec[0] == "state" and spec[1] != "US"
 
 
 def run_fetch(spec):
@@ -468,10 +510,13 @@ def run_fetch(spec):
             cfr.fetch_one(spec[1], known[spec[1]])
         else:
             from tribonian import statelaw
-            reader = statelaw.FETCHERS.get((spec[1], spec[2]))
-            if reader is None:
-                return False, "no reader for %s %s yet" % (spec[1], spec[2])
-            reader([spec[3]] if spec[3] else [])
+            if (spec[1], spec[2]) in statelaw.formulas():     # every state code: fetch the item, build its USLM
+                statelaw.fetch_and_build(spec[1], spec[2], spec[3])
+            else:
+                reader = statelaw.FETCHERS.get((spec[1], spec[2]))
+                if reader is None:
+                    return False, "no reader for %s %s yet" % (spec[1], spec[2])
+                reader([spec[3]] if spec[3] else [])
     except SystemExit as e:
         return False, str(e.code) if e.code not in (None, 0) else "stopped"
     except KeyboardInterrupt:

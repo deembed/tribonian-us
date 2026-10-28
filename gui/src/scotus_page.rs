@@ -411,6 +411,11 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
         });
         ui.horizontal(|ui| {
             let queued = app.is_queued(scotus::docket_key(&d.number));
+            ui.checkbox(&mut app.fetch_state_law, "Fetch state law").on_hover_text(
+                "also download and build the state law the filings cite that is not stored here (--fetch-state-law), so the PDF's \
+                 last part, The Law Cited, prints its text. Each state's source is asked once per title or chapter, then it is local; \
+                 codes with no usable source (Purdon's, LexisNexis-only states) print a source error instead.",
+            );
             if ui
                 .add_enabled(!queued, egui::Button::new("Fetch updates"))
                 .on_hover_text(format!("queues tribonian scotus fetch {}: the docket again, and any new filing's PDF", d.number))

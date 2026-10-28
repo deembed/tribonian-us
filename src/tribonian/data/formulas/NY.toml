@@ -25,7 +25,9 @@ catalog = [
   "GCN", "GCT", "GMU", "GOB", "HAY", "IND", "ISC", "JUD", "LAB", "LEG", "LFN", "LIE", "LLC", "MDW", "MHA", "MHR",
   "MHY", "MIL", "MRE", "NAV", "NPC", "PAR", "PBA", "PBB", "PBG", "PBH", "PBL", "PBO", "PBS", "PEN", "PEP", "PML",
   "PPD", "PTR", "PVH", "RAT", "RCO", "REL", "RPA", "RPP", "RPT", "RRD", "RSS", "SAP", "SCC", "SLG", "SOS", "STF",
-  "STL", "STT", "SWC", "TAX", "TCP", "TRA", "TWN", "UCC", "VAT", "VAW", "VET", "VIL", "VOL", "WKC"
+  "STL", "STT", "SWC", "TAX", "TCP", "TRA", "TWN", "UCC", "VAT", "VAW", "VET", "VIL", "VOL", "WKC",
+  # the court acts (lawType COURT_ACTS, same API), added for their cites: Family Court Act, SCPA, Court of Claims Act ...
+  "CCA", "CTC", "FCT", "SCP", "UCT", "UDC", "UJC"
 ]
 
 [NY.laws.html]
@@ -58,10 +60,217 @@ scope = "title"
 # front matter of a container node: the chapter's enacting clause, an article's table of sections
 note = [{ class = "front-first", topic = "toc" }]
 
+[NY.laws.cite]
+# how cases cite the consolidated laws (statecites.py): Bluebook "N.Y. Penal Law § 125.25 (McKinney 2009)",
+# "N.Y. C.P.L.R. 3211(a)(7)"; "McKinney's Consolidated Laws of N.Y., Book 39, Penal Law § 125.25"; New York courts
+# (Official Reports style) without the state: "Penal Law § 125.25 [1]", "CPLR 3211 [a] [7]", "Executive Law § 296",
+# "EPTL 5-1.1", "section 240(1) of the Labor Law". The section is placed by each form so "CPLR article 78" or
+# "Penal Law article 125" (articles, not sections) are not read as § 78 / § 125. Sub keys are the Senate API law ids.
+full    = ['N\.?\s?Y\.?\s*{sub},?\s*(?:§§?\s*|[Ss]ec(?:tion|s?\.)\s*|[Ss]ections\s*|[Rr](?:ule|\.)\s*)?{section}(?![\w])',
+           'New\s+York\s+(?:State\s+)?{sub},?\s*(?:§§?\s*|[Ss]ec(?:tion|s?\.)\s*|[Ss]ections\s*|[Rr](?:ule|\.)\s*)?{section}(?![\w])',
+           'McKinney\x27?s\s+(?:Cons(?:olidated|\.)\s*Laws\s+of\s+N\.?\s?Y\.?,?\s*(?:Book\s+\d+[A-Z]?,?\s*)?)?{sub},?\s*(?:§§?\s*|[Ss]ec(?:tion|s?\.)\s*|[Ss]ections\s*|[Rr](?:ule|\.)\s*)?{section}(?![\w])',
+           '(?:§|[Ss]ection)\s*(?P<sec>\d+[a-z]?(?:-[a-z]{1,2}(?![a-z])|-[A-Z](?![\w])|[.-]\d+[a-z]?)*)(?![\w])(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s+of\s+the\s+New\s+York\s+(?:State\s+)?{sub}']
+bare    = ['{sub},?\s*(?:§§?\s*|[Ss]ec(?:tion|s?\.)\s*|[Ss]ections\s*|[Rr](?:ule|\.)\s*)?{section}(?![\w])',
+           '(?:§|[Ss]ection)\s*(?P<sec>\d+[a-z]?(?:-[a-z]{1,2}(?![a-z])|-[A-Z](?![\w])|[.-]\d+[a-z]?)*)(?![\w])(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s+of\s+the\s+{sub}']
+section = '\d+[a-z]?(?:-[a-z]{1,2}(?![a-z])|-[A-Z](?![\w])|[.-]\d+[a-z]?)*'
+item    = "{sub}"
+label   = "N.Y. {name} {sec}"
+examples = [["N.Y. Gen. Constr. Law § 25-a (McKinney 2016)", "ny-laws:GCN/25-a", "N.Y. Gen. Constr. Law § 25-a"],
+            ["Education Law § 3020-a(2)", "ny-laws:EDN/3020-a", "N.Y. Educ. Law § 3020-a"],
+            ["N.Y. C.P.L.R. 3211(a)(7)", "ny-laws:CVP/3211", "N.Y. C.P.L.R. 3211"],
+            ["CPLR 214-c", "ny-laws:CVP/214-c"],
+            ["EPTL 5-1.1-A(a)(2)", "ny-laws:EPT/5-1.1-A", "N.Y. Est. Powers & Trusts Law § 5-1.1-A"],
+            ["section 1310 of the Abandoned Property Law", "ny-laws:ABP/1310"],
+            ["New York Penal Law § 125.25", "ny-laws:PEN/125.25", "N.Y. Penal Law § 125.25"],
+            ["Family Ct Act § 1012(f)", "ny-laws:FCT/1012", "N.Y. Fam. Ct. Act § 1012"]]
+
+[NY.laws.cite.sub]
+ABC = ['Alco(?:holic|\.)\s*Bev(?:erage|\.)\s*Cont(?:rol|\.)\s*Law']
+ABP = ['Aband(?:oned|\.)\s*Prop(?:erty|\.)\s*Law']
+AGM = ['Agric(?:ulture|\.)\s*(?:&|and)\s*M(?:ar)?k(?:e)?ts\.?\s*Law']
+ACA = ['Arts\s*(?:&|and)\s*Cult(?:ural|\.)\s*Aff(?:airs|\.)\s*Law']
+BNK = ['Banking\s*Law']
+BSC = ['Bus(?:iness|\.)\s*Corp(?:oration|\.)\s*Law', 'BCL']
+CAN = ['Cannabis\s*Law']
+CVP = ['C\.\s?P\.\s?L\.\s?R\.', 'CPLR', 'Civ(?:il|\.)\s*Prac(?:tice|\.)\s*L(?:aw|\.)\s*(?:&|and)\s*R(?:ules|\.)']
+CVR = ['Civ(?:il|\.)\s*Rights\s*Law']
+CVS = ['Civ(?:il|\.)\s*Serv(?:ice|\.)\s*Law']
+CCO = ['Coop(?:erative|\.)\s*Corp(?:orations?|s?\.)\s*Law']
+COR = ['Corr(?:ection|ect\.|\.)\s*Law']
+CNT = ['County\s*Law']
+CPL = ['Crim(?:inal|\.)\s*Proc(?:edure|\.)\s*Law', 'C\.\s?P\.\s?L\.', 'CPL']
+DCD = ['Debt(?:or|\.)\s*(?:&|and)\s*Cred(?:itor|\.)\s*Law']
+DOM = ['Dom(?:estic|\.)\s*Rel(?:ations|\.)\s*Law', 'DRL']
+COM = ['Econ(?:omic|\.)\s*Dev(?:elopment|\.)\s*Law']
+EDN = ['Educ(?:ation|\.)\s*Law']
+ELD = ['Elder\s*Law']
+ELN = ['Elec(?:tion|\.)\s*Law']
+EDP = ['Em(?:inent|\.)\s*Dom(?:ain|\.)\s*Proc(?:edure|\.)\s*Law', 'EDPL']
+EML = ['Emp(?:loyers|\.)(?:\x27|’)?\s*Liab(?:ility|\.)\s*Law']
+ENG = ['Energy\s*Law']
+ENV = ['Env(?:ironmental|tl\.|(?:\x27|’)t)\s*Conserv(?:ation|\.)\s*Law', 'ECL']
+EPT = ['Est(?:ates|\.)\s*,?\s*Powers\s*(?:&|and)\s*Trusts\s*Law', 'EPTL']
+EXC = ['Exec(?:utive|\.)\s*Law']
+FIS = ['Fin(?:ancial|\.)\s*Serv(?:ices|s?\.)\s*Law']
+GBS = ['Gen(?:eral|\.)\s*Bus(?:iness|\.)\s*Law', 'GBL']
+GCT = ['Gen(?:eral|\.)\s*City\s*Law']
+GCN = ['Gen(?:eral|\.)\s*Constr(?:uction|\.)\s*Law']
+GMU = ['Gen(?:eral|\.)\s*Mun(?:icipal|\.)\s*Law', 'GML']
+GOB = ['Gen(?:eral|\.)\s*Oblig(?:ations|\.)\s*Law', 'GOL']
+HAY = ['High(?:way|\.)\s*Law']
+IND = ['Indian\s*Law']
+ISC = ['Ins(?:urance|\.)\s*Law']
+JUD = ['Jud(?:iciary|\.)\s*Law']
+LAB = ['Lab(?:or|\.)\s*Law']
+LEG = ['Legis(?:lative|\.)\s*Law']
+LIE = ['Lien\s*Law']
+LLC = ['L(?:imited|td\.)\s*Liab(?:ility|\.)\s*Co(?:mpany|\.)\s*Law']
+LFN = ['Local\s*Fin(?:ance|\.)\s*Law']
+MHY = ['Mental\s*Hyg(?:iene|\.)\s*Law', 'Men\.\s*Hyg\.\s*Law']
+MIL = ['Mil(?:itary|\.)\s*Law']
+MDW = ['Mult(?:iple|\.)\s*Dwell(?:ing|\.)\s*Law']
+MRE = ['Mult(?:iple|\.)\s*Resid(?:ence|\.)\s*Law']
+MHR = ['Mun(?:icipal|\.)\s*Home\s*Rule\s*Law']
+NAV = ['Nav(?:igation|ig\.|\.)\s*Law']
+NPC = ['Not-?\s?[Ff]or-?\s?[Pp]rofit\s*Corp(?:oration|\.)\s*Law', 'N-PCL']
+PAR = ['Parks,?\s*Rec(?:reation|\.)\s*(?:&|and)\s*Hist(?:oric|\.)\s*Preserv(?:ation|\.)\s*Law']
+PTR = ['P(?:artnership|(?:\x27|’)ship)\s*Law']
+PEN = ['Penal\s*Law']
+PEP = ['Pers(?:onal|\.)\s*Prop(?:erty|\.)\s*Law']
+PVH = ['Priv(?:ate|\.)\s*Hous(?:ing|\.)\s*Fin(?:ance|\.)\s*Law']
+PBA = ['Pub(?:lic|\.)\s*Auth(?:orities|\.)\s*Law']
+PBB = ['Pub(?:lic|\.)\s*B(?:uildings|ldgs?\.)\s*Law']
+PBH = ['Pub(?:lic|\.)\s*Health\s*Law', 'PHL']
+PBG = ['Pub(?:lic|\.)\s*Hous(?:ing|\.)\s*Law']
+PBL = ['Pub(?:lic|\.)\s*Lands\s*Law']
+PBO = ['Pub(?:lic|\.)\s*Off(?:icers|\.)\s*Law']
+PBS = ['Pub(?:lic|\.)\s*Serv(?:ice|\.)\s*Law']
+PML = ['Racing,?\s*Pari-?\s?Mut(?:uel|\.)\s*Wag(?:ering|\.)\s*(?:&|and)\s*Breed(?:ing|\.)\s*Law']
+RRD = ['R(?:ailroad|\.\s?R\.)\s*Law']
+RAT = ['Rapid\s*Transit\s*Law']
+RPP = ['Real\s*Prop(?:erty|\.)\s*Law', 'RPL']
+RPA = ['Real\s*Prop(?:erty|\.)\s*Act(?:ions|s?\.)\s*(?:(?:&|and)\s*Proc(?:eedings|\.)\s*)?Law', 'RPAPL']
+RPT = ['Real\s*Prop(?:erty|\.)\s*Tax\s*Law', 'RPTL']
+RCO = ['Relig(?:ious|\.)\s*Corp(?:orations?|s?\.)\s*Law']
+RSS = ['Retire(?:ment|\.)\s*(?:&|and)\s*Soc(?:ial|\.)\s*Sec(?:urity|\.)\s*Law']
+SCC = ['Second\s*Class\s*Cities\s*Law']
+SOS = ['Soc(?:ial|\.)\s*Serv(?:ices|s?\.)\s*Law']
+SAP = ['State\s*Admin(?:istrative|\.)\s*Proc(?:edure|\.)\s*Act', 'SAPA']
+STF = ['State\s*Fin(?:ance|\.)\s*Law']
+STT = ['State\s*Tech(?:nology|\.)\s*Law']
+TAX = ['Tax\s*Law']
+TWN = ['Town\s*Law']
+TCP = ['Transp(?:ortation|\.)\s*Corp(?:orations?|s?\.)\s*Law']
+TRA = ['Transp(?:ortation|\.)\s*Law']
+UCC = ['U\.\s?C\.\s?C\.\s*Law', 'Uniform\s+Commercial\s+Code', 'U\.\s?C\.\s?C\.', 'UCC']
+VAT = ['Veh(?:icle|\.)\s*(?:&|and)\s*Traf(?:fic|\.)\s*Law', 'VTL']
+VET = ['Vet(?:erans|\.)(?:\x27|’)?\s*Serv(?:ices|s?\.)\s*Law']
+VIL = ['Vill(?:age|\.)\s*Law']
+WKC = ['Work(?:ers|\.)(?:\x27|’)?\s*Comp(?:ensation|\.)\s*Law', 'WCL']
+FCT = ['Fam(?:ily|\.)\s*C(?:our)?t\.?\s*Act']
+SCP = ['Surr(?:ogate|\.)(?:\x27|’)?s?\s*C(?:our)?t\.?\s*Proc(?:edure|\.)\s*Act', 'SCPA']
+CTC = ['C(?:our)?t\.?\s*(?:of\s+)?Cl(?:aims|\.)\s*Act']
+CCA = ['(?:New\s+York\s+|N\.?\s?Y\.?\s?)?City\s*Civ(?:il|\.)\s*C(?:our)?t\.?\s*Act']
+UCT = ['Unif(?:orm|\.)\s*City\s*C(?:our)?t\.?\s*Act']
+UDC = ['Unif(?:orm|\.)\s*Dist(?:rict|\.)\s*C(?:our)?t\.?\s*Act']
+UJC = ['Unif(?:orm|\.)\s*Just(?:ice|\.)\s*C(?:our)?t\.?\s*Act']
+
+[NY.laws.cite.names]
+ABC = "Alco. Bev. Cont. Law §"
+ABP = "Aband. Prop. Law §"
+AGM = "Agric. & Mkts. Law §"
+ACA = "Arts & Cult. Aff. Law §"
+BNK = "Banking Law §"
+BSC = "Bus. Corp. Law §"
+CAN = "Cannabis Law §"
+CVP = "C.P.L.R."
+CVR = "Civ. Rights Law §"
+CVS = "Civ. Serv. Law §"
+CCO = "Coop. Corp. Law §"
+COR = "Correct. Law §"
+CNT = "County Law §"
+CPL = "Crim. Proc. Law §"
+DCD = "Debt. & Cred. Law §"
+DOM = "Dom. Rel. Law §"
+COM = "Econ. Dev. Law §"
+EDN = "Educ. Law §"
+ELD = "Elder Law §"
+ELN = "Elec. Law §"
+EDP = "Em. Dom. Proc. Law §"
+EML = "Empl. Liab. Law §"
+ENG = "Energy Law §"
+ENV = "Envtl. Conserv. Law §"
+EPT = "Est. Powers & Trusts Law §"
+EXC = "Exec. Law §"
+FIS = "Fin. Serv. Law §"
+GBS = "Gen. Bus. Law §"
+GCT = "Gen. City Law §"
+GCN = "Gen. Constr. Law §"
+GMU = "Gen. Mun. Law §"
+GOB = "Gen. Oblig. Law §"
+HAY = "High. Law §"
+IND = "Indian Law §"
+ISC = "Ins. Law §"
+JUD = "Jud. Law §"
+LAB = "Lab. Law §"
+LEG = "Legis. Law §"
+LIE = "Lien Law §"
+LLC = "Ltd. Liab. Co. Law §"
+LFN = "Local Fin. Law §"
+MHY = "Mental Hyg. Law §"
+MIL = "Mil. Law §"
+MDW = "Mult. Dwell. Law §"
+MRE = "Mult. Resid. Law §"
+MHR = "Mun. Home Rule Law §"
+NAV = "Nav. Law §"
+NPC = "Not-for-Profit Corp. Law §"
+PAR = "Parks Rec. & Hist. Preserv. Law §"
+PTR = "P'ship Law §"
+PEN = "Penal Law §"
+PEP = "Pers. Prop. Law §"
+PVH = "Priv. Hous. Fin. Law §"
+PBA = "Pub. Auth. Law §"
+PBB = "Pub. Bldgs. Law §"
+PBH = "Pub. Health Law §"
+PBG = "Pub. Hous. Law §"
+PBL = "Pub. Lands Law §"
+PBO = "Pub. Off. Law §"
+PBS = "Pub. Serv. Law §"
+PML = "Rac. Pari-Mut. Wag. & Breed. Law §"
+RRD = "R.R. Law §"
+RAT = "Rapid Transit Law §"
+RPP = "Real Prop. Law §"
+RPA = "Real Prop. Acts. Law §"
+RPT = "Real Prop. Tax Law §"
+RCO = "Relig. Corp. Law §"
+RSS = "Retire. & Soc. Sec. Law §"
+SCC = "Second Class Cities Law §"
+SOS = "Soc. Serv. Law §"
+SAP = "State Admin. Proc. Act §"
+STF = "State Fin. Law §"
+STT = "State Tech. Law §"
+TAX = "Tax Law §"
+TWN = "Town Law §"
+TCP = "Transp. Corp. Law §"
+TRA = "Transp. Law §"
+UCC = "U.C.C. Law §"
+VAT = "Veh. & Traf. Law §"
+VET = "Veterans' Servs. Law §"
+VIL = "Village Law §"
+WKC = "Workers' Comp. Law §"
+FCT = "Fam. Ct. Act §"
+SCP = "Surr. Ct. Proc. Act §"
+CTC = "Ct. Cl. Act §"
+CCA = "City Civ. Ct. Act §"
+UCT = "Unif. City Ct. Act §"
+UDC = "Unif. Dist. Ct. Act §"
+UJC = "Unif. Just. Ct. Act §"
+
 # The Constitution: law id CNS (lawType MISC). Current: A1S11 carries the 2024 Equal Rights Amendment (activeDate
 # 2025-01-10); tree activeDate 2026-06-05. Articles docLevelId roman ("I"), sections "§ 11. a." (dotted lower).
 [NY.const]
 inherit = "NY.laws"
+replace = ["cite"]                              # its own [cite], not the laws'
 name    = "Constitution of the State of New York"
 doc     = "/us-ny/const"                        # /us-ny/const/a1/s11
 # item: CNS (same url template)
@@ -79,3 +288,58 @@ article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+(?:-[A-Z])?)$', tag = "article",
 [NY.const.ladder]
 types = ["lower.", "num.", "lower"]                   # § 11. a. ... -- refine on the CNS full sample
 tags  = ["subsection", "paragraph", "subparagraph"]
+
+[NY.const.cite]
+# "N.Y. Const. art. I, § 6"; New York courts "NY Const, art I, § 6"; "article I, section 6 of the New York
+# Constitution". One item (CNS); its build currently finds article I only (see the report), so later articles' sections
+# may resolve to the wrong text until the CNS containers are fixed.
+full    = ['N\.?\s?Y\.?\s*Const(?:itution|\.)?{tail}',
+           'New\s+York\s+(?:State\s+)?Constitution{tail}',
+           '[Aa]rt(?:icle|\.)?\s*(?P<art>[IVXL]+|\d+),?\s*(?:§|[Ss]ec(?:tion|\.))\s*(?P<sec>\d+[a-z]?(?:-[a-z](?![\w]))?)(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s+of\s+the\s+New\s+York\s+(?:State\s+)?Constitution']
+tail    = ',?\s*(?:[Aa]rt(?:icle)?\.?)\s*(?P<art>[IVXLC]+|\d+)(?![\w])(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+[a-z]?(?:-[a-z](?![\w]))?))?(?:\s?\([A-Za-z0-9]{1,4}\))*'
+item    = "CNS"
+label   = "N.Y. Const. art. {roman}[, § {sec}]"
+examples = [["N.Y. Const. art. I, § 6", "ny-const:art-1:6", "N.Y. Const. art. I, § 6"],
+            ["NY Const, art I, § 12", "ny-const:art-1:12"],
+            ["article I, section 11 of the New York Constitution", "ny-const:art-1:11"]]
+
+# ---------------------------------------------------------------- cite-only: commonly cited, no source here
+[NY.nycrr]
+name    = "Official Compilation of Codes, Rules and Regulations of the State of New York"
+source_error = "no source: the official NYCRR is hosted by Westlaw for the Department of State; no bulk download"
+
+[NY.nycrr.cite]
+full    = ['(?P<tit>\d{1,2})\s*N\.?\s?Y\.?\s?C\.?\s?R\.?\s?R\.?\s*(?:§§?\s*|[Pp]art\s+)?(?P<sec>\d+(?:\.\d+)*[a-z]?(?:-[a-z]{1,2})?)(?![\w])',
+           'N\.?\s?Y\.?\s*Comp\.\s*Codes\s*R\.\s*(?:&|and)\s*Regs\.,?\s*tit\.\s*(?P<tit>\d{1,2}),?\s*(?:§§?\s*|[Pp]t\.\s*|[Pp]art\s+)?(?P<sec>\d+(?:\.\d+)*[a-z]?(?:-[a-z]{1,2})?)(?![\w])']
+section = '\d+(?:\.\d+)*[a-z]?(?:-[a-z]{1,2})?'
+key     = "{tit}/{sec}"
+label   = "N.Y. Comp. Codes R. & Regs. tit. {tit}, § {sec}"
+examples = [["22 NYCRR 202.8-g", "ny-nycrr:22/202.8-g", "N.Y. Comp. Codes R. & Regs. tit. 22, § 202.8-g"],
+            ["N.Y. Comp. Codes R. & Regs. tit. 9, § 2520.6(d)", "ny-nycrr:9/2520.6"]]
+
+[NY.nycadmin]
+name    = "Administrative Code of the City of New York"
+source_error = "local law (New York City), not a state code: American Legal Publishing hosts it; no formula"
+
+[NY.nycadmin.cite]
+full    = ['N\.?\s?Y\.?\s?C\.?\s*Admin(?:istrative|\.)\s*Code',
+           'Administrative\s+Code\s+of\s+(?:the\s+)?City\s+of\s+(?:New\s+York|N\.?\s?Y\.?)',
+           'New\s+York\s+City\s+Administrative\s+Code']
+bare    = ['Admin(?:istrative|\.)\s*Code']
+section = '\d{1,2}-\d{2,4}(?:\.\d+)?[a-z]?'
+label   = "N.Y.C. Admin. Code § {sec}"
+examples = [["N.Y.C. Admin. Code § 8-107(1)(a)", "ny-nycadmin:8-107", "N.Y.C. Admin. Code § 8-107"],
+            ["Administrative Code of City of NY § 26-504", "ny-nycadmin:26-504"],
+            ["Admin. Code § 8-502(a)", "ny-nycadmin:8-502"]]
+
+[NY.uncons]
+name    = "McKinney's Unconsolidated Laws of New York"
+source_error = "McKinney's own section numbering (§ 8625 = ETPA § 5); the Senate API numbers each act by its own sections"
+
+[NY.uncons.cite]
+full    = ['McKinney\x27?s\s+Uncons(?:ol(?:idated)?)?\.?\s*Laws(?:\s+of\s+N\.?\s?Y\.?)?',
+           'N\.?\s?Y\.?\s*Unconsol(?:idated|\.)\s*Laws?']
+section = '\d{3,5}[a-z]?(?:-[a-z])?'
+label   = "N.Y. Unconsol. Law § {sec}"
+examples = [["N.Y. Unconsol. Law § 8625 (McKinney)", "ny-uncons:8625", "N.Y. Unconsol. Law § 8625"],
+            ["McKinney's Uncons. Laws of N.Y. § 8584", "ny-uncons:8584"]]

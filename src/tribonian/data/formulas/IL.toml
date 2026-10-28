@@ -215,6 +215,22 @@ part    = { match = '^\(\d+\s+ILCS\s+\d+/[^)]*?\bPt\.\s*(?P<num>[^ ),]+)\s+headi
 "815" = 67
 "820" = 68
 
+[IL.ilcsweb.cite]
+# "735 ILCS 5/2-619(a)(9) (West 2016)", "735 Ill. Comp. Stat. 5/2-619", "735 Ill. Comp. Stat. Ann. 5/2-619": the
+# chapter comes first, then act/section. The table sits on ilcsweb (the preferred fetch, with a catalog); the FTP
+# formula holds the same chapters.
+full    = ['(?P<ch>\d{1,3})\s*(?:ILCS|Ill\.\s?Comp\.\s?Stat\.(?:\s?Ann\.)?|Illinois\s+Compiled\s+Statutes)\s*(?P<act>\d{1,4})/{section}']
+section = '\d+(?:\.\d+)?[A-Za-z]?(?:-\d+(?:\.\d+)?[A-Za-z]?)*'
+key     = "{ch}/{act}/{sec}"
+item    = "{ch}"
+ident   = "/act{act}/"                       # section numbers repeat across the acts of one chapter
+label   = "{ch} Ill. Comp. Stat. {act}/{sec}"
+also    = ["ilcs"]
+examples = [["735 ILCS 5/2-619(a)(9) (West 2016)", "il-ilcsweb:735/5/2-619", "735 Ill. Comp. Stat. 5/2-619"],
+            ["10 Ill. Comp. Stat. 5/9-1", "il-ilcsweb:10/5/9-1", "10 Ill. Comp. Stat. 5/9-1"],
+            ["720 ILCS 5/12-3.05(e)(1)", "il-ilcsweb:720/5/12-3.05"],
+            ["740 Ill. Comp. Stat. Ann. 14/15(b)", "il-ilcsweb:740/14/15"]]
+
 # ---------------------------------------------------------------- Illinois Constitution of 1970
 # /legislation/constitution links articles con1.htm ... con14.htm, conp.htm (preamble), contrans.htm
 # (transition schedule) and conent.htm, "ENTIRE CONSTITUTION IN A SINGLE DOCUMENT": one request. The relative
@@ -224,7 +240,7 @@ part    = { match = '^\(\d+\s+ILCS\s+\d+/[^)]*?\bPt\.\s*(?P<num>[^ ),]+)\s+headi
 # the parser has no <pre> line mode. Kept as the target shape for when it does.
 [IL.const]
 inherit = "IL.ilcs"
-replace = ["containers", "html", "sections", "ladder", "notes"]
+replace = ["containers", "html", "sections", "ladder", "notes", "cite"]
 name    = "Illinois Constitution of 1970"
 doc     = "/us-il/const"
 fetch   = "template"
@@ -254,3 +270,44 @@ scope = "title"
 
 [IL.const.notes]
 sourceCredit = '^\(Source:'
+
+[IL.const.cite]
+# "Ill. Const. 1970, art. I, § 2" (Illinois courts), "Ill. Const. art. I, § 2" (Bluebook),
+# "article I, section 6 of the Illinois Constitution"
+full    = ['Ill\.\s?Const\.(?:\s*(?:of\s+)?1970)?', 'Illinois\s+Constitution(?:\s+of\s+1970)?',
+           '[Aa]rticle\s+(?P<art>[IVXL]+),\s*[Ss]ection\s+(?P<sec>\d+[a-z]?)(?:\([A-Za-z0-9]{1,4}\))*,?\s*of\s+the\s+Illinois\s+Constitution(?:\s+of\s+1970)?']
+section = '\d{1,2}[a-z]?'                    # sections are 1-2 digits (10a): a later bare "§ 790.01" is not one
+item    = "1970"
+label   = "Ill. Const. art. {roman}[, § {sec}]"
+examples = [["Ill. Const. 1970, art. I, § 2", "il-const:art-1:2", "Ill. Const. art. I, § 2"],
+            ["Ill. Const. art. IV, § 8(d)", "il-const:art-4:8"],
+            ["article I, section 6 of the Illinois Constitution", "il-const:art-1:6"]]
+
+# ---------------------------------------------------------------- Illinois Revised Statutes (cite-only)
+# Before 1993 Illinois cases cite "Ill. Rev. Stat. 1991, ch. 38, par. 9-1": the old compilation, recodified as ILCS.
+[IL.irs]
+name    = "Illinois Revised Statutes (to 1993)"
+source_error = "no source: the Illinois Revised Statutes were recodified as the ILCS in 1993 and have no free official text; the ILCS section's \"(from Ch. 38, par. 9-1)\" line gives the current cite"
+
+[IL.irs.cite]
+full    = ['Ill\.\s?Rev\.\s?Stat\.,?\s*(?:\(?(?:18|19)\d\d\)?,?\s*)?ch\.\s*(?P<ch>\d{1,3}(?:\s?1/2|½)?),\s*(?:pars?\.|¶¶?)\s*(?P<sec>\d+(?:\.\d+)?[a-z]?(?:-\d+(?:\.\d+)?[a-z]?)*)(?:\([A-Za-z0-9]{1,4}\))*']
+section = '\d+(?:\.\d+)?[a-z]?(?:-\d+(?:\.\d+)?[a-z]?)*'
+key     = "ch{ch}-par{sec}"
+label   = "Ill. Rev. Stat. ch. {ch}, par. {sec}"
+examples = [["Ill. Rev. Stat. 1991, ch. 38, par. 9-1(a)", "il-irs:ch38-par9-1", "Ill. Rev. Stat. ch. 38, par. 9-1"],
+            ["Ill. Rev. Stat. ch. 110, ¶ 2-619 (1987)", "il-irs:ch110-par2-619"]]
+
+# ---------------------------------------------------------------- Illinois Administrative Code (cite-only)
+[IL.iac]
+name    = "Illinois Administrative Code"
+kind    = "regs"
+source_error = "no formula yet: the Illinois Administrative Code (ilga.gov/commission/jcar/admincode) is not fetched by this pipeline"
+
+[IL.iac.cite]
+# "89 Ill. Adm. Code 140.1" (Illinois courts), "Ill. Admin. Code tit. 89, § 140.1" (Bluebook)
+full    = ['(?P<title>\d{1,2})\s*Ill\.\s?Adm(?:in)?\.\s?Code', 'Ill\.\s?Admin\.\s?Code\s*tit\.\s*(?P<title>\d{1,2}),?']
+section = '\d+\.\d+[a-z]?'
+key     = "{title}/{sec}"
+label   = "{title} Ill. Adm. Code {sec}"
+examples = [["89 Ill. Adm. Code 140.1", "il-iac:89/140.1", "89 Ill. Adm. Code 140.1"],
+            ["Ill. Admin. Code tit. 35, § 302.208(g)", "il-iac:35/302.208"]]

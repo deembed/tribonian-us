@@ -1,0 +1,30 @@
+# GA.toml -- Georgia: cite-only tables. The Official Code of Georgia Annotated is published online only through
+# LexisNexis, whose terms forbid automated access; the open copy (Public.Resource.Org, 2019) is stale
+# (DATASOURCES.md). Cites are recognized and keyed; the appendix says why there is no text.
+
+[GA.code]
+name    = "Official Code of Georgia Annotated"
+source_error = "LexisNexis-only publication; its terms forbid automated access (see DATASOURCES.md)"
+
+[GA.code.cite]
+# "O.C.G.A. § 16-5-1", "OCGA § 16-5-1" (the Georgia appellate courts' own style), "Ga. Code Ann. § 16-5-1"
+full    = ['O\.\s?C\.\s?G\.\s?A\.', 'OCGA', 'Ga\.\s?Code(?:\s?Ann\.)?', 'Official\s+Code\s+of\s+Georgia(?:\s+Annotated)?']
+section = '\d+-\d+[A-Z]?-\d+(?:\.\d+)?'
+label   = "Ga. Code Ann. § {sec}"
+examples = [["O.C.G.A. § 16-5-1(c) (2019)", "ga-code:16-5-1", "Ga. Code Ann. § 16-5-1"],
+            ["OCGA § 9-11-12 (b) (6)", "ga-code:9-11-12"],
+            ["Ga. Code Ann. § 10-1-393.5", "ga-code:10-1-393.5"]]
+
+[GA.const]
+name    = "Constitution of the State of Georgia"
+kind    = "const"
+source_error = "not sourced: the state's code (LexisNexis-only, terms forbid automated access; see DATASOURCES.md) carries it, and no separately published official text has been evaluated yet"
+
+[GA.const.cite]
+# Article, Section, Paragraph, all Roman: "Ga. Const. art. I, § I, ¶ XIII", "Ga. Const. of 1983, Art. I, Sec. I,
+# Par. XIII". The article is keyed in Arabic; section and paragraph as written (only the article is converted)
+full    = ['(?:Ga\.\s?Const\.?|Georgia\s+Constitution)(?:\s+of\s+1983)?,?\s*[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXLC]+|\d+)\b(?:,?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<sec>[IVXLC]+|\d+)\b)?(?:,?\s*(?:¶|[Pp]ar(?:agraph|a)?\.?)\s*(?P<par>[IVXLC]+|\d+)(?:\s?\([a-z]\))?\b)?']
+key     = "art-{art}[:{sec}][:{par}]"
+label   = "Ga. Const. art. {roman}[, § {sec}][, ¶ {par}]"
+examples = [["Ga. Const. art. I, § I, ¶ XIII", "ga-const:art-1:I:XIII", "Ga. Const. art. I, § I, ¶ XIII"],
+            ["Ga. Const. of 1983, Art. VI, Sec. VI, Par. II", "ga-const:art-6:VI:II"]]

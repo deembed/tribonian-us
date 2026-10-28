@@ -28,6 +28,10 @@ def _doc(raw, formula):
     return importlib.import_module("tribonian.uslm.transforms.pandoc_doc").to_html(raw, formula)
 
 
+def _docx(raw, formula):
+    return importlib.import_module("tribonian.uslm.transforms.docx_styles").to_html(raw, formula)
+
+
 def _text(raw, formula):
     return importlib.import_module("tribonian.uslm.transforms.text_lines").to_html(raw, formula)
 
@@ -39,7 +43,8 @@ TRANSFORMS = {
     "pdf-text": _pdf,         # PDF via pdftotext -layout, lines joined to paragraphs ([pdf] settings)
     "iowa-xml": _ia,          # Iowa Code per-chapter _slim.xml
     "pandoc": _doc,           # RTF / Word .docx via pandoc ([pandoc].from = "rtf" | "docx")
-    "text-lines": _text,      # plain text, one paragraph per line (New Jersey bulk .TXT)
+    "text-lines": _text,
+    "docx-styles": _docx,     # Word .docx by paragraph style, pure Python ([docx] settings): Colorado CCR rules      # plain text, one paragraph per line (New Jersey bulk .TXT)
 }
 
 

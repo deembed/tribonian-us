@@ -87,13 +87,25 @@ group_id = "art{num}"
 # "History: En. Sec. 5150, Pol. C. 1895; ..." (div.history-doc) after each section
 sourceCredit = '^History:'
 
+[MT.mca.cite]
+# "Mont. Code Ann. § 45-5-102", and the Montana Supreme Court's "§ 45-5-102, MCA" / "Section 45-5-102(1), MCA"
+full    = ['Mont\.\s?Code\s?Ann\.', 'M\.\s?C\.\s?A\.', 'MCA', 'Montana\s+Code\s+Annotated']
+after   = ['MCA', 'M\.\s?C\.\s?A\.', 'Mont\.\s?Code\s?Ann\.']
+section = '\d+-\d+[A-Z]?-\d+[A-Z]?'
+item    = ['^(\d+)-', '{1}']                 # 45-5-102 -> 45 (the formula's %03d0: "0450")
+label   = "Mont. Code Ann. § {sec}"
+examples = [["Mont. Code Ann. § 1-2-101 (2023)", "mt-mca:1-2-101", "Mont. Code Ann. § 1-2-101"],
+            ["Section 1-1-204(3), MCA", "mt-mca:1-1-204"],
+            ["§ 49-2-303, MCA (2021)", "mt-mca:49-2-303"],
+            ["MCA § 45-5-102", "mt-mca:45-5-102"]]
+
 [MT.const]
 # The 1972 Constitution, same site: title_0000 -> article_XXXX/parts_index.html (one "Part II. DECLARATION OF
 # RIGHTS" entry per article, repeating the article name) -> sections_index -> section pages. A section page has the
 # statutes' markup: h3 "ARTICLE II. DECLARATION OF RIGHTS", h2 "Part II. DECLARATION OF RIGHTS", catchline
 # "Section<ensp>4.<emsp>Individual dignity." Most sections carry no History line. One item: 0 (folder 0000 -> t0).
 inherit = "MT.mca"
-replace = ["containers", "sections"]
+replace = ["containers", "sections", "cite"]
 name    = "Constitution of the State of Montana"
 doc     = "/us-mt/const"
 links   = ['href="(\./article_\d{3}[0-9a-z]/parts_index\.html)"',
@@ -120,3 +132,26 @@ part     = { match = '^(?P<heading>Part\s+(?P<num>[IVXL]+|\d+)\.\s.*)$', tag = "
 match = '^Section\s+(?P<num>\d+[A-Za-z]?)\.\s+(?P<heading>.*)$'
 bold  = true
 scope = "container"
+
+[MT.const.cite]
+# "Mont. Const. art. II, § 10", and "Article II, Section 10 of the Montana Constitution"
+full    = ['Mont\.\s?Const\.?', 'Montana\s+Constitution',
+           '[Aa]rt(?:icle|\.)\s*(?P<art>[IVX]+),?\s*(?:[Ss]ection|[Ss]ec\.|§)\s*(?P<sec>\d+[a-z]?),?\s*of\s+(?:the\s+)?Montana\s+Constitution']
+item    = "0"
+label   = "Mont. Const. art. {roman}[, § {sec}]"
+examples = [["Mont. Const. art. II, § 10", "mt-const:art-2:10", "Mont. Const. art. II, § 10"],
+            ["Article II, Section 11 of the Montana Constitution", "mt-const:art-2:11"]]
+
+# ---------------------------------------------------------------- Administrative Rules of Montana (cite-only)
+[MT.arm]
+name    = "Administrative Rules of Montana"
+source_error = "no formula yet: the ARM is published by the Secretary of State at rules.mt.gov; not wired up"
+
+[MT.arm.cite]
+# "Admin. R. Mont. 24.29.1501" (Bluebook), "Admin. R. M. 24.29.1501" and "ARM 24.29.1501" (Montana courts)
+full    = ['Admin\.\s?R\.\s?Mont\.', 'Admin\.\s?R\.\s?M\.', 'ARM', 'A\.\s?R\.\s?M\.']
+section = '\d+\.\d+\.\d+[A-Z]?'
+label   = "Admin. R. Mont. {sec}"
+examples = [["Admin. R. Mont. 24.29.1501(2)", "mt-arm:24.29.1501", "Admin. R. Mont. 24.29.1501"],
+            ["ARM 37.86.101", "mt-arm:37.86.101"],
+            ["Admin. R. M. 17.8.102", "mt-arm:17.8.102"]]

@@ -195,6 +195,19 @@ scope = "title"
 [AL.code.notes]
 sourceCredit = [{ class = "history", single = true }]
 
+[AL.code.cite]
+# how cases cite it (statecites.py): "Ala. Code § 13A-5-40" (Bluebook), "Ala. Code 1975, § 13A-5-40", and, most
+# often in Alabama courts, after the number: "§ 13A-5-40, Ala. Code 1975"
+full    = ['Ala\.\s?Code(?:\s?(?:of\s)?1975)?', 'Code\s+of\s+Alabama(?:,?\s+1975)?', 'Alabama\s+Code']
+after   = ['Ala\.\s?Code(?:\s?(?:of\s)?1975)?', 'Code\s+of\s+Alabama(?:,?\s+1975)?']
+section = '\d+[A-Z]?-\d+[A-Z]?-\d+(?:\.\d+)?[A-Z]?'   # 13A-5-40, 32-5A-191, 40-18-1.1, 7-9A-109
+item    = ['^(\d+[A-Z]?-\d+[A-Z]?)-', '{1}']          # 13A-5-40 -> chapter 13A-5
+label   = "Ala. Code § {sec}"
+examples = [["Ala. Code 1975, § 13A-5-40(a)(2)", "al-code:13A-5-40", "Ala. Code § 13A-5-40"],
+            ["§ 13A-5-45, Ala. Code 1975", "al-code:13A-5-45"],
+            ["Ala. Code § 40-18-1.1 (2019)", "al-code:40-18-1.1", "Ala. Code § 40-18-1.1"],
+            ["Code of Alabama 1975, § 7-1-201", "al-code:7-1-201"]]
+
 [AL.const]
 inherit  = "AL.code"
 name     = "Constitution of Alabama 2022"
@@ -203,7 +216,7 @@ doc      = "/us-al/const"
 # "Titles" (one per county, "Title 1 Autauga County." / "Title 1A Autauga County Municipalities.") under "Local
 # Provisions", items L1 L1A ... L67A. ids from {titles:constitutionTitles} (same "∫"/"†" TOC format as the Code).
 url      = "https://alison.legislature.state.al.us/graphql?variables=%7B%22include%22%3A%5B%22{id}%22%5D%7D&query=query%28%24include%3A%5BID%21%5D%29%7Bitems%3AconstitutionItems%28include%3A%24include%29%7Bdata%7BcodeId%20parentId%20displayId%20title%20catchLine%20content%20history%20isBranchNode%7D%7D%7D"
-replace  = ["sections", "containers", "ids"]
+replace  = ["sections", "containers", "ids", "cite"]
 
 # catalog: every item (title/chapter/article) this code has, from the publisher's index (152) -- the browse index.
 # Not fetched by default: `tribonian state fetch` still takes the items you name.
@@ -386,6 +399,19 @@ scope = "title"
 "L66A" = "55525"
 "L67" = "55526"
 "L67A" = "55527"
+
+[AL.const.cite]
+# "Ala. Const. art. I, § 6" (2022 recompilation). The items are the Roman articles (I.json), but a key's article
+# is arabic and an item rule cannot turn 1 into I, so the Roman numeral is read twice (a lookahead group `ar`) and
+# kept in the key: al-const:art-1/I:6. A cite with an arabic article keys without it (no item).
+# Not read: section-only cites ("Ala. Const. 1901, § 6"): a constitution key needs the article.
+full    = ['Ala\.\s?Const\.?(?:\s?(?:of\s)?(?:1901|2022))?', 'Alabama\s+Constitution(?:\s+of\s+(?:1901|2022))?']
+tail    = ',?\s*(?:[Aa]rt(?:icle)?\.?)\s*(?:(?=(?P<ar>[IVXLC]+)\b))?(?P<art>[IVXLC]+|\d+[A-Za-z]?)\b(?:,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+(?:\.\d+)?))?(?:\s?\((?!(?:1[89]|20)\d\d\))[A-Za-z0-9]{1,4}\))*'
+key     = "art-{art}[/{ar}][:{sec}]"
+item    = "{ar}"
+label   = "Ala. Const. art. {roman}[, § {sec}]"
+examples = [["Ala. Const. art. I, § 6", "al-const:art-1/I:6", "Ala. Const. art. I, § 6"],
+            ["Ala. Const. 2022, art. I, § 36.05", "al-const:art-1/I:36.05"]]
 
 # chapter -> codeId, from the TOC {titles:codeOfAlabamaTitles} (flat pre-order, records "codeId†title†range" split by "∫")
 [AL.code.ids]

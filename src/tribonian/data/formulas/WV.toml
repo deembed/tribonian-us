@@ -71,6 +71,18 @@ scope = "title"                               # /us-wv/code/t29A/s29A-3-19
 # the site carries no history lines, except on repealed sections: "Repealed." then "Acts, 1971 2nd Ex. Sess., Ch. 60."
 sourceCredit = '^Acts,\s+\d{4}\b'
 
+[WV.code.cite]
+# "W. Va. Code § 61-2-1 (2014)", "W. Va. Code § 61-11-18(a) [2000]", older "W.Va. Code, 61-2-1"
+# ("W. Va. Code R." / "W. Va. Code St. R." are the state rules: not matched)
+full    = ['W\.\s?Va\.\s?Code(?:\s?Ann\.)?', 'West\s+Virginia\s+Code']
+section = '\d+[A-Z]?-\d+[A-Z]?-\d+[a-z]?(?:\.\d+)?'
+item    = ['^(\d+[A-Z]?)-', '{1}']             # 5A-1-2a -> chapter 5A
+label   = "W. Va. Code § {sec}"
+examples = [["W. Va. Code § 5A-1-2a (2019)", "wv-code:5A-1-2a", "W. Va. Code § 5A-1-2a"],
+            ["W.Va. Code, 1-1-2", "wv-code:1-1-2"],
+            ["W. Va. Code § 60B-1-3 [2001]", "wv-code:60B-1-3"],
+            ["W. Va. Code § 61-11-18(a)", "wv-code:61-11-18"]]
+
 # ---------------------------------------------------------------- Constitution of West Virginia
 # One page. Inside div.entry-content:
 #   h3 (no class)        "As Ratified in 1872 and Subsequently Amended" (malformed: an h2 "ARTICLES" sits inside it)
@@ -130,3 +142,9 @@ editorialNote = ['^\[Editor’s note', "^\\[Editor's note"]
 # an h3 catchline NOT followed by "§N." (the unnumbered bond amendments, the ballot-history years) ends the
 # editor's note before it and stands as a cross heading in the container
 close = [{ class = "wvc-section" }]
+
+[WV.const.cite]
+full    = ['W\.\s?Va\.\s?Const\.?', 'West\s+Virginia\s+Constitution']
+item    = "west-virginia-constitution"
+examples = [["W. Va. Const. art. III, § 10", "wv-const:art-3:10", "W. Va. Const. art. III, § 10"],
+            ["W. Va. Const. art. I, § 2", "wv-const:art-1:2"]]

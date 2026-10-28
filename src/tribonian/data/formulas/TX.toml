@@ -112,6 +112,89 @@ decimal = true                              # 311.0015 sorts between 311.001 and
 # history: "Acts 1985, 69th Leg., ...", "Added by Acts ...", "Amended by:" + indented "Acts 2005, ..." lines
 sourceCredit = ['^(Added by|Amended by|Acts \d{4}|Renumbered from|Transferred|Redesignated|Repealed by)']
 
+[TX.codes.cite]
+# how cases cite the codes (statecites.py): Bluebook "Tex. Gov't Code Ann. § 311.001 (West 2013)", "Tex. Code Crim.
+# Proc. Ann. art. 38.22"; older "V.T.C.A., Penal Code § 22.01", "Vernon's Ann. Texas C.C.P."; Texas courts also
+# without the state: "Penal Code section 22.01", "article 38.22 of the Code of Criminal Procedure". Each sub pattern
+# carries its own "Code" (Code Crim. Proc. puts it first). Sections always have the chapter before the dot.
+full    = ['Tex(?:as|\.)?\s*{sub}(?:\s*Ann(?:otated|\.))?',
+           'V\.\s?T\.\s?C\.\s?A\.,?\s*(?:Tex(?:as|\.)\s*)?{sub}',
+           'Vernon(?:\x27|’)s\s+(?:Ann(?:otated|\.)\s*)?(?:Tex(?:as|\.)\s*)?{sub}(?:\s*Ann(?:otated|\.))?']
+bare    = ['{sub}',
+           '(?:§|[Ss]ection|[Aa]rt(?:icle|\.))\s*(?P<sec>\d+[A-Z]?\.\d+[A-Za-z0-9]*(?:-[a-z0-9]+)?)(?![\w])(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s+of\s+the\s+{sub}']
+after   = ['of\s+the\s+Texas\s+{sub}']
+section = '\d+[A-Z]?\.\d+[A-Za-z0-9]*(?:-[a-z0-9]+)?'
+item    = ['^(\d+[A-Z]?)\.', '{sub}.{1}']      # Gov't Code 311.001 -> GV.311; Code Crim. Proc. art. 42A.054 -> CR.42A
+label   = "Tex. {name} {sec}"
+examples = [["Tex. Gov't Code Ann. § 311.021(1) (West 2013)", "tx-codes:GV/311.021", "Tex. Gov't Code Ann. § 311.021"],
+            ["Texas Government Code section 2001.038", "tx-codes:GV/2001.038", "Tex. Gov't Code Ann. § 2001.038"],
+            ["V.T.C.A., Government Code § 552.101", "tx-codes:GV/552.101"],
+            ["Gov't Code § 2001.174", "tx-codes:GV/2001.174"],
+            ["section 2001.171 of the Government Code", "tx-codes:GV/2001.171"]]
+# not in examples because the catalog lists Government Code chapters only (the item check would fail), but read
+# and resolved the same way: "Tex. Penal Code Ann. § 1.07(a)(8)" -> tx-codes:PE/1.07 (PE.1 is built here),
+# "Tex. Code Crim. Proc. Ann. art. 38.22, § 3" -> tx-codes:CR/38.22 (CR.38), "Tex. Fam. Code § 161.001" -> FA.161
+
+[TX.codes.cite.sub]
+AG = ['Agric(?:ulture|\.)\s*Code']
+AL = ['Alco(?:holic|\.)\s*Bev(?:erage|\.)\s*Code']
+BC = ['Bus(?:iness|\.)\s*(?:&|and)\s*Com(?:merce|\.)\s*Code']
+BO = ['Bus(?:iness|\.)\s*Org(?:anizations|s?\.)\s*Code']
+CP = ['Civ(?:il|\.)\s*Prac(?:tice|\.)\s*(?:&|and)\s*Rem(?:edies|\.)\s*Code']
+CR = ['Code\s*(?:of\s+)?Crim(?:inal|\.)\s*Proc(?:edure|\.)?', 'Crim(?:inal|\.)\s*Proc(?:edure|\.)?\s*Code']
+ED = ['Educ(?:ation|\.)\s*Code']
+EL = ['Elec(?:tion|\.)\s*Code']
+ES = ['Est(?:ates?|\.)\s*Code']
+FA = ['Fam(?:ily|\.)\s*Code']
+FI = ['Fin(?:ance|\.)\s*Code']
+GV = ['Gov(?:ernment|(?:\x27|’)?t\.?|\.)\s*Code']
+HS = ['Health\s*(?:&|and)\s*Saf(?:ety|\.)\s*Code']
+HR = ['Hum(?:an|\.)\s*Res(?:ources|\.)\s*Code']
+IN = ['Ins(?:urance|\.)\s*Code']
+LA = ['Lab(?:or|\.)\s*Code']
+LG = ['Loc(?:al|\.)\s*Gov(?:ernment|(?:\x27|’)?t\.?)\s*Code']
+NR = ['Nat(?:ural|\.)\s*Res(?:ources|\.)\s*Code']
+OC = ['Occ(?:upations|\.)\s*Code']
+PW = ['Parks\s*(?:&|and)\s*Wild(?:life|\.)\s*Code']
+PE = ['Pen(?:al|\.)\s*Code']
+PB = ['Prob(?:ate|\.)\s*Code']
+PR = ['Prop(?:erty|\.)\s*Code']
+SD = ['Spec(?:ial|\.)\s*Dist(?:rict|\.)\s*Local\s*Laws\s*Code']
+TX = ['Tax\s*Code']
+TN = ['Transp(?:ortation|\.)\s*Code']
+UT = ['Util(?:ities|\.)\s*Code']
+WA = ['Water\s*Code']
+
+[TX.codes.cite.names]
+AG = "Agric. Code Ann. §"
+AL = "Alco. Bev. Code Ann. §"
+BC = "Bus. & Com. Code Ann. §"
+BO = "Bus. Orgs. Code Ann. §"
+CP = "Civ. Prac. & Rem. Code Ann. §"
+CR = "Code Crim. Proc. Ann. art."
+ED = "Educ. Code Ann. §"
+EL = "Elec. Code Ann. §"
+ES = "Est. Code Ann. §"
+FA = "Fam. Code Ann. §"
+FI = "Fin. Code Ann. §"
+GV = "Gov't Code Ann. §"
+HS = "Health & Safety Code Ann. §"
+HR = "Hum. Res. Code Ann. §"
+IN = "Ins. Code Ann. §"
+LA = "Lab. Code Ann. §"
+LG = "Loc. Gov't Code Ann. §"
+NR = "Nat. Res. Code Ann. §"
+OC = "Occ. Code Ann. §"
+PW = "Parks & Wild. Code Ann. §"
+PE = "Penal Code Ann. §"
+PB = "Prob. Code Ann. §"
+PR = "Prop. Code Ann. §"
+SD = "Spec. Dist. Code Ann. §"
+TX = "Tax Code Ann. §"
+TN = "Transp. Code Ann. §"
+UT = "Util. Code Ann. §"
+WA = "Water Code Ann. §"
+
 # ---------------------------------------------------------------- Texas Constitution (code CN)
 # Files resources/CN/htm/CN.<article>.htm (the app's docs route: code CN, chapter folder "CN.<article>"), same TLC
 # markup as the codes. Article / section lines below are GUESSES until CN.1 is local (requested in TX.txt):
@@ -119,7 +202,7 @@ sourceCredit = ['^(Added by|Amended by|Acts \d{4}|Renumbered from|Transferred|Re
 #   history "(Amended Nov. 7, 2017.)"-style lines.
 [TX.const]
 inherit = "TX.codes"
-replace = ["containers", "sections", "notes", "wrap"]
+replace = ["containers", "sections", "notes", "wrap", "cite"]
 wrap    = {}                                # no wrapper: article ids are unique in the one constitution (/us-tx/const/a1/s1)
 name    = "Constitution of Texas (1876)"
 doc     = "/us-tx/const"
@@ -144,3 +227,64 @@ scope = "container"                         # Sec. 1 in every article: /us-tx/co
 
 [TX.const.notes]
 sourceCredit = ['^\((Added|Amended|Repealed|Adopted)\b', '^(Added by|Amended by|Acts \d{4})']
+
+[TX.const.cite]
+# "Tex. Const. art. I, § 19"; "Texas Constitution article I, section 19"; "article I, section 19 of the Texas
+# Constitution". The item is the article: CN.1.htm.
+full    = ['Tex(?:as|\.)?\s*Const(?:itution|\.)?',
+           '[Aa]rt(?:icle|\.)\s*(?P<art>[IVXL]+|\d+),?\s*(?:§|[Ss]ec(?:tion|\.))\s*(?P<sec>\d+[a-z]?(?:-[a-z])?)(?:\s?\([A-Za-z0-9]{1,4}\))*,?\s+of\s+the\s+Texas\s+Constitution']
+item    = "{art}"
+label   = "Tex. Const. art. {roman}[, § {sec}]"
+examples = [["Tex. Const. art. I, § 19", "tx-const:art-1:19", "Tex. Const. art. I, § 19"],
+            ["article VIII, section 1-b of the Texas Constitution", "tx-const:art-8:1-b"],
+            ["Texas Constitution article V, section 3", "tx-const:art-5:3"]]
+
+# ---------------------------------------------------------------- cite-only: commonly cited, no source here
+[TX.tac]
+name    = "Texas Administrative Code"
+source_error = "no formula yet: the TAC is served rule by rule from the Secretary of State's Texas Register site"
+
+[TX.tac.cite]
+full    = ['(?P<tit>\d{1,2})\s*(?:Tex(?:as|\.)?\s*Admin(?:istrative|\.)\s*Code|T\.?A\.?C\.?)\s*(?:§§?|[Ss]ec(?:tion|\.))\s*(?P<sec>\d+\.\d+[a-z]?)',
+           'Tex(?:as|\.)?\s*Admin(?:istrative|\.)\s*Code,?\s*tit(?:le|\.)\s*(?P<tit>\d{1,2}),?\s*(?:§§?|[Ss]ec(?:tion|\.))\s*(?P<sec>\d+\.\d+[a-z]?)']
+section = '\d+\.\d+[a-z]?'
+key     = "{tit}/{sec}"
+label   = "{tit} Tex. Admin. Code § {sec}"
+examples = [["30 Tex. Admin. Code § 305.1", "tx-tac:30/305.1", "30 Tex. Admin. Code § 305.1"],
+            ["Tex. Admin. Code tit. 19, § 89.1011", "tx-tac:19/89.1011"]]
+
+[TX.rcs]
+name    = "Vernon's Texas Revised Civil Statutes (uncodified)"
+source_error = "in the TLC source as code CV, but its file names are not in the catalog and articles are not chapter.section"
+
+[TX.rcs.cite]
+full    = ['Tex(?:as|\.)?\s*Rev(?:ised|\.)\s*Civ(?:il|\.)\s*Stat(?:utes|s?\.)(?:\s*Ann(?:otated|\.))?',
+           'Vernon(?:\x27|’)s\s+Ann(?:otated|\.)\s*(?:Tex(?:as|\.)\s*)?Civ(?:il|\.)\s*St(?:at)?(?:utes|s?\.)']
+after   = ['V\.\s?A\.\s?T\.\s?S\.', 'Tex(?:as|\.)?\s*Rev(?:ised|\.)\s*Civ(?:il|\.)\s*Stat(?:utes|s?\.)(?:\s*Ann\.)?']
+section = '\d+[a-z]?(?:-\d+[a-z]?)?'
+label   = "Tex. Rev. Civ. Stat. Ann. art. {sec}"
+examples = [["Tex. Rev. Civ. Stat. Ann. art. 4495b, § 1.03", "tx-rcs:4495b", "Tex. Rev. Civ. Stat. Ann. art. 4495b"],
+            ["art. 6252-17, V.A.T.S.", "tx-rcs:6252-17"]]
+
+[TX.rules]
+name    = "Texas Rules of Civil Procedure, Appellate Procedure and Evidence"
+source_error = "no formula yet: the Supreme Court of Texas publishes the rules as PDFs"
+
+[TX.rules.cite]
+full    = ['Tex(?:as|\.)?\s*R(?:ules?|\.)\s*(?:of\s+)?{sub},?\s*(?:[Rr]ule\s*)?{section}(?![\w])',
+           '[Rr]ule\s+{section}(?![\w])(?:\s?\([A-Za-z0-9]{1,4}\))*\s+of\s+the\s+Texas\s+Rules\s+of\s+{sub}']
+section = '\d+[a-z]?(?:\.\d+[a-z]?)*'
+label   = "Tex. R. {name} {sec}"
+examples = [["Tex. R. Civ. P. 91a.1", "tx-rules:CIVP/91a.1", "Tex. R. Civ. P. 91a.1"],
+            ["Tex. R. App. P. 47.1", "tx-rules:APP/47.1"],
+            ["Rule 403 of the Texas Rules of Evidence", "tx-rules:EVID/403", "Tex. R. Evid. 403"]]
+
+[TX.rules.cite.sub]
+CIVP = ['Civ(?:il|\.)\s*P(?:rocedure|roc\.|\.)']
+APP  = ['App(?:ellate|\.)\s*P(?:rocedure|roc\.|\.)']
+EVID = ['Evid(?:ence|\.)']
+
+[TX.rules.cite.names]
+CIVP = "Civ. P."
+APP  = "App. P."
+EVID = "Evid."

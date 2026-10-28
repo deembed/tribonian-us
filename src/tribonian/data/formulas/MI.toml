@@ -129,6 +129,17 @@ scope = "container"                            # numbers restart per article
 sourceCredit  = '^History:'
 editorialNote = ["^Compiler’s note:", "^Compiler's note:", "^Former constitution:"]
 
+[MI.const.cite]
+# "Mich. Const. art. I, § 11" (Bluebook); Michigan courts: "Const 1963, art 1, § 11" (no state named: bare)
+full    = ['Mich\.?\s+Const\.?(?:\s+(?:of\s+)?1963)?', 'Michigan\s+Constitution(?:\s+of\s+1963)?']
+bare    = ['Const\.?\s+1963']
+section = '\d{1,2}[a-z]?'                    # sections are 1-2 digits (10a): a later bare "§ 790.01" is not one
+item    = "const"
+label   = "Mich. Const. art. {roman}[, § {sec}]"
+examples = [["Const 1963, art 1, § 11", "mi-const:art-1:11", "Mich. Const. art. I, § 11"],
+            ["Mich. Const. art. IX, § 25", "mi-const:art-9:25"],
+            ["Mich Const 1963, art 6, § 1", "mi-const:art-6:1"]]
+
 # ---------------------------------------------------------------- Michigan Compiled Laws (HTML per chapter)
 # /Laws/ChapterIndex lists 241 objects: mcl-chapN, and ranges kept as one object where one act spans several chapters
 # (mcl-chapters-61-75 = the General Law Village Act, 61.1-75.12). Each object's /Home/Document?objectName=mcl-<obj> page
@@ -253,3 +264,30 @@ scope = "title"
 [MI.mcl.notes]
 sourceCredit  = '^History:'
 editorialNote = ["^Compiler’s note:", "^Compiler's note:", "^Former Law:", "^Transfer of Power:", "^Popular Name:", "^Constitutionality:"]
+
+[MI.mcl.cite]
+# "Mich. Comp. Laws § 750.316" (Bluebook), "MCL 750.316" (Michigan courts), "M.C.L. § 750.316", "M.C.L.A." / "MCLA"
+full    = ['Mich\.\s?Comp\.\s?Laws(?:\s?Ann\.)?', 'M\.\s?C\.\s?L\.(?:\s?A\.)?', 'MCLA?', 'Michigan\s+Compiled\s+Laws(?:\s+Annotated)?']
+section = '\d{1,3}[a-z]?\.\d{1,5}[a-z]{0,2}'
+# chapter = the number before the point -> "chap750"; where one act spans several chapters the site keeps them as one
+# object (chapters-760-777): each range is an empty group that turns its bracket on (chap380 sits inside 341-386)
+item    = ['^(?:(?P<r61>)(?:6[1-9]|7[0-5])|(?P<r81>)(?:8[1-9]|9\d|10\d|11[0-3])|(?P<r131>)(?:13[1-9])|(?P<r220>)(?:2[23]\d|24[0-4])|(?P<r261>)(?:26[1-9]|27[0-8])|(?P<r301>)(?:30[1-6])|(?P<r311>)(?:31[1-5])|(?P<r341>)(?:34[1-9]|3[5-7]\d|38[1-6])|(?P<r401>)(?:40[1-3])|(?P<r463>)(?:46[3-7])|(?P<r475>)(?:47[5-9])|(?P<r501>)(?:50[1-9]|5[1-3]\d|54[0-8])|(?P<r701>)(?:70[1-9]|71[0-3])|(?P<r760>)(?:76\d|77[0-7])|(?P<c>\d+))[a-z]?\.', '[chapters-61-75{r61}][chapters-81-113{r81}][chapters-131-139{r131}][chapters-220-244{r220}][chapters-261-278b{r261}][chapters-301-306{r301}][chapters-311-315{r311}][chapters-341-386{r341}][chapters-401-403{r401}][chapters-463-467{r463}][chapters-475-479{r475}][chapters-501-548{r501}][chapters-701-713{r701}][chapters-760-777{r760}][chap{c}]']
+label   = "Mich. Comp. Laws § {sec}"
+examples = [["Mich. Comp. Laws § 750.316(1)(a)", "mi-mcl:750.316", "Mich. Comp. Laws § 750.316"],
+            ["MCL 26.1", "mi-mcl:26.1"],
+            ["M.C.L.A. § 8.3c", "mi-mcl:8.3c"],
+            ["MCL 401.1", "mi-mcl:401.1"],
+            ["MCL 768.27a(1)", "mi-mcl:768.27a"]]
+
+# ---------------------------------------------------------------- Michigan Statutes Annotated (cite-only)
+# Pre-2001 Michigan cases give the MSA as a parallel cite: "MCL 750.316; MSA 28.548".
+[MI.msa]
+name    = "Michigan Statutes Annotated"
+source_error = "no source: the Michigan Statutes Annotated (Callaghan, later LexisNexis) was a commercial compilation, discontinued in 2001; the parallel MCL cite gives the law"
+
+[MI.msa.cite]
+full    = ['Mich\.\s?Stat\.\s?Ann\.', 'M\.\s?S\.\s?A\.', 'MSA']
+section = '\d{1,2}[A-Z]?\.\d{1,5}(?:\(\d{1,3}\))?'
+label   = "Mich. Stat. Ann. § {sec}"
+examples = [["MSA 28.548", "mi-msa:28.548", "Mich. Stat. Ann. § 28.548"],
+            ["Mich. Stat. Ann. § 27A.2912", "mi-msa:27A.2912"]]

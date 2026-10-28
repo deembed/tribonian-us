@@ -1933,10 +1933,30 @@ def build(args):
         index = load_index()
         register(data, index, args.json)
         save_index(index)
+    from tribonian import lawappendix, statecites
+    # forms that do not name their state ("Penal Code § 187") are read as the court's state's
+    statecites.CONTEXT["states"] = statecites.court_states((data.get("docket") or {}).get("court_id"))
     try:
         meta, ops, warnings = prepare(data, index)
     except Unsupported as e:
         sys.exit("Cannot build: %s" % e)
+    # the law the opinions cite: every provision once at the end of the PDF, each cite linking to it
+    for o in ops:
+        for b in o["flat"]:
+            mark_law(b[1])
+        for fn in o["footnotes"].values():
+            mark_law(fn)
+    law = list(dict.fromkeys(lawappendix.keys_in([o["flat"] for o in ops] + [o["footnotes"] for o in ops])))
+    missing = lawappendix.fetch_missing(law, federal=getattr(args, "fetch", False),
+                                        state=getattr(args, "fetch_state_law", False), warnings=warnings)
+    targets = {lawcites_section(k): lawappendix.anchor(k) for k in law}
+    for o in ops:
+        o["ctx"].lawtargets = targets
+    meta["law"] = law
+    meta["posttex"] = lawappendix.appendix_tex(
+        law, intro="Not part of the opinion. Every statute, constitutional provision and regulation the opinions cite, "
+        "with its text where it is stored locally: today's text, not the law as of %s; a cite of one in the opinion "
+        "links here." % (meta.get("year") or "the decision"), editions=law_editions(ops))
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
     quick = getattr(args, "quick_goodlaw", None)
     meta["profile"] = profile_data(meta["cluster"], scan=not (getattr(args, "no_goodlaw", False) or quick), quick=quick)
@@ -1947,7 +1967,9 @@ def build(args):
     (here / "build").mkdir(exist_ok=True)
     ndir = note_dir(meta["slug"], data.get("docket"))
     md_path = ndir / (meta["slug"] + ".md")
-    md_path.write_text(render_md(meta, ops, tail_sections(data, index), data["cluster"]), encoding="utf-8")
+    tail = tail_sections(data, index)
+    law_md = "\n".join(lawappendix.md_lines(law, statute_notes()))
+    md_path.write_text(render_md(meta, ops, (law_md + "\n" + tail) if law_md else tail, data["cluster"]), encoding="utf-8")
     tex = render_tex(meta, ops, args.font, args.style)
     tex_path = here / "build" / (meta["slug"] + ".tex")
     tex_path.write_text(tex, encoding="utf-8")
@@ -1964,6 +1986,30 @@ def build(args):
             o["ctx"].who, o["kindname"][:45], n, len(o["footnotes"]), o["start"] or "?"))
     for w in warnings:
         print("  note:", w)
+    for k, hint in missing:
+        print("  law not local: %s%s" % (lawcites_label(k), " (%s)" % hint if hint else ""))
+
+
+def lawcites_section(k):
+    from tribonian import lawcites
+    return lawcites.section_of(k)
+
+
+def lawcites_label(k):
+    from tribonian import lawcites
+    return lawcites.label(k)
+
+
+def law_editions(ops):
+    """{key: (publisher, year)} for cites followed by an edition parenthetical ("(West 2019)"), from the opinions' text."""
+    from tribonian import lawcites
+    out = {}
+    for o in ops:
+        for _, val in o["flat"]:
+            t = val.text() if isinstance(val, El) else str(val)
+            for k, ed in lawcites.find(t, flat=False)["editions"].items():
+                out.setdefault(k, ed)
+    return out
 
 
 # ================================================================ folders
@@ -2742,6 +2788,22 @@ def with_statutes(el):
     return el
 
 
+NO_LAW_MARK = {"a", "law", "usc", "page-number", "footnotemark", "leader"}
+
+
+def mark_law(el):
+    """with_statutes through a whole tree: every run of text not already inside a link or a cite. The opinions read
+    from HTML get their statute cites marked here (the text-layout path marks them as it builds, in element())."""
+    if not isinstance(el, El) or el.tag in NO_LAW_MARK:
+        return el
+    if any(isinstance(k, str) for k in el.kids):
+        with_statutes(el)
+    for k in el.kids:
+        if isinstance(k, El):
+            mark_law(k)
+    return el
+
+
 def element(tag, pieces, attrs=None):
     e = El(tag, attrs)
     for p in pieces:
@@ -3429,6 +3491,9 @@ def main():
     b.add_argument("--quick-goodlaw", dest="quick_goodlaw", type=int, nargs="?", const=100, metavar="N",
                    help="quick good-law check instead: only the newest N citing opinions (default 100, casemap.GOODLAW_QUICK); "
                    "status now, not the year it changed; a current full result is kept")
+    b.add_argument("--fetch", action="store_true", help="download cited federal law that is not local (C.F.R. titles)")
+    b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
+                   help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     b.add_argument("--coupling", action="store_true",
                    help="compute the coupled cases first (casemap.py coupling); without it they show only when already cached")
     b.set_defaults(func=build)

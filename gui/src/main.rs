@@ -46,7 +46,8 @@ pub struct Queued {
 }
 
 pub enum QueuedJob {
-    Build { quick: bool },
+    /// state: also --fetch-state-law (the "Fetch state law" checkbox when it was queued)
+    Build { quick: bool, state: bool },
     /// arguments after the interpreter, e.g. casemap.py coupling --cluster N
     Script(Vec<String>),
     /// several commands, stopping at the first failure; each with the line its success prints, if any
@@ -57,7 +58,7 @@ impl Queued {
     /// The name in the status line and the output panel; quick builds carry "(quick)".
     fn label(&self) -> String {
         match self.job {
-            QueuedJob::Build { quick: true } => format!("{} (quick)", self.title),
+            QueuedJob::Build { quick: true, .. } => format!("{} (quick)", self.title),
             _ => self.title.clone(),
         }
     }
@@ -99,6 +100,9 @@ pub struct App {
     pub show_history: bool,
     /// "Include CourtListener": also search the API for cases newer than the local database.
     pub include_api: bool,
+    /// "Fetch state law" (on by default): case and docket builds also download and build the state law they cite
+    /// that is not local (--fetch-state-law), so its text is printed at the end of the PDF.
+    pub fetch_state_law: bool,
     pub api_cache: HashMap<Page, Result<apisearch::ApiResults, String>>,
     api_pending: std::collections::HashSet<Page>,
     atx: Sender<apisearch::Resp>,
@@ -177,6 +181,7 @@ impl App {
             search_history: recent::load(),
             show_history: false,
             include_api: false,
+            fetch_state_law: true,
             api_cache: HashMap::new(),
             api_pending: Default::default(),
             atx,
@@ -253,7 +258,13 @@ impl App {
     pub fn enqueue_scotus(&mut self, num: &str, what: &[&str]) {
         let steps = what
             .iter()
-            .map(|w| (vec!["scotus".to_string(), w.to_string(), num.to_string()], (*w == "build").then(|| "wrote pdf/".to_string())))
+            .map(|w| {
+                let mut args = vec!["scotus".to_string(), w.to_string(), num.to_string()];
+                if *w == "build" && self.fetch_state_law {
+                    args.push("--fetch-state-law".into());
+                }
+                (args, (*w == "build").then(|| "wrote pdf/".to_string()))
+            })
             .collect();
         let title = format!("No. {num}: {}", what.join(" + "));
         self.enqueue(Queued { r#ref: scotus::docket_key(num), title, job: QueuedJob::Steps(steps) });
@@ -282,7 +293,8 @@ impl App {
     /// Queue a Build of a case's note and PDF. A queue that has emptied starts a fresh run:
     /// counts and output begin again.
     pub fn enqueue_build(&mut self, r: i64, title: String, quick: bool) {
-        self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Build { quick } });
+        let state = self.fetch_state_law;
+        self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Build { quick, state } });
     }
 
     /// Queue `casemap.py recent` (citing cases newer than the bulk data, from the API) and then a full
@@ -291,7 +303,11 @@ impl App {
         let Some(full) = self.cfg.as_ref().and_then(|cfg| jobs::full_file(&cfg.work_dir, r)) else { return false };
         let steps = vec![
             (vec!["map".into(), "recent".into(), "--cluster".into(), r.to_string()], None),
-            (vec!["case".into(), "build".into(), format!("cases/{full}")], Some("wrote ".to_string())),
+            (
+                [vec!["case".into(), "build".into()], if self.fetch_state_law { vec!["--fetch-state-law".into()] } else { vec![] }, vec![format!("cases/{full}")]]
+                    .concat(),
+                Some("wrote ".to_string()),
+            ),
         ];
         self.enqueue(Queued { r#ref: r, title: format!("{title}: recent citers + build"), job: QueuedJob::Steps(steps) });
         true
@@ -345,7 +361,7 @@ impl App {
         self.job_log.push(format!("── {title}"));
         let py = cfg.py();
         self.job = Some(match q.job {
-            QueuedJob::Build { quick } => jobs::build_case(py, q.r#ref, title, quick, wake),
+            QueuedJob::Build { quick, state } => jobs::build_case(py, q.r#ref, title, quick, state, wake),
             QueuedJob::Script(args) => jobs::run_script(py, q.r#ref, title, args, wake),
             QueuedJob::Steps(steps) => jobs::run_steps(py, q.r#ref, title, steps, wake),
         });

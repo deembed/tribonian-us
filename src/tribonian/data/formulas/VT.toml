@@ -75,6 +75,21 @@ scope = "title"
 versions = '(?i)\[(?:Contingently (?:enacted|repealed)|[^\]]*\beffective\b)'   # coordinator: any "[... effective ...]" marker
 
 [VT.vsa.notes]
+
+[VT.vsa.cite]
+# "13 V.S.A. § 2301" (Vermont courts) and "Vt. Stat. Ann. tit. 13, § 2301" (Bluebook): the title is its own
+# group, so the key is "{title}/{sec}". Title 9A (the UCC) goes to VT.ucc, the appendix titles ("24 V.S.A.
+# App. ch. 117, § 3") to VT.app.
+full    = ['(?P<title>(?!9A\b)\d+[A-Z]?)\s*V\.\s?S\.\s?A\.(?:\s?Ann\.)?,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])',
+           'Vt\.\s?Stat\.\s?Ann\.,?\s*tit\.\s*(?P<title>(?!9A\b)\d+[A-Z]?),?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])']
+section = '\d+[a-z]*(?:-\d+[a-z]*)?'
+key     = "{title}/{sec}"
+item    = "{title}"                            # 13 -> "13", 9 -> "09" (the formula's %02d)
+label   = "Vt. Stat. Ann. tit. {title}, § {sec}"
+examples = [["13 V.S.A. § 2301", "vt-vsa:13/2301", "Vt. Stat. Ann. tit. 13, § 2301"],
+            ["Vt. Stat. Ann. tit. 33, § 5102(3) (2023)", "vt-vsa:33/5102"],
+            ["1 V.S.A. § 214(b)", "vt-vsa:1/214"],
+            ["15B V.S.A. §§ 201, 202", "vt-vsa:15B/201"]]
 # none as separate blocks: history is inline at the end of the text
 
 # ---------------------------------------------------------------- Constitution of the State of Vermont
@@ -117,12 +132,28 @@ close = [{ heading = true }]
 # kept as a note, not dropped (it has no selector of its own)
 note = { match = '^The Vermont General Assembly Montpelier, Vermont$', topic = "colophon" }
 
+[VT.const.cite]
+# Vermont's Constitution is in two chapters: Chapter I (Declaration of Rights) numbers Articles, Chapter II
+# (Plan of Government) numbers sections: "Vt. Const. ch. I, art. 11", "Vt. Const. ch. II, § 28", and in the
+# Supreme Court's prose "Chapter I, Article 11 of the Vermont Constitution". The chapter takes the {art}
+# slot (its USLM containers are ch1/ch2), so the key is "ch-<chapter>[:<article or section>]".
+full    = ['Vt\.\s?Const\.?', 'Vermont\s+Constitution',
+           '[Cc]h(?:apter|\.)\s*(?P<art>I{1,2}|[12]),?\s*(?:[Aa]rt(?:icle)?s?\.?|§§?|[Ss]ec(?:tion)?\.?)\s*(?P<sec>\d+[a-z]?),?\s*of\s+(?:the\s+)?Vermont\s+Constitution']
+tail    = ',?\s*[Cc]h(?:apter|\.)?\s*(?P<art>I{1,2}|[12])\b(?:,?\s*(?:[Aa]rt(?:icle)?s?\.?|§§?|[Ss]ec(?:tion)?s?\.?)\s*(?P<sec>\d+[a-z]?))?'
+key     = "ch-{art}[:{sec}]"
+item    = "constitution-of-the-state-of-vermont"
+label   = "Vt. Const. ch. {roman}[, art. {sec}]"
+examples = [["Vt. Const. ch. I, art. 11", "vt-const:ch-1:11", "Vt. Const. ch. I, art. 11"],
+            ["Chapter I, Article 7 of the Vermont Constitution", "vt-const:ch-1:7"],
+            ["Vt. Const. ch. II, § 28", "vt-const:ch-2:28"]]
+
 # ---------------------------------------------------------------- V.S.A. title 9A, Uniform Commercial Code
 # Same pages as VT.vsa; only the paragraph numbering differs: the uniform act's (1)(a)(i)(A) in some articles
 # (2, 2A, ...) and Vermont's (a)(1)(A)(i) in others (9 ...). The first four levels accept both orders (the ladder
 # tries every type of a level). Kept apart because the mixed ladder misplaces labels in ordinary titles.
 [VT.ucc]
 inherit = "VT.vsa"
+replace = ["cite"]                             # its own [cite] table, not merged with the parent's
 name    = "Vermont Statutes Annotated, title 9A (Uniform Commercial Code)"
 items   = ["09A"]
 dir     = "vsa"                                # same download folder as VT.vsa: law/vt/vsa/
@@ -137,6 +168,18 @@ catalog = [
 types = [["lower", "num"], ["num", "lower"], ["upper", "roman_lower"], ["roman_lower", "upper"], "roman_upper"]
 tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 
+[VT.ucc.cite]
+# title 9A: "9A V.S.A. § 2-207", "Vt. Stat. Ann. tit. 9A, § 2-207"
+full    = ['9A\s*V\.\s?S\.\s?A\.(?:\s?Ann\.)?,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])',
+           'Vt\.\s?Stat\.\s?Ann\.,?\s*tit\.\s*9A,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])']
+section = '\d+[A-Z]?-\d+[A-Za-z]?(?:\.\d+)?'
+item    = "9A"
+also    = ["vsa"]
+label   = "Vt. Stat. Ann. tit. 9A, § {sec}"
+examples = [["9A V.S.A. § 2-207(2)", "vt-ucc:2-207", "Vt. Stat. Ann. tit. 9A, § 2-207"],
+            ["Vt. Stat. Ann. tit. 9A, § 1-201(b)(20)", "vt-ucc:1-201"],
+            ["9A V.S.A. § 9-102", "vt-ucc:9-102"]]
+
 # ---------------------------------------------------------------- V.S.A. appendix titles (3, 10, 16, 24 APPENDIX)
 # Same site and page layout as the titles (title page h2.statute-header "Title 3 Appendix: Executive Orders",
 # links /statutes/chapter/03APPENDIX/CCC, whole-chapter pages /statutes/fullchapter/03APPENDIX/CCC), but the
@@ -144,6 +187,7 @@ tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
 # §§ 1 - 7"), so section ids hang off the chapter: /us-vt/vsa/t3APPENDIX/ch5/s1. Not yet checked on a chapter page.
 [VT.app]
 inherit = "VT.vsa"
+replace = ["cite"]                             # its own [cite] table, not merged with the parent's
 name    = "Vermont Statutes Annotated, appendix titles"
 item    = "%02d"                               # "3APPENDIX" -> "03APPENDIX"
 items   = ["03APPENDIX", "10APPENDIX", "16APPENDIX", "24APPENDIX"]
@@ -156,3 +200,15 @@ catalog = [
 
 [VT.app.sections]
 scope = "container"
+
+[VT.app.cite]
+# the appendix titles: municipal charters "24 V.S.A. App. ch. 117, § 3", fish and wildlife rules "10 V.S.A.
+# App. § 2". Sections restart in each charter, so the chapter is kept in the key when the cite gives it.
+full    = ['(?P<title>3|10|16|24)\s*V\.\s?S\.\s?A\.\s*App(?:endix|\.)?,?\s*(?:ch\.\s*(?P<ch>\d+[A-Z]?),?\s*)?(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])']
+section = '\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?'
+key     = "{title}/[ch{ch}/]{sec}"
+item    = "{title}APPENDIX"
+label   = "{title} V.S.A. App.[ ch. {ch},] § {sec}"
+examples = [["24 V.S.A. App. ch. 117, § 3", "vt-app:24/ch117/3", "24 V.S.A. App. ch. 117, § 3"],
+            ["10 V.S.A. App. § 2(a)", "vt-app:10/2"],
+            ["24 V.S.A. App. ch. 5, § 5-101", "vt-app:24/ch5/5-101"]]

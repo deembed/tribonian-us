@@ -1,0 +1,26 @@
+# TN.toml -- Tennessee: cite-only tables. Tennessee Code Annotated is published online only through LexisNexis,
+# whose terms forbid automated access; there is no open copy (DATASOURCES.md). Cites are recognized and keyed;
+# the appendix says why there is no text.
+
+[TN.code]
+name    = "Tennessee Code Annotated"
+source_error = "LexisNexis-only publication; its terms forbid automated access (see DATASOURCES.md)"
+
+[TN.code.cite]
+full    = ['Tenn\.\s?Code(?:\s?Ann\.)?', 'T\.\s?C\.\s?A\.', 'Tennessee\s+Code(?:\s+Annotated)?']
+section = '\d+-\d+-\d+(?:\.\d+)?'
+label   = "Tenn. Code Ann. § {sec}"
+examples = [["Tenn. Code Ann. § 39-13-202(a)(1) (2018)", "tn-code:39-13-202", "Tenn. Code Ann. § 39-13-202"],
+            ["T.C.A. § 40-35-501", "tn-code:40-35-501"],
+            ["Tennessee Code Annotated section 4-5-322", "tn-code:4-5-322"]]
+
+[TN.const]
+name    = "Constitution of the State of Tennessee"
+kind    = "const"
+source_error = "not sourced: the state's code (LexisNexis-only, terms forbid automated access; see DATASOURCES.md) carries it, and no separately published official text has been evaluated yet"
+
+[TN.const.cite]
+full    = ['Tenn\.\s?Const\.?', 'Tennessee\s+Constitution', 'Constitution\s+of\s+(?:the\s+State\s+of\s+)?Tennessee']
+label   = "Tenn. Const. art. {roman}[, § {sec}]"
+examples = [["Tenn. Const. art. I, § 9", "tn-const:art-1:9", "Tenn. Const. art. I, § 9"],
+            ["Tenn. Const. art. XI, § 8", "tn-const:art-11:8"]]

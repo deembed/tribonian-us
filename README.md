@@ -404,7 +404,7 @@ tribonian goodlaw-eval show "410 U.S. 113" R9                 # one test case un
 
 ```
 tribonian case fetch --cite "463 U.S. 29"         # or --cluster 110991   (uses the API)
-tribonian case build cases/463-u-s-29_*.json      # -> md-cases/, build/, pdf/   (--no-pdf: notes only; --no-goodlaw: skip the slow good-law check; --quick-goodlaw [N]: the quick check instead, newest 100 citing opinions; --coupling: compute the coupled cases first)
+tribonian case build cases/463-u-s-29_*.json      # -> md-cases/, build/, pdf/   (--no-pdf: notes only; --no-goodlaw: skip the slow good-law check; --quick-goodlaw [N]: the quick check instead, newest 100 citing opinions; --coupling: compute the coupled cases first; --fetch / --fetch-state-law: get the cited federal / state law that is not local)
 tribonian case find glomar                        # search your notes, then the local database (--max N results per list)
 tribonian case find glomar --get 3                # take result 3 from the database and build it
 tribonian case recap fetch --docket 4949363       # the court's orders and opinions (uses the API)
@@ -413,6 +413,7 @@ tribonian case recap build cases/recap/<docket>.json             # --docs 35,55:
 tribonian case usage                              # API requests used; --days N for history
 ```
 
+- **The Law Cited:** the PDF ends with every statute, constitutional provision and regulation the opinions cite (federal and state), once each, with its text where it is stored locally; every cite in the opinion links to its entry, and the note lists them under "The law cited". The text is today's, not the law as of the decision; a cite's edition parenthetical ("(West 2019)") is shown beside it. State law that is not local is fetched with `--fetch-state-law` (the GUI's "Fetch state law" checkbox, on by default); a code with no usable source prints "source error" and why. See [State law cites](#state-law-cites).
 - **Where notes go:** a note that already exists anywhere in `md-cases/` is rewritten in place, so moving a note (inside `md-cases/`, not in the vault) is how you file it. New notes follow the `FOLDERS` table in the script (for example, Freedom of Information Act and Privacy Act cases go to `FOIA/`).
 - **Old US Code cites:** every Code cite in the opinion text is checked against the current Code (`xml/`, plus `usc_map.json` from `tribonian cocite usc-map` when it exists), judged at the year the cite is as of: its edition parenthetical ("(1976 ed., Supp. V)" ≈ 1981), else the decision year. A changed one is highlighted yellow and tagged: **mv** renumbered (struck, current number given), **rep** repealed (struck; successor given when the stub names one), **om** omitted (struck), **pre** current section enacted after the cite, so the number meant something else (struck), **nf** not in the current Code (struck), **amd** same number, amended since (highlighted, not struck; year of the latest amendment). Section level only, and approximate: a tag means look closer. `USC_MARKS=0` turns it off. Check one cite: `tribonian usc-status "42 U.S.C. § 1973(b)" --year 1986`.
 - **API token:** `COURTLISTENER_TOKEN`, or the GNOME keyring (`secret-tool store --label courtlistener service courtlistener`).
@@ -427,6 +428,7 @@ tribonian scotus build 25-579                        # -> pdf/Pending SCOTUS/<sl
 tribonian scotus build 25-579 --amici --appendix     # amicus briefs in the PDF too; keep the appendices
 tribonian scotus build 25-579 --depth 1 --text 1     # also case notes for the decision below and every cited case, then tribonian build
 tribonian scotus build 25-579 --no-goodlaw --no-pdf  # skip the good-law check of the cited cases; skip pdflatex
+tribonian scotus build 25-579 --fetch --fetch-state-law   # first get the cited federal (C.F.R.) and state law that is not local
 tribonian scotus recent [--json] [--days 365]        # the Court's last year: opinions, grants, orders -> cases/scotus/_recent.json
 ```
 
@@ -435,6 +437,7 @@ tribonian scotus recent [--json] [--days 365]        # the Court's last year: op
 - **`build`:** one PDF in parts: the question presented, the decision below (from the local database), the cert-stage filings, the merits filings. Notes: the docket note and one per filing, each with a Statutes cited list. Amicus notes are always written; `--amici` puts the briefs in the PDF as well. `--font`, `--style` and `--no-pdf` as for `tribonian case build`.
 - **Authorities and their status:** each filing's reporter citations resolved through the local database, and which filings share them. Two tables: *Common authorities* (one row per case both sides cite, with its good-law status and each side's mentions, plaintiff below on the left) and *Each side's own* (two columns, one per party). Status comes from `tribonian map goodlaw`, cached per case; red is a lead to check, not a holding. `--no-goodlaw` skips it (slow the first time).
 - **`--depth N`:** the crawl `tribonian map map --depth` does, rooted at the decision below and the filings' authorities: full text for the first `--text` steps (default 1), stubs beyond; `--max` (3000) stops a runaway crawl. It writes the same `cases/*.json` and notes, so `tribonian build` builds their PDFs; rerun `tribonian scotus build` afterwards so its notes link to them.
+- **The Law Cited:** the PDF's last part is every provision the filings cite: the law in question first (the questions presented and the parties' provisions-involved sections), then by who cites it (both parties, petitioners, respondent, amici only), each with its mention counts and its text where it is local. Every cite in the PDF links to its entry. Forms that don't name their state ("Penal Code § 187") are read as the court below's state (a circuit: its states).
 - **Not a `tribonian build` job:** `tribonian build` has no scotus job kind (`cases/scotus/` is not scanned), so `tribonian scotus build` makes the PDF itself. Rerun it after new filings arrive.
 
 ## `tribonian map` (casemap.py) — citation graph (no API unless `--api`, `recent` or `semsearch`)
@@ -641,6 +644,25 @@ adds its own checks:
 
 The button turns red when the app couldn't start up (no scripts found, a broken `gui.toml`) or the default
 view is missing. Each fix has a **Copy** button.
+
+## State law cites
+
+Every state code with a formula has a `[ST.code.cite]` table in its formula file (`src/tribonian/data/formulas/XX.toml`;
+Colorado, Connecticut and Maryland in `state_formulas.toml`): how courts cite it (Bluebook forms and the courts' own),
+the shape of its section numbers, and which fetch item (title, chapter, code) a cite falls in. The schema is in
+`statecites.py`. Codes cited in court but with no source we can use (Purdon's Pennsylvania Statutes, the
+LexisNexis-only states AR, GA, MS, TN, most administrative codes) have a cite-only table: their cites are recognized and
+the appendix says "source error" and why. A cite's text comes from the state's built USLM (`law/<st>/uslm/`).
+
+```
+tribonian state cites                   # check every table's examples: key, item, and the text where it is built
+tribonian state cites CA NY --fetch     # also fetch and build each example's item (network)
+tribonian state fetch CO ccr 8-1404-1   # Code of Colorado Regulations: a regulations code (kind = "regs", fetch = "resolve")
+```
+
+- **Forms that don't name the state** ("Pen. Code, § 187", "R.C. 2903.01") count only in a case from that state: the court's state, a circuit's states, or with no court known the state the text names most.
+- **Short forms** ("§ 12955") take the latest full cite whose numbers have that shape; a number within 100 of a U.S.C. section cited in full is that title's.
+- **Regulations codes** use the same machinery: a formula with `kind = "regs"`, a resolver for publishers whose current version has no fixed URL (`statelaw.RESOLVERS`), and a transform for the file (`docx-styles` for Word). Colorado's CCR is the first.
 
 ## State law: files you download by hand
 

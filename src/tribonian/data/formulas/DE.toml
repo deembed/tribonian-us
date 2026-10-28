@@ -89,6 +89,18 @@ sourceCredit = { class = "loose", match = '^(?![A-Z]\. [A-Z])' }   # any loose r
 # section (or its credit) and stands as a cross heading
 close = [{ class = "loose", match = '^[A-Z]\. [A-Z]' }]
 
+[DE.code.cite]
+# "11 Del. C. § 636" (Delaware courts), "Del. Code Ann. tit. 11, § 636" (Bluebook). Not "Del. Ch." (reports).
+full    = ['(?P<title>\d{1,2})\s*Del\.\s?C(?:\.|ode)(?:\s?Ann\.)?,?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])',
+           'Del\.\s?Code(?:\s?Ann\.)?,?\s*tit\.\s*(?P<title>\d{1,2}),?\s*(?:§§?|[Ss]ec(?:tion)?s?\.?)\s*{section}(?![\w])']
+section = '\d+[A-Za-z]?(?:-\d+[A-Za-z]?)?'
+key     = "{title}/{sec}"
+item    = "{title}"
+label   = "Del. Code Ann. tit. {title}, § {sec}"
+examples = [["11 Del. C. § 636(a)(1)", "de-code:11/636", "Del. Code Ann. tit. 11, § 636"],
+            ["8 Del. C. § 141(a)", "de-code:8/141"],
+            ["Del. Code Ann. tit. 6, § 2-302 (2013)", "de-code:6/2-302"]]
+
 # ---------------------------------------------------------------- Delaware Constitution of 1897
 # constitution/index.shtml lists one page per article: constitution-01.shtml (preamble) ... -19.shtml.
 # (Two index links point at .html twins -- constitution-03.html, -04.html; the pattern takes .shtml only.)
@@ -97,7 +109,7 @@ close = [{ class = "loose", match = '^[A-Z]\. [A-Z]' }]
 # <a>/<span> runs directly in div#content (loose). Ids: /us-de/const/t1897/a1/s1.
 [DE.const]
 inherit = "DE.code"
-replace = ["containers", "html", "sections", "ladder"]
+replace = ["containers", "html", "sections", "ladder", "cite"]
 name    = "Delaware Constitution of 1897"
 doc     = "/us-de/const"
 item    = ""
@@ -136,3 +148,10 @@ article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\.\s*.*$', tag = "article
 match = '^§\s*(?P<num>\d+[A-Z]?)(?:\.\s*|\s+)(?P<heading>.*)$'   # art. III "§ 18 Approval ..." lacks its period
 bold  = true                                   # matched against the opening run (p.section-label)
 scope = "container"                            # numbers restart per article
+
+[DE.const.cite]
+full    = ['Del\.\s?Const\.?(?:\s+of\s+1897)?', 'Delaware\s+Constitution(?:\s+of\s+1897)?']
+item    = "1897"
+label   = "Del. Const. art. {roman}[, § {sec}]"
+examples = [["Del. Const. art. I, § 7", "de-const:art-1:7", "Del. Const. art. I, § 7"],
+            ["Del. Const. art. IV, § 11(1)(b)", "de-const:art-4:11"]]

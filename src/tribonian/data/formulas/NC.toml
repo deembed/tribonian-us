@@ -89,6 +89,18 @@ versions = '^\((?:Effective|Expires)\b'
 [NC.gs.notes]
 editorialNote = ['^Note:', "^Editor's note"]
 
+[NC.gs.cite]
+# "N.C. Gen. Stat. § 14-17", "N.C.G.S. § 14-17", "G.S. 105-164.4" (North Carolina courts: bare)
+full    = ['N\.\s?C\.\s?Gen\.\s?Stat\.(?:\s?Ann\.)?', 'N\.\s?C\.\s?G\.\s?S\.', 'North\s+Carolina\s+General\s+Statutes']
+bare    = ['G\.\s?S\.']
+section = '\d+[A-Z]*-\d+(?:\.\d+)*[A-Z]?'
+item    = ['^(\d+[A-Z]*)-', '{1}']                 # 15A-1340.16 -> chapter 15A
+label   = "N.C. Gen. Stat. § {sec}"
+examples = [["N.C. Gen. Stat. § 1-52(16) (2023)", "nc-gs:1-52", "N.C. Gen. Stat. § 1-52"],
+            ["N.C.G.S. § 14-17", "nc-gs:14-17"],
+            ["G.S. 105-164.4", "nc-gs:105-164.4"],
+            ["N.C. Gen. Stat. § 1A-1, Rule 12(b)(6)", "nc-gs:1A-1"]]
+
 # ---------------------------------------------------------------- Constitution of North Carolina
 # One Word-filtered HTML page (windows-1252): ARTICLE I / its name centered (align=center), sections open
 # with a bold run "Section 1. Heading." / "Sec. 2. Heading.", ladder (1)(a) with inserted (1a) (a1).
@@ -127,3 +139,26 @@ versions = '^\(Effective (?:until|once) contingency met'
 
 [NC.const.notes]
 editorialNote = ['^Note:']
+
+[NC.const.cite]
+full    = ['N\.\s?C\.\s?Const\.?', 'North\s+Carolina\s+Constitution', 'Constitution\s+of\s+North\s+Carolina',
+           '[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXL]+|\d+),?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<sec>\d+[a-z]?)\b,?\s*of\s+(?:the\s+|our\s+)?(?:North\s+Carolina|N\.\s?C\.)\s+Constitution']
+bare    = ['[Aa]rt(?:icle)?\.?\s*(?P<art>[IVXL]+|\d+),?\s*(?:§|[Ss]ec(?:tion)?\.?)\s*(?P<sec>\d+[a-z]?)\b,?\s*of\s+(?:the|our)\s+[Ss]tate\s+[Cc]onstitution']
+label   = "N.C. Const. art. {roman}[, § {sec}]"
+examples = [["N.C. Const. art. I, § 19", "nc-const:art-1:19", "N.C. Const. art. I, § 19"],
+            ["Article I, Section 19 of the North Carolina Constitution", "nc-const:art-1:19"],
+            ["article IX, section 2 of our State Constitution", "nc-const:art-9:2"]]
+
+# ---------------------------------------------------------------- cite-only (no formula): recognized in cites, no text
+[NC.ncac]
+name    = "North Carolina Administrative Code"
+kind    = "regs"
+source_error = "no formula yet: the Office of Administrative Hearings publishes the N.C.A.C. as PDFs per rule (oah.nc.gov)"
+
+[NC.ncac.cite]
+# "15A N.C. Admin. Code 2B.0211", "15A NCAC 02B .0211": title, chapter (leading zero dropped), rule
+full    = ['(?P<vol>\d{1,2}[A-Z]?)\s*(?:N\.\s?C\.\s?Admin\.\s?Code|N\.\s?C\.\s?A\.\s?C\.|NCAC)\s*(?:§\s*)?0?(?P<chap>[1-9]\d*[A-Z]?)\s*\.\s*(?P<sec>\d{4})']
+key     = "{vol}/{chap}.{sec}"                  # the rule number is (?P<sec>): a form with no sec/art group gets one appended
+label   = "{vol} N.C. Admin. Code {chap}.{sec}"
+examples = [["15A N.C. Admin. Code 2B.0211", "nc-ncac:15A/2B.0211", "15A N.C. Admin. Code 2B.0211"],
+            ["15A NCAC 02B .0211", "nc-ncac:15A/2B.0211"]]

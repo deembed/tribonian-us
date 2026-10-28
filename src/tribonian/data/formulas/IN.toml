@@ -74,6 +74,19 @@ note          = [{ match = '^Note: This version of', topic = "version", single =
                  { match = "^Revisor's Note:", topic = "revisor" }]
 editorialNote = [{ class = "derivation", topic = "derivation" }]   # p.derivation, and div.derivation rows (35-44: "35-44-1-4 | formerly 17-1-24-12.]")
 
+[IN.ic.cite]
+# "Ind. Code § 35-42-1-1", "Burns Ind. Code Ann. § ...", and (Indiana cases only) "I.C. § 35-42-1-1" / "IC 35-42-1-1".
+# Four-part numbers only, so Idaho's "I.C. § 18-4001" never reads as Indiana.
+full    = ['(?:Burns\s+)?Ind\.\s?Code(?:\s?Ann\.)?', 'Indiana\s+Code']
+bare    = ['I\.\s?C\.', 'IC']
+section = '\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?'
+item    = ['^(\d+)-', '{1}']                         # 35-42-1-1 -> title 35
+label   = "Ind. Code § {sec}"
+examples = [["Ind. Code § 35-42-1-1(1) (2022)", "in-ic:35-42-1-1", "Ind. Code § 35-42-1-1"],
+            ["I.C. § 35-33-1-6", "in-ic:35-33-1-6"],
+            ["Ind. Code Ann. § 1-1-1-2 (West 2019)", "in-ic:1-1-1-2"],
+            ["IC 35-38-1-7.1", "in-ic:35-38-1-7.1"]]
+
 # ---------------------------------------------------------------- Constitution (PDF inside the same zip)
 # The IGA publishes the constitution only as PDF; the code zip carries it as
 # 2026_Additional_Documents_PDF/Indiana_Constitution.pdf (also at
@@ -129,3 +142,10 @@ scope = "container"                            # numbers restart per article
 
 [IN.const.notes]
 sourceCredit = '^\(History:'
+
+[IN.const.cite]
+full    = ['Ind\.\s?Const\.?', 'Indiana\s+Constitution', 'Constitution\s+of\s+(?:the\s+State\s+of\s+)?Indiana']
+item    = "const"
+label   = "Ind. Const. art. {art}[, § {sec}]"         # Indiana numbers its articles in Arabic
+examples = [["Ind. Const. art. 1, § 12", "in-const:art-1:12", "Ind. Const. art. 1, § 12"],
+            ["Ind. Const. art. 7", "in-const:art-7"]]
