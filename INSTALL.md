@@ -110,4 +110,4 @@ virtual environment's interpreter, set `python` in the config file's `[gui]` tab
 - **Large data.** The CourtListener bulk files and databases run to hundreds of gigabytes. Put `bulk_dir` and
   `opinions_db` on a large disk (an SSD for `opinions.sqlite`); see the README's [Configuration](README.md#configuration).
 - **reMarkable sync** (`tribonian sync-remarkable`) needs `rmapi`; see the README's [Obsidian and reMarkable](README.md#7-obsidian-and-remarkable).
-- **Tested** on Linux daily; Windows and macOS by the test suite on every pull request (`.github/workflows/test.yml`).
+- **Tested** on Linux daily; Windows and macOS by the test suite (`.github/workflows/test.yml`), run by hand while the repository is private.
