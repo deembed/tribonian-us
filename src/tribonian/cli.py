@@ -7,7 +7,7 @@ Every command runs in the work folder (tconfig.WORK: TRIBONIAN_WORK, else the co
 work_dir, else the checkout), so relative paths in arguments (xml/usc05.xml, cases/<file>.json)
 are relative to it, as they were to the repo before.
 """
-import os, runpy, signal, subprocess, sys
+import os, runpy, signal, sys
 
 # command -> (module, what it does). Order is the order of the help text.
 COMMANDS = {
@@ -21,8 +21,8 @@ COMMANDS = {
     "scotus":          ("scotus",          "pending Supreme Court cases: fetch, build, recent"),
     "cfr":             ("cfr",             "Code of Federal Regulations: fetch titles from eCFR, list what is local"),
     "state":           ("statelaw",        "state law: fetch a state's code from its publisher (Colorado so far), list"),
-    "build":           ("sh/build_all.sh", "build every PDF and note that is out of date, in parallel"),
-    "sync-vault":      ("sh/sync_vault.sh", "mirror md/, md-cases/, md-cocite/ into the Obsidian vault"),
+    "build":           ("build",           "build every PDF and note that is out of date, in parallel"),
+    "sync-vault":      ("sync_vault",      "mirror md/, md-cases/, md-cocite/, md-cfr/, md-state/ into the Obsidian vault"),
     "sync-remarkable": ("sync_remarkable", "upload changed PDFs to the reMarkable (rmapi)"),
     "goodlaw-eval":    ("goodlaw_eval",    "score the good-law rules on cases whose overruling is known"),
     "link-audit":      ("link_audit",      "wikilink connectivity across the US Code notes"),
@@ -59,17 +59,6 @@ def main(argv=None):
     # same package (installed or not), same work folder.
     os.environ.update(TRIBONIAN_PY=sys.executable, TRIBONIAN_WORK=str(tconfig.WORK),
                       PYTHONPATH=os.pathsep.join(filter(None, [str(tconfig.PKG.parent), os.environ.get("PYTHONPATH")])))
-    if module.endswith(".sh"):
-        if rest[:1] in (["-h"], ["--help"]):          # the script's header comment is its help
-            for line in (tconfig.PKG / module).read_text(encoding="utf-8").split("\n")[1:]:
-                if not line.startswith("#"):
-                    break
-                print(line[2:])
-            return 0
-        try:
-            return subprocess.call(["bash", str(tconfig.PKG / module)] + rest)
-        except KeyboardInterrupt:                 # the script's own jobs see the Ctrl-C too
-            return 130
     sys.argv = ["tribonian " + name] + rest       # argparse shows "usage: tribonian case ..."
     if module in SCRIPTS:
         runpy.run_module("tribonian." + module, run_name="__main__", alter_sys=True)

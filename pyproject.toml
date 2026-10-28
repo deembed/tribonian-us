@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 # Distro packages work too: sudo apt install python3-lxml python3-numpy python3-scipy python3-igraph
-# Non-Python tools (pdflatex with XCharter/tcolorbox/ulem, pdftotext, secret-tool, rsync, rmapi,
+# Non-Python tools (pdflatex with XCharter/tcolorbox/ulem, pdftotext, secret-tool, rmapi,
 # lbzip2) are listed in README.md; `tribonian check` says which are missing.
 dependencies = ["lxml", "numpy", "scipy", "igraph", "tomli; python_version < '3.11'"]   # tomli: state_formulas.toml on 3.10
 
@@ -24,4 +24,4 @@ tribonian = "tribonian.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tribonian = ["data/*.json", "data/*.toml", "data/uslm/*", "data/formulas/*.toml", "sh/*.sh"]
+tribonian = ["data/*.json", "data/*.toml", "data/uslm/*", "data/formulas/*.toml"]

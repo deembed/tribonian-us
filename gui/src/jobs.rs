@@ -43,7 +43,7 @@ pub fn full_file(work: &Path, r: i64) -> Option<String> {
 
 /// Run one `tribonian` command (args after `tribonian`); true when it exits 0 and, if `need` is given, printed a line starting with it
 /// (`tribonian case build` prints "wrote pdf/..." only when pdflatex succeeded, and exits 0 either way,
-/// so build_all.sh checks for that line too).
+/// so tribonian build checks for that line too).
 fn run_step(py: &Py, args: &[String], need: Option<&str>, tx: &Sender<Msg>, wake: &(dyn Fn() + Send + Sync)) -> bool {
     let mut seen = need.is_none();
     let _ = tx.send(Msg::Line(format!("$ tribonian {}", args.join(" "))));

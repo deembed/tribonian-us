@@ -16,7 +16,7 @@ Incremental: state/rm_manifest.json records the sha256 of each uploaded PDF.
 Nothing is ever deleted on the tablet; PDFs gone from pdf/ are only listed.
 More than MAX_UPDATES replacements in one run stop with a message unless --yes is given,
 since a FORCE=1 rebuild of every PDF would otherwise wipe every annotation in one go.
-build_all.sh sets SOURCE_DATE_EPOCH, so an unchanged source rebuilds to an identical PDF.
+tribonian build sets SOURCE_DATE_EPOCH, so an unchanged source rebuilds to an identical PDF.
 
     tribonian sync-remarkable --dry-run     show the plan, touch nothing
     tribonian sync-remarkable               upload

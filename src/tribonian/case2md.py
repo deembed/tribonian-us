@@ -35,7 +35,7 @@ API = "https://www.courtlistener.com/api/rest/v4"
 # it, which is how the tests run without touching real output.
 ROOT = tconfig.WORK
 CASES = ROOT / "cases"
-NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (sync_vault.sh mirrors both)
+NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (tribonian sync-vault mirrors both)
 # CourtListener API limits since May 2026, free tier: 5 a minute, 50 an hour,
 # 125 a day. A member sets CL_LIMITS, e.g. CL_LIMITS=10,75,300 for the $10 tier.
 LIMITS = [int(x) for x in str(tconfig.get("api_limits", "5,50,125")).split(",")]
@@ -291,7 +291,7 @@ _LOCK_DEPTH = {}        # lock path -> nesting depth; flock is per open file, so
 @contextmanager
 def file_lock(name):
     """Exclusive, re-entrant within a process. Hold while reading, changing and saving
-    a shared file under cases/, so parallel builds (build_all.sh) don't overwrite each
+    a shared file under cases/, so parallel builds (tribonian build) don't overwrite each
     other's entries."""
     CASES.mkdir(parents=True, exist_ok=True)
     path = CASES / name
@@ -2042,7 +2042,7 @@ def law_editions(ops):
 
 # ================================================================ folders
 # Where a note goes. A note that already exists anywhere under md-cases/ is rewritten where it
-# is: moving it (inside md-cases/, not in the vault, which sync_vault.sh overwrites) is how you
+# is: moving it (inside md-cases/, not in the vault, which tribonian sync-vault overwrites) is how you
 # override everything below. A RECAP document goes where its docket's note is. Otherwise the
 # first rule whose pattern matches that field of the docket wins; edit the table to change the
 # defaults. No match: md-cases/ itself.
