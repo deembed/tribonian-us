@@ -48,9 +48,15 @@ def usc(title, section):
     root = _usc_root(title)
     if root is None:
         return None
-    el = usc2md.find_by_identifier(root, "/us/usc/t%s/s%s" % (title.lower(), section), "section")
-    if el is None and "-" in section:            # the Code's identifiers write 2000bb–1 with an en dash
-        el = usc2md.find_by_identifier(root, "/us/usc/t%s/s%s" % (title.lower(), section.replace("-", "\u2013")), "section")
+    # keys are lower case ("2252b"); the Code writes 2252B but 2000e, and 2000bb–1 with an en dash
+    el = None
+    for cand in dict.fromkeys([section, section.upper(), section.lower()]):
+        for form in dict.fromkeys([cand, cand.replace("-", "\u2013")]):
+            el = usc2md.find_by_identifier(root, "/us/usc/t%s/s%s" % (title.lower(), form), "section")
+            if el is not None:
+                break
+        if el is not None:
+            break
     if el is None:
         return None
     node = usc2md.build(el, el.get("identifier"))
@@ -478,7 +484,11 @@ def fetch_hint(key):
         return state_hint(key)
     spec = fetch_spec(key)
     if spec is None:
-        return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1] if p[0] == "usc" else ""
+        if p[0] == "usc":
+            if _usc_root(p[1]) is not None:
+                return "not in the title %s XML (renumbered or repealed, or a cite we misread)" % p[1].upper()
+            return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1]
+        return ""
     return "tribonian cfr fetch %s" % spec[1] if spec[0] == "cfr" else ("tribonian state fetch %s %s %s" % spec[1:]).rstrip()
 
 
