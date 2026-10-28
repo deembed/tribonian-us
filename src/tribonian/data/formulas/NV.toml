@@ -1,0 +1,188 @@
+# ---------------------------------------------------------------- Nevada Revised Statutes
+# Legislative Counsel Bureau, www.leg.state.nv.us/NRS/. One Word-filtered HTML page per chapter:
+# NRS-001.html, NRS-001A.html ... (list of chapters: NRS/Index.html; there is no per-title page). Each page
+# repeats its TITLE heading, then the CHAPTER heading, a table of contents (p.COLeadline lines under p.COHead2
+# / p.COHead4 group heads), a rule (p.J-Dash), then the law: unnumbered group heads (p.DocHeading caps,
+# p.DocHeading2 title case) and sections. Markup is by class: a section's first paragraph is p.SectBody
+# opening with span.Empty "NRS " + span.Section "1.010" + span.Leadline "Courts of justice."; p.SourceNote
+# is the history line. Ladder 1. (a) (1) (I) (A), read from the labels: indentation does not separate the
+# top two levels (1. and (a) both sit at 5 nbsp), so [html].indent is not used.
+[NV.nrs]
+name    = "Nevada Revised Statutes"
+doc     = "/us-nv/nrs"                       # /us-nv/nrs/ch1, /us-nv/nrs/s1.010/2/a
+fetch   = "template"                         # one page per chapter, so one request per chapter
+url     = "https://www.leg.state.nv.us/NRS/NRS-{item}.html"
+edition = "2026R1"                           # the page stamp: "[Rev. 9/9/2026 ...--2026R1]"
+item    = "%03d"                             # chapter 1 -> "001", 1A -> "001A", 0 -> "000" (preliminary chapter)
+file    = "NRS-{item}.html"
+encoding = "cp1252"                          # meta charset=windows-1252 (Word filtered)
+family  = "html-paragraphs"
+terms   = "copyright claimed by the State (NRS 344.070)"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (835) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "0", "1", "1A", "2", "2A", "3", "4", "5", "6", "7", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19",
+  "20", "21", "22", "28", "29", "29A", "30", "31", "31A", "32", "33", "34", "35", "36", "37", "38", "39", "40",
+  "41", "41A", "41B", "42", "43", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "62A", "62B", "62C",
+  "62D", "62E", "62F", "62G", "62H", "62I", "63", "64", "65", "66", "67", "68", "69", "70", "71", "72", "73",
+  "74", "75", "75A", "76", "77", "78", "78A", "78B", "80", "81", "82", "82A", "84", "86", "87", "87A", "88",
+  "88A", "89", "90", "91", "92A", "97", "97A", "97B", "99", "100", "101", "102", "104", "104A", "104B", "104C",
+  "105", "106", "106A", "107", "107A", "108", "111", "111A", "112", "113", "115", "116", "116A", "116B", "117",
+  "118", "118A", "118B", "118C", "119", "119A", "119B", "120", "120A", "121", "122", "122A", "123", "123A", "125",
+  "125A", "125B", "125C", "125D", "125E", "126", "127", "127A", "127B", "127C", "127D", "127E", "127F", "127G",
+  "128", "129", "130", "132", "133", "133A", "134", "135", "136", "137", "138", "139", "140", "141", "142", "143",
+  "144", "145", "146", "147", "148", "149", "150", "151", "152", "153", "154", "155", "156", "158", "159", "159A",
+  "160", "161", "162", "162A", "162B", "162C", "163", "164", "165", "166", "166A", "167", "169", "170", "171",
+  "172", "173", "174", "175", "176", "176A", "177", "178", "178A", "179", "179A", "179B", "179C", "179D", "180",
+  "189", "193", "194", "195", "196", "197", "198", "199", "200", "201", "202", "203", "204", "205", "205A", "206",
+  "207", "208", "209", "211", "211A", "212", "213", "215A", "217", "218A", "218B", "218C", "218D", "218E", "218F",
+  "218G", "218H", "219", "219A", "220", "223", "224", "225", "226", "227", "228", "231", "231A", "232", "232A",
+  "232B", "233", "233A", "233B", "233C", "233F", "233G", "233I", "234", "235", "236", "237", "237A", "238", "239",
+  "239A", "239B", "239C", "240", "240A", "241", "241A", "242", "243", "244", "244A", "245", "246", "247", "248",
+  "249", "250", "251", "252", "253", "254", "255", "257", "258", "259", "260", "265", "266", "267", "268", "269",
+  "270", "270A", "270B", "271", "271A", "271B", "274", "277", "277A", "277B", "278", "278A", "278B", "278C",
+  "279", "279A", "279B", "280", "281", "281A", "282", "283", "284", "285", "286", "287", "288", "289", "293",
+  "293B", "293C", "293D", "294A", "295", "298", "304", "306", "308", "315", "318", "318A", "319", "320", "321",
+  "322", "323", "324", "325", "326", "327", "328", "329", "331", "332", "333", "333A", "334", "336", "338", "339",
+  "340", "341", "342", "344", "345", "348", "348A", "349", "350", "350A", "351", "353", "353A", "353B", "353C",
+  "353D", "354", "355", "356", "357", "358", "360", "360A", "360B", "361", "361A", "362", "363A", "363B", "363C",
+  "363D", "364", "365", "366", "368A", "369", "370", "370A", "371", "372", "372A", "372B", "373", "374", "374A",
+  "375", "375A", "375B", "376A", "377", "377A", "377B", "377C", "377D", "378", "378A", "379", "380", "380A",
+  "381", "383", "384", "385", "385A", "385B", "386", "387", "388", "388A", "388C", "388D", "388E", "388F", "388G",
+  "388H", "389", "390", "391", "391A", "391B", "392", "393", "394", "396", "397", "398", "398A", "399", "400",
+  "403", "404", "405", "407", "407A", "408", "410", "412", "413", "414", "414A", "415", "415A", "416", "417",
+  "418", "419", "422", "422A", "424", "425", "426", "427A", "428", "430A", "432", "432A", "432B", "432C", "433",
+  "433A", "433B", "433C", "435", "439", "439A", "439B", "440", "441A", "442", "444", "444A", "445A", "445B",
+  "445C", "445D", "446", "447", "449", "449A", "449B", "450", "450B", "451", "452", "453", "453B", "453C", "454",
+  "455", "455A", "455B", "455C", "457", "458", "458A", "459", "459A", "460", "461", "461A", "462", "463", "463A",
+  "463B", "464", "465", "466", "467", "472", "474", "475", "476", "477", "480", "481", "481A", "482", "482A",
+  "482B", "482C", "483", "484A", "484B", "484C", "484D", "484E", "485", "486", "487", "488", "489", "490", "493",
+  "494", "495", "496", "497", "498", "501", "502", "503", "504", "505", "506", "512", "513", "514", "514A", "517",
+  "519", "519A", "520", "522", "527", "528", "532", "533", "534", "534A", "534B", "535", "536", "537", "538",
+  "539", "540", "540A", "541", "543", "544", "547", "548", "549", "550", "551", "552", "553", "554", "555", "556",
+  "557", "561", "562", "563", "564", "565", "566", "567", "568", "569", "571", "573", "574", "574A", "575", "576",
+  "577", "580", "581", "582", "583", "584", "585", "586", "587", "588", "590", "597", "598", "598A", "598B",
+  "598C", "598D", "599A", "599B", "600", "600A", "601", "602", "603", "603A", "604A", "604B", "604C", "604D",
+  "606", "607", "608", "609", "610", "611", "612", "613", "614", "615", "616A", "616B", "616C", "616D", "617",
+  "618", "622", "622A", "623", "623A", "624", "625", "625A", "627", "628", "628A", "628B", "629", "629A", "630",
+  "630A", "631", "632", "633", "634", "634A", "634B", "635", "636", "637", "637B", "638", "639", "640", "640A",
+  "640B", "640C", "640D", "640E", "641", "641A", "641B", "641C", "641D", "642", "643", "644A", "645", "645A",
+  "645B", "645C", "645D", "645F", "645G", "645H", "646", "647", "648", "649", "651", "652", "653", "654", "655",
+  "656", "656A", "657", "657A", "658", "659", "660", "661", "662", "663", "664", "665", "666", "666A", "667",
+  "668", "669", "669A", "670B", "671", "672", "673", "675", "676A", "677", "678A", "678B", "678C", "678D", "679A",
+  "679B", "680A", "680B", "680C", "681A", "681B", "682A", "682B", "683A", "683C", "684A", "684B", "685A", "685B",
+  "686A", "686B", "686C", "687A", "687B", "687C", "688A", "688B", "688C", "688D", "689", "689A", "689B", "689C",
+  "690A", "690B", "690C", "690D", "691A", "691B", "691C", "691D", "691E", "692A", "692B", "692C", "693A", "693B",
+  "694A", "694B", "694C", "695A", "695B", "695C", "695D", "695E", "695F", "695G", "695H", "695I", "695J", "695K",
+  "696A", "696B", "696C", "697", "701", "701A", "701B", "702", "703", "704", "704A", "704B", "705", "706", "706A",
+  "706B", "707", "708", "709", "710", "711", "712", "719", "720", "721", "722"
+]
+
+[NV.nrs.html]
+blocks   = ["p"]
+# p.COHead2 / p.COHead4 head groups of the table of contents; p.DocHeading / p.DocHeading2 are the same
+# words heading the law. All four are headings: before the first section each becomes a cross heading at
+# chapter level between the toc notes. (They cannot be put in the toc by text: the TOC head and the law
+# head read the same, and toc matching runs before the heading test.)
+headings = ["p.MsoTitle", "p.Chapter", "p.COHead2", "p.COHead4", "p.DocHeading", "p.DocHeading2"]
+opening  = ["span.Empty", "span.Section", "span.Leadline"]   # "NRS 1.010  Courts of justice."
+# Statutory forms (NRS 162A.620 ...) are p.SectBody set off only by an inline left margin; their own
+# numbering (1. 2. ... A. B.) restarts, so they are taken whole, labels not read. Law text has no margin style.
+verbatim = ["p.SectBody[style*=margin-left]"]
+drop     = ["p.MsoNormal"]                   # the revision stamp "[Rev. 9/9/2026 ...--2026R1]", set in white (invisible)
+
+[NV.nrs.ladder]
+types = ["num.", "lower", "num", "roman_upper", "upper"]     # 1. (a) (1) (I) (A)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[NV.nrs.containers]
+# "CHAPTER 1 - JUDICIAL DEPARTMENT GENERALLY": heading = "self" with the heading group spanning the whole
+# line (the line is the heading, num is caught inside it, the num text is empty). With heading = "next" the
+# TOC's first group head would be taken as the chapter's name.
+# The TITLE line (p.MsoTitle) is NOT a container: only a title's first chapter page carries it (NRS-001 has
+# "TITLE 1 - ...", NRS-162A has none), so a title container would give the same section two different
+# identifiers depending on its chapter. It stays as a cross heading ahead of the chapter; sections hang off
+# the code root, as cited: /us-nv/nrs/s1.010.
+chapter = { match = '^(?P<heading>CHAPTER\s+(?P<num>\d+[A-Z]?)\s+[-–—]\s+.*)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
+
+[NV.nrs.sections]
+match = '^NRS\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\s+(?P<heading>.*)$'
+bold  = true                                 # matched against the opening run (the three spans)
+scope = "title"                              # no title container, so /us-nv/nrs/s1.010 (numbers are unique code-wide)
+# table of contents lines (p.COLeadline) and the p.J-Dash rule after them; container level only
+toc   = ['^NRS\s+\d+[A-Z]?\.\d', '^_+$']
+# A future version repeats the section number with "[Effective ...]" at the end of the bold leadline (NRS 1.510)
+versions = '\[Effective '                 # searched in the heading too: NRS 1.510's second copy is a version
+decimal  = true                              # 1.4253 < 1.426 < 1.43: the part after the point is a decimal fraction
+
+[NV.nrs.notes]
+sourceCredit = { class = "SourceNote" }      # "[1:19:1865; ...]—(NRS A 2013, 1709)" / "(Added to NRS by ...)"
+# a group heading after a section's history line ends the section and its note; it stands as a cross heading
+close = [{ class = "DocHeading" }, { class = "DocHeading2" }]
+editorialNote = { class = "TocNote" }        # "NOTE: Sections 2 to 18 ... have been codified as NRS 162C.010 ..." (after the TOC)
+
+# ---------------------------------------------------------------- Constitution of the State of Nevada
+# One page, Const/NVConst.html (same Word template as the NRS). Order: an editor's preface, a list of
+# articles (p.ConstPrefTOC), then p.DocHeading blocks for [PRELIMINARY ACTION.], ORDINANCE, PREAMBLE.,
+# "ARTICLE. 1. - Declaration of Rights." ... "ARTICLE XVIII - [Right of Suffrage]", the [CONGRESSIONAL TERM
+# LIMITS ACT OF 1996.] (SECTION A. ... I., p.ConstConLeadline), and the [ELECTION ORDINANCE.] with its own
+# ORDINANCE. Each article opens with its section list (p.ConstSecTOC). Unlike the NRS, a section number is
+# plain text, spelled three ways: "Section. 1.", "Sec: 2.", "Sec. 7." -- only the leadline is marked
+# (span.Leadline), and a few sections (art. 4 sec. 39) wrap the number in span.Section.
+[NV.const]
+name    = "Constitution of the State of Nevada"
+doc     = "/us-nv/const"                     # /us-nv/const/a1/s8A, /us-nv/const/a4/s39/1
+fetch   = "template"
+url     = "https://www.leg.state.nv.us/Const/{item}.html"
+edition = "2026-04-15"                       # the page stamp: "[Rev. 4/15/2026 ...--2025]"
+items   = ["NVConst"]                        # always the one page
+file    = "{item}.html"
+encoding = "cp1252"
+family  = "html-paragraphs"
+
+[NV.const.html]
+blocks   = ["p"]
+headings = ["p.MsoTitle", "p.DocHeading", "p.ConstConLeadline", "p.ConstH2csc"]
+opening  = []
+drop     = ["p.MsoNormal"]                   # the white revision stamp, as in the NRS
+
+[NV.const.ladder]
+types = ["num.", "lower", "num", "roman_upper"]              # 1. (a) (1) (I), as the NRS (art. 4 sec. 39)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NV.const.containers]
+# Article numbers are arabic except XVIII (repealed): a{num_arabic} -> a18. Unnumbered parts get fixed ids.
+# "ORDINANCE" (1864, slavery and public lands) and the election ordinance's own "ORDINANCE." differ by the
+# period; the second sits inside [ELECTION ORDINANCE.] at a lower rank.
+title     = { match = '^(?P<heading>THE CONSTITUTION OF THE STATE OF NEVADA)$', tag = "title", rank = 1, id = "", heading = "self" }
+prelim    = { match = '^(?P<heading>\[PRELIMINARY ACTION\.\])$', tag = "level", rank = 2, id = "preliminary", heading = "self" }
+ordinance = { match = '^(?P<heading>ORDINANCE)$', tag = "level", rank = 2, id = "ordinance", heading = "self" }
+preamble  = { match = '^(?P<heading>PREAMBLE\.)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article   = { match = '^(?P<heading>ARTICLE\.?\s+(?P<num>\d+|[IVXL]+)\.?\s+-\s+.*)$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "self" }
+termlim   = { match = '^(?P<heading>\[CONGRESSIONAL TERM LIMITS ACT OF 1996\.\])$', tag = "level", rank = 2, id = "termlimits", heading = "self" }
+tl_sec    = { match = '^(?P<heading>SECTION\s+(?P<num>[A-Z])\.\s+.*)$', tag = "level", rank = 3, id = "s{num}", heading = "self" }
+election  = { match = '^(?P<heading>\[ELECTION ORDINANCE\.\])$', tag = "level", rank = 2, id = "election", heading = "self" }
+el_ord    = { match = '^(?P<heading>ORDINANCE\.)$', tag = "level", rank = 3, id = "ordinance", heading = "self" }
+
+[NV.const.sections]
+# The number is plain text, spelled "Section. 1.", "Sec: 2.", "Sec. 7.", "Section 1." (art. 4 sec. 39 wraps
+# it in span.Section; same text). The heading is the leadline: up to the first ". " -- with one bracketed
+# note allowed after it ("Rights of foreigners. [Repealed in 1924.]", "[Effective ...]"). No "$": the rest
+# of the paragraph is the section's body (bold = false keeps it).
+# Editorial brackets around supplied numbers ("[Sec. 36.]", "Sec. [3].", "Sec. 37[A].") and one spelled-out
+# number ("Section Ten.", art. 11) are allowed; "37[A]" and "Ten" stay as written in the identifier for now.
+match = '^\[?(?:Section|Sec)[.:]?\s*\[?(?P<num>\d+(?:\[[A-Z]\]|[A-Z])?|Ten)\]?\.\]?\s+(?P<heading>[^\[]*?\.(?:\s*\[[^\]]*\])?)(?=\s|$)'
+bold  = false
+class = "SectBody"                           # the article TOC lines (p.ConstSecTOC) read the same: never sections
+scope = "container"                          # numbers restart per article: /us-nv/const/a1/s1
+# each article's section list (p.ConstSecTOC: "Sec. 1. Inalienable rights.", "2. Purpose of ..."), one toc note
+# (numbers as the sections spell them: "[36.]", "37[A].") and the front list of articles (p.ConstPrefTOC:
+# "Article. 1. Declaration of Rights.", "XVIII. [Right of Suffrage.] Repealed in 1992.", "[Election Ordinance.]")
+toc   = ['^(?:Sec\.\s+)?\[?\d+(?:\[?[A-Z]\]?)?\.?\]?\.?\s', '^(?:Article\.\s+)?(?:[IVXL]+|\d+)\.\s', '^\[[A-Z][A-Za-z ]+\.\]$',
+         '^(?:Ordinance|Preamble)\.$']
+versions = '\[Effective '                    # the Ordinance and some sections come in two versions
+
+[NV.const.notes]
+sourceCredit = [{ class = "ConstSourceNote" },   # "[Amended in 1956. Proposed and passed by ...]"
+                { class = "ConstConH2" }]        # the term-limits initiative's "[Added in 1998. ...]"

@@ -1,0 +1,129 @@
+# NC.toml -- North Carolina: General Statutes (NC.gs) and Constitution (NC.const).
+# Source: the General Assembly's site, www.ncleg.gov. Both are single static pages per unit.
+
+# ---------------------------------------------------------------- North Carolina General Statutes
+# One HTML page per chapter (the GS's top unit; 1, 1A, 7B, 115C, 143B ...):
+#   /EnactedLegislation/Statutes/HTML/ByChapter/Chapter_<n>.html  (listed by /Laws/GeneralStatutesTOC).
+# Generated (not Word) HTML: every line is a <p> or <h1>-<h6> with a one-span body; formatting lives in
+# hashed CSS classes ("cs2E44D3A6" = centered, 6pt after). Headings: h3 "Chapter 1." / h3 its name;
+# h4 "SUBCHAPTER I. NAME."; centered p "Article 1." / centered p its name; h6 "Part 1. Name.";
+# h1 = centered captions inside statutory forms. Sections: a paragraph of its own, "§ 1-1.  Remedies."
+# or "§§ 1-440.47 through 1-440.56: Repealed by ...". Ladder (a)(1)a.1.; history "(C.C.P., s. 1; ...)"
+# sits inline at the end of the last paragraph (no separate block), so it stays in the text.
+[NC.gs]
+name    = "North Carolina General Statutes"
+doc     = "/us-nc/gs"                         # /us-nc/gs/ch1/... ; sections /us-nc/gs/s1-1 (numbers unique statewide)
+fetch   = "template"
+url     = "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/ByChapter/Chapter_{item}.html"
+edition = "current"                           # the site carries only the current text, no edition in the URL
+file    = "Chapter_{item}.html"               # item is the chapter as written: 1, 1A, 115C (no zero padding)
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "none stated"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (397) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "1A", "1B", "1C", "1D", "1E", "1F", "1G", "2", "3", "4", "5", "5A", "6", "7", "7A", "7B", "8", "8A", "8B",
+  "8C", "9", "10", "10A", "10B", "11", "12", "13", "14", "15", "15A", "15B", "15C", "16", "17", "17A", "17B",
+  "17C", "17D", "17E", "17F", "18", "18A", "18B", "18C", "19", "19A", "20", "21", "22", "22A", "22B", "22C", "23",
+  "24", "25", "25A", "25B", "25C", "26", "27", "28", "28A", "28B", "28C", "29", "30", "31", "31A", "31B", "31C",
+  "31D", "32", "32A", "32C", "33", "33A", "33B", "34", "35", "35A", "35B", "36", "36A", "36B", "36C", "36D",
+  "36E", "36F", "37", "37A", "38", "38A", "38B", "39", "39A", "40", "40A", "41", "41A", "42", "42A", "43", "44",
+  "44A", "45", "45A", "46", "46A", "47", "47A", "47B", "47C", "47D", "47E", "47F", "47G", "47H", "48", "48A",
+  "49", "49A", "50", "50A", "50B", "50C", "50D", "51", "52", "52A", "52B", "52C", "53", "53A", "53B", "53C", "54",
+  "54A", "54B", "54C", "54D", "55", "55A", "55B", "55C", "55D", "56", "57", "57A", "57B", "57C", "57D", "58",
+  "58A", "59", "59B", "60", "61", "62", "62A", "63", "63A", "64", "65", "66", "67", "68", "69", "70", "71", "71A",
+  "72", "73", "74", "74A", "74B", "74C", "74D", "74E", "74F", "74G", "75", "75A", "75B", "75C", "75D", "75E",
+  "76", "76A", "77", "78", "78A", "78B", "78C", "78D", "79", "80", "81", "81A", "82", "83", "83A", "84", "84A",
+  "85", "85A", "85B", "85C", "86", "86A", "86B", "87", "88", "88A", "88B", "89", "89A", "89B", "89C", "89D",
+  "89E", "89F", "89G", "90", "90A", "90B", "90C", "90D", "91", "91A", "92", "93", "93A", "93B", "93C", "93D",
+  "93E", "94", "95", "96", "97", "98", "99", "99A", "99B", "99C", "99D", "99E", "100", "101", "102", "103", "104",
+  "104A", "104B", "104C", "104D", "104E", "104F", "104G", "105", "105A", "105B", "106", "107", "108", "108A",
+  "108B", "108C", "108D", "109", "110", "111", "112", "113", "113A", "113B", "114", "114A", "115", "115A", "115B",
+  "115C", "115D", "115E", "116", "116A", "116B", "116C", "116D", "116E", "117", "118", "118A", "118B", "119",
+  "120", "120C", "121", "122", "122A", "122B", "122C", "122D", "122E", "123", "123A", "124", "125", "126", "126A",
+  "127", "127A", "127B", "127C", "128", "129", "130", "130A", "130B", "131", "131A", "131B", "131C", "131D",
+  "131E", "131F", "132", "133", "134", "134A", "135", "136", "137", "138", "138A", "139", "140", "140A", "141",
+  "142", "143", "143A", "143B", "143C", "143D", "143E", "144", "145", "146", "147", "148", "149", "150", "150A",
+  "150B", "151", "152", "152A", "153", "153A", "153B", "153C", "154", "155", "156", "157", "157A", "158", "159",
+  "159A", "159B", "159C", "159D", "159E", "159F", "159G", "159I", "160", "160A", "160B", "160C", "160D", "161",
+  "162", "162A", "162B", "163", "163A", "164", "165", "166", "166A", "167", "168", "168A", "169"
+]
+
+[NC.gs.html]
+blocks   = ["p"]
+# Centering is in hashed CSS classes (.cs2E44D3A6{text-align:center...}); :centered reads the class rules.
+# h1 = centered captions in forms.
+headings = ["h1", "h3", "h4", "h6", "p:centered"]
+opening  = ["span:bold"]                      # section lines are one bold span (bold by CSS class, read by :bold)
+
+[NC.gs.ladder]
+# (a)(1)a.1., with insertions (a1) (1a) between siblings
+types = ["lower", "num", "lower.", "num."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[NC.gs.containers]
+chapter    = { match = '^Chapter\s+(?P<num>\d+[A-Z]*)\.$', tag = "chapter", rank = 1, id = "ch{num}" }   # name: next h3
+# "SUBCHAPTER I. DEFINITIONS AND GENERAL PROVISIONS." -- number and name in one line: all of it is the heading
+subchapter = { match = '^(?P<heading>SUBCHAPTER\s+(?P<num>[IVXL]+[A-Z]?)\.\s.*)$', tag = "subchapter", rank = 2, id = "sch{num}", heading = "self" }
+article    = { match = '^Article\s+(?P<num>\d+[A-Z]*)\.?$', tag = "article", rank = 3, id = "a{num}" }  # "Article 46" lacks its dot
+part       = { match = '^(?P<heading>Part\s+(?P<num>\d+[A-Z]*)\.\s.*)$', tag = "part", rank = 4, id = "pt{num}", heading = "self" }
+
+[NC.gs.sections]
+# "§ 1-1.  Remedies." | "§ 1-440.57: Repealed by ..." | "§§ 1-441 through 1-471: Superseded by ..."
+# Court-rule chapters (1A Rules of Civil Procedure; likely 8C Evidence) hold one section, § 1A-1, followed by
+# bold "Rule 4. Process." lines under Article headings: each rule is taken as a section; its num is the rule
+# number (num text "Rule 4." kept) -> /us-nc/gs/s4. GS section numbers always carry a hyphen, so no collision
+# within the GS; a rule-specific id ("r4") needs a shared feature (see NC.status.md).
+match = '^(?:§§?\s*|Rule\s+)(?P<num>\d+(?:\.\d+)?(?=\.\s)|\d+[A-Z]*-\d+(?:\.\d+)*[A-Z]*(?:\s+(?:through|to|and)\s+\d+[A-Z]*-\d+(?:\.\d+)*[A-Z]*)?)(?:[.:](?!\d)|(?=\s))\s*(?P<heading>.*)$'
+# the number's closing period is missing once ("§ 20-123.2 Speedometer."): a space ends it too, and a period
+# followed by a digit is part of the number, not its end
+bold  = true                                  # matched on the bold opening run only ("Rule 4." in body text is not a start)
+scope = "title"
+# Not decimal: 1-75.9 < 1-75.10 (whole numbers after the point), yet 20-7.01 < 20-7.1 (a leading zero is an
+# insertion before .1). Neither section_key mode orders both; the integer mode flags only the ".0N -> .1" steps.
+# alternate texts by effective date: "§ 20-4.01. (Effective until July 1, 2027) Definitions." -- searched in the heading
+versions = '^\((?:Effective|Expires)\b'
+
+[NC.gs.notes]
+editorialNote = ['^Note:', "^Editor's note"]
+
+# ---------------------------------------------------------------- Constitution of North Carolina
+# One Word-filtered HTML page (windows-1252): ARTICLE I / its name centered (align=center), sections open
+# with a bold run "Section 1. Heading." / "Sec. 2. Heading.", ladder (1)(a) with inserted (1a) (a1).
+# Contingent amendments appear as two versions: "(Effective until contingency met - see note)" and
+# "(Effective once contingency met - see note)", followed by a "Note: ..." paragraph.
+[NC.const]
+name    = "Constitution of North Carolina"
+doc     = "/us-nc/const"                      # /us-nc/const/a1/s1
+fetch   = "template"
+url     = "https://www.ncleg.gov/EnactedLegislation/Constitution/{item}.html"
+edition = "current"
+items   = ["NCConstitution"]                  # always the one file
+file    = "{item}.html"
+encoding = "cp1252"
+family  = "html-paragraphs"
+
+[NC.const.html]
+blocks   = ["p"]
+headings = ["p:centered"]
+opening  = ["b", "strong", "p.aSection"]   # p.aSection is bold by its Word style, no <b> (art. I sec. 24, art. VI sec. 3)
+
+[NC.const.ladder]
+types = ["num", "lower"]                      # (1)(a), with insertions (1a) (a1)
+tags  = ["subsection", "paragraph"]
+
+[NC.const.containers]
+title    = { match = '^(?P<heading>NORTH CAROLINA STATE CONSTITUTION)$', tag = "title", rank = 1, id = "", heading = "self" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[NC.const.sections]
+match = '^(?:Section|Sec\.)\s+(?P<num>\d+[A-Za-z]?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "container"                           # numbers restart per article
+versions = '^\(Effective (?:until|once) contingency met'
+
+[NC.const.notes]
+editorialNote = ['^Note:']

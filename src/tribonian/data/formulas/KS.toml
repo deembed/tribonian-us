@@ -1,0 +1,166 @@
+# KS.toml -- Kansas: Kansas Statutes Annotated (KS.ksa) and the Kansas Constitution (KS.const),
+# from the Office of Revisor of Statutes (ksrevisor.gov). Not the official text: the authenticated K.S.A.
+# are the printed bound volumes and the cumulative supplement.
+#
+# Site shape (batch-2 probes 2026-10-27, build/probe/ksrevisor.gov/):
+#   /ksa.html                         chapter list: /statutes/ksa_ch1.html ... ksa_ch84.html, with letter
+#                                     chapters 16a 22a 26a 56a 58a 70a 82a (no zero padding)
+#   /statutes/ksa_ch{N}.html          chapter page: h2 "Chapter 1.—ACCOUNTANTS; CERTIFIED PUBLIC", a
+#                                     collapsible tree (ul#tree) of "Article 2.—STATE BOARD OF ACCOUNTANCY"
+#                                     items, each listing its sections: "1-201 <a href=.../001_002_0001.html>
+#                                     catchline</a>". No law text.
+#   /statutes/chapters/ch01/001_002_0001.html   ONE section per page (chapter_article_section, zero padded,
+#                                     letter suffix kept: 001_003_0002a). No whole-chapter or whole-article
+#                                     page exists; the "Printable Format" link is javascript (opens the same
+#                                     div#print in a window), so per-section is the only HTML route.
+#   /kanconst.html                    constitution index; /kanconst/09N_AAA_SSSS.html one section per page.
+# Section page: the law sits in div#print --
+#   <p class="ksa_stat"><span class="stat_number">1-101 through 1-109.</span> ...</p>
+#   <p class="ksa_stat_hist"><span class="history">History:</span> L. 1915, ch. 1 ... </p>
+# (only a repealed range has been seen so far; a live section's markup is requested in KS.txt).
+#
+# Strategy: index fetch, item = a chapter, one USLM file per chapter (the chapter page lists every section
+# page). Article headings exist ONLY on the chapter page (ul#tree), not on the section pages, so sections
+# sit directly under the chapter for now (see KS.status.md, feature needed).
+
+[KS.ksa]
+name    = "Kansas Statutes Annotated"
+doc     = "/us-ks/ksa"                        # /us-ks/ksa/t1/s1-201/a/1  (t = chapter; K.S.A. has no titles)
+fetch   = "index"
+item    = ""                                  # chapter as written: 1, 16a, 84 (the URL has no padding)
+index_file = "ksa_ch{item}.html"
+links   = 'href="(/statutes/chapters/ch[0-9a-z]+/[0-9]{3}[a-z]?_[0-9]{3}[a-z]?_[0-9]{4}[a-z]*\.html)"'
+layers  = [ { name = "current", url = "https://ksrevisor.gov/statutes/ksa_ch{item}.html" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "none stated; the online K.S.A. is not the authenticated text (printed volumes + supplement are)"
+# chapter name from the chapter page's <title>: "Chapter 1.—ACCOUNTANTS; CERTIFIED PUBLIC"
+title   = { name = "title" }
+# Article headings are only on the chapter page (ul#tree: <a class="collapsed">Article 2.—STATE BOARD ...</a>,
+# its sections listed under it): outline turns each into a synthetic page before the article's sections
+outline = ['<a class="collapsed"[^>]*>\s*(?P<text>Article[^<]*?)\s*</a>']
+outline_html = '<div class="ksa"><p class="outline">{text}</p></div>'
+carry   = true                                # an outline article stays open over the section pages after it
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (91) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "16a", "17", "18", "19",
+  "20", "21", "22", "22a", "23", "24", "25", "26", "26a", "27", "28", "29", "30", "31", "32", "33", "34", "35",
+  "36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53",
+  "54", "55", "56", "56a", "57", "58", "58a", "59", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69",
+  "70", "70a", "71", "72", "73", "74", "75", "76", "77", "78", "79", "80", "81", "82", "82a", "83", "84"
+]
+
+[KS.ksa.html]
+# div.ksa, not div#print: the section's annotations (p.ksa_8pt_title "Attorney General's Opinions:" +
+# p.ksa_8pt_body lines) follow div#print, still inside div.ksa. Its furniture is dropped: the
+# "Home >> Statutes >> Back" crumb and "Previous | Next" links (div style="float:..."), the
+# "Printable Format" link (a.print) and the goBack() script.
+root     = "div.ksa"
+blocks   = ["p"]
+headings = []                                 # section pages carry no chapter/article headings (outline does)
+opening  = ["span.stat_number", "span.stat_caption"]   # "1-205." + "Powers of the board; ... jurisdiction."
+verbatim = ["table"]
+drop     = ["div[style*=float]", "a.print", "script"]
+
+[KS.ksa.ladder]
+# K.S.A. numbering: (a)(1)(A)(i), as the US Code; the uniform acts keep their own order: chapter 16a
+# (UCCC) and 84 (UCC) run (1)(a)(i). Each level takes both orders' types (the ladder tries every type).
+types = [["lower", "num"], ["num", "lower"], ["upper", "roman_lower"], ["roman_lower", "upper"], "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[KS.ksa.containers]
+# from the outline pages: "Article 2.—STATE BOARD OF ACCOUNTANCY" (em dash; names are sometimes cut short
+# on the site: "LICENSURE, EXAMINATION AND REGISTRATIO")
+article = { match = '^Article\s+(?P<num>\d+[a-z]?)\.\s*—\s*(?P<heading>.*)$', tag = "article", rank = 2, id = "a{num}", any = true }
+
+[KS.ksa.sections]
+# opening run = span.stat_number + span.stat_caption: "1-205. Powers of the board; ... jurisdiction."
+# "1-302b." / "1-101 through 1-109." (a repealed range, no caption) / "16a-1-101." (chapter 16a keeps the
+# Uniform Consumer Credit Code's numbering: three parts)
+match = '^(?P<num>\d+[a-z]?-\d+[a-z]?\d*(?:-\d+[a-z]?\d*)?(?:(?:\s+(?:through|to|and)\s+|\s*,\s*)\d+[a-z]?-\d+[a-z]?\d*(?:-\d+[a-z]?\d*)?)*)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"                               # section numbers are unique statewide: /us-ks/ksa/t1/s1-201
+
+[KS.ksa.notes]
+sourceCredit = { class = "ksa_stat_hist" }    # "History: L. 1915, ch. 1 ..."
+# the revisor's annotation blocks, each opened by a p.ksa_8pt_title ("Attorney General's Opinions:",
+# "Cross References to Related Sections:", "Revisor's Note:", "Law Review and Bar Journal References:");
+# p.ksa_8pt_ca "CASE ANNOTATIONS" and the p.ksa_8pt_body lines stay in the open note
+note = [{ class = "ksa_8pt_title", topic = "annotation" }, { class = "ksa_8pt_ca", topic = "annotation" }]
+
+# ---------------------------------------------------------------- Kansas Constitution
+# /kanconst.html lists every page: kanconst/{doc}_{part}_{sec}.html -- 090 Organic Act (1854), 091 Act for
+# Admission (1861), 092_000 Ordinance, 092_001 Bill of Rights (092_001_0000 its Preamble), 093_{art} Articles
+# 1-15, 093_090 Schedule, 093_091 Resolutions; letter sections 093_015_0003a. Odd link: Article 2 sec. 10
+# (Journals) points at 093_002_0000.html. Left out: 094_001_0000 (list of amendments, a finding aid) and
+# 094_090_0000 (index of sections).
+# Unlike the statutes, each constitution page carries its own part heading, centered (p.bold12 align=center):
+#   "CONSTITUTION OF THE STATE OF KANSAS" (running banner, every page) then "BILL OF RIGHTS" /
+#   "Article 15.—MISCELLANEOUS"; then <div> with p.ksa_stat (span.stat_number "§ 3a. Catchline." + text),
+#   p.ksa_stat_hist "History: ...", and annotation blocks (p.ksa_8pt_title / ksa_8pt_ca / ksa_8pt_body), all
+#   inside div#print. Pages of one article each open the same article, and same-layer pages of one container
+#   join it, so sections nest under their article without the index outline.
+[KS.const]
+inherit = "KS.ksa"
+replace = ["sections", "notes", "title", "html", "containers"]
+name    = "Constitution of the State of Kansas"
+doc     = "/us-ks/const"                      # /us-ks/const/tkanconst/const/a15/s3a
+items   = ["kanconst"]
+index_file = "{item}.html"
+links   = 'href="(kanconst/09[0-3]_[0-9]{3}_[0-9]{4}[a-z]?\.html)"'
+layers  = [ { name = "current", url = "https://ksrevisor.gov/{item}.html" } ]
+# the index links Art. 2 sec. 10 (Journals) to 093_002_0000.html, which is a 404 (b2c probe); the page should
+# follow the site's pattern, 093_002_0010.html (requested as a probe too)
+rewrite = ['093_002_0000\.html$', '093_002_0010.html']
+title   = { name = "h2" }                     # "Kansas Constitution"
+outline = []                                  # the pages have their own headings
+carry   = true                                # repeated document/part lines merge across pages
+outline_html = '<p class="outline">{text}</p>'
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "kanconst"
+]
+
+[KS.const.html]
+root     = "div#print"                        # crumb, Previous/Next links and site furniture are outside
+blocks   = ["p"]
+headings = ["p:centered"]
+opening  = ["span.stat_number"]               # "§ 1. Equal rights." (number + catchline in one span)
+# Art. 3 sec. 5(c) sets its ballot form as centered <p>s inside the open p.ksa_stat; the HTML parser closes the
+# outer <p> there, leaving 'be retained in office?" ... If a majority ...' as bare text in the section's <div>:
+# loose makes each such run a block of its own
+loose    = ["div"]
+verbatim = ["table"]
+
+[KS.const.containers]
+# Each page opens with one or two centered p.bold12 lines naming the document and its part. Rank 1 = the
+# document (the Organic Act, the Admission Act, the Constitution proper); rank 2 = its part. Pages of one
+# part repeat the same lines, and repeated containers merge (carry), so sections nest under document > part.
+# Tags: division (document) and part (named part); "level" would not count as a container for carry.
+#   "ORGANIC ACT" / "An Act to Organize the Territory of Kansas"     (090: name on the next line)
+#   "An Act for the Admission of Kansas Into the Union" / "PREAMBLE"  (091)
+#   "CONSTITUTION OF THE STATE OF KANSAS" / "ORDINANCE" | "PREAMBLE" | "BILL OF RIGHTS" | "Article 15.—MISCELLANEOUS"
+#     | "SCHEDULE" | "RESOLUTIONS"                                     (092, 093)
+organic      = { match = '^ORGANIC ACT$', tag = "division", rank = 1, id = "organic" }
+admission    = { match = '^(?P<heading>An Act for the Admission of Kansas Into the Union)$', tag = "division", rank = 1, id = "admission", heading = "self" }
+constitution = { match = '^(?P<heading>CONSTITUTION OF THE STATE OF KANSAS)$', tag = "division", rank = 1, id = "const", heading = "self" }
+article      = { match = '^Article\s+(?P<num>\d+)\.\s*—\s*(?P<heading>.*)$', tag = "article", rank = 2, id = "a{num}" }
+billofrights = { match = '^(?P<heading>BILL OF RIGHTS)$', tag = "part", rank = 2, id = "br", heading = "self" }
+ordinance    = { match = '^(?P<heading>ORDINANCE)$', tag = "part", rank = 2, id = "ordinance", heading = "self" }
+preamble     = { match = '^(?P<heading>PREAMBLE)$', tag = "part", rank = 2, id = "preamble", heading = "self" }
+schedule     = { match = '^(?P<heading>SCHEDULE)$', tag = "part", rank = 2, id = "schedule", heading = "self" }
+resolutions  = { match = '^(?P<heading>RESOLUTIONS)$', tag = "part", rank = 2, id = "resolutions", heading = "self" }
+admit        = { match = '^(?P<heading>ADMISSION)$', tag = "part", rank = 2, id = "admission", heading = "self" }
+
+[KS.const.sections]
+match = '^§§?\s*(?P<num>\d+[a-z]?)\.\s*(?P<heading>.*)$'
+bold  = true                                  # on the opening span
+scope = "container"                           # numbers restart per article: /us-ks/const/tkanconst/a15/s3a
+
+[KS.const.notes]
+sourceCredit = { class = "ksa_stat_hist" }
+note = [{ class = "ksa_8pt_title", topic = "annotation" }, { class = "ksa_8pt_ca", topic = "annotation" }]

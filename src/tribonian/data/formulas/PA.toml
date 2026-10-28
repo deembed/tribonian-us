@@ -1,0 +1,172 @@
+# PA.toml -- Pennsylvania Consolidated Statutes (Pa.C.S.) and Constitution.
+#
+# Source: palegis.us (the General Assembly's site; legis.state.pa.us retired Jan 2026 and 302s here).
+# The index (/statutes/consolidated) links view-statute?txtType=HTM&ttl=NN per title, but that page is a
+# SHELL (site chrome only); a script loads the text into iframe#IFrame_StatuteText from
+#   /statutes/consolidated/view-statute?<n>&iFrame=true&txtType=HTM&ttl=0054.
+# ("?<n>" is a per-render counter -- 2, 35, 84 seen; "?1" works. ttl = title zero-padded to 4 digits plus a
+# trailing dot, the legacy "title.chapter.section" form.) That iframe document is the whole title in one file:
+# the fetch unit, one request per title. (Chapter/section views exist only behind a POST form.)
+#
+# The iframe document ("generator: Statute Update"): every line a <p> with inline style; bold runs in <b>.
+#   1. a linked table of contents for the whole title (no bold <b>; links target the parent page)
+#   2. "TITLE 54" / "NAMES" (centered), a chapter list, title-level notes ("Enactment.", "Prior Provisions.")
+#   3. per chapter: "CHAPTER 3" / "FICTITIOUS NAMES" (centered), "Sec." list, chapter notes, then sections:
+#      <b>§ 301.  Short title of chapter.</b> alone on its line; body lines; the history line
+#      "(Dec. 21, 1988, P.L.1444, No.177, ...)"; notes with bold labels ("2022 Amendment.", "Cross References.")
+#   4. "APPENDIX TO TITLE 54": supplementary provisions of amendatory acts, sections "§ 7." of each act
+#   Hidden <div class="Comment">54c103s</div> markers (display:none) sit between blocks.
+#
+# The Unconsolidated Statutes (Purdon's "P.S.", by act) are a separate code, not started: their index is
+# browse-by-name?letter=A..Z, one page per act -- a later "index" formula (PA.ps).
+
+# ---------------------------------------------------------------- Pennsylvania Consolidated Statutes
+[PA.cs]
+name    = "Pennsylvania Consolidated Statutes"
+doc     = "/us-pa/cs"                         # /us-pa/cs/t54/ch3/s303/b/1  (wrap.rebase puts all under t54)
+fetch   = "template"
+url     = "https://www.palegis.us/statutes/consolidated/view-statute?1&iFrame=true&txtType=HTM&ttl={n:04d}."
+item    = "%02d"                              # title 1 -> "01" in file names
+file    = "title-{item}.htm"
+edition = "current"                           # the site publishes only the current text; no edition in the URL
+encoding = "utf-8"                            # <meta charset=UTF-8>; the text is ASCII with entities
+family  = "html-paragraphs"
+terms   = "none stated"
+# "TITLE 54" appears twice (the linked TOC's banner, then the title proper), so it cannot be a container
+# (the second would repeat the identifier). The file is the title: wrap everything in a title element
+# numbered from the item; both "TITLE 54" lines stay as centered cross headings (text kept, not structure).
+wrap    = { tag = "title", id = "t{item}", rebase = true }
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (74) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "20", "22",
+  "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40",
+  "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "57", "58", "59", "60", "61",
+  "62", "63", "64", "65", "66", "67", "68", "69", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79"
+]
+
+[PA.cs.html]
+blocks   = ["p"]
+headings = ["p:centered"]
+opening  = ["b", "strong"]                    # bold runs are <b>; the TOC's bold chapter links are span style, not <b>
+verbatim = ["table"]                         # fee schedules and rate tables (42 Pa.C.S. 1725): their cells hold
+                                             # <p><div class="dots"> leader lines, which the HTML parser splits out of
+                                             # the <p> -- taken whole, one text item, cells joined by spaces
+drop     = ["div.Comment"]                    # hidden (display:none) machine markers "54c103s": not visible text
+# Depth from the left padding (PA indents with padding-left, not margin-left; text-indent is the first line):
+#   0 in -> (a) and unnumbered section text, 0.3035 in -> (1), 0.7047 in -> (i), 1.1063 in -> (A), 1.5075 in -> (I)
+# i.e. 21.9 / 50.7 / 79.7 / 108.5 pt: steps of ~28.9 pt after a short first step; base -7 pt centers them
+# on 1 / 2 / 3 / 4.
+indent_css    = { unit = 28.9, base = -7, property = "padding-left" }
+indent_closes = "deeper"                      # an unnumbered line at 0 in ("In an action ...", 54 Pa.C.S. 1124; the flush
+                                              # language after (a)'s list, 42 Pa.C.S. 1503) closes the (1) list but STAYS
+                                              # in the level at its own depth (in (a), not the section)
+
+[PA.cs.ladder]
+# Pa.C.S. drafting style: (a)(1)(i)(A)(I), the same order as the US Code.
+types = ["lower", "num", "roman_lower", "upper", "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[PA.cs.containers]
+# Pa.C.S. hierarchy under a title: PART > ARTICLE > CHAPTER > SUBCHAPTER > section; all centered headings,
+# the name on the next centered line.
+part       = { match = '^PART\s+(?P<num>[IVXL]+[A-Z]?)$', tag = "part", rank = 2, id = "pt{num}" }
+article    = { match = '^ARTICLE\s+(?P<num>[A-Z]+(?:\.\d+)?)$', tag = "article", rank = 3, id = "a{num}" }
+chapter    = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)$', tag = "chapter", rank = 4, id = "ch{num}" }
+subchapter = { match = '^SUBCHAPTER\s+(?P<num>[A-Z]+(?:\.\d+)?)$', tag = "subchapter", rank = 5, id = "sch{num}" }
+# the appendix: supplementary provisions of the amending acts, each act under a centered citation line
+appendix   = { match = '^(?P<heading>APPENDIX TO TITLE \d+)$', tag = "level", rank = 2, id = "app", heading = "self" }
+# sections = "here": an act's sections ("§ 7." of Act 295) hang off the act, not the title -- they restart
+# at 1 in every act and would collide with each other and with the title's low-numbered sections.
+# Case varies ("1974, June 17, P.L.330, NO.107", "No.271"); special sessions add "1ST SP.SESS., ".
+# id: year and act number, /us-pa/cs/t42/app/act1976-142 (act numbers restart each year).
+act        = { match = '^(?P<heading>(?P<num>\d{4}), [A-Za-z]+ \d+, (?:\S+ (?:\S+ )?)?P\.L\.\s?[\d-]+, N[Oo]\.\s?(?P<no>\d+))$', tag = "level", rank = 3, id = "act{num}-{no}", heading = "self", sections = "here" }
+
+[PA.cs.sections]
+# "§ 301.  Short title of chapter." -- bold, alone on its line; numbers are unique within a title.
+match = '^§\s*(?P<num>\d+(?:\.\d+)?[A-Z]?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+# Definitions as scopes -- OFF for now (round 8f). Each '"Term." ...' paragraph would open a level named by
+# its term (/us-pa/cs/t1/s1991/def-blighted-property/1), but the shared group is always a child of the section
+# and ends only at the next group or section: definitions inside a subsection ("(d) Definitions.--" then
+# the terms) are hoisted out of it, and a definition nested in (a)(3) swallows (b), (c) ... (18 Pa.C.S. 3503).
+# That misplacement is silent (no anomaly), so the flagged id repeats are the lesser evil until the group
+# nests in the open level and a label at or above that level closes it. Ready to switch on:
+# group      = '^"(?P<num>[^"]{1,120}?)[.,]?"'   # '"Abandoned." A mark ...'; also '"Term," "Other term" and ...'
+# group_text = "text"
+# group_id   = "def-{num}"
+# Tables of contents (not law text), kept as toc notes: the linked title TOC at the top
+# ("Chapter 1. General Provisions", "§ 101. Definitions.", "Appendix to Title 54"), the title's chapter list
+# ("Chapter" then "1. General Provisions") and each chapter's section list ("Sec." then "101. Definitions.").
+toc   = ['^(?:Part|Article|Chapter|Subchapter)\s+[\dIVXLA-Z.]+\.\s', '^§\s*\d', '^Appendix to Title\s+\d+$',
+         '^(?:Part|Article|Chapter|Subchapter|Sec)\.?$', '^[\dIVXLA-Z]+(?:\.\d+)?\.\s', '^TABLE OF CONTENTS$',
+         '^(?:Parts|Articles|Chapters|Subchapters)\s',   # "Subchapters B through I (Reserved)" (42 Pa.C.S. ch. 23)
+         '^[a-z]']                            # a long TOC entry wraps: "eminent domain." continues the line before
+
+[PA.cs.notes]
+# The history line closes the section text; every note after it is notes to the next section/container.
+sourceCredit  = '^\((?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.? \d{1,2}, \d{4}, '
+# Notes with no history line before them (chapter/title notes, sections never amended): a bold label of
+# capitalized words ending in a period. Law text never opens that way here (subsections open "(a)",
+# definitions open with a quotation) -- except "Schedule. Effective date ..." in the Constitution's appendix,
+# an unnumbered provision heading, excluded by the lookahead.
+editorialNote = ['^(?!Schedule\.)(?:\d{4} )?[A-Z][a-z]+(?: (?:[A-Z][a-z]+|of|by|in|to|on|for|and|the|\d{4}))*\.\s',
+                 '^Editorial Note:']           # Title 79 (reserved) holds only this note, at the top level
+
+# ---------------------------------------------------------------- Constitution of Pennsylvania (ttl=0)
+[PA.const]
+inherit = "PA.cs"
+name    = "Constitution of Pennsylvania"
+doc     = "/us-pa/const"                      # /us-pa/const/a1/s7
+item    = ""
+items   = [""]                                # the one file; an empty item gives {n} = 0 -> "ttl=0000." in the URL
+file    = "constitution{item}.htm"           # -> constitution.htm ({item} present: build matches the name against it)
+dir     = "cs"                                # shares the folder: law/pa/cs/constitution.htm
+replace = ["containers", "sections", "notes", "ladder", "wrap", "html"]   # the Constitution's own structure (taken whole)
+wrap    = {}                                  # no title wrapper: articles hang off /us-pa/const directly
+
+[PA.const.html]
+# as PA.cs, without the depth hints: the Constitution sets (a) and (i) at the same indentation (art. VIII sec. 2)
+blocks   = ["p"]
+headings = ["p:centered"]
+opening  = ["b", "strong"]
+verbatim = ["table"]
+drop     = ["div.Comment"]
+
+[PA.const.ladder]
+# The Constitution goes (a)(i) -- roman directly under the letter (art. VIII sec. 2(b)(vi)); (1) is rare
+types = ["lower", ["roman_lower", "num"], ["roman_lower", "upper"], "upper"]   # art. V sec. 18 goes (a)(1)(i)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[PA.const.containers]
+# The file opens with a whole-document TOC whose headings are one-line ("ARTICLE I. DECLARATION OF RIGHTS",
+# so they match nothing) except "SCHEDULE TO JUDICIARY ARTICLE": the toc level keeps that stray copy (and the
+# "CONSTITUTION of the COMMONWEALTH" banner lines) out of the document proper.
+toc      = { match = '^(?P<heading>TABLE OF CONTENTS)$', tag = "level", rank = 1, id = "toc", heading = "self" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 1, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 1, id = "a{num_arabic}" }
+# Article V's schedule restarts section numbers at 1: its own level, so /a5/sched/s1 is not /a5/s1
+judsched = { match = '^(?P<heading>SCHEDULE TO JUDICIARY ARTICLE)$', tag = "level", rank = 2, id = "sched", heading = "self" }
+schedule = { match = '^SCHEDULE NO\.\s+(?P<num>\d+)$', tag = "level", rank = 1, id = "sch{num}" }
+appendix = { match = '^APPENDIX TO$', tag = "level", rank = 1, id = "app" }   # heading: "CONSTITUTION OF PENNSYLVANIA"
+# each amendment's supplementary provisions, under its citation ("1968, APRIL 23, P.L.APP.3, PROP. NO.1").
+# id: year and joint resolution / proposal number: /us-pa/const/app/act1968-3
+act      = { match = '^(?P<heading>(?P<num>\d{4}), [A-Z]+ \d+, .*(?:J\.R\.|PROP\. NO\.)\s?(?P<no>\d+))$', tag = "level", rank = 2, id = "act{num}-{no}", heading = "self" }
+# Article III's divisions ("A. PROCEDURE" ... "E. RESTRICTIONS ON LEGISLATIVE POWER") are printed twice
+# (the article's TOC, then the text): left as centered cross headings, not containers.
+
+[PA.const.sections]
+match = '^§\s*(?P<num>\d+(?:\.\d+)?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "container"                           # numbers restart per article (and per schedule / act)
+toc   = ['^§\s*\d', '^(?:Sec|Article|Schedule)\.?$', '^Preamble$', '^Schedule to Judiciary Article$',
+         '^[\dIVXL]+(?:\.\d+)?\.\s', '^[a-z]']
+
+[PA.const.notes]
+sourceCredit  = '^\((?:Jan|Feb|Mar|Apr|May|June|July|Aug|Sept|Oct|Nov|Dec)\.? \d{1,2}, \d{4}'
+editorialNote = ['^(?!Schedule\.)(?:\d{4} )?[A-Z][a-z]+(?: (?:[A-Z][a-z]+|of|by|in|to|on|for|and|the|\d{4}))*\.\s']
+# Article I's closing clause ("That the general, great and essential principles of liberty ...") follows the
+# article's "Adoption." note; it is law text, so it ends the notes and stands as a cross heading.
+close = ['^That the general, great and essential principles']

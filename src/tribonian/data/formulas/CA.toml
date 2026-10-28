@@ -1,0 +1,103 @@
+# CA.toml -- California: the 29 California Codes (CA.code) and the California Constitution (CA.const).
+#
+# Source: California Legislative Counsel, PUBINFO database export, https://downloads.leginfo.legislature.ca.gov/
+# (leginfo.legislature.ca.gov's HTML viewer answers 403 to our client; the bulk export is the machine-readable route).
+#   pubinfo_2025.zip  current session (2025-26), 1.29 GB, rebuilt Sundays. Only ~100 MB of it is law: CODES_TBL,
+#                     LAW_TOC_TBL, LAW_TOC_SECTIONS_TBL, LAW_SECTION_TBL (.dat) + 162,526 LAW_SECTION_TBL_<n>.lob.
+#                     remote_members copies just those by HTTP Range into <dir>/_bulk/pubinfo_2025.zip.
+#   pubinfo_daily_*.zip lack the code tables; pubinfo_<Day>.zip are day deltas (bills only when no code changed).
+# Tables -> HTML: src/tribonian/uslm/transforms/capublic.py (assemble = "ca-tables"); its docstring has the field
+# format and the HTML it writes: p.toc (data-level = LAW_TOC_TBL.node_level), p.tocnote, p.sec > b, the .lob <p>s,
+# p.history. Column order confirmed from pubinfo_load.zip's LOAD DATA scripts.
+# Tested (build/dispatch/CA.test.py) on the real tables + the 20 .lob members fetched so far (other sections
+# skipped in that test only): FAM, GOV, PEN, HSC, CONS all PASS conservation/schema, unmapped 0.
+
+[CA.code]
+name    = "California Codes"
+doc     = "/us-ca/code"                      # /us-ca/code/PEN/s187 : section numbers are unique within a code only
+fetch   = "zip"
+url     = "https://downloads.leginfo.legislature.ca.gov/pubinfo_{edition}.zip"
+edition = "2025"                             # session start year (odd)
+remote_members = '^(CODES_TBL|LAW_TOC_TBL|LAW_TOC_SECTIONS_TBL|LAW_SECTION_TBL)\.dat$|^LAW_SECTION_TBL_\d+\.lob$'
+member  = '^CODES_TBL\.dat$'                 # the one member the fetch must find; assemble reads the rest
+assemble = "ca-tables"                       # transforms/capublic.py: tables + .lob -> one code's HTML
+item    = "%s"                               # the CODES_TBL code: BPC, CIV, PEN, ...
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+wrap    = { tag = "title", id = "{item}", rebase = true }   # the code as one title, ids under it: /us-ca/code/PEN/s187
+terms   = "Gov. Code 10248: free public access, no fee; the State keeps any copyright (10248(g)). Not the official print."
+items   = ["BPC", "CCP", "CIV", "COM", "CORP", "EDC", "ELEC", "EVID", "FAC", "FAM", "FGC", "FIN", "GOV", "HNC",
+           "HSC", "INS", "LAB", "MVC", "PCC", "PEN", "PRC", "PROB", "PUC", "RTC", "SHC", "UIC", "VEH", "WAT", "WIC"]
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (29) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "BPC", "CCP", "CIV", "COM", "CORP", "EDC", "ELEC", "EVID", "FAC", "FAM", "FGC", "FIN", "GOV", "HNC", "HSC",
+  "INS", "LAB", "MVC", "PCC", "PEN", "PRC", "PROB", "PUC", "RTC", "SHC", "UIC", "VEH", "WAT", "WIC"
+]
+
+[CA.code.html]
+root     = "div#pubinfo"
+blocks   = ["p"]
+headings = ["p.toc"]
+opening  = ["b"]
+verbatim = ["table"]                         # none in the 20 .lob seen; kept whole if a schedule has one
+
+[CA.code.containers]
+# LAW_TOC_TBL headings: "DIVISION 1. NAME [1. - 185.]" (the bracket is the section range, part of the heading text);
+# repealed placeholders are bracketed whole: "[ARTICLE 2. Radon Certification] [106750. - 106795.]".
+# Rank comes from the heading's class lvl<N> (LAW_TOC_TBL.node_level, written by capublic.py): word order varies
+# by code (GOV: TITLE > DIVISION > PART; PEN: PART > TITLE, and PART 6 > TITLE > DIVISION). rank = 9 is only the
+# fallback if a heading had no lvl class.
+# Code-name rows ("FAMILY CODE", "PREAMBLE: We, the People ...") match no rule: they stay cross headings.
+# heading = "self" with the heading group spanning the whole line keeps "PART 1." in the text (AK pattern)
+preliminary = { match = '(?i)^(?P<heading>(?:PRELIMINARY|GENERAL) PROVISIONS\b.*)$', tag = "level", rank = 9, rank_class = 'lvl(\d+)', id = "prelim", heading = "self" }
+# unnumbered PRELIMINARY/GENERAL PROVISIONS (level 1 in most codes, level 3 in HNC): ranked by lvl like the rest
+division = { match = '^(?P<heading>\[?DIVISION\s+(?P<num>\d+(?:\.\d+)*[A-Z]?)\.?\s.*)$', tag = "division", rank = 9, rank_class = 'lvl(\d+)', id = "d{num}", heading = "self" }
+part     = { match = '^(?P<heading>\[?PART\s+(?P<num>\d+(?:\.\d+)*[A-Z]?)\.?\s.*)$',     tag = "part",     rank = 9, rank_class = 'lvl(\d+)', id = "p{num}", heading = "self" }
+title    = { match = '^(?P<heading>\[?TITLE\s+(?P<num>\d+(?:\.\d+)*[A-Z]?)\.?\s.*)$',    tag = "title",    rank = 9, rank_class = 'lvl(\d+)', id = "t{num}", heading = "self" }
+chapter  = { match = '^(?P<heading>\[?CHAPTER\s+(?P<num>\d+(?:\.\d+)*[A-Z]?)\.?\s.*)$',  tag = "chapter",  rank = 9, rank_class = 'lvl(\d+)', id = "ch{num}", heading = "self" }
+article  = { match = '^(?P<heading>\[?ARTICLE\s+(?P<num>\d+(?:\.\d+)*[A-Z]?)\.?\s.*)$',  tag = "article",  rank = 9, rank_class = 'lvl(\d+)', id = "a{num}", heading = "self" }
+
+[CA.code.sections]
+# LAW_SECTION_TBL.section_num, written alone in <b>: "187.", "1714.45.", "1203.1ab.", "622½.", "30459.2A.";
+# 16 lack the final dot ("10492.2"); 64 repealed placeholders are bracketed ("[1084.]"). No catchlines in California.
+match   = '^\[?(?P<num>\d+(?:\.\d+)*(?:½|[A-Za-z]+)?)\.?\]?$'
+bold    = true
+scope   = "root"                             # /us-ca/code/PEN/s187: unique within a code; not under the code's own TITLE n
+decimal = true                               # CA mostly decimal (1714.4 < 1714.45 < 1714.5); 148.9 < 148.10 runs flag (PEN 56 vs 130 integer)
+
+[CA.code.notes]
+sourceCredit  = { class = "history" }        # "Amended by Stats. ..." from LAW_SECTION_TBL.history
+editorialNote = { class = "tocnote" }        # LAW_TOC_TBL.history_note: "Chapter 4 added by Stats. 1988, ..."
+
+[CA.code.ladder]
+# (a)(1)(A)(i)(I) is the Legislative Counsel style
+types = [["lower"], ["num"], ["upper"], ["roman_lower"], ["roman_upper"]]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+# ---------------------------------------------------------------- California Constitution
+[CA.const]
+inherit = "CA.code"
+replace = ["containers", "sections"]
+dir     = "code"                             # shares CA.code's folder and its one ~100 MB law-member zip
+name    = "Constitution of the State of California"
+doc     = "/us-ca/const"                     # /us-ca/const/a1/s7
+item    = "%s"
+items   = ["CONS"]                           # CODES_TBL row CONS: articles are TOC rows, sections are "SECTION 7."
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "CONS"
+]
+
+[CA.const.containers]
+article = { match = '^(?P<heading>\[?ARTICLE\s+(?P<num>[IVXL]+(?:\s+[A-Z](?=\s))?)\s.*)$', tag = "article", rank = 1, id = "a{num}", heading = "self" }
+
+[CA.const.sections]
+# section_num in the tables is "SECTION 1." / "SEC. 1.5." (seen: "CONS:SECTION 1."); numbers repeat per article
+match = '(?i)^(?:SECTION|SEC\.)\s+(?P<num>\d+(?:\.\d+)?(?:½|[a-z])?)\.$'   # also "Section 4." (art. XXXIV), "SEC. 6½." 
+bold  = true
+scope = "container"                          # the enclosing ARTICLE: /us-ca/const/CONS/aI/s1

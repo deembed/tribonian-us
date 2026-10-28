@@ -1,0 +1,129 @@
+# SD.toml -- South Dakota Codified Laws (SDCL) and the South Dakota Constitution.
+#
+# Source: the Legislative Research Council's site (sdlegislature.gov) is a JavaScript app; its static HTML
+# lives under /api/Statutes/<cite>.html. With ?all=true a chapter page (1-1) holds the whole chapter, and the
+# constitution is published as pseudo-title "0N" (/api/Statutes/0N.html?all=true, found via web search), so a
+# title page with ?all=true should hold the whole title: one request per title (template strategy).
+#
+# Page shape (probe api_Statutes_1-1.html_all_true.html):
+#   * UTF-16 little-endian, no BOM (the single-section page /api/Statutes/1-1-1.html is UTF-8).
+#   * NOT one HTML document: one complete <html>...</html> per part, back to back, separated by
+#     <br /><hr><br />. First the chapter's own document (CHAPTER 1-1 / its name / table of contents),
+#     then one document per section. Each is Word -> HTML ("PowerTools for Open XML").
+#   * Class names carry a per-document generated prefix (s2030343Normal, s8cea3b48...HG4), and centering /
+#     bold come only from those classes' rules in each document's <style>: no align=, no <b>.
+#   So two shared-code features are needed before this formula reads the page correctly (see
+#   build/dispatch/SD.status.md): (1) read every concatenated document, not just the first (libxml2 stops
+#   at the first </html> -- the parser AND the conservation check silently see only the chapter's TOC);
+#   (2) resolve :centered and bold from the page's CSS class rules.
+#   The settings below are written for the page as it reads once those exist; they were tested offline on
+#   the probe with both features emulated in the test harness.
+
+[SD.sdcl]
+name    = "South Dakota Codified Laws"
+doc     = "/us-sd/sdcl"                       # /us-sd/sdcl/t1/s1-1-1.1/2
+fetch   = "template"
+url     = "https://sdlegislature.gov/api/Statutes/{item}.html?all=true"
+edition = 2026                                # current through the 2026 session (the site has no edition in the url)
+item    = ""                                  # title numbers as written: 1, 10, 32 ... (no zero padding in the url)
+file    = "title-{item}.html"
+skip    = ["0N"]                              # pseudo-title 0N is the constitution: its own formula, SD.const
+encoding = "utf-16-le"                        # ?all=true pages are UTF-16LE without a BOM
+family  = "html-paragraphs"
+terms   = "none stated; the printed SDCL volumes are official (SDCL 2-16-13), this online text is not"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (61) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21",
+  "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39",
+  "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56", "57",
+  "58", "59", "60", "61", "62"
+]
+
+[SD.sdcl.html]
+# Two generators share one page. Current sections: PowerTools (<p class="<prefix>Normal">, centering and bold
+# only in CSS class rules -- read by :centered). Chapter tables of contents and repealed / transferred
+# sections: Wp2Html 4.0 (WordPerfect): bare text in <Div align="full">, headings in <Div align="center">,
+# lines separated by <br>, an unclosed <p> holding the TOC lines.
+blocks   = ["p"]
+headings = ["p:centered", "div:centered"]     # TITLE 1 / CHAPTER 1-1 and their names (both generators)
+split_br = ["div", "p:noclass"]               # Wp2Html: bare text runs between <br> become lines; PowerTools <p>
+                                              # all carry a class and its <div> wrapper holds only <p>s
+opening  = ["b", "strong"]                    # unused: sections are matched on the whole block (bold = false)
+
+[SD.sdcl.ladder]
+# SDCL numbers subdivisions (1), then (a), then (i), then (A)
+types = ["num", "lower", "roman_lower", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[SD.sdcl.containers]
+title   = { match = '^TITLE\s+(?P<num>\d+[A-Z]?)$', tag = "title", rank = 1, id = "t{num}" }
+chapter = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?-\d+[A-Z]?)$', tag = "chapter", rank = 2, id = "ch{num}" }
+
+[SD.sdcl.sections]
+# The section's first paragraph is only "1-1-1.1. Retrocession of jurisdiction ... authorized." (number and
+# catchline bold; the text starts in the next paragraph). Matched on the whole paragraph, not the bold run,
+# so it works with or without CSS bold. A repealed section reads "1-1-11. Repealed by SL 2006, ch 130, § 1."
+# Ranges and lists: "1-2-3 to 1-2-7.", "1-4-2.1, 1-4-3." (id s1-4-2.1,_1-4-3). A chapter TOC (Wp2Html) lists a repealed RANGE as "1-13A-1 to 1-13A-3. Repealed." -- section-shaped -- while
+# the range's own document reads "... Repealed by SL 2006, ch 2, §§ 4 to 6.": a range with a bare status word is
+# TOC (the leading lookahead). A single section CAN be bare: "1-16E-1. Repealed." + its Source line.
+# A third markup variant is pretty-printed: "1-16B-56 . Value Added ..." (space before the period).
+# Number: title 1-62 with letter suffixes (32A?), chapter with letters (10-45D), section with dotted parts (1-1-2.1).
+match = '^(?!\S+(?:\s+to|\s*,)\s+\S+\s*\.\s+(?:Repealed|Transferred|Superseded|Omitted|Reserved|Executed|Obsolete|Expired)\.$)(?P<num>\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:(?:\s+to\s+|\s*,\s*)\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*)*)\s*\.\s+(?P<heading>.*)$'
+bold  = false
+scope = "title"                               # section numbers are unique within a title: /us-sd/sdcl/t1/s1-1-1
+# Tables of contents, at container level only. Title page: the word "Chapter", then "01 State Sovereignty
+# And Jurisdiction" (chapter number without the title). Chapter page: "1-1-1<4 nbsp>Catchline" -- no period
+# after the number, unlike a section's opening -- and grouped repeals "1-4-2.1 , 1-4-3. Repealed.".
+toc   = ['^Chapter$', '^\d+[A-Z]?\s', '^\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:\s|\s?,)']
+
+[SD.sdcl.notes]
+sourceCredit  = '^Source:'
+# A bare-status range ("1-42-18 to 1-42-20. Obsolete.") is a section document in one markup and a chapter-TOC
+# line in the other, with identical text, so the section match leaves it out (lookahead above). After a
+# section it is a section document: end the open section and keep it as a cross heading where it stands.
+# In a TOC (no section open) it stays in the toc note.
+close = ['^\d+[A-Z]?-\d+[A-Z]?-\d+[A-Z]?(?:\.\d+[A-Z]?)*(?:\s+to|\s*,)\s+\S+\s*\.\s+(?:Repealed|Transferred|Superseded|Omitted|Reserved|Executed|Obsolete|Expired)\.$']
+editorialNote = ['^(?:Code )?Commission Note:', '^Cross-References?:', "^Editor's note", '^Note:']
+
+# ---------------------------------------------------------------- South Dakota Constitution
+# Published as pseudo-title 0N: one ?all=true page (probe api_Statutes_0N.html_all_true.html), mostly Wp2Html
+# documents. Articles head "ARTICLE III" / "LEGISLATIVE DEPARTMENT" (centered), then the article's section list
+# ("1. Name of state. 2. Boundaries of state." -- a TOC); a section is one block "§ 1. Catchline. Text ..."
+# whose text continues in later blocks; notes open "History:". Some sections are ranges
+# ("§§ 10 to 13. Superseded."). Article II has no sections: its text sits at article level.
+[SD.const]
+inherit = "SD.sdcl"
+replace = ["containers", "sections", "notes", "html"]
+name    = "Constitution of the State of South Dakota"
+doc     = "/us-sd/const"                      # /us-sd/const/a3/s1
+items   = ["0N"]
+skip    = []
+file    = "constitution-{item}.html"
+
+[SD.const.html]
+blocks   = ["p"]
+headings = ["p:centered", "div:centered"]
+split_br = ["body", "div", "p:noclass"]       # Wp2Html section documents put their text straight in <body>
+opening  = ["b", "strong"]
+
+[SD.const.ladder]
+types = ["num", "lower", "roman_lower", "upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[SD.const.containers]
+title    = { match = '^(?P<heading>SOUTH DAKOTA CONSTITUTION)$', tag = "title", rank = 1, id = "", heading = "self" }
+# any = true: ARTICLE XXI and PREAMBLE are the only headings not centered (their CSS says justify)
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self", any = true }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}", any = true }
+
+[SD.const.sections]
+# heading = up to the catchline's period; the rest of the block is the section's first text
+match = '^§§?\s*(?P<num>\d+[A-Z]?(?:\s+(?:to|and)\s+\d+[A-Z]?)?)\.\s+(?P<heading>[^.]*\.?)'
+bold  = false
+scope = "container"
+toc   = ['^\d+\.\s', '^Article(?:\s+[IVXL]+)?$', '^Preamble\.$']   # article lists; the page's own TOC heads
+
+[SD.const.notes]
+sourceCredit  = '^History:'

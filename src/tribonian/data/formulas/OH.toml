@@ -1,0 +1,171 @@
+# OH.toml -- Ohio: Ohio Revised Code (ORC) and the Ohio Constitution, from codes.ohio.gov (Legislative
+# Service Commission, the official publisher).
+#
+# The site has three page kinds: a title page (/ohio-revised-code/title-1) that lists chapters, a chapter
+# page (/ohio-revised-code/chapter-101) and a section page (/section-101.01). The CHAPTER page carries the
+# full text of every section (an "Expand All" accordion, all bodies are in the HTML), so a chapter page is
+# the leaf: one request per chapter, never per section. Constitution articles are laid out the same way
+# (/ohio-constitution/article-1 holds every section of the article).
+#
+# Chapter page layout, inside <main>:
+#     <h1>Chapter 101 <span>|</span> General Assembly</h1>          chapter number and name, one line
+#     div.breadcrumbs, div.global-content-controls ("Expand All")   site furniture
+#     <table class="laws-table"><tr><th>Section</th></tr>           column label (furniture)
+#     per section, one <tr>:
+#       span.content-head-text > a  "Section 101.01 | Regular session of the general assembly."
+#       div.laws-section-info > div.laws-section-info-module        "Effective: January 8, 1979"
+#                                                                   "Latest Legislation: Senate Bill 437 - ..."
+#                                                                   (.no-print) "PDF: Download Authenticated PDF"
+#       section.laws-body > span > <p>...</p><p>...</p>             the text, one <p> per division
+#       div.laws-notice > p                                         "Last updated February 2, 2024 at 7:03 AM"
+# NOTE the order: the effective-date / legislation lines come BEFORE the section text (see OH.status.md:
+# a one-block note rule is needed so the text after them returns to the section body).
+
+[OH.orc]
+name    = "Ohio Revised Code"
+doc     = "/us-oh/orc"                       # /us-oh/orc/t1/ch101, /us-oh/orc/t1/s101.01/A/1
+# One item = one title (odd numbers 1-63, plus 58) and "gp" (General Provisions: chapters 1 3 5 7 9).
+# The title page lists its chapters (relative links "chapter-101"); each chapter page is fetched whole.
+fetch   = "index"
+layers  = [{ name = "current", url = "https://codes.ohio.gov/ohio-revised-code/{id}" }]   # page name from [OH.orc.ids]:
+                                             # titles are title-N, but "General Provisions" (chapters 1-9, R.C. 1.01 ff.)
+                                             # is /ohio-revised-code/general-provisions -- item "gp"
+index_file = "title-{item}.htm"
+links   = 'href="(chapter-[0-9A-Za-z.]+)"'  # chapter numbers are digits (101, 4582); letters allowed just in case
+title   = { number = "h1" }                  # "Title 1 | State Government" on the title page
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "official publisher (LSC); authenticated PDFs per section; site disclaimer not read"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (34) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "gp", "1", "3", "5", "7", "9", "11", "13", "15", "17", "19", "21", "23", "25", "27", "29", "31", "33", "35",
+  "37", "39", "41", "43", "45", "47", "49", "51", "53", "55", "57", "58", "59", "61", "63"
+]
+
+[OH.orc.ids]
+# item -> page name under /ohio-revised-code/ (every item must be listed: {id} is empty otherwise)
+gp = "general-provisions"
+"1" = "title-1"
+"3" = "title-3"
+"5" = "title-5"
+"7" = "title-7"
+"9" = "title-9"
+"11" = "title-11"
+"13" = "title-13"
+"15" = "title-15"
+"17" = "title-17"
+"19" = "title-19"
+"21" = "title-21"
+"23" = "title-23"
+"25" = "title-25"
+"27" = "title-27"
+"29" = "title-29"
+"31" = "title-31"
+"33" = "title-33"
+"35" = "title-35"
+"37" = "title-37"
+"39" = "title-39"
+"41" = "title-41"
+"43" = "title-43"
+"45" = "title-45"
+"47" = "title-47"
+"49" = "title-49"
+"51" = "title-51"
+"53" = "title-53"
+"55" = "title-55"
+"57" = "title-57"
+"58" = "title-58"
+"59" = "title-59"
+"61" = "title-61"
+"63" = "title-63"
+
+[OH.orc.html]
+root     = "main"                            # skips the site header, menus and footer
+blocks   = ["p", "span.content-head-text", "div.laws-section-info-module"]
+headings = ["h1"]                            # the chapter line
+verbatim = ["table:noclass"]                 # a table inside a section's text (102.02(E)(2) fee schedule): one text
+                                             # item, cells joined; the outer accordion is table.laws-table (has a class)
+opening  = []                                # sections are matched on the whole block text
+split_br = ["p"]                             # some bodies are one <p> with <br> lines (const. art. I sec. 10a):
+                                             # each line becomes a p.br-line inside the <p> ...
+loose    = ["span:noclass"]                  # the bare <span> holding a section's <p>s also holds stray text between
+                                             # blocks (133.18: a closing quote after a ballot table); it becomes a
+                                             # block. (The 51 bare spans seen inside a <p> are its whole content: no split.)
+nested   = true                              # ... and the outer <p> becomes a container, its lines the blocks
+drop     = ["div.no-print", "div.breadcrumbs", "div.global-content-controls", "th"]
+                                             # no-print: the "LSC updates the Revised Code ..." banner and the
+                                             # per-section "PDF: Download Authenticated PDF" link; breadcrumbs;
+                                             # "Expand All / Close All"; the table's "Section" column label
+
+[OH.orc.ladder]
+types = [["upper", "lower"], "num", ["lower", "upper"], "roman_lower", "roman_upper"]
+                                             # (A)(1)(a)(i)(I): 2929.14(A)(1)(a); interstate compacts enacted as
+                                             # one section keep their own (a)(1)(A) style (109.571 Article III)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[OH.orc.containers]
+chapter = { match = '^Chapter\s+(?P<num>\d+[A-Z]?)\s*\|\s*(?P<heading>.*)$', tag = "chapter", rank = 2, id = "ch{num}" }
+
+[OH.orc.sections]
+# span.content-head-text: "Section 101.01 | Regular session of the general assembly."
+match   = '^Section\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\s*\|\s*(?P<heading>.*)$'
+bold    = false
+class   = "content-head-text"                # only the accordion head opens a section (body text citing
+                                             # "Section 101.01 | ..." can never do it)
+decimal = true                               # 101.271 sorts before 101.28
+scope   = "title"                            # /us-oh/orc/t1/s101.01
+# Compacts set out inside one section (109.571 National Crime Prevention and Privacy Compact) have
+# "Article I" ... lines: each is a group, numbering restarts under it (/us-oh/orc/t1/s109.571/gI/1)
+group   = '^(?:ARTICLE|Article)\s+(?P<num>[IVXL]+|\d+[A-Z]?)\.?(?:\s+[A-Z][A-Za-z,;\x27 -]{0,80})?$'
+                                             # also "Article IV Procedures for Home Jurisdiction" (4510.71); the name
+                                             # must start upper-case and hold no period/digits, so text such as
+                                             # "Article I of this compact ..." never matches
+group_id = "g{num}"
+
+[OH.orc.notes]
+sourceCredit  = [{ class = "laws-section-info-module", match = '^(?:Effective|Latest Legislation):', single = true }]
+editorialNote = [{ match = '^Last updated ', topic = "lastUpdated" }]   # div.laws-notice: the site's update stamp
+
+# ---------------------------------------------------------------- Ohio Constitution
+# Index page /ohio-constitution links the preamble, articles 1-19 and two schedules; each article page holds
+# all its sections ("Article I, Section 10a | Rights of victims of crime"). Same markup as the ORC chapter
+# pages, but bodies are <p> with <br> lines (split_br) and there is no "Latest Legislation" line.
+[OH.const]
+inherit = "OH.orc"
+replace = ["containers", "sections", "layers"]
+name    = "Constitution of the State of Ohio"
+doc     = "/us-oh"                           # with title_id: /us-oh/const/a1/s10a (not /us-oh/const/tconst/...)
+title_id = ['^(const)$', '\1']
+fetch   = "index"
+layers  = [{ name = "current", url = "https://codes.ohio.gov/ohio-constitution" }]
+items   = ["const"]                          # the whole constitution is one item -> law/oh/uslm/const/title-const.xml
+index_file = "{item}.htm"
+links   = 'href="(ohio-constitution/(?:preamble|article-\d+|schedules-[0-9a-z-]+))"'
+save_as = "path"                             # "ohio-constitution_article-1"
+title   = { number = "h1" }                  # "Ohio Constitution"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "const"
+]
+
+[OH.const.containers]
+preamble = { match = '^(?P<heading>Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^Article\s+(?P<num>[IVXL]+)\s*\|\s*(?P<heading>.*)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+schedule = { match = '^(?P<heading>Schedules\s+(?P<num>\d{4})\s+Constitution)$', tag = "level", rank = 2, id = "schedule{num}", heading = "self" }
+                                             # "Schedules 1851 Constitution" / "Schedules 1912 Constitution"
+
+[OH.const.sections]
+match   = '^Article\s+[IVXL]+,\s+Section\s+(?P<num>\d+[a-z]?)\s*\|\s*(?P<heading>.*)$'
+bold    = false
+class   = "content-head-text"
+scope   = "container"                        # numbers restart per article: /us-oh/const/a1/s10a
+
+[OH.const.notes]
+# The preamble and the two schedule pages head their items with a bare name ("Of prior laws", "General
+# schedule"); the site numbers them only in the link (section-100.1). Not sections: each stands as a
+# cross heading in its level and the text after it is that level's text. (Merged with OH.orc's note rules.)
+close = [{ class = "content-head-text" }]

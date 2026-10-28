@@ -1,0 +1,165 @@
+# FL.toml -- Florida: the Florida Statutes (Online Sunshine, leg.state.fl.us) and the Florida Constitution
+# (flsenate.gov). Both sites publish the same XML-derived markup, one nested div per level:
+#   div.Section > span.SectionNumber, span.Catchline (CatchlineText + EmDash), span.SectionBody >
+#     span.Text (lead-in) and div.Subsection > span.Number|span.Id "(1)", span.Text, div.Paragraph > ...
+#   then div.History ("History.—") and div.Note ("Note.—") inside the section.
+# [html].nested turns every block that holds blocks into a container whose own loose text runs become
+# blocks: each level's "(1) text" run. div.Section itself is NOT a block: its children are spans, and
+# span.SectionBody (an inline tag holding the level divs) would be swallowed into one loose run with the
+# number and catchline (_wrap_loose splits only at block TAGS -- see FL.status.md). So the section's
+# spans are the blocks: span.SectionNumber "768.041", span.Catchline (the heading: [sections].heading =
+# "next"), span.SectionBody (a block, or a container of the level divs).
+# The indexes (div.CatchlineIndex, div.PartIndex) are dropped: in-page link lists (#A1S01, Sections/...)
+# that repeat the numbers and catchlines below; the constitution's own front note says "The indexes
+# appearing at the beginning of each article ... are added editorially and are not to be considered as
+# part of the constitution." Kept, their span.SectionNumber lines would open sections.
+
+# ---------------------------------------------------------------- Florida Statutes
+# No bulk download: the "Statutes Download" page (with or without Submenu=7) shows only the title list.
+# One whole-chapter page per chapter ("View Entire Chapter"); its path carries the chapter's hundred-range.
+[FL.fs]
+name    = "Florida Statutes"
+doc     = "/us-fl/fs"                        # /us-fl/fs/ch768/pt1/... sections: /us-fl/fs/s768.041/1/a
+fetch   = "template"
+url     = "https://www.leg.state.fl.us/Statutes/index.cfm?App_mode=Display_Statute&URL={lo:04d}-{hi:04d}/{n:04d}/{n:04d}.html"
+edition = 2026                               # the page serves the current edition (2026 Florida Statutes)
+item    = "%d"                               # chapter number: 768
+file    = "chapter-{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "AALL: no copyright claimed in the statutes; only the print edition is official (s. 11.2421)"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (638) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "6", "7", "8", "10", "11", "14", "15", "16", "17", "19", "20", "22", "23", "24", "25", "26", "27",
+  "28", "29", "30", "34", "35", "38", "39", "40", "43", "44", "45", "46", "47", "48", "49", "50", "51", "55",
+  "56", "57", "59", "60", "61", "63", "64", "65", "66", "68", "69", "70", "71", "72", "73", "74", "75", "76",
+  "77", "78", "79", "80", "81", "82", "83", "85", "86", "88", "90", "92", "95", "97", "98", "99", "100", "101",
+  "102", "103", "104", "105", "106", "107", "110", "111", "112", "113", "114", "115", "116", "117", "118", "119",
+  "120", "121", "122", "124", "125", "127", "129", "130", "132", "136", "137", "138", "142", "145", "153", "154",
+  "155", "157", "159", "161", "162", "163", "164", "165", "166", "170", "171", "173", "175", "177", "180", "185",
+  "186", "187", "189", "190", "191", "192", "193", "194", "195", "196", "197", "198", "199", "200", "201", "202",
+  "203", "205", "206", "207", "210", "211", "212", "213", "215", "216", "217", "218", "219", "220", "222", "238",
+  "243", "250", "251", "252", "253", "255", "256", "257", "258", "259", "260", "261", "265", "267", "270", "272",
+  "273", "274", "279", "280", "281", "282", "283", "284", "285", "286", "287", "288", "290", "292", "295", "296",
+  "298", "308", "309", "310", "311", "313", "314", "315", "316", "317", "318", "319", "320", "321", "322", "323",
+  "324", "326", "327", "328", "329", "330", "331", "332", "333", "334", "335", "336", "337", "338", "339", "341",
+  "342", "343", "344", "347", "348", "349", "350", "351", "354", "361", "362", "364", "365", "366", "367", "368",
+  "369", "373", "374", "375", "376", "377", "378", "379", "380", "381", "382", "383", "384", "385", "386", "388",
+  "390", "391", "392", "393", "394", "395", "397", "399", "400", "401", "402", "403", "404", "405", "406", "408",
+  "409", "410", "411", "413", "414", "415", "418", "419", "420", "421", "422", "423", "425", "427", "429", "430",
+  "435", "440", "441", "443", "445", "446", "447", "448", "450", "451", "452", "454", "455", "456", "457", "458",
+  "459", "460", "461", "462", "463", "464", "465", "466", "467", "468", "469", "471", "472", "473", "474", "475",
+  "476", "477", "478", "479", "480", "481", "482", "483", "484", "485", "486", "487", "488", "489", "490", "491",
+  "492", "493", "494", "495", "496", "497", "499", "500", "501", "502", "504", "506", "507", "509", "513", "514",
+  "515", "516", "517", "518", "519", "520", "521", "522", "525", "526", "527", "531", "532", "534", "535", "536",
+  "537", "538", "539", "540", "542", "545", "546", "548", "549", "550", "551", "552", "553", "554", "556", "558",
+  "559", "560", "561", "562", "563", "564", "565", "567", "568", "569", "570", "571", "573", "574", "576", "578",
+  "580", "581", "582", "583", "585", "586", "588", "589", "590", "591", "593", "595", "597", "599", "600", "601",
+  "603", "604", "605", "606", "607", "609", "610", "616", "617", "618", "619", "620", "621", "622", "623", "624",
+  "625", "626", "627", "628", "629", "630", "631", "632", "633", "634", "635", "636", "641", "642", "647", "648",
+  "650", "651", "655", "657", "658", "660", "662", "663", "665", "667", "668", "669", "670", "671", "672", "673",
+  "674", "675", "677", "678", "679", "680", "681", "682", "683", "684", "685", "686", "687", "688", "689", "692",
+  "694", "695", "696", "697", "698", "701", "702", "703", "704", "705", "707", "708", "709", "710", "711", "712",
+  "713", "714", "715", "716", "717", "718", "719", "720", "721", "723", "725", "726", "727", "731", "732", "733",
+  "734", "735", "736", "738", "739", "740", "741", "742", "743", "744", "747", "751", "752", "753", "760", "761",
+  "765", "766", "767", "768", "769", "770", "771", "772", "773", "774", "775", "776", "777", "782", "784", "787",
+  "790", "791", "794", "796", "797", "798", "800", "806", "810", "811", "812", "815", "817", "818", "823", "825",
+  "826", "827", "828", "831", "832", "836", "837", "838", "839", "843", "847", "849", "856", "859", "860", "861",
+  "865", "870", "871", "872", "873", "874", "876", "877", "893", "895", "896", "900", "901", "902", "903", "905",
+  "907", "908", "910", "913", "914", "916", "918", "921", "922", "923", "924", "925", "932", "933", "934", "936",
+  "937", "938", "939", "940", "941", "942", "943", "944", "945", "946", "947", "948", "949", "950", "951", "957",
+  "958", "960", "961", "984", "985", "1000", "1001", "1002", "1003", "1004", "1005", "1006", "1007", "1008",
+  "1009", "1010", "1011", "1012", "1013", "1014", "1015"
+]
+
+[FL.fs.html]
+root     = "div#statutes"                    # the statute; the rest is Online Sunshine site furniture
+nested   = true
+blocks   = ["span.SectionNumber", "span.Catchline", "span.SectionBody", "div.Subsection", "div.Paragraph",
+            "div.SubParagraph", "div.SubSubParagraph", "div.SubSubSubParagraph", "div.SubSubSubSubParagraph",
+            "div.History", "div.Note", "p"]
+verbatim = ["table"]                         # rate tables and forms (ch. 627): one text item each
+# the chapter's section index and part index (see top); "title": the embedded page's <title>CHAPTER 768</title>
+# (the chapter file is a whole XHTML document pasted inside div#statutes, head and all)
+# "sup": footnote markers (<sup><a href="#1">1</a></sup>) before a section number and in its Note; outside
+# every block, they would fail conservation. Drops ANY sup: watch the sup count in the verify report.
+drop     = ["div.CatchlineIndex", "div.PartIndex", "title", "sup"]
+# div.Title, on a title's first chapter only: div.TitleNumber "TITLE I" + span.TitleName, no space between
+# them (so not read as one block: "TITLE XXXILABOR"); likewise div.PartTitle > div.PartNumber "PART I" +
+# span.PartTitle "GENERAL PROVISIONS". (The part index's PartNumber divs are dropped with div.PartIndex.)
+headings = ["div.TitleNumber", "span.TitleName", "div.ChapterNumber", "div.ChapterName", "div.PartNumber", "span.PartTitle"]
+opening  = []
+
+[FL.fs.ladder]
+types = ["num", "lower", "num.", "lower.", "roman_upper", "upper"]   # (1)(a)1.a.(I)(A)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
+
+[FL.fs.containers]
+# The title wrapper adds no identifier level (it is on the first chapter of a title only): chapters are
+# /us-fl/fs/ch1 either way.
+title   = { match = '^TITLE\s+(?P<num>[IVXL]+)$', tag = "title", rank = 1, id = "" }   # span.TitleName follows
+chapter = { match = '^CHAPTER\s+(?P<num>\d+)$', tag = "chapter", rank = 2, id = "ch{num}" }   # ChapterName follows
+part    = { match = '^PART\s+(?P<num>[IVXL]+)$', tag = "part", rank = 3, id = "pt{num_arabic}" }   # span.PartTitle follows
+
+[FL.fs.sections]
+match   = '^(?P<num>\d+\.\d+)$'              # span.SectionNumber "768.041"
+heading = "next"                             # span.Catchline "Release or covenant not to sue.—"
+bold    = false
+scope   = "title"                            # section numbers are statewide: /us-fl/fs/s768.041
+decimal = true                               # 768.0415 sorts before 768.042
+
+[FL.fs.notes]
+# By text, not class (see FL.const.notes: a div.Note with <p> lines is a nested container)
+sourceCredit  = '^History\.—'               # "History.—ss. 1, 2, 3, ch. 57-395; ..."
+editorialNote = '^Note\.—'                  # "Note.—Former s. 54.28."
+
+# ---------------------------------------------------------------- Florida Constitution
+# One page, the whole constitution: https://www.flsenate.gov/Laws/Constitution (div.Constitution).
+[FL.const]
+name    = "Constitution of the State of Florida"
+doc     = "/us-fl/const"                     # /us-fl/const/a5/s20/c/5/a
+fetch   = "template"
+url     = "https://www.flsenate.gov/Laws/Constitution"
+edition = 2026
+item    = ""
+items   = ["const"]                          # always the one file
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "AALL: no copyright claimed"
+
+[FL.const.html]
+root     = "div.Constitution"                # everything outside is flsenate.gov site furniture
+nested   = true
+blocks   = ["span.SectionNumber", "span.Catchline", "span.SectionBody", "div.Subsection", "div.Paragraph",
+            "div.SubParagraph", "div.SubSubParagraph", "div.History", "div.Note", "p"]
+# span.Reference: a footnote marker ("1") before a section number or a label, pointing at the div.Note
+# that explains it. Editorial apparatus, not law text; inside a level it would sit in front of the label
+# ("1(g) All provisions ...") and hide it from the ladder. Counted in the verify report.
+drop     = ["div.CatchlineIndex", "span.Reference"]   # article and section indexes (see top)
+# ConstitutionTitle's centered lines; ARTICLE I / DECLARATION OF RIGHTS; the preamble's "PREAMBLE"
+headings = ["div.ArticleNumber", "div.ArticleName", "p.AlignCenter"]
+opening  = []
+
+[FL.const.ladder]
+types = ["lower", "num", "lower.", "num."]   # (a)(1)a.1. -- Subsection/Paragraph/SubParagraph/SubSubParagraph
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[FL.const.containers]
+title    = { match = '^(?P<heading>CONSTITUTION)$', tag = "title", rank = 1, id = "", heading = "self" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)$', tag = "article", rank = 2, id = "a{num_arabic}" }   # div.ArticleName follows
+
+[FL.const.sections]
+match = '^SECTION\s+(?P<num>\d+[a-z]?)\.$'   # span.SectionNumber "SECTION 1."
+heading = "next"                             # span.Catchline "Political power.—"
+bold  = false
+scope = "container"                          # numbers restart per article: /us-fl/const/a1/s2
+
+[FL.const.notes]
+# By text, not class: a div.Note holding <p> lines (a list of statutes) is a nested container, and its
+# lead-in becomes a p.loose block without the Note class. Everything after it to the next section is notes.
+sourceCredit  = '^History\.—'               # "History.—S.J.R. 917, 1974; adopted 1974; ..."
+editorialNote = '^Note\.—'                  # "Note.—This section, originally designated ..."

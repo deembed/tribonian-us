@@ -1,0 +1,143 @@
+# ---------------------------------------------------------------- Louisiana Revised Statutes
+# legis.la.gov (Louisiana State Legislature). ONE PAGE PER SECTION: Legis/Law.aspx?d=<opaque doc id>
+# (LawPrint.aspx?d=<id> is the same text without site chrome). No whole-title or whole-chapter page seen.
+# The tables of contents (Laws_Toc.aspx?folder=75 = R.S., 72 = Constitution) are ASP.NET WebForms:
+# every title/chapter link is javascript:__doPostBack(...), so the walk from title to section ids is
+# NOT reachable by GET -- see LA.status.md (needs-feature / needs-probe). The fetch block below is the
+# shape the formula takes once a GET-able listing of Law.aspx?d= links per title is known.
+#
+# Markup of a section page (inside span#ctl00_PageBody_LabelDocument, everything else is site chrome):
+#   <P class=A0001>&#167;20. &nbsp;Justifiable homicide</P>       section number (no title part) + heading
+#   <P class=A0002>A. &nbsp;A homicide is justifiable:</P>         body lines, one <P> each
+#   <P class=A0002>(4)(a) &nbsp;When committed ...</P>            combined labels on one line
+#   <P class=A0002>Added by Acts 1976, No. 655, &#167;1. ...</P>  the history (source credit), last line
+# The "RS 14:20" label (span#ctl00_PageBody_LabelName) sits outside the law text and is not read.
+[LA.rs]
+name    = "Louisiana Revised Statutes"
+doc     = "/us-la/rs"                         # /us-la/rs/t14/s20/A/1
+fetch   = "index"
+item    = "%d"                                # title 14 -> "14"; 47 ...
+index_file = "toc-{item}.htm"
+links   = 'href="([^"]*?Law\.aspx\?d=\d+)"'  # the opaque doc id of each section
+rewrite = ['/Law\.aspx\?d=(\d+)$', '/LawPrint.aspx?d=\1']   # print view: same text, no chrome
+# PLACEHOLDER URL: the per-title section listing is reached only by postback (see header). Replace once
+# a GET-able listing is found (probe lines in LA.txt).
+layers  = [ { name = "current", url = "https://www.legis.la.gov/legis/Laws_Toc.aspx?folder=75" } ]
+postback = ['^TITLE {item}$']                  # the TOC's title links are form posts (ASP.NET): statelaw.postback_page
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "none stated"
+carry   = true                                # one page per section: a container heading printed on the first section
+                                              # page of a chapter/part holds the following pages' sections
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (54) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "6", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22",
+  "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "40",
+  "41", "42", "43", "44", "45", "46", "47", "48", "49", "50", "51", "52", "53", "54", "55", "56"
+]
+
+[LA.rs.html]
+root     = "span#LabelDocument"            # print view (LawPrint.aspx): the law text; the "RS 14:20" label is outside
+                                              # (on Law.aspx the same span is span#ctl00_PageBody_LabelDocument)
+blocks   = ["p"]
+# The first section page of a title / chapter / part / subpart starts with its heading(s) as centered lines
+# (<P class=A0001 align=center>): "CHAPTER 2.  MISCELLANEOUS", "PART VI.  OFFENSES AFFECTING THE" + "PUBLIC
+# GENERALLY" (a long heading wrapped over two centered lines), "SUBPART A.  ...", "1.  ILLEGAL CARRYING ...".
+headings = ["p:centered"]
+opening  = []                                 # section line matched on its whole text (bold = false)
+
+[LA.rs.ladder]
+# House style A. (1) (a) (i) (aa): capital letters dotted at the top. A section with no lettered subsections
+# starts at (1): the ladder opens it one level down (nothing open -> first label may start lower), so the
+# levels stay one type each (mixed-type levels made verify read (i)(ii) under (a) as letters).
+# The same label may follow a capital without a space: "H.(1) Whoever ..." (split into two labels).
+types = ["upper.", "num", "lower", "roman_lower", "double_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[LA.rs.sections]
+# "§20.  Justifiable homicide"; "§2950.1.  ..." decimals; "§§1-5.  Repealed by ..." ranges
+# The dot after the number is sometimes missing ("§73.15  Unlawful possession ...") and one number has a
+# letter l for a one ("§126.3.l.", R.S. 14:126.3.1 on the page label): kept as printed. A space must follow
+# the number, so "73.15" is never read as 73 with heading "15 ...".
+match = '^§§?\s*(?P<num>\d+(?:\.[0-9a-z]+)*(?:\s*(?:to|through|-)\s*\d+(?:\.[0-9a-z]+)*)?)\.?(?:\s+(?P<heading>.*))?$'
+bold  = false
+alone = false
+scope = "title"
+# NOT decimal: 58.10 follows 58.9 (R.S. inserts count up: .1 .2 ... .9 .10 .11)
+
+[LA.rs.containers]
+# any = true: newer pages (div#WPMainDoc markup) print the heading as a plain left-aligned <p>
+# ("PART IV-A.  PROTECTION OF CONSTITUTIONAL LIBERTIES IN LOUISIANA ACT", R.S. 14:391).
+# id steps: /us-la/rs/t14/ch1/ptII/spA. Number and heading on one line ("PART II.  OFFENSES ...").
+chapter = { match = '^CHAPTER\s+(?P<num>\d+(?:-[A-Z])?[A-Z]?)\.\s*(?P<heading>.*)$', tag = "chapter", rank = 2, id = "ch{num}", any = true }
+part    = { match = '^PART\s+(?P<num>[IVXL]+(?:-[A-Z])?[A-Z]?)\.\s*(?P<heading>.*)$', tag = "part", rank = 3, id = "pt{num}", any = true }
+subpart = { match = '^SUBPART\s+(?P<num>[A-Z](?:-\d+)?)\.\s*(?P<heading>.*)$', tag = "subpart", rank = 4, id = "sp{num}", any = true }
+
+[LA.rs.notes]
+# Cross headings, not containers: the code banner "LOUISIANA REVISED STATUTES", the title line ("TITLE 1 GENERAL
+# PROVISIONS" / "TITLE 1.  GENERAL PROVISIONS"; the file is the title), and the second line of a heading wrapped
+# over two centered lines ("PUBLIC GENERALLY" after "PART VI.  OFFENSES AFFECTING THE"): an all-capitals line
+# that is not a container heading.
+# Also the numbered groups inside a subpart ("1.  ILLEGAL CARRYING AND DISCHARGE OF WEAPONS", title 14): kept
+# as cross headings -- as containers their ids came out flat under the title (/t14/g2 once per subpart),
+# because a page that opens with one has no parent open yet (see status: carry re-parenting).
+close = ['^LOUISIANA REVISED STATUTES$', '^\d+\.\s+[A-Z][A-Z ,;:&()\x27-]+$', '^TITLE\s+\d+[A-Z]?\.?\s', '^(?!(?:CHAPTER|PART|SUBPART|TITLE)\b)(?!\d)[A-Z][A-Z ,;:&()\x27-]*$']
+# history line: "Added by Acts 1976 ...", "Acts 1950, No. 2, §1. Amended by ...", "Amended by Acts ..."
+sourceCredit  = '^(?:Added by Acts|Acts\s+\d{4}|Amended by Acts|Redesignated|Enacted by Acts|Source:)'
+editorialNote = ['^\{\{NOTE:', '^NOTE:', "^Editor's note"]
+
+# ---------------------------------------------------------------- Louisiana Constitution of 1974
+# Same viewer (Laws_Toc.aspx?folder=72, articles I-XIV via postback links; sections on Law.aspx?d=<id>).
+# Section pages are assumed to share the R.S. markup ("§1. Origin and Purpose of Government"); NOT yet
+# checked on a constitution page -- a probe is requested in LA.txt. One USLM file per article (item = 1 ... 14);
+# section numbers restart per article, so the article is the identifier's parent: /us-la/const/a1/s1.
+[LA.const]
+inherit = "LA.rs"
+name    = "Constitution of the State of Louisiana (1974)"
+doc     = "/us-la/const"
+item    = "%d"                                # the TOC numbers articles in arabic: ARTICLE 1 ... ARTICLE 14
+title_id = ""                                 # the file is the whole document root /us-la/const; the article
+                                              # container on the page gives the a{n} step (sections restart per article)
+# PLACEHOLDER URL, as for LA.rs
+layers  = [ { name = "current", url = "https://www.legis.la.gov/legis/Laws_Toc.aspx?folder=72" } ]
+postback = ['^ARTICLE {item}$']
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (14) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14"
+]
+
+[LA.const.html]
+# Constitution pages add centered headings (seen on CONST 1 1, LawPrint.aspx?d=206274): the banner
+# "CONSTITUTION / OF THE / STATE OF LOUISIANA / OF 1974", "PREAMBLE", and "ARTICLE I.  DECLARATION OF RIGHTS"
+# (number and name on one line), all <P class=A0001 align=center>. The section line is class A0004 there.
+headings = ["p:centered"]
+
+[LA.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+# "ARTICLE I.  DECLARATION OF RIGHTS": number and name on one line -> /us-la/const/a1
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+)\.\s*(?P<heading>.*)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[LA.const.ladder]
+# Constitution: (A) (1) (a) (i) -- capitals in parentheses at the top (art. I, sec. 4 (A)(B)); "A." accepted too
+types = [["upper", "upper."], "num", "lower", "roman_lower"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[LA.const.sections]
+scope = "container"
+# The body repeats the number: "Section 4.(A) Every person ..." / "Section 10. Right to Vote. (A) ...".
+# The section starts at that line (its "(A)" then reads as a label); the "§4. Right to Property" line
+# before it is the heading.
+match = '^Section\s+(?P<num>\d+(?:\.\d+)?)\.'
+heading_before = '^§'
+                           # sections restart per article: /us-la/const/a1/s1
+
+[LA.const.notes]
+# The banner "CONSTITUTION / OF THE / STATE OF LOUISIANA / OF 1974" (four centered lines on the first page of
+# article I only): cross headings, not containers.
+close = ['^(?:CONSTITUTION|OF THE|STATE OF LOUISIANA|OF 1974)$']
+sourceCredit  = '^(?:Added by Acts|Acts\s+\d{4}|Amended by Acts|Redesignated|Enacted by Acts|Source:)'
+editorialNote = ['^\{\{NOTE:', '^NOTE:', "^Editor's note"]

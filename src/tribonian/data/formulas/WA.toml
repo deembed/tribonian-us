@@ -1,0 +1,126 @@
+# WA.toml -- Washington: Revised Code of Washington (RCW) and the State Constitution.
+#
+# RCW: app.leg.wa.gov serves a whole chapter on one page with default.aspx?cite=<chapter>&full=true
+# (fewer requests than per-section pages). The page is ASP.NET with Bootstrap; the law sits in
+# div.main-page-content: h1 "Chapter 1.04 RCW", h2 chapter name, a table of contents (one <tr> per
+# section), chapter notes, then per section:
+#     <div><h3><a class="btn">PDF</a>RCW <a>1.04.010</a></h3></div>     section number
+#     <div><h3>Revised Code of Washington enacted.</h3></div>            section heading (its own block)
+#     <div><div style="text-indent:0.5in">...</div> ...</div>             one inner div per paragraph
+#     <div style="margin-top:15pt">[ 1951 c 5 s 2; ...]</div>             history (session-law cites)
+#     <div><h3>NOTES:</h3></div><div><div style="font-style:italic">...  notes
+# Paragraphs carry no depth markup (all text-indent:0.5in): the ladder places (1)(a)(i)(A) by sequence.
+#
+[WA.rcw]
+name    = "Revised Code of Washington"
+doc     = "/us-wa/rcw"                       # /us-wa/rcw/t9A/ch9A.04, /us-wa/rcw/t9A/s9A.04.110/4/a
+# One item = one title. The title page (default.aspx?cite=9A) lists its chapters; each chapter is fetched
+# whole with &full=true (rewrite). One USLM file per title: law/wa/uslm/rcw/title-9A.xml
+fetch   = "index"
+layers  = [{ name = "current", url = "https://app.leg.wa.gov/RCW/default.aspx?cite={item}" }]
+index_file = "title-{item}.htm"
+# Only the chapter-list table cells: the title page's notes also link other titles' chapters
+# ("Explosives: Chapter 70.74 RCW"), which must not be pulled into this title.
+links   = '''nowrap;width:1px;vertical-align:top;"> <a href='(http://app\.leg\.wa\.gov/RCW/default\.aspx\?cite=[0-9A-Z]+\.[0-9A-Z]+)'''
+rewrite = ['^http://app\.leg\.wa\.gov/RCW/default\.aspx\?cite=([0-9A-Z.]+)$', 'https://app.leg.wa.gov/RCW/default.aspx?cite=\1&full=true']
+save_as = "path"                             # every page is default.aspx?...: the query names the file
+title   = { number = "h1", name = "h2" }     # "Title 9A RCW" / "WASHINGTON CRIMINAL CODE", from the title page
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "Statute Law Committee claims copyright in the RCW; live HTML is unofficial (certified archive is official)"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (101) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "9A", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19",
+  "20", "21", "22", "23", "23B", "24", "25", "26", "27", "28A", "28B", "28C", "29A", "29B", "30A", "30B", "31",
+  "32", "33", "34", "35", "35A", "36", "37", "38", "39", "40", "41", "42", "43", "44", "46", "47", "48", "49",
+  "50", "50A", "50B", "51", "52", "53", "54", "55", "57", "58", "59", "60", "61", "62A", "63", "64", "65", "66",
+  "67", "68", "69", "70", "70A", "71", "71A", "72", "73", "74", "76", "77", "78", "79", "79A", "80", "81", "82",
+  "82A", "83", "84", "85", "86", "87", "88", "89", "90", "91"
+]
+
+[WA.rcw.html]
+root     = "div.main-page-content"           # skips the site header, breadcrumbs, footer
+blocks   = ["h1", "h2", "h3", "div[style*=:]", "tr"]   # div[style*=:] = a div with a style: paragraphs (text-indent),
+                                             # history (margin-top), notes (font-style); the plain wrapper divs
+                                             # and the plain <div> inside the h2 chapter name are not blocks
+nested   = true                              # notes: div[style=margin-bottom] > div[style=font-style] -- the outer is a container
+                                             # tr = one table-of-contents row
+headings = ["h1", "h2"]                      # chapter number line and chapter name
+opening  = []                                # no bold run: sections are matched on the whole block text
+drop     = ["a.btn", "div.gray-box", "h3.list-heading"]   # "PDF"/"HTML" buttons; "Chapter listing HTML" box;
+                                             # the "Sections" label over the table of contents
+
+[WA.rcw.ladder]
+types = ["num", "lower", "roman_lower", "upper", "roman_upper"]   # (1)(a)(i)(A)(I) -- 9.41.040(2)(a)(ii)(C)(I)
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[WA.rcw.containers]
+# The h1; its name is the next heading (the h2). Chapter numbers carry letters: 9A.04, 28B.10, 43.21C
+chapter = { match = '^Chapter\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?)\s+RCW$', tag = "chapter", rank = 2, id = "ch{num}" }
+
+[WA.rcw.sections]
+match   = '^RCW\s+(?P<num>\d+[A-Z]?\.\d+[A-Z]?\.\d+)$'   # the number block alone: "RCW 1.04.010"
+bold    = false
+heading = "next"                             # the block after "RCW 1.04.010" is the section heading
+decimal = true                               # 9.41.0975 sorts before 9.41.098 (section part is a decimal)
+versions = '\(Effective '                   # "Definitions. (Effective until June 30, 2027.)" then "(Effective June 30, 2027.)":
+                                             # the second is another version of the same section (_v2), not an error
+scope   = "title"                            # /us-wa/rcw/t9A/s9A.04.110
+# Table-of-contents rows: "1.04.010" + heading, cells run together ("1.04.010Revised Code ...")
+toc     = ['^\d+[A-Z]?\.\d+[A-Z]?\.\d+(?![\d.])']
+
+[WA.rcw.notes]
+sourceCredit  = '^\['                        # "[ 1951 c 5 s 2; 1950 ex.s. c 16 s 1.]"
+editorialNote = ['^NOTES:$', '^Notes:$']     # section notes / chapter notes (cross references, findings)
+
+# ---------------------------------------------------------------- Washington State Constitution
+# leg.wa.gov (Blazor site); ?showall=true is the whole text on one page (the plain page holds only the preamble).
+# div.main-chapter-content holds, in order:
+#     <h3 class="title">PREAMBLE. / ARTICLE I. DECLARATION OF RIGHTS / CERTIFICATE. / CONSTITUTIONAL
+#        AMENDMENTS. / INDEX TO THE STATE CONSTITUTION.</h3>
+#     <div class="chapter"><h4 class="title">SECTION 1. POLITICAL POWER</h4><p class="chapter-body">
+#        <p>...</p> or <div>...</div> per paragraph -- amendment history "[AMENDMENT 84, 1989 ...]" usually
+#        closes the last paragraph (inline, same block)
+# The index at the end is a set of tables (topic / article / section).
+[WA.const]
+name    = "Constitution of the State of Washington"
+doc     = "/us-wa/const"                     # /us-wa/const/a1/s7
+fetch   = "template"
+url     = "https://leg.wa.gov/state-laws-and-rules/washington-state-constitution?showall=true"
+items   = ["const"]                          # always the one page
+file    = "{item}.htm"                       # law/wa/const/const.htm
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[WA.const.html]
+root     = "div.main-chapter-content"
+blocks   = ["p", "div", "h3", "h4"]
+nested   = true                              # paragraph divs inside div.chapter / p.chapter-body
+headings = ["h3"]                            # article-level lines
+opening  = []
+verbatim = ["table"]                         # the index tables (and any tabular amendment text): one item each
+
+[WA.const.ladder]
+types = ["lower", ["num", "roman_lower"], "upper"]   # Art. II sec. 1 (a)(b); art. VII sec. 12 (d)(i)(ii)(iii)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[WA.const.containers]
+# heading = "self" would drop the "ARTICLE I." text; the whole line stays the num text instead
+preamble = { match = '^(?P<heading>PREAMBLE\.?)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\.', tag = "article", rank = 2, id = "a{num_arabic}" }
+certificate = { match = '^(?P<heading>CERTIFICATE\.?)$', tag = "level", rank = 2, id = "certificate", heading = "self" }
+amendments  = { match = '^(?P<heading>CONSTITUTIONAL AMENDMENTS\.?)$', tag = "level", rank = 2, id = "amendments", heading = "self" }
+index       = { match = '^(?P<heading>INDEX TO THE STATE CONSTITUTION\.?)$', tag = "level", rank = 2, id = "index", heading = "self" }
+
+[WA.const.sections]
+match = '^SECTION\s+(?P<num>\d+(?:\([a-z]\)|[A-Za-z])?)\s*\.?\s*(?P<heading>.*)$'   # the h4: "SECTION 1. POLITICAL POWER";
+                                             # "SECTION 1(a) INITIATIVE AND ..." (art. II, stricken) has no period
+bold  = false
+scope = "container"                          # numbers restart per article
+
+[WA.const.notes]
+sourceCredit = '^\[\s*(?:AMENDMENT|Amendment|Repealed|Stricken)'   # a history line standing alone
+editorialNote = '^NOTES:$'                   # superseded texts ("Amendment 7 (1911) -- ...", "Original text -- ...")
+                                             # follow: their (a)(b) labels stay note text, not law

@@ -1,0 +1,129 @@
+# OR.toml -- Oregon Revised Statutes (ORS), from the Legislative Counsel's HTML on oregonlegislature.gov.
+#
+# Site layout (from the probes, build/probe/www.oregonlegislature.gov/):
+#   bills_laws/Pages/ORS.aspx            SharePoint page; the chapter list is filled in by JavaScript, so it
+#                                        links no chapter files (index fetch not possible from it)
+#   bills_laws/ors/ors001.html           ONE WHOLE CHAPTER per static file (Word "Save as filtered HTML",
+#                                        windows-1252): chapter 1 = ors001.html, 72A = ors072A.html (expected)
+#   bills_laws/Pages/ORConst.aspx        the whole constitution inline in one SharePoint page (see OR.const)
+# Group headings between sections ("COURT FACILITIES", and under them "(General Provisions)") are plain,
+# uncentered, unindented <p>s styled like body text: [notes].close picks them out by text.
+# Only a title's FIRST chapter file carries the title banner (TITLE 1 / name / the title's chapter list);
+# ors002.html starts at its chapter heading. So the title is kept as a container WITHOUT an identifier level
+# (id = ""), and ids are /us-or/ors/ch2 and /us-or/ors/s2.010 whichever file a chapter comes from. Then the
+# chapter heading, the edition line, the chapter's table of contents, then the sections.
+# Section numbers are chapter.NNN ("1.001", "72A.1010"), unique statewide.
+
+[OR.ors]
+name    = "Oregon Revised Statutes"
+doc     = "/us-or/ors"                       # /us-or/ors/ch1, sections /us-or/ors/s1.002/3/a (ORS cites are flat)
+fetch   = "template"
+url     = "https://www.oregonlegislature.gov/bills_laws/ors/ors{item}.html"
+edition = 2025                               # "2025 EDITION" (the site's current set); not used in the URL
+item    = "%03d"                             # chapter 1 -> "001"; 72A -> "072A" (letter suffix kept)
+file    = "ors{item}.html"                   # law/or/ors/ors001.html
+encoding = "cp1252"                          # <meta charset=windows-1252>
+family  = "html-paragraphs"
+terms   = "Legislative Counsel: the database text is not the official text (the printed ORS is); disclaimer page not read"
+
+[OR.ors.html]
+root     = "div.WordSection1"                # the Word body; the page's <h1>Oregon Revised Statutes</h1> banner is outside it
+blocks   = ["p"]
+headings = ["p:centered"]                    # TITLE 1 / its name; "Chapter 1 — ..."; "2025 EDITION"; the closing "____" rule
+opening  = ["b", "strong"]                   # "1.001 State policy for courts." is bold; the text follows in a plain span
+indent   = 0                                 # every body line has the same 5 nbsp + space: no depth information
+
+[OR.ors.ladder]
+# (1)(a)(A)(i)(I), e.g. ORS 1.181 (2)(a)(A)(i). ORS writes paragraph "l" as "(L)" (no "(l)" vs "(1)" confusion):
+# the ladder reads it as a capital and flags "(k) (L): out of sequence" -- needs a shared option (OR.status.md).
+types = ["num", "lower", "upper", "roman_lower", "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]    # (I) under (i): ORS 90.425 (10)(a)(B)(i)(I)
+
+[OR.ors.containers]
+title   = { match = '^TITLE\s+(?P<num>\d+[A-Z]?)$', tag = "title", rank = 1, id = "" }   # name: next centered line; no id level (above)
+# "Chapter 1 — Courts and Judicial Officers Generally": number and name on one centered line; the whole line
+# is kept as the heading (heading = "self" drops num_text, so the heading group spans the line)
+chapter = { match = '^(?P<heading>Chapter\s+(?P<num>\d+[A-Z]?)\s+[—–-]\s+.+)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
+
+[OR.ors.sections]
+# Bold opening run: "1.001 State policy for courts." (no period after the number). A repealed or renumbered
+# section is a stub whose bold run is the number alone: "<b>1.055</b> [1959 c.638 §1; repealed by 2015 c.212 §2]"
+# -- the heading is optional, so the stub is its own (empty) section with the bracket as its text.
+match = '^(?P<num>\d+[A-Z]?\.\d+[A-Za-z]?)(?:\s+(?P<heading>.*))?$'
+bold  = true
+scope = "title"                              # the title has no id level: /us-or/ors/s1.001
+# Outside sections (before the first one): the title's chapter list ("Chapter 1. Courts ...", "2. Supreme
+# Court ..."), the closing rule "_____", the chapter's section list ("1.001 State policy for courts") and its
+# all-caps group headings ("COURT FACILITIES") -> one <toc> note.
+toc   = ['^Chapter\s+\d+[A-Z]?\.\s', '^\d+[A-Z]?\.\s', '^\d+[A-Z]?\.\d+[A-Za-z]?\s', '^_+$',
+         '^[A-Z][A-Z0-9 ,;:()&’\x27.-]*$', '^\([A-Z][^()]*\)$']   # last: ORS 90's "(General Provisions)" sub-groups
+
+[OR.ors.notes]
+# "Note: Sections 3 and 4, chapter 88, Oregon Laws 2025, provide:" then the uncodified "Sec. 3. ..." lines
+# (bold) to the next section. Source credits are the bracket at the end of the section's last paragraph
+# ("[1981 s.s. c.3 §1]"), inline -- left in the text.
+editorialNote = [{ match = '^Note(?:\s+\d+)?:', topic = "note" }]
+
+# Group headings close the open section (or its note) and stand as cross headings in the chapter:
+#   all caps, no lowercase, 3+ capitals: "COURT FACILITIES", "JUDGES PRO TEMPORE"
+#   a title-case line in parentheses (ORS 90's sub-groups): "(General Provisions)", "(Landlord and Tenant
+#   Relations)" -- every word capitalized except short joiners, so form captions like "(Signature of tenant)" stay text.
+# heading = false: never a centered block -- statutory forms inside sections have centered all-caps titles
+# ("THIS IS AN IMPORTANT NOTICE", ORS 90.155) that must stay in the section.
+# (?!PART N.): a form's own part captions, uncentered ("PART 1. STATEMENT BY TENANT", ORS 90.453), stay in it.
+close = [{ match = '^(?!PART\s+\d)(?=[^a-z]*[A-Z]{3})[^a-z]+$', heading = false },
+         { match = '^\((?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with)(?:\s+(?:[A-Z][\w’\x27-]*|and|or|of|the|for|to|in|on|by|with))*\)$', heading = false }]
+
+# ---------------------------------------------------------------- Oregon Constitution
+# One SharePoint page holds the whole text, split over two rich-text web parts (Preamble to Art. VIII in
+# WebPartWPQ2, Art. IX to XVIII in WebPartWPQ4), each article as: <h2> ARTICLE I, centered name, a section
+# list ("Sec. 1. ...", "2. ..."), then <p><strong>Section 1. Leadline.</strong> text</p>; history brackets
+# "[Constitution of 1859; Amendment proposed by ...]" close a section, either inline or as their own <p>.
+[OR.const]
+inherit = "OR.ors"
+replace = ["html", "ladder", "containers", "sections", "notes"]
+name    = "Constitution of Oregon"
+doc     = "/us-or/const"                     # /us-or/const/a1/s11, /us-or/const/a11-a/s2
+url     = "https://www.oregonlegislature.gov/bills_laws/Pages/ORConst.aspx"
+item    = ""
+items   = ["ORConst"]                        # always the one page
+file    = "{item}.aspx.html"                 # law/or/const/ORConst.aspx.html
+dir     = "const"
+encoding = "utf-8"
+
+[OR.const.html]
+root     = "div.ms-webpart-zone"             # the page's first web-part zone: intro, history note, the two text parts
+blocks   = ["p", "h2"]
+# A note's preamble and the section it introduces share one block, lines split by <br>:
+# "... now, therefore,<br/>Section 34. ...<br/>(2) ..." (Art. I s34, in bare <div>s; Art. I s47 and
+# Art. XV s11 in a <p>) -- split at <br> so the section starts its own block and closes the note.
+split_br = ["p", "div:noclass"]
+nested   = true                              # the split lines are <p>s inside the original <p>
+headings = ["h2", "p:centered"]              # ARTICLE I / its name; PREAMBLE and its (centered) text
+opening  = ["strong", "b"]
+drop     = ["div#MSOZoneCell_WebPartWPQ3",   # "Oregon Constitution" banner + "Purchase Law Publications" links
+            "div#MSOZoneCell_WebPartWPQ5"]   # the editor's history of the Constitution and a linked article list
+
+[OR.const.ladder]
+# As the ORS, plus: roman (i) directly under a letter (Art. XI sec. 11b (2)(c)(i)) and (I) under (ii)
+# (Art. XI sec. 11 (11)(d)(C)(ii)(I)).
+types = ["num", "lower", ["upper", "roman_lower"], ["roman_lower", "roman_upper"], "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[OR.const.containers]
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+# Article VII exists twice, "(Amended)" and "(Original)": both are printed (the original survives in part)
+art7a   = { match = '^ARTICLE\s+(?P<num>VII)\s+\(Amended\)$', tag = "article", rank = 2, id = "a7-amended" }
+art7o   = { match = '^ARTICLE\s+(?P<num>VII)\s+\(Original\)$', tag = "article", rank = 2, id = "a7-original" }
+# "XI-A", "XI-F(1)": a roman number with a letter (and a parenthesized index); num_arabic only for pure romans
+article = { match = '^ARTICLE\s+(?P<num>[IVXL]+(?:-[A-Z](?:\(\d\))?)?)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+
+[OR.const.sections]
+match = '^Section\s+(?P<num>\d+[a-zA-Z]?)\.\s*(?P<heading>.*)$'   # 36a; capital in 11L (Art. XI)
+bold  = true
+scope = "container"                          # numbers restart per article
+toc   = ['^Sec\.\s+\d', '^\d+[a-z]?\.\s']    # the article's section list
+
+[OR.const.notes]
+sourceCredit  = '^\[(?:Constitution of 1859|Created|Added|Amended|Amendment|Repeal)'
+editorialNote = [{ match = '^Note(?:\s+\d+)?:', topic = "note" }]

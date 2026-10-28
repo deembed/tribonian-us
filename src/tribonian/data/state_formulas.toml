@@ -1,0 +1,213 @@
+# state_formulas.toml -- how to fetch and read each state's law (statelaw.py / uslm/).
+#
+# One table per state and code: [<STATE>.<code>]. Three parts, each picked by name:
+#
+#   fetch   how the files arrive. Strategies (statelaw.py):
+#             "template"  url with {edition} and {item}; one file per item (a title, a chapter)
+#   family  which shared parser reads them (uslm/families/). Families:
+#             "html-paragraphs"  Word-style HTML: every line a <p>; structure from text, bold and centering
+#   [*.ladder]     the paragraph numbering, outermost first: label types and the USLM element for each level
+#   [*.containers] centered headings that open a title / article / part ... (regex, element, rank)
+#   [*.sections]   what starts a section, and how its number becomes an identifier
+#   [*.notes]      paragraphs that start a note (Source:, Editor's note ...) and the note element
+#
+# Every build is checked (tribonian state verify): text conservation (every source character lands
+# in the USLM, in order), no silent drops (unplaced text is kept and marked role="unmapped"),
+# the USLM 1.0.15 schema, sibling numbering, unique identifiers.
+#
+# Label types: num (1) (1.5) (0.5) | lower (a) (aa) (a.5) | upper (A) (A.5) | roman_upper (IV) | roman_lower (iv)
+# A level may take several types: ["roman_upper", "roman_lower"].
+# A label that fits two types, as (I) or (i), is placed by the numbering around it (uslm/tree.py).
+
+# ---------------------------------------------------------------- Colorado Revised Statutes
+[CO.crs]
+name    = "Colorado Revised Statutes"
+doc     = "/us-co/crs"                       # identifier root: /us-co/crs/t26.5/s26.5-1-101/1/a
+fetch   = "template"
+url     = "https://olls.info/crs/crs{edition}-title-{item}.htm"
+edition = 2026                               # the OLLS set current through the 2026 regular session
+item    = "%02d"                             # title 1 -> "01"; 26.5 -> "26.5" (fraction kept)
+file    = "title-{item}.htm"
+skip    = ["00"]                             # title 00 is the constitution: its own formula, CO.const
+encoding = "cp1252"
+family  = "html-paragraphs"
+terms   = "personal use; republishing needs a statement to the Committee on Legal Services (C.R.S. 2-5-118)"
+
+# catalog: every item, from https://olls.info/crs/ (46) -- the browse index; not fetched by default
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "25.5", "26", "26.5", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36",
+  "37", "38", "39", "40", "41", "42", "43", "44"
+]
+
+[CO.crs.ladder]
+types = ["num", "lower", "roman_upper", "upper"]          # (1)(a)(I)(A)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[CO.crs.containers]
+# regex on the centered paragraph's text; num = the number group. heading = "next": the next centered
+# paragraph is the heading. rank: a container closes every open container of the same or lower rank.
+title   = { match = '^TITLE\s+(?P<num>\d+(?:\.\d+)?)$', tag = "title",   rank = 1, id = "t{num}" }
+article = { match = '^ARTICLE\s+(?P<num>\d+(?:\.\d+)?)$', tag = "article", rank = 2, id = "a{num}" }
+part    = { match = '^PART\s+(?P<num>\d+(?:\.\d+)?)$', tag = "part",    rank = 3, id = "p{num}" }
+subpart = { match = '^SUBPART\s+(?P<num>\d+(?:\.\d+)?)$', tag = "subpart", rank = 4, id = "sp{num}" }
+
+[CO.crs.sections]
+# The section's opening run is bold: "26.5-1-303.  Early childhood leadership commission - duties."
+match = '^(?P<num>\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?)\.\s*(?P<heading>.*)$'
+bold  = true                                   # matched against the paragraph's bold opening run
+versions = "^\\[Editor's note: This version"   # a repeated label opening like this is another version, not an error
+scope = "title"                                # section ids hang off the title: /us-co/crs/t26.5/s26.5-1-303
+# Lines of a container's table of contents (not law text): kept in a <toc> note
+toc   = ['^Art\.\s', '^PART\s+\d', '^\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?\.\s']
+
+[CO.crs.notes]
+annotation = '^ANNOTATION$'                    # centered: case annotations follow, to the next section
+sourceCredit  = '^Source:'
+editorialNote = ["^Editor's note", "^Cross references:", "^Law reviews"]
+
+# ---------------------------------------------------------------- Colorado Constitution (C.R.S. title 00)
+[CO.const]
+name    = "Constitution of the State of Colorado"
+doc     = "/us-co/const"                     # /us-co/const/a2/s7
+fetch   = "template"
+url     = "https://olls.info/crs/crs{edition}-title-{item}.htm"
+edition = 2026
+item    = "%02d"
+items   = ["00"]                              # always the one file
+file    = "title-{item}.htm"
+dir     = "crs"                              # shares the C.R.S. folder: law/co/crs/title-00.htm
+encoding = "cp1252"
+family  = "html-paragraphs"
+
+[CO.const.ladder]
+types = ["num", "lower", ["roman_upper", "roman_lower"], "upper"]   # TABOR (art. X, sec. 20(3)(b)) uses (i) (ii)
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[CO.const.containers]
+title    = { match = '^(?P<heading>CONSTITUTION OF THE STATE OF COLORADO)$', tag = "title", rank = 1, id = "", heading = "self" }
+preamble = { match = '^(?P<heading>Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+(?:-?[a-z])?)$', tag = "article", rank = 2, id = "a{num_arabic}" }
+schedule = { match = '^(?P<heading>Schedule)$', tag = "level", rank = 2, id = "schedule", heading = "self" }
+
+[CO.const.sections]
+match = '^Section\s+(?P<num>\d+(?:\.\s?\d+)?[a-z]?)\.\s*(?P<heading>.*)$'   # "44. 1." is 44.1 (a span break in the source)
+bold  = true
+alone = true                                   # a real section's opening paragraph is only "Section N. Heading.";
+                                               # "Section 45. Census. The general ..." is quoted history in a note
+versions = "^\\[Editor's note: This version"
+scope = "container"
+toc   = ['^Sec\.\s+\d']                            # numbers restart per article: /us-co/const/a2/s7
+
+[CO.const.notes]
+annotation = '^ANNOTATION$'
+sourceCredit  = '^Source:'
+editorialNote = ["^Editor's note", "^Cross references:", "^Law reviews"]
+
+# ---------------------------------------------------------------- General Statutes of Connecticut
+# Published as a revision (every section, revised to January 1, 2025) plus a supplement (only the
+# sections amended since, revised to January 1, 2026). Current law = the supplement's version of a
+# section where it has one, else the revision's (uslm/build.py convert_layers). Pages: title_NN.htm
+# lists chapters; chap_NNN.htm holds the text. Markup is by class: span.catchln opens a section,
+# p.source-first / history-first / annotation-first / cross-ref-first open notes.
+[CT.cgs]
+name    = "General Statutes of Connecticut"
+doc     = "/us-ct/cgs"                       # /us-ct/cgs/t1/ch1, /us-ct/cgs/t1/s1-1/a/1
+fetch   = "index"
+item    = "%02d"                             # title 1 -> "01", 4a -> "04a"
+index_file = "title_{item}.htm"
+links   = 'href="(chap_[0-9a-z]+\.htm)"'
+layers  = [
+  { name = "2025", url = "https://www.cga.ct.gov/2025/pub/title_{item}.htm" },
+  { name = "2026sup", url = "https://www.cga.ct.gov/2026/sup/title_{item}.htm", optional = true },
+]
+encoding = "utf-8"
+family  = "html-paragraphs"
+title   = { number = "h1.title-no", name = "h1.title-name" }   # read from the base layer's index page
+
+# catalog: every item, from https://www.cga.ct.gov/current/pub/titles.htm (81) -- the browse index; not fetched by default
+catalog = [
+  "1", "2", "2c", "3", "4", "4a", "4b", "4c", "4d", "4e", "5", "6", "7", "8", "9", "10", "10a", "11", "12", "13",
+  "13a", "13b", "14", "15", "16", "16a", "17", "17a", "17b", "18", "19", "19a", "20", "21", "21a", "22", "22a",
+  "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36", "36a", "36b", "37", "38",
+  "38a", "39", "40", "41", "42", "42a", "42b", "43", "44", "45", "45a", "46", "46a", "46b", "47", "47a", "48",
+  "49", "50", "50a", "51", "52", "53", "53a", "54", "55"
+]
+
+[CT.cgs.html]
+blocks   = ["p"]
+headings = ["h2", "h3", "h4.subpart-no", "h4.subpart-name"]   # CHAPTER 1 / its name; PART I / name; SUBPART (A) / name
+verbatim = ["table"]                         # statutory forms (sec. 1-352's power of attorney) are tables
+opening  = ["span.catchln"]                  # "Sec. 1-1. Words and phrases. ..."
+drop     = ["table.nav_tbl", "h4.chap_toc_hd", "h4:noclass"]   # "Return to ..." links; "Table of Contents"; the supplement notice
+
+[CT.cgs.ladder]
+types = ["lower", "num", "upper", "roman_lower", "roman_upper"]   # (a)(1)(A)(i)(I), as the US Code
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[CT.cgs.containers]
+# a trailing * points at a footnote (an annotation on the whole chapter or part): kept in the num text
+chapter = { match = '^CHAPTER\s+(?P<num>\d+[a-z]*)\*?$', tag = "chapter", rank = 2, id = "ch{num}" }
+part    = { match = '^PART\s+(?P<num>[IVXL]+[A-Z]?)\*?$', tag = "part", rank = 3, id = "pt{num}" }
+subpart = { match = '^\((?P<num>[A-Z]+)\)\*?$', tag = "subpart", rank = 4, id = "spt{num}" }
+
+[CT.cgs.sections]
+match = '^Secs?\.\s+(?P<num>\d+[a-z]*-\d+[a-z]*(?:\s+(?:to|and)\s+\d+[a-z]*-\d+[a-z]*)?)\.\s*(?P<heading>.*)$'
+bold  = true                                 # matched against the opening run (span.catchln)
+scope = "title"
+
+[CT.cgs.notes]
+note          = [{ class = "toc_catchln", topic = "toc" }, { class = "annotation-first", topic = "annotation" }]
+sourceCredit  = { class = "source-first" }
+editorialNote = [{ class = "history-first", topic = "history" }, { class = "cross-ref-first", topic = "crossReference" },
+                 { class = "front-note-first", topic = "frontNote" }]
+
+# ---------------------------------------------------------------- Maryland Code (and Constitution)
+# The legislature's statute selector (mgaleg.maryland.gov/mgawebsite/Laws/Statutes): one page per section,
+# listed by its JSON API. Items are the selector's article codes: gcr (Criminal Law), gcj, ... One USLM file
+# per article. Text is one div#StatuteText with lines split by <br>; depth shows as 4 non-breaking spaces
+# per level; no section headings (the official text has none). Ladder (a)(1)(i)1.A.
+[MD.code]
+name    = "Annotated Code of Maryland"
+doc     = "/us-md/code"                       # /us-md/code/gcr/s1-101/a/1
+fetch   = "list"
+list_url = "https://mgaleg.maryland.gov/mgawebsite/api/Laws/GetSections?articleCode={item}&enactments=false"
+list_field = "DisplayText"                   # the section number; "Value" is an internal sort key
+url     = "https://mgaleg.maryland.gov/mgawebsite/Laws/StatuteText?article={item}&section={entry}&enactments=false"
+file    = "{entry}.htm"                       # law/md/code/gcr/1-101.htm
+titles_url = "https://mgaleg.maryland.gov/mgawebsite/api/Laws/GetArticles?enactments=false"
+title_id = "{item}"                           # the article code is the identifier: /us-md/code/gcr
+dir     = "code"                              # the constitution (MD.const) shares the folder: law/md/code/c0/
+items_match = 'g[a-z]+'                       # --all: the statute articles (gag ... gtr), not c0 ... c20
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[MD.code.html]
+root     = "div#StatuteText"
+split_br = ["div#StatuteText"]
+blocks   = ["p"]
+headings = []
+opening  = []
+indent   = 4
+drop     = ["div.row", "div:centered"]        # the "Next" buttons; the "Article - Criminal Law" banner (the title heading)
+
+[MD.code.ladder]
+types = ["lower", "num", "roman_lower", "num.", "upper."]     # (a)(1)(i)1.A.
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[MD.code.sections]
+# "§10–110." alone, or with a status after it ("IN EFFECT", "// EFFECTIVE OCTOBER 1, 2027"): sections printed
+# in two versions on one page; the status becomes the heading and the second copy is kept as a version
+match = '^§\s*(?P<num>\d+[A-Z]?(?:\.\d+)?(?:[–-]\d+[A-Z]?(?:\.\d+)?)*)\.(?:\s+(?P<heading>.+))?$'
+versions = '(?i)effect'
+bold  = false
+scope = "title"
+
+[MD.code.notes]
+
+# The Maryland Constitution: the same selector, articles c0 (Declaration of Rights) to c20
+[MD.const]
+inherit = "MD.code"
+name    = "Constitution of Maryland"
+doc     = "/us-md/const"                      # /us-md/const/c0/s24
+items_match = 'c\d+[a-z]?'

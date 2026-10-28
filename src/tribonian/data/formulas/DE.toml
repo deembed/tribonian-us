@@ -1,0 +1,138 @@
+# DE.toml -- Delaware Code (delcode.delaware.gov), and the Delaware Constitution of 1897.
+#
+# Site layout (from the probes, build/probe/delcode.delaware.gov/):
+#   index.html                  lists titles: title{N}/index.html (hrefs padded with "&#xA;" + spaces)
+#   title{N}/index.html         lists chapters (NOT YET PROBED; big chapters reportedly split further into
+#                               subchapter pages c{NNN}/sc{NN}/index.html -- unconfirmed)
+#   title{N}/c{NNN}/index.html  a whole chapter, every section's text: one request per chapter
+#   title{N}/Title{N}.pdf       the authenticated (UELMA) PDF, not used here
+# Chapter page markup: div#TitleHead holds h1 "TITLE 1", h4 title name, h2 part, h3 "CHAPTER 1. Name",
+# h4 subchapter (empty when none). div#CodeBody holds one div.Section per section: div.SectionHead
+# "§ 101. Heading.", then p.subsection / p.indent-N lines, then the history credit as bare text and <a>
+# links directly inside div.Section ([html].loose makes it a block, class "loose").
+# Big chapters (title 1 ch. 2 and 8, title 11 ch. 5) are not text pages but lists of subchapter pages
+# (c005/sc01/index.html ...): the second `links` level; each subchapter page repeats the chapter heading
+# and the build joins them into one chapter.
+
+[DE.code]
+name    = "Delaware Code"
+doc     = "/us-de/code"                       # /us-de/code/t1/s101/a
+fetch   = "index"
+item    = "%d"                                # title 1 -> "1" (URLs are title1, not title01)
+index_file = "title{item}.html"               # the title's chapter list, saved per title
+# chapter links in the title index: href="../title1/c001/index.html"; chapter folders also c002a, c012_1
+links   = ['href="(\.\./title\d+/c[0-9a-z_]+/index\.html)"',          # title index -> chapter pages
+           'href="(\.\./\.\./title\d+/c[0-9a-z_]+/sc[0-9a-z_]+/index\.html)"']   # big chapter -> subchapter pages
+# mixed depth: a chapter page with no subchapter links is itself the text (kept as _idx/<name>)
+save_as = "path"                              # every chapter page is named index.html: keep the path
+layers  = [ { name = "current", url = "https://delcode.delaware.gov/title{item}/index.html" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (31) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31"
+]
+
+[DE.code.html]
+root     = "div#content"                      # page header, menus and footer are outside it
+blocks   = ["p", "div.SectionHead"]
+loose    = ["div.Section", "div#CodeBody", "div#subchapterPart"]
+                                              # div.Section: the history credit, bare text + links after the last <p>;
+                                              # div#CodeBody: a stray credit copy after a section's div (1 Del. C. § 801);
+                                              # div#subchapterPart: a bare group heading before its sections
+                                              # ("A. In General", 6 Del. C. art. 2A part 5)
+headings = ["h1", "h2", "h3", "h4"]           # the div#TitleHead lines: TITLE / title name / PART / CHAPTER / SUBCHAPTER
+opening  = ["div.SectionHead"]                # the whole "§ 101. Designation and citation of Code." line
+# site furniture only: the breadcrumb row ("Title 1" link, "Authenticated PDF" link) and the
+# in-page jump list of section numbers (ul.chaptersections: "§ 101", "§ 101A" ... anchors, repeated
+# verbatim by each section's own heading)
+verbatim = ["div.code-table"]                 # statutory tables (11 Del. C. § 1105(f) offense list): one text item, cells joined
+drop     = ["div.row", "ul.chaptersections"]
+
+[DE.code.ladder]
+# Delaware style (a)(1)a.1.A.I. (the sixth level, roman dotted, in 11 Del. C. § 1448(a)(5)c.1.A.I.)
+# Title 6's Uniform Commercial Code articles number in parentheses all the way down, two ways:
+#   (1)(a)(i)(A)(1)  older articles, starting one level lower (6 Del. C. § 2A-103(1)(g)(iii)(D)(1))
+#   (a)(1)(A)(i)(I)  revised articles 1, 7, 9 (§ 1-201(b)(10)(A), § 7-503(a)(1)(A))
+# so the deeper levels also take those types; the ladder places each label by sequence.
+types = ["lower", "num", ["lower.", "lower", "upper"], ["num.", "roman_lower"], ["upper.", "upper", "roman_upper"],
+         ["roman_upper.", "num"]]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause", "item"]
+
+[DE.code.containers]
+# div#TitleHead lines seen on titles 1, 6, 11, 16, 31: h1 "TITLE N", the title name, h2 "SUBTITLE I" + h3 name
+# (title 6) or a bare part name (title 11), h3 "CHAPTER 30F. Name" or "ARTICLE 2A. Leases" (title 6 UCC),
+# h4 "Subchapter II-A. Name" or "Part 5" + h4 name (UCC).
+# Title, subtitle and part-name lines stay cross headings: they repeat on every page, and as containers they
+# would nest the chapters one level down, where the build's join of a chapter's pages does not reach.
+chapter    = { match = '^CHAPTER\s+(?P<num>\d+[A-Z]?)\..*$', tag = "chapter", rank = 3, id = "ch{num}", heading = "next" }
+article    = { match = '^ARTICLE\s+(?P<num>\d+[A-Z]?|[A-Z])\..*$', tag = "article", rank = 3, id = "art{num}", heading = "next" }
+subchapter = { match = '^Subchapter\s+(?P<num>[IVXL]+(?:-[A-Z])?)\..*$', tag = "subchapter", rank = 4, id = "sch{num}", heading = "next" }
+uccpart    = { match = '^Part\s+(?P<num>\d+)$', tag = "part", rank = 4, id = "pt{num}", heading = "next" }   # "Part 5" / "Default"
+
+[DE.code.sections]
+# "§ 101. Designation and citation of Code." / "§ 101A. ..." / "§ 1-101. ..." (UCC, title 6) /
+# "§§ 111-115. [Reserved.]" / "§§ 6-101 — 6-111. ..." (title 6 art. 6, repealed) / "§ A-101." (title 6 art. A)
+match = '^§§?\s*(?P<num>(?:[A-Z]-)?\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*(?:\s*(?:-|–|—|to|,)\s*(?:[A-Z]-)?\d+[A-Za-z]*(?:[-.]\d+[A-Za-z]*)*)?)\.\s*(?P<heading>.*)$'
+bold  = true                                  # matched against the opening run (div.SectionHead)
+scope = "title"                               # /us-de/code/t1/s101
+versions = '\[Effective'                      # "§ 2101. Purposes ... [Effective until Feb. 1, 2027]." then
+                                              # "§ 2101. ... [Effective Feb. 1, 2027].": two versions, kept as s2101, s2101_v2
+
+[DE.code.notes]
+# the history credit ("1 Del. C. 1953, § 101; 49 Del. Laws, c. 220, § 1;"): the only loose text in a section
+sourceCredit = { class = "loose", match = '^(?![A-Z]\. [A-Z])' }   # any loose run but a group heading
+# a loose "A. In General" / "B. Default by Lessor" is a group heading between sections: it ends the open
+# section (or its credit) and stands as a cross heading
+close = [{ class = "loose", match = '^[A-Z]\. [A-Z]' }]
+
+# ---------------------------------------------------------------- Delaware Constitution of 1897
+# constitution/index.shtml lists one page per article: constitution-01.shtml (preamble) ... -19.shtml.
+# (Two index links point at .html twins -- constitution-03.html, -04.html; the pattern takes .shtml only.)
+# Article page: div.row holds the breadcrumb and h2 "ARTICLE I. BILL OF RIGHTS" (+ empty prev/next buttons);
+# each section is p.section-label "§ 1. Freedom of religion." then <p> text, then the history credit as bare
+# <a>/<span> runs directly in div#content (loose). Ids: /us-de/const/t1897/a1/s1.
+[DE.const]
+inherit = "DE.code"
+replace = ["containers", "html", "sections", "ladder"]
+name    = "Delaware Constitution of 1897"
+doc     = "/us-de/const"
+item    = ""
+items   = ["1897"]                             # one document; the item only names the files and the id
+index_file = "constitution-{item}.html"
+links   = 'href="(constitution-\d+\.shtml)#'      # 01 (preamble) is linked at #P6_47, the rest at #TopOfPage
+save_as = "name"                               # flat folder, unique names: plain file names (overrides DE.code's "path")
+layers  = [ { name = "current", url = "https://delcode.delaware.gov/constitution/index.shtml" } ]
+dir     = "const"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1897"
+]
+
+[DE.const.html]
+root     = "div#content"
+blocks   = ["p"]
+headings = ["h2"]
+opening  = ["p.section-label"]                 # the whole "§ 1. Freedom of religion." line
+loose    = ["div#content", "div.col-xs-24", "div.indent-2"]   # history credits: bare links between the <p>s
+                                               # (div.indent-2 wraps a few multi-paragraph sections, credit inside)
+drop     = ["span.breadcrumb"]                 # "The Delaware Constitution" back link
+
+[DE.const.ladder]
+types = ["lower", "num", "lower.", "num.", "upper."]   # unconfirmed beyond (a)(1): article I has no labels
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[DE.const.containers]
+schedule = { match = '^(?P<heading>SCHEDULE)$', tag = "level", rank = 2, id = "schedule", heading = "self" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article  = { match = '^ARTICLE\s+(?P<num>[IVXL]+[A-Z]?)\.\s*.*$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "next" }
+
+[DE.const.sections]
+match = '^§\s*(?P<num>\d+[A-Z]?)(?:\.\s*|\s+)(?P<heading>.*)$'   # art. III "§ 18 Approval ..." lacks its period
+bold  = true                                   # matched against the opening run (p.section-label)
+scope = "container"                            # numbers restart per article

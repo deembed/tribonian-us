@@ -1,0 +1,122 @@
+# ---------------------------------------------------------------- Montana Code Annotated (MCA)
+# Published by the Legislative Services Division at mca.legmt.gov (leg.mt.gov 302s there); "Montana Code
+# Annotated 2025"; the printed version prevails (footer disclaimer). Not official per AALL; no copyright claimed.
+# Site layout (per-section pages only; no whole-chapter, whole-part or print view found on the index pages):
+#   bills/mca/index.html                                        title list: title_0010/chapters_index.html
+#   bills/mca/title_0010/chapters_index.html                    chapters:   chapter_0010/parts_index.html
+#   bills/mca/title_0010/chapter_0010/parts_index.html          parts:      part_0010/sections_index.html
+#   bills/mca/title_0010/chapter_0010/part_0010/sections_index.html
+#                                                               sections:   section_0010/0010-0010-0010-0010.html
+# Folder numbers are the label x 10 (title 1 -> 0010, section 1-1-101 -> part 0010 / section 0010), leaving
+# room for inserted units; the constitution is "title" 0000 with article_0010 ... article_0200 (Transition
+# Schedule) and article_000p (Preamble).
+# Pages carry an F5 bot-defence script (/TSPD/...) in <head>; the index pages still came back whole.
+#
+# Every section page repeats its title/chapter/part banner; the build joins the repeated chapter and merges the
+# repeated part inside it (same identifier), so no carry = true is needed.
+[MT.mca]
+name    = "Montana Code Annotated"
+doc     = "/us-mt/mca"                        # /us-mt/mca/t1/s1-1-101/1/a
+fetch   = "index"
+# items are title labels (1, 15, 90); "%03d0" turns 1 into the site folder 0010 (label x 10).
+item    = "%03d0"
+index_file = "title_{item}.html"
+layers  = [ { name = "current", url = "https://mca.legmt.gov/bills/mca/title_{item}/chapters_index.html" } ]
+# title page -> chapter part lists -> part section lists -> section pages
+links   = ['href="(\./chapter_[0-9a-z]{4}[a-z]?/parts_index\.html)"',
+           'href="(\./part_[0-9a-z]{4}[a-z]?/sections_index\.html)"',
+           'href="(\./section_[0-9a-z]{4}[a-z]?/[0-9a-z-]+\.html)"']
+save_as = "url"                               # every list page is named parts_index / sections_index: name
+                                              # local files from the whole resolved URL path
+title_id = ['^0*(\d+)0$', 't\1']             # folder 0010 -> t1, 0450 -> t45, 0000 -> t0 (constitution)
+family  = "html-paragraphs"
+terms   = "no copyright claimed (AALL); printed version prevails"
+# title name from the title page: <h1 class="chapter-title-title">TITLE 1. GENERAL LAWS AND DEFINITIONS</h1>
+# (the constitution's page has "THE CONSTITUTION OF THE STATE OF MONTANA" in the same element)
+title   = { name = "h1.chapter-title-title" }
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (53) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "5", "7", "10", "13", "15", "16", "17", "18", "19", "20", "22", "23", "25", "26", "27", "28",
+  "30", "31", "32", "33", "35", "37", "39", "40", "41", "42", "44", "45", "46", "47", "49", "50", "52", "53",
+  "60", "61", "67", "69", "70", "71", "72", "75", "76", "77", "80", "81", "82", "85", "87", "90"
+]
+
+[MT.mca.html]
+# A section page (one section per page):
+#   div.mca-content > h1 "Montana Code Annotated 2025"
+#     div.section-header > h4.section-title-title "TITLE 1. GENERAL ..."  h3.section-chapter-title "CHAPTER 1. ..."
+#                          h2.section-part-title "Part 1. Meaning of Law"  h1.section-section-title "Definition Of Law"
+#     div.section-doc > div.section-content > p.line-indent ...   the law: first p opens with
+#         <span class="catchline"><span class="citation">1-1-101</span>.&emsp;Definition of law.</span> text
+#     div.history-doc > div.history-content > p.line-indent "<span class=header>History:</span> En. ..."
+# Paragraph lines are p.line-indent: "(4)<TAB>(a) ..." (two labels on one line), "(b)<TAB>...".
+root     = "div.mca-content"
+blocks   = ["p", "h2", "h3"]
+headings = ["h2", "h3"]                       # chapter and part headings (repeated on every section page)
+opening  = ["span.catchline"]
+# h1 "Montana Code Annotated 2025": the edition banner; h4: the title banner (the title heading comes from the
+# title page); h1.section-section-title: the catchline again in Title Case ("Definition Of Law"). Furniture.
+drop     = ["h1", "h4"]
+
+[MT.mca.ladder]
+# MCA numbering: (1) (a) (i) (A) (I)
+types = ["num", "lower", "roman_lower", "upper", "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[MT.mca.containers]
+# "CHAPTER 1. GENERAL PROVISIONS", "Part 1. Meaning of Law" (heading = "self": number and name on one line)
+chapter = { match = '^(?P<heading>CHAPTER\s+(?P<num>\d+[A-Z]?)\.\s.*)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
+part    = { match = '^(?P<heading>Part\s+(?P<num>\d+)\.\s.*)$', tag = "part", rank = 3, id = "pt{num}", heading = "self" }
+
+[MT.mca.sections]
+# catchline "1-1-101.<emsp>Definition of law." -- title-chapter-part+section; number carries the chapter.
+# Letter-suffixed chapters (UCC 30-9A-101) allowed but not yet seen in a fetch. Placeholders: "1-1-210 through 1-1-213 reserved." / "1-13-104 reserved." (no period after the number)
+match = '^(?P<num>\d+-\d+[A-Z]?-\d+[A-Z]?(?:\s+through\s+\d+-\d+[A-Z]?-\d+[A-Z]?)?)(?:\.\s+|\s+(?=reserved))(?P<heading>.*)$'
+bold  = true                                  # matched against span.catchline
+scope = "title"
+# effective-date variants: "90-5-101. (Temporary) Definitions." then "90-5-101. (Effective July 1, 2029) Definitions."
+versions = '\((?:Temporary|Effective[^)]*|Terminates[^)]*)\)'
+# compacts set out in one section (90-5-201 Western Interstate Nuclear Compact): "Article II.<emsp>The Board"
+# lines, each restarting (1)(2)...; the article is a level inside the section (/s90-5-201/artII/1)
+group    = '^Article\s+(?P<num>[IVXL]+)\.\s'
+group_id = "art{num}"
+
+[MT.mca.notes]
+# "History: En. Sec. 5150, Pol. C. 1895; ..." (div.history-doc) after each section
+sourceCredit = '^History:'
+
+[MT.const]
+# The 1972 Constitution, same site: title_0000 -> article_XXXX/parts_index.html (one "Part II. DECLARATION OF
+# RIGHTS" entry per article, repeating the article name) -> sections_index -> section pages. A section page has the
+# statutes' markup: h3 "ARTICLE II. DECLARATION OF RIGHTS", h2 "Part II. DECLARATION OF RIGHTS", catchline
+# "Section<ensp>4.<emsp>Individual dignity." Most sections carry no History line. One item: 0 (folder 0000 -> t0).
+inherit = "MT.mca"
+replace = ["containers", "sections"]
+name    = "Constitution of the State of Montana"
+doc     = "/us-mt/const"
+links   = ['href="(\./article_\d{3}[0-9a-z]/parts_index\.html)"',
+           'href="(\./part_[0-9a-z]{4}[a-z]?/sections_index\.html)"',
+           'href="(\./section_[0-9a-z]{4}[a-z]?/[0-9a-z-]+\.html)"']
+items   = ["0"]
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "0"
+]
+
+[MT.const.containers]
+# sections = "here": section numbers restart per article, ids hang off the article (/us-mt/const/t0/aII/s4).
+# PREAMBLE and TRANSITION SCHEDULE (article_000p, article_0200) are unnumbered articles.
+article  = { match = '^(?P<heading>ARTICLE\s+(?P<num>[IVXL]+)\.\s.*)$', tag = "article", rank = 2, id = "a{num}", heading = "self", sections = "here" }
+preamble = { match = '^(?P<heading>PREAMBLE)$', tag = "article", rank = 2, id = "preamble", heading = "self", sections = "here" }
+schedule = { match = '^(?P<heading>TRANSITION SCHEDULE)$', tag = "article", rank = 2, id = "schedule", heading = "self", sections = "here" }
+# "Part II. DECLARATION OF RIGHTS": the one part of each article, named like it
+part     = { match = '^(?P<heading>Part\s+(?P<num>[IVXL]+|\d+)\.\s.*)$', tag = "part", rank = 3, id = "pt{num}", heading = "self" }
+
+[MT.const.sections]
+match = '^Section\s+(?P<num>\d+[A-Za-z]?)\.\s+(?P<heading>.*)$'
+bold  = true
+scope = "container"

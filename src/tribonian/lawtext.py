@@ -437,7 +437,7 @@ def fetch_spec(key):
     if p[0] == "co-crs":
         return ("state", "CO", "crs", p[1].split("-")[0])
     if p[0] == "co-const":
-        return ("state", "CO", "crs", "00")
+        return ("state", "CO", "const", "")
     if p[0] == "co-ccr":
         return ("state", "CO", "ccr", p[1])
     if p[0] == "const":

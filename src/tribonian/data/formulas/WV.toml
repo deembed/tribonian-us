@@ -1,0 +1,132 @@
+# WV.toml -- West Virginia: the Code of West Virginia and the Constitution, from code.wvlegislature.gov
+# (the Legislature's WordPress site; "online copies are not the official versions").
+#
+# Site shape (probes 2026-10-26, build/probe/code.wvlegislature.gov/):
+#   /{ch}/          chapter page: links to its articles /{ch}-{art}/ (no law text)
+#   /{ch}-{art}/    article page: links to its sections /{ch}-{art}-{sec}/ (no law text); a
+#                   "Display all Article N Sections" button loads the whole article by AJAX
+#                   (POST wp-admin/admin-ajax.php, action=get_all_sections)
+#   /{ch}-{art}-{sec}/  one section: h4 "§N. Heading." + <p> paragraphs
+#   /west-virginia-constitution  the whole constitution on one page (WV.const, below)
+#
+# ---------------------------------------------------------------- Code of West Virginia
+# Item = a chapter ("1", "29A"). Walk: /{ch}/ (articles) -> /{ch}-{art}/ (sections) -> /{ch}-{art}-{sec}/.
+# One request per section (~1 s each with the fetcher's pause): slow for the whole Code. The site can also return
+# a whole article in one request -- POST wp-admin/admin-ajax.php action=get_all_sections&chp=1&art=1, JSON
+# {"html": ...} (theme javascript.js, get_all_sections) -- which the fetcher cannot do yet (WV.status.md).
+# Section page: inside div#results-box, div.art-head "ARTICLE 1. LIMITS AND JURISDICTION." then
+# div.sectiontext: h4 "§1-1-5. West Virginia coordinate systems; ..." and one <p> per paragraph. The site
+# carries no history/source lines.
+[WV.code]
+name    = "Code of West Virginia"
+doc     = "/us-wv/code"                       # /us-wv/code/t1/s1-1-5/a/1 (t = chapter)
+fetch   = "index"
+item    = ""                                  # chapter as written: 1, 5A, 29A
+index_file = "{item}.html"                    # the chapter's article list
+links   = ["href='(/\\d+[A-Za-z]*-\\d+[A-Za-z]*/)'",               # chapter page -> article pages (list level, _idx/)
+           "href='(/\\d+[A-Za-z]*-\\d+[A-Za-z]*-\\d+[A-Za-z]*/)'"]  # article page -> section pages
+save_as = "path"                              # hrefs end in "/": the last path part would be empty
+layers  = [ { name = "current", url = "https://code.wvlegislature.gov/{item}/" } ]
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (139) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "5A", "5B", "5C", "5D", "5E", "5F", "5G", "5H", "6", "6A", "6B", "6C", "6D", "7", "7A",
+  "8", "8A", "9", "9A", "10", "11", "11A", "11B", "12", "13", "14", "15", "15A", "16", "16A", "16B", "17", "17A",
+  "17B", "17C", "17D", "17E", "17F", "17G", "17H", "18", "18A", "18B", "18C", "19", "20", "21", "21A", "22",
+  "22A", "22B", "22C", "23", "24", "24A", "24B", "24C", "24D", "24E", "24F", "25", "26", "27", "28", "29", "29A",
+  "29B", "29C", "30", "31", "31A", "31B", "31C", "31D", "31E", "31F", "31G", "31H", "31I", "31J", "32", "32A",
+  "32B", "33", "34", "35", "35A", "36", "36A", "36B", "37", "37A", "37B", "37C", "38", "39", "39A", "39B", "40",
+  "41", "42", "43", "44", "44A", "44B", "44C", "44D", "45", "46", "46A", "46B", "47", "47A", "47B", "48", "49",
+  "49A", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "60", "60A", "60B", "61", "62", "63", "64"
+]
+
+[WV.code.html]
+root     = "div#results-box"                  # chapter selector, search form, sidebar and footer are outside it
+blocks   = ["p", "h4"]
+headings = ["div.art-head"]                   # the article line, repeated on every section page
+opening  = ["h4"]                             # the whole "§1-1-5. Heading." line
+verbatim = ["table"]                          # districting tables (§1-2-1, 1-2-2: county/tract/block populations)
+# site furniture only: "Article 2 / All Articles / Article 3A" links above, and the
+# "Previous §1-1-4 ... / §1-1-5 ... / Next §1-1-6 ..." strip below (repeats the section's own h4)
+drop     = ["div.art-prev-next-box", "div.secdiv"]
+
+[WV.code.ladder]
+types = ["lower", "num", "upper", "roman_lower", "roman_upper"]   # (a)(1)(A)(i)(I), as the US Code
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[WV.code.containers]
+# "ARTICLE 1. LIMITS AND JURISDICTION." / "ARTICLE 3A. ..." -- name on the same line, so the whole line is the
+# num text (no heading = "next": the next block is the section's h4)
+article = { match = '^ARTICLE\s+(?P<num>\d+[A-Za-z]*)\.', tag = "article", rank = 2, id = "a{num}" }
+
+[WV.code.sections]
+match = '^§\s*(?P<num>\d+[A-Za-z]*-\d+[A-Za-z]*-\d+[A-Za-z]*)\.\s*(?P<heading>.*)$'
+bold  = true                                  # matched on the opening run (the h4)
+scope = "title"                               # /us-wv/code/t29A/s29A-3-19
+
+[WV.code.notes]
+# the site carries no history lines, except on repealed sections: "Repealed." then "Acts, 1971 2nd Ex. Sess., Ch. 60."
+sourceCredit = '^Acts,\s+\d{4}\b'
+
+# ---------------------------------------------------------------- Constitution of West Virginia
+# One page. Inside div.entry-content:
+#   h3 (no class)        "As Ratified in 1872 and Subsequently Amended" (malformed: an h2 "ARTICLES" sits inside it)
+#   p                    the two link lists (articles, amendments): a table of contents
+#   h2.wvc-article       ARTICLE I. ... ARTICLE XIV (dot sometimes missing); Preamble; AMENDMENTS (TOC header);
+#                        AMENDMENTS TO THE CONSTITUTION (the bond amendments); CONSTITUTIONAL AMENDMENTS SUBMITTED
+#                        (a ballot history by year)
+#   h3.wvc-section       a section's catchline -- it comes BEFORE the section's "§N." paragraph
+#   p                    "§1. The State of West Virginia is ..." -- plain text, the label not bold, the body
+#                        continuing in the same paragraph
+#   h4.wvc-subsection    "Subsection A – Appropriation Bills" inside art. VI, sec. 51 and art. X, sec. 1b:
+#                        cross headings inside a section (not containers, so the section stays open)
+#   blockquote.editor-notes > p   "[Editor’s note. – ...]" after a section
+# Article names are not on the page except in the TOC link list (the first section's catchline often repeats it).
+[WV.const]
+name    = "Constitution of West Virginia"
+doc     = "/us-wv/const"                     # /us-wv/const/a3/s7
+fetch   = "template"
+url     = "https://code.wvlegislature.gov/{item}"
+items   = ["west-virginia-constitution"]     # always the one page (as the item, so the file name carries {item})
+file    = "{item}.html"
+encoding = "utf-8"
+family  = "html-paragraphs"
+
+[WV.const.html]
+root     = "div.entry-content"               # the h1 page title, menus, search form and sidebar sit outside it
+blocks   = ["p"]
+headings = ["h2.wvc-article", "h3.wvc-section", "h3:noclass", "h4.wvc-subsection"]
+opening  = []                                # nothing is bold: the section label is plain text
+drop     = []
+
+[WV.const.ladder]
+# Art. VI sec. 51 numbers (1)..(11) then (a)..(c) inside; amendments use (1)(2) and (a)(b)(c)
+types = ["num", "lower", "roman_lower"]
+tags  = ["subsection", "paragraph", "subparagraph"]
+
+[WV.const.containers]
+# heading = "self" everywhere: the page gives no article names, and the h3 after "ARTICLE I." is section 1's
+# catchline, which must not be taken as the article's name. The whole line is kept as the heading text.
+front     = { match = '^(?P<heading>As Ratified in 1872 and Subsequently Amended.*)$', tag = "level", rank = 2, id = "front", heading = "self" }
+toc       = { match = '^(?P<heading>AMENDMENTS)$', tag = "level", rank = 2, id = "toc", heading = "self" }   # the TOC's second header
+preamble  = { match = '^(?P<heading>Preamble)$', tag = "level", rank = 2, id = "preamble", heading = "self" }
+article   = { match = '^(?P<heading>ARTICLE\s+(?P<num>[IVXL]+)\.?)$', tag = "article", rank = 2, id = "a{num_arabic}", heading = "self" }
+amendments = { match = '^(?P<heading>AMENDMENTS TO THE CONSTITUTION)$', tag = "level", rank = 2, id = "amendments", heading = "self" }
+submitted = { match = '^(?P<heading>CONSTITUTIONAL AMENDMENTS SUBMITTED)$', tag = "level", rank = 2, id = "submitted", heading = "self" }
+
+[WV.const.sections]
+# "§1. The State ..." / "§1a. Notwithstanding ..." / "§6. Repealed." -- not bold, so matched on the paragraph text.
+match = '^§\s*(?P<num>\d+[a-z]?(?:-[a-z])?)\.'
+bold  = false                                # the rest of the paragraph after the match is the section's body
+heading_before = { class = "wvc-section" }   # the h3 catchline before "§N." is that section's heading
+scope = "container"                          # numbers restart per article: /us-wv/const/a3/s7
+toc   = ['^Article I\. Relations to', '^Judicial Amendment\.']   # the two link-list paragraphs at the top
+
+[WV.const.notes]
+editorialNote = ['^\[Editor’s note', "^\\[Editor's note"]
+# an h3 catchline NOT followed by "§N." (the unnumbered bond amendments, the ballot-history years) ends the
+# editor's note before it and stands as a cross heading in the container
+close = [{ class = "wvc-section" }]

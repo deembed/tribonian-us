@@ -1,0 +1,102 @@
+# ---------------------------------------------------------------- New Hampshire Revised Statutes Annotated
+# Published by the General Court's Office of Legislative Services at gc.nh.gov (informational, not the
+# official bound RSA). Pages: rsa/html/nhtoc.htm lists titles -> NHTOC/NHTOC-{TITLE}.htm lists chapters
+# -> one whole-chapter file /rsa/html/{TITLE}/{CH}/{CH}-mrg.htm (all sections in one page).
+# Markup of a -mrg page (no classes; custom tags):
+#   <center><h1>TITLE I<br>THE STATE AND ITS GOVERNMENT</h1></center>    title banner, repeated per chapter
+#   <center><h2>Chapter 1<br>STATE BOUNDARIES</h2></center>             the chapter
+#   <center><h2>Seaward Limits of Jurisdiction</h2></center>            an unnumbered subdivision
+#   <center><h3>Section 1:1</h3></center>                               anchor line repeating the number
+#   &nbsp;&nbsp;&nbsp;<b> 1:1 Perambulation of ... &#150;</b>           section number + catchline (bare in body)
+#   <codesect> text <br> I. <br> text <br> II. ... </codesect>          the law text, lines split by <br>
+#   <sourcenote><p><b>Source.</b> 2000, 35:1 ...</p></sourcenote>     the source note
+[NH.rsa]
+name    = "New Hampshire Revised Statutes Annotated"
+doc     = "/us-nh/rsa"                        # /us-nh/rsa/tI/s1:14/I/a
+fetch   = "index"
+item    = ""                                  # titles are roman numerals, some suffixed: I, XIX-A, XXXIV-A
+index_file = "NHTOC-{item}.htm"
+# The title page NHTOC-I.htm links one chapter TOC page per chapter (NHTOC-I-1.htm, NHTOC-I-1-A.htm,
+# NHTOC-X-126-AA.htm); that page links the merged chapter file ../I/1/1-mrg.htm. The rewrite goes straight
+# from the chapter TOC link to the merged file, so the chapter TOC pages are never fetched.
+links   = 'href="(NHTOC-[IVXLC]+(?:-[A-Z]+)?-\d[^"/]*\.htm)"'
+rewrite = ['NHTOC/NHTOC-([IVXLC]+(?:-[A-Z]+)?)-(\d+(?:-[A-Z]+)?)\.htm$', '\1/\2/\2-mrg.htm']
+layers  = [ { name = "current", url = "https://gc.nh.gov/rsa/html/NHTOC/NHTOC-{item}.htm" } ]
+empty_index = "page"                          # a wholly repealed title (IV): its index page links no chapters and
+                                              # is itself the title's text ("Title IV Repealed ...")
+encoding = "cp1252"                           # &#150; (en dash) and Windows quotes; pages carry no charset
+family  = "html-paragraphs"
+terms   = "unverified (public records; no reuse terms stated)"
+# title name from the index page: the h2 after "Table of Contents", "XI: HOSPITALS AND SANITARIA"; a wholly
+# repealed title's page (IV) has the chapter-page banner <h1>TITLE IV<br>ELECTIONS</h1>
+# instead. One tag-less selector takes either (first match in document order; the <center> around the h2
+# has the same text; the $ keeps <body>, whose text also starts "TITLE IV", from matching).
+title   = { name = ":matches(^(?:[IVXLC]+(?:-[A-Z])?:|TITLE [IVXLC]+(?:-[A-Z])?[A-Z ]+$))" }
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (67) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII",
+  "XVIII", "XIX", "XIX-A", "XX", "XXI", "XXII", "XXIII", "XXIV", "XXV", "XXVI", "XXVII", "XXVIII", "XXIX", "XXX",
+  "XXXI", "XXXII", "XXXIII", "XXXIII-A", "XXXIV", "XXXIV-A", "XXXV", "XXXVI", "XXXVII", "XXXVIII", "XXXIX", "XL",
+  "XLI", "XLII", "XLIII", "XLIV", "XLV", "XLVI", "XLVII", "XLVIII", "XLIX", "L", "LI", "LII", "LIII", "LIV", "LV",
+  "LVI", "LVII", "LVIII", "LIX", "LX", "LXI", "LXII", "LXIII", "LXIV"
+]
+
+[NH.rsa.html]
+# The section's catchline <b> and a repealed chapter's "[Repealed by ...]" line sit as bare text/inline runs
+# directly in <body>: loose makes each run between block children its own block. NH's custom/presentational
+# tags are block children (run breaks), not inline.
+blocks   = ["p"]
+loose    = ["body"]
+block_tags = ["center", "codesect", "sourcenote"]
+# Tables inside <codesect>: statutory forms (5-C:? Certificate of Stillbirth) and UCC definition indexes
+# (382-A:2-103 "Acceptance". Section 2-606. ...): one text item each, cells joined by spaces.
+verbatim = ["table"]
+# <center> is the heading block: it holds the h2 chapter / group headings, and also bare bracketed notes
+# ("[RSA 21-P:46-a repealed by ... ]" before a section; "<center><p>[Paragraph V effective January 1,
+# 2027.]</p></center>" inside a section's text). Blocks inside it count as part of it.
+headings = ["center"]
+opening  = ["b"]
+split_br = ["codesect"]                       # each <br>-separated line of the law text is its own block
+# h1: the title banner repeated at the top of every chapter page;
+# h3: "Section 1:1" anchor lines that only repeat the number in the bold catchline that follows.
+# Neither is law text; both are counted in the verify report.
+drop     = ["h1", "h3"]
+
+[NH.rsa.ladder]
+# RSA numbering: I. (a) (1) (A) (i); roman paragraph numbers dotted, often alone on their <br> line
+# UCC chapter 382-A (title XXXIV-A) keeps the UCC's own numbering: (1)(a)(i)(A) in the older articles,
+# (a)(1)(i) / (a)(1)(A)(i) in the revised ones, (1)(A) in article 9 transition sections. So level 0 also
+# takes (1), level 1 also (A), levels 2 and 3 also (i).
+types = [["roman_upper.", "num"], ["lower", "upper"], ["num", "roman_lower"], ["upper", "roman_lower"], ["roman_lower", "upper"]]
+tags  = ["subsection", "paragraph", "subparagraph", "clause", "subclause"]
+
+[NH.rsa.containers]
+# "Chapter 21-P<br>DEPARTMENT OF SAFETY" reads "Chapter 21-P DEPARTMENT OF SAFETY"; suffixes may double
+# (126-AA). heading = "self": the whole line is the heading.
+chapter = { match = '^(?P<heading>Chapter\s+(?P<num>\d+(?:-[A-Z]+)?)(?:\s.*)?)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self" }
+
+[NH.rsa.sections]
+# the bold catchline: "1:14 Extent. –" / "21-P:7-a Repealed by 2000, 35:2, I, eff. Jan. 1, 2001. –"
+# UCC chapter 382-A keeps the article in the number: "382-A:2A-507 Lessee's Damages ..."
+match = '^(?P<num>\d+(?:-[A-Z]+)?:(?:\d+[A-Z]?-)?\d+(?:-[a-z]+)?)\s+(?P<heading>.*)$'
+bold  = true
+scope = "title"                               # section numbers carry the chapter: /us-nh/rsa/tI/s1:14
+# effective-date variants: "[RSA 5-C:41 effective until Sept. 8, 2026; see also RSA 5-C:41 set out below.]",
+# "[Paragraph V effective January 1, 2027.]" on their own line before the repeated section / paragraph
+versions = '(?i)\[[^\]]*\beffective\b'
+
+[NH.rsa.notes]
+sourceCredit  = '^Source\.'
+editorialNote = ['^Revision note\.', "^Editor's note", '^Effective Date note', '^Contingent', '^Applicability',
+                 # a wholly repealed chapter / title page: "Chapter 150 Repealed – Entire Chapter was repealed",
+                 # "[Repealed by 1957, ...]"; for title IV the note sits on the title itself (no chapter)
+                 { match = '^(?:Title|Chapter)\s+\S+\s+Repealed\b', topic = "repeal" }]
+# Unnumbered group headings inside a chapter ("Seaward Limits of Jurisdiction", "Part Statewide Threat
+# Notification System for Schools Statewide ...") end the previous section and its source note and stand
+# as cross headings (they have no number to make a container id from).
+# A centered "[Paragraph ... effective ...]" line inside the text is not a group heading: it stays in the
+# section as a cross heading over the paragraph version it introduces. "[RSA ...]" lines (about the next
+# section) do close the previous section.
+close = [{ heading = true, match = '^(?:[^\[]|\[RSA)' }]

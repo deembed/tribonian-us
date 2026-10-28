@@ -1,0 +1,111 @@
+# ---------------------------------------------------------------- Wyoming Statutes
+# Legislative Service Office, wyoleg.gov. The site itself is a JavaScript app; the text is published only as
+# one PDF per title (unannotated, "Title - 1.docx" made with Acrobat PDFMaker): statutes/compress/title01.pdf
+# ... title42.pdf, zero-padded; Title 34.1 (UCC) is a decimal title (URL to be confirmed by probe); the
+# constitution is "Title 97": statutes/compress/title97.pdf. The folder listing statutes/compress/ is 403.
+# No official HTML route found (wyoleg.gov's statute browser renders these same PDFs), so: fetch = template,
+# transform = "pdf-text". Not official per AALL; the annotated print set is LexisNexis's.
+#
+# pdftotext -layout of a title (title01.pdf, 366 pages): no running heads, no page numbers, no footers --
+# every line is law text. Shape:
+#                   TITLE 1 - CODE OF CIVIL PROCEDURE
+#          CHAPTER 1 - GENERAL PROVISIONS AS TO CIVIL ACTIONS          (centred: indent 1..30, varies)
+#                      ARTICLE 1 - IN GENERAL
+#        1-1-101.   Provisions to be liberally construed.             (indent ~5; long catchlines wrap to col 0)
+#   The Code of Civil Procedure and ...                               (body at column 0, continuation at col 0)
+#        (a)   As used in this section:                               (labels at ~5 / 10 / 15 / 20 spaces)
+#             (i) "Actor" means ...
+# A paragraph's continuation lines are always at column 0 and every paragraph start is indented or follows a
+# blank line, so join = "indent" rebuilds paragraphs exactly. Indents are pdftotext's approximations (6, 7,
+# 11-13, 17, 18 occur), so the ladder reads labels; the indent is only a hint (indent_css).
+[WY.statutes]
+name      = "Wyoming Statutes"
+doc       = "/us-wy/statutes"                 # /us-wy/statutes/t1/ch1/s1-1-109/c/i/A
+fetch     = "template"
+# items: 1 .. 42 and 34.1; "%02d" pads the whole part only (1 -> 01, 34.1 -> 34.1)
+item      = "%02d"
+url       = "https://wyoleg.gov/statutes/compress/title{item}.pdf"
+file      = "title{item}.pdf"
+transform = "pdf-text"                         # uslm/transforms/pdf_text.py
+family    = "html-paragraphs"
+terms     = "unverified (no notice in the PDFs)"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (43) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
+  "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "34.1", "35", "36", "37",
+  "38", "39", "40", "41", "42"
+]
+
+[WY.statutes.pdf]
+join  = "indent"                               # col-0 lines continue the paragraph above; indented lines start one
+drop  = []                                     # no page furniture in the PDFs (checked: title01, title97)
+
+[WY.statutes.html]
+root       = "div#pdf"                         # the transform's wrapper
+blocks     = ["p"]
+headings   = ["p:centered"]                    # none: center is not set; containers use any = true below
+# pdftotext spaces = pt in the transform's margin-left; labels sit ~5 apart, (a) at 5
+indent_css = { unit = 5, base = 5 }
+
+[WY.statutes.ladder]
+# (a) (i) (A) (I) -- state_law_sources.toml [WY.notes]
+types = ["lower", "roman_lower", "upper", "roman_upper"]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[WY.statutes.containers]
+# Uppercase "TITLE n - NAME", "CHAPTER n - NAME", "ARTICLE n - NAME" lines; number and name on one line.
+# They are ordinary <p> blocks (no centring in the transform), hence any = true. Decimal titles: 34.1.
+title   = { match = '^(?P<heading>TITLE\s+(?P<num>\d+(?:\.\d+)?)\s+-\s.*)$', tag = "title", rank = 1, id = "t{num}", heading = "self", any = true }
+chapter = { match = '^(?P<heading>CHAPTER\s+(?P<num>\d+(?:\.\d+)?[A-Z]?)\s+-\s.*)$', tag = "chapter", rank = 2, id = "ch{num}", heading = "self", any = true }
+# Title 34.1 (UCC): "REVISED ARTICLE 1 - GENERAL PROVISIONS", "ARTICLE 2.A - LEASES", "REVISED ARTICLE - 5 - LETTERS
+# OF CREDIT" (stray dash); then "PART 1." / "PART 2" / "PART 1 -" with the name on the NEXT line (heading taken from
+# the next block, any = true), or "PART 6 - TRANSITION ..." on one line; Article 9 adds "SUBPART 1" the same way.
+# A long part name wraps to a second centred line ("ACT"), which stays as text at the start of the part.
+article = { match = '^(?:REVISED\s+)?ARTICLE\s+(?:-\s+)?(?P<num>\d+(?:\.\d+|\.[A-Z])?[A-Z]?)\s+-\s+(?P<heading>.*)$', tag = "article", rank = 3, id = "a{num}", any = true }
+part    = { match = '^PART\s+(?P<num>\d+)\b[.\s-]*(?P<heading>.*)$', tag = "part", rank = 4, id = "pt{num}", any = true }
+subpart = { match = '^SUBPART\s+(?P<num>\d+)\b[.\s-]*(?P<heading>.*)$', tag = "subpart", rank = 5, id = "spt{num}", any = true }
+
+[WY.statutes.sections]
+# "1-1-101.   Provisions to be liberally construed." / "1-1-123.3. Duties of ski area operators; ..." -- the
+# catchline is not bold (plain text), so bold = false and the match runs on the paragraph; what follows
+# the catchline (when the body has no blank line before it) is the section's body. The catchline ends at
+# the first period after a lower-case letter/digit/paren or "2A" ("W.S." and "U.S." do not end it); repealed
+# sections are all heading: "1-1-110.   Repealed by Laws 1986, ch. 24, § 2."
+match = '^(?P<num>\d+(?:\.\d+)?-\d+(?:\.\d+|\.[A-Z])?[A-Z]?-\d+(?:\.\d+)?[A-Z]?)\.\s+(?P<heading>(?:Repealed|Renumbered)\b.*|.*?(?:[^A-Z.]|\d[A-Z])\.)(?=\s|$)'
+bold  = false
+scope = "title"
+# future text set out after the current one (title 42): "Note: Effective 1/1/2027 this paragraph will read as:" on its
+# own line, then the label again -> the repeat is a version (_v2), not a numbering error
+versions = '^Note: Effective \S+ this (?:section|subsection|paragraph|subparagraph) will read as:'
+# compacts quoted in one section (21-16-201 Western Regional Higher Education Compact): centred "Article I" lines,
+# each restarting (a)(b)...; the article is a level inside the section (/s21-16-201/artIV/a)
+group    = '^Article\s+(?P<num>[IVXL]+)$'
+group_id = "art{num}"
+
+# ---------------------------------------------------------------- Wyoming Constitution (statutes Title 97)
+#                 TITLE 97 - WYOMING CONSTITUTION
+#                ARTICLE 1 - DECLARATION OF RIGHTS
+#     Article 1, Section 1   Power inherent in the people.
+# Sections are numbered within articles (scope = container). The signers' list closes the document.
+[WY.const]
+inherit   = "WY.statutes"
+name      = "Constitution of the State of Wyoming"
+doc       = "/us-wy/const"                     # /us-wy/const/a1/s1
+item      = "%02d"                             # the only item: 97
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (1) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "97"
+]
+
+[WY.const.containers]
+title   = { match = '^(?P<heading>TITLE\s+97\s+-\s.*)$', tag = "title", rank = 1, id = "", heading = "self", any = true }
+article = { match = '^(?P<heading>ARTICLE\s+(?P<num>\d+)\s+-\s.*)$', tag = "article", rank = 2, id = "a{num}", heading = "self", any = true }
+
+[WY.const.sections]
+match = '^(?P<n>Article\s+\d+,\s+Section\s+(?P<num>\d+[A-Za-z]?))\s+(?P<heading>.*?[^A-Z.]\.)(?=\s|$)'
+bold  = false
+scope = "container"

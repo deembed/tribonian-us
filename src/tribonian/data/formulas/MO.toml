@@ -1,0 +1,134 @@
+# MO.toml -- Missouri: Revised Statutes (MO.rsmo) and Constitution (MO.const), from the Revisor of Statutes
+# (revisor.mo.gov).
+#
+# Site layout (from the probes, round 4):
+#   Home.aspx                         links OneChapter.aspx?chapter=N for all 468 chapters (plain numbers)
+#   OneChapter.aspx?chapter=N         the chapter's table of contents only
+#   OneChapter.aspx?chapter=N&idx=v   "View entire chapter": a 2-second meta-refresh "Loading..." stub that
+#                                     redirects to ViewChapter.aspx?chapter=N -- so fetch ViewChapter directly
+#   ViewChapter.aspx?chapter=I&constit=y   the whole constitution article (probed: 39 sections, all text)
+#   PageSelect.aspx?section=1.010&bid=42   one section (same markup as the chapter view; not used)
+#
+# Markup (identical for statutes and constitution). The page embeds a second <body lang="EN-US"> inside the
+# content div; everything outside div.lr-fl-l-all (the first one) is site furniture. Per section:
+#   <div class="norm">
+#     <p class="norm"><span class="bold">1.010.  Heading — more heading. — </span>1.  Text ...</p>
+#     <p class="norm">  2.  Text ...</p>                         law text, one <p> per numbered paragraph
+#     <div class="foot">                                          the footnotes
+#       <p class="" title="Footnotes follow">--------</p>         a divider (soft hyphens + dashes)
+#       <p class="norm">(RSMo 1939 § 645, A.L. 1957 p. 587)</p>  history (statutes) / "Source: ..." (constitution)
+#       <p class="norm">Prior revisions: 1929 § 645 ...</p>
+#       <p class="norm">(1953) Case note ...</p>                  annotations, one per case
+#     </div>
+#   </div>
+#   <p style="...darkgreen...">----------------- I Section 1 2/27/1945 -----------------</p>   effective-date line
+# There are no title/chapter/article headings in the content: each file is wrapped in one level (wrap).
+
+[MO.rsmo]
+name    = "Revised Statutes of Missouri"
+doc     = "/us-mo/rsmo"                      # /us-mo/rsmo/s1.010/1  (section numbers are unique statewide)
+wrap    = { tag = "chapter", id = "ch{item}" }   # the chapter view has no chapter heading of its own
+fetch   = "template"
+url     = "https://revisor.mo.gov/main/ViewChapter.aspx?chapter={item}"
+edition = "current"                          # the site shows the text in force (sections effective 8/28/2026 included)
+item    = "%d"                               # chapter=1, chapter=143 (no padding)
+file    = "chapter-{item}.htm"               # law/mo/rsmo/chapter-1.htm
+encoding = "utf-8"
+family  = "html-paragraphs"
+terms   = "(c) Missouri Legislature, all rights reserved; Terms of Use 'TBD' (state_law_sources.toml)"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (468) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "1", "2", "3", "7", "8", "9", "10", "11", "12", "14", "18", "21", "23", "26", "27", "28", "29", "30", "31",
+  "32", "33", "34", "36", "37", "40", "41", "42", "43", "44", "46", "47", "48", "49", "50", "51", "52", "53",
+  "54", "55", "56", "57", "58", "59", "60", "61", "64", "65", "66", "67", "68", "70", "71", "72", "77", "78",
+  "79", "80", "81", "82", "84", "85", "86", "87", "88", "89", "90", "91", "92", "94", "95", "96", "98", "99",
+  "100", "103", "104", "105", "106", "107", "108", "109", "110", "115", "116", "122", "127", "128", "130", "135",
+  "136", "137", "138", "139", "140", "141", "142", "143", "144", "145", "146", "147", "148", "149", "150", "151",
+  "152", "153", "154", "155", "160", "161", "162", "163", "164", "165", "166", "167", "168", "169", "170", "171",
+  "172", "173", "174", "175", "176", "177", "178", "180", "181", "182", "183", "184", "185", "186", "188", "189",
+  "190", "191", "192", "193", "194", "195", "196", "197", "198", "199", "201", "203", "204", "205", "206", "207",
+  "208", "209", "210", "211", "213", "214", "215", "217", "219", "221", "226", "227", "228", "229", "230", "231",
+  "233", "234", "235", "236", "237", "238", "241", "242", "243", "244", "245", "246", "247", "248", "249", "250",
+  "251", "252", "253", "254", "255", "256", "257", "258", "259", "260", "261", "262", "263", "264", "265", "266",
+  "267", "268", "269", "270", "271", "272", "273", "274", "275", "276", "277", "278", "280", "281", "285", "286",
+  "287", "288", "290", "291", "292", "293", "294", "295", "300", "301", "302", "303", "304", "305", "306", "307",
+  "311", "312", "313", "314", "315", "316", "317", "318", "319", "320", "321", "322", "323", "324", "325", "326",
+  "327", "328", "329", "330", "331", "332", "333", "334", "335", "336", "337", "338", "339", "340", "341", "342",
+  "343", "344", "345", "346", "347", "348", "349", "350", "351", "352", "353", "354", "355", "356", "357", "358",
+  "359", "360", "361", "362", "364", "365", "367", "368", "369", "370", "371", "374", "375", "376", "377", "378",
+  "379", "380", "381", "382", "383", "384", "385", "386", "387", "388", "389", "390", "391", "392", "393", "394",
+  "400", "402", "403", "404", "407", "408", "409", "411", "413", "414", "415", "416", "417", "419", "421", "425",
+  "426", "427", "428", "429", "430", "431", "432", "433", "434", "435", "436", "441", "442", "443", "444", "445",
+  "446", "447", "448", "451", "452", "453", "454", "455", "456", "459", "460", "461", "469", "470", "471", "472",
+  "473", "474", "475", "476", "477", "478", "479", "482", "483", "484", "485", "486", "487", "488", "490", "491",
+  "492", "493", "494", "506", "507", "508", "509", "510", "511", "512", "513", "514", "515", "516", "517", "521",
+  "522", "523", "524", "525", "526", "527", "528", "529", "530", "531", "532", "533", "534", "535", "536", "537",
+  "538", "540", "541", "542", "543", "544", "545", "546", "547", "548", "549", "550", "551", "552", "556", "557",
+  "558", "559", "560", "561", "562", "563", "564", "565", "566", "567", "568", "569", "570", "571", "572", "573",
+  "574", "575", "576", "577", "578", "579", "589", "590", "595", "600", "610", "620", "621", "622", "625", "630",
+  "631", "632", "633", "640", "643", "644", "650", "660", "680", "700", "701"
+]
+
+[MO.rsmo.html]
+root     = "div.lr-fl-l-all"                 # the first one is the content column (later ones are page footers)
+blocks   = ["p"]                             # p.norm law text and notes, the divider p, the effective-date p
+headings = []                                # no container headings on the page
+opening  = ["span.bold"]                     # "1.010.  Heading. — "
+# A flush-left run after numbered paragraphs ("shall be subject to a civil penalty ...", 1.470) is set as
+# <p class="tiny">&shy;<p>&shy;</p>text</p>: the nested <p> closes the outer one, leaving the text bare in
+# div.norm. loose makes that bare run a block of its own.
+loose    = ["div.norm"]
+
+[MO.rsmo.ladder]
+# RSMo: 1. subsection, (1) subdivision, (a) paragraph, a. subparagraph
+types = ["num.", "num", "lower", "lower."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[MO.rsmo.sections]
+# The heading keeps its trailing " —" (the dash separating it from the text is part of the bold run)
+match = '^(?P<num>\d+\.\d+[A-Z]?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"
+decimal = false                              # the chapter view lists 1.1001..1.1010 after 1.901 (whole-number order),
+                                             # though the chapter TOC lists them after 1.100 (decimal order)
+
+[MO.rsmo.notes]
+# Everything after the divider is notes to the next section. Rule order matters (first match wins).
+note          = [{ match = '^-{4,}$', topic = "footnotes" },                    # the "--------" divider opening div.foot
+                 { match = '^\(\d{4}\)', topic = "annotation" }]                # "(1953) Case ..." one per case
+# "(RSMo 1939 § 645, ...)", "(Adopted November 3, 1992)" / "Source: Const. of 1875" -- a parenthesis whose
+# content is not a short label: law text "(1) The right ..." / "(a)" / "(iv)" and case notes "(1953)" are excluded
+sourceCredit  = ['^\((?![^)\s]{1,4}\))', '^Source:']
+editorialNote = [{ match = '^Prior revisions:', topic = "priorRevisions" },
+                 { match = '^-{5,}\s.*\s-{5,}$', topic = "effectiveDate" }]    # "----- 1.010 8/28/2015 -----" after each section
+
+# ---------------------------------------------------------------- Constitution of Missouri (1945)
+[MO.const]
+inherit = "MO.rsmo"
+name    = "Constitution of Missouri"
+doc     = "/us-mo/const"
+wrap    = { tag = "article", id = "a{item}", rebase = true }  # /us-mo/const/aI/s1: section numbers restart per article
+url     = "https://revisor.mo.gov/main/ViewChapter.aspx?chapter={item}&constit=y"
+item    = ""                                 # roman article numbers, used as given
+items   = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV"]
+file    = "article-{item}.htm"
+dir     = "const"
+
+# catalog: every item (title/chapter/article) this code has, from the publisher's index (14) -- the browse index.
+# Not fetched by default: `tribonian state fetch` still takes the items you name.
+catalog = [
+  "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV"
+]
+
+[MO.const.ladder]
+types = ["num.", "num", "lower", "lower."]
+tags  = ["subsection", "paragraph", "subparagraph", "clause"]
+
+[MO.const.sections]
+# "I Section 1.  Source of political power — ... — " ; numbers may carry a letter: "Section 8(a)", "Section 39(b)"
+match = '^(?P<art>[IVXL]+)\s+Section\s+(?P<num>\d+(?:\(?[a-z]\)?)?)\.\s*(?P<heading>.*)$'
+bold  = true
+scope = "title"                              # section ids move under the article via wrap.rebase
+decimal = false
