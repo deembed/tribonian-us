@@ -348,8 +348,18 @@ def run_db():
                         ("opmap", p_opmap), ("citation-map", p_edges), ("parentheticals", p_parens),
                         ("dockets", p_dockets)):
         table_check(name, probe)
+
+    @check("db:courtindex", "Main database", "dockets by court")
+    def _(c):
+        if "c" not in con or not loaded("dockets"):
+            return c.skip("no dockets table")
+        if not casedb.has_court_index(con["c"]):
+            return c.warn("not built: View Dockets lists a court's opinions from CourtListener instead (not offline)",
+                          "tribonian db courtindex")
+        k = con["c"].execute("SELECT count(*) FROM (SELECT 1 FROM dockets WHERE court_id='scotus' LIMIT 100000)").fetchone()[0]
+        c.ok("built; scotus has %s%s dockets" % (n(k), "+" if k >= 100000 else ""))
     # report in load order
-    order = ["db:file"] + ["db:" + x for x in casedb.ORDER if x != "opinions"] + ["db:opmap"]
+    order = ["db:file"] + ["db:" + x for x in casedb.ORDER if x != "opinions"] + ["db:opmap", "db:courtindex"]
     block = sorted([r for r in RESULTS if r.group == "Main database"], key=lambda r: order.index(r.key))
     RESULTS[:] = [r for r in RESULTS if r.group != "Main database"] + block
     return con.get("c")

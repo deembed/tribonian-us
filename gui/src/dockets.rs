@@ -227,31 +227,75 @@ impl Hit {
     }
 }
 
-pub struct SearchResp {
-    pub query: String,
-    pub pages: u32,
-    pub result: Result<SearchResult, String>,
+/// A court's opinions, newest first (`tribonian dockets opinions --json`).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct OpinionHit {
+    pub cluster: i64,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub date: String,
+    #[serde(default)]
+    pub cite: String,
+    #[serde(default)]
+    pub cited: i64,
+    /// a case note is built for it (cases/_index.json)
+    #[serde(default)]
+    pub built: bool,
 }
 
-/// Run the search on its own thread (it may make one API request).
-pub fn spawn_search(py: crate::config::Py, query: String, pages: u32, tx: std::sync::mpsc::Sender<SearchResp>, wake: impl Fn() + Send + 'static) {
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Opinions {
+    /// "local database", "CourtListener", or "" when neither could answer (then `error` says why)
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub hits: Vec<OpinionHit>,
+    #[serde(default)]
+    pub more: bool,
+    #[serde(default)]
+    pub count: Option<i64>,
+    #[serde(default)]
+    pub error: String,
+}
+
+/// What a `tribonian dockets` run sent back: a docket search or a court's opinions, by (query or court, pages).
+pub enum Resp {
+    Search { query: String, pages: u32, result: Result<SearchResult, String> },
+    Opinions { court: String, pages: u32, result: Result<Opinions, String> },
+}
+
+/// Run `tribonian dockets <args> --json` on its own thread; -> the JSON line it printed, or the error's tail.
+fn run_json(py: &crate::config::Py, args: &[String]) -> Result<String, String> {
+    let o = py.cmd().arg("dockets").args(args).output().map_err(|e| format!("{} -m tribonian: {e}", py.python))?;
+    let stdout = String::from_utf8_lossy(&o.stdout);
+    match stdout.lines().rev().find(|l| l.starts_with('{')) {
+        Some(line) if o.status.success() => Ok(line.to_string()),
+        _ => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            let tail: Vec<&str> = err.lines().rev().take(3).collect();
+            Err(tail.into_iter().rev().collect::<Vec<_>>().join(" · "))
+        }
+    }
+}
+
+/// Run the search on its own thread (it may make one API request per page).
+pub fn spawn_search(py: crate::config::Py, query: String, pages: u32, tx: std::sync::mpsc::Sender<Resp>, wake: impl Fn() + Send + 'static) {
     std::thread::spawn(move || {
-        let out = py.cmd().args(["dockets", "search", "--json", "--pages", &pages.to_string(), "--"]).args(query.split_whitespace()).output();
-        let result = match out {
-            Err(e) => Err(format!("{} -m tribonian: {e}", py.python)),
-            Ok(o) => {
-                let stdout = String::from_utf8_lossy(&o.stdout);
-                match stdout.lines().rev().find(|l| l.starts_with('{')) {
-                    Some(line) if o.status.success() => serde_json::from_str::<SearchResult>(line).map_err(|e| e.to_string()),
-                    _ => {
-                        let err = String::from_utf8_lossy(&o.stderr);
-                        let tail: Vec<&str> = err.lines().rev().take(3).collect();
-                        Err(tail.into_iter().rev().collect::<Vec<_>>().join(" · "))
-                    }
-                }
-            }
-        };
-        let _ = tx.send(SearchResp { query, pages, result });
+        let mut args = vec!["search".to_string(), "--json".into(), "--pages".into(), pages.to_string(), "--".into()];
+        args.extend(query.split_whitespace().map(String::from));
+        let result = run_json(&py, &args).and_then(|l| serde_json::from_str::<SearchResult>(&l).map_err(|e| e.to_string()));
+        let _ = tx.send(Resp::Search { query, pages, result });
+        wake();
+    });
+}
+
+/// A court's opinions on its own thread (the local index, else one API request per page).
+pub fn spawn_opinions(py: crate::config::Py, court: String, pages: u32, tx: std::sync::mpsc::Sender<Resp>, wake: impl Fn() + Send + 'static) {
+    std::thread::spawn(move || {
+        let args = vec!["opinions".to_string(), "--json".into(), "--court".into(), court.clone(), "--pages".into(), pages.to_string()];
+        let result = run_json(&py, &args).and_then(|l| serde_json::from_str::<Opinions>(&l).map_err(|e| e.to_string()));
+        let _ = tx.send(Resp::Opinions { court, pages, result });
         wake();
     });
 }

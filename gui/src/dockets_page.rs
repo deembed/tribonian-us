@@ -28,6 +28,10 @@ pub struct DocketsUi {
     /// documents ticked on a docket page: (docket id, document keys)
     pub sel: (i64, BTreeSet<String>),
     pub search_input: String,
+    /// a court's opinions: pages shown per court (20 each); "Show more" adds one
+    pub op_pages: std::collections::HashMap<String, u32>,
+    /// federal court pages: the opinions section opened (it may spend an API request)
+    pub op_open: BTreeSet<String>,
     /// CourtListener result pages shown per query (20 hits each); "Show more" adds one
     pub pages: std::collections::HashMap<String, u32>,
 }
@@ -364,11 +368,24 @@ pub fn court_page(app: &mut App, ui: &mut Ui, id: &str) {
         ui.heading(court_name(app, id));
         let state = app.courts.as_ref().ok().and_then(|t| t.as_ref()).is_some_and(|t| is_state_court(t, id));
         if state {
-            ui.label(format!("Opinions: {TBD} (they are in the local database already)."));
-            ui.label(format!("Dockets: {TBD}."));
-            ui.weak(STATE_HELP);
+            opinions_section(app, ui, id);
+            ui.add_space(10.0);
+            ui.strong("Dockets");
+            ui.weak(format!("{TBD}. {STATE_HELP}"));
             return;
         }
+        let open = app.dockets_ui.op_open.contains(id);
+        let r = egui::CollapsingHeader::new(RichText::new("Opinions").strong()).id_salt(("ops", id)).open(Some(open)).show(ui, |ui| {
+            opinions_section(app, ui, id)
+        });
+        if r.header_response.clicked() {
+            if open {
+                app.dockets_ui.op_open.remove(id);
+            } else {
+                app.dockets_ui.op_open.insert(id.to_string());
+            }
+        }
+        ui.add_space(8.0);
         ui.label("Add a docket from this court");
         add_box(app, ui, Some(id));
         ui.add_space(8.0);
@@ -687,4 +704,85 @@ pub fn search_page(app: &mut App, ui: &mut Ui, query: &str) {
             app.goto = go;
         }
     });
+}
+
+// ------------------------------------------------------------------ a court's opinions
+
+/// The court's opinions, newest first: the local database when it is indexed by court (tribonian db
+/// courtindex), else CourtListener (not offline); Build queues the case's note and PDF, open shows it.
+fn opinions_section(app: &mut App, ui: &mut Ui, court: &str) {
+    let pages = app.dockets_ui.op_pages.get(court).copied().unwrap_or(1);
+    app.request_court_opinions(court, pages);
+    let loading = !app.court_opinions.contains_key(&(court.to_string(), pages));
+    let shown = (1..=pages).rev().find_map(|p| app.court_opinions.get(&(court.to_string(), p)).cloned());
+    ui.strong("Opinions, newest first");
+    let Some(res) = shown else {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("reading…");
+        });
+        return;
+    };
+    let res = match res {
+        Ok(r) => r,
+        Err(e) => {
+            ui.colored_label(Color32::LIGHT_RED, format!("Could not list them: {e}"));
+            return;
+        }
+    };
+    if res.source.is_empty() {
+        ui.weak(&res.error);
+        return;
+    }
+    ui.weak(match res.source.as_str() {
+        "local database" => "from the local database".to_string(),
+        _ => format!(
+            "from CourtListener (1 API request per page, reused for a day){}; tribonian db courtindex lists them from the local database",
+            res.count.map(|n| format!(", {n} in all")).unwrap_or_default()
+        ),
+    });
+    if res.hits.is_empty() {
+        ui.weak("none");
+        return;
+    }
+    let mut go = None;
+    let mut build = None;
+    egui::Grid::new(("court-ops", court)).striped(true).num_columns(5).show(ui, |ui| {
+        for h in &res.hits {
+            ui.label(&h.date);
+            ui.label(&h.name);
+            ui.weak(&h.cite);
+            ui.weak(if h.cited > 0 { format!("cited {}", h.cited) } else { String::new() });
+            if h.built {
+                if ui.small_button("open").clicked() {
+                    go = Some(Page::Case(h.cluster));
+                }
+            } else {
+                let queued = app.is_queued(h.cluster);
+                if ui
+                    .add_enabled(!queued, egui::Button::new("Build").small())
+                    .on_hover_text("queues the case's note and PDF with the quick good-law check (as Quick build on a case page)")
+                    .on_disabled_hover_text("in the build queue")
+                    .clicked()
+                {
+                    build = Some((h.cluster, h.name.clone()));
+                }
+            }
+            ui.end_row();
+        }
+    });
+    if loading {
+        ui.horizontal(|ui| {
+            ui.spinner();
+            ui.label("reading the next page…");
+        });
+    } else if res.more && ui.button("Show 20 more").clicked() {
+        app.dockets_ui.op_pages.insert(court.to_string(), pages + 1);
+    }
+    if let Some((r, name)) = build {
+        app.enqueue_build(r, name, true);
+    }
+    if go.is_some() {
+        app.goto = go;
+    }
 }

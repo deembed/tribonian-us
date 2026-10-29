@@ -168,6 +168,7 @@ cd ..
 tribonian db load      # every file in bulk/, smallest first; a finished table is skipped, so rerun after an interruption
 tribonian db status    # each table: file, rows, when loaded
 tribonian db index     # full-text index for case2md.py find (load rebuilds it when clusters or parentheticals change)
+tribonian db courtindex   # dockets by court: View Dockets lists a court's opinions locally (load builds it with dockets)
 ```
 
 Disk: the opinion text alone is about 110 GB in `db/opinions.sqlite`; the main database (`bulk/courtlistener.sqlite`)
@@ -474,6 +475,7 @@ tribonian db load citation-map     # one table: courts citations citation-map pa
 tribonian db status
 tribonian db columns               # per bulk file: columns loaded, columns left out
 tribonian db index                 # full-text index for case2md.py find
+tribonian db courtindex            # dockets by court, for a court's opinions in View Dockets
 tribonian db case cases/<case>.json   # smoke test
 ```
 
