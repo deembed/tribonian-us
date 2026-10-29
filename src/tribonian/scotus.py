@@ -114,9 +114,19 @@ def classify(text):
     m = re.search(r"\b(?:in support of|supporting)\s+(?:the\s+)?(petitioners?|respondents?|neither party)", t, re.I)
     if m:
         side = "neither" if m.group(1).lower().startswith("neither") else m.group(1).lower().rstrip("s")
-    m = re.match(r"(?i)brief amic(?:us|i) curiae of (.+?)(?:\s+(?:in support of|supporting)\b.*)?\s+filed", t)
+    m = re.match(r"(?i)brief amic(?:us|i) curiae of (.+?)(?:\s+(?:in support of|supporting)\b.*)?\s+filed", t) or \
+        re.match(r"(?i)amic(?:us|i) (?:curiae )?brief of (.+?),?\s+(?:submitted|filed)", t)     # an application's
     if m:
         return "amicus", side, m.group(1).strip(" ,.")
+    # an application (26A476): the application, the response, the reply
+    if re.match(r"(?i)^application \(\d+A\d+\) for .+?\b(?:submitted|filed)\b", t):
+        return "application", "petitioner", ""
+    m = re.match(r"(?i)^response to application from respondents? (.+?)\s+filed", t)
+    if m:
+        return "app-response", "respondent", m.group(1).strip(" ,.")
+    m = re.match(r"(?i)^reply of applicants? (.+?)\s+filed", t)
+    if m:
+        return "app-reply", "petitioner", m.group(1).strip(" ,.")
     rules = [
         (r"(?i)^petition for a writ of certiorari", "petition", "petitioner"),
         (r"(?i)^brief of respondents?\b.*\bin opposition", "opposition", "respondent"),
@@ -184,7 +194,7 @@ def fetch(args):
         entries.append(e)
     grant, argued = stage_dates(entries)
     for e in entries:
-        e["stage"] = stage_of(e["date"], grant, argued)
+        e["stage"] = "application" if "A" in num else stage_of(e["date"], grant, argued)
 
     qp = feed.get("QPLink") or ""
     qp_url = urllib.parse.urljoin(SITE + "docket/DocketFiles/HTML/Public/", qp) if qp else ""   # relative to the docket page
@@ -858,12 +868,14 @@ def area_for(db, ref):
 
 ABBR = {("petition", "cert"): "Pet.", ("opposition", "cert"): "Br. in Opp.", ("reply", "cert"): "Cert. Reply",
         ("brief", "petitioner"): "Pet'rs Br.", ("brief", "respondent"): "Resp. Br.", ("reply", "merits"): "Reply Br.",
-        ("reply", "after argument"): "Reply Br."}
+        ("reply", "after argument"): "Reply Br.", ("application", "application"): "Appl.",
+        ("app-response", "application"): "Opp. to Appl.", ("app-reply", "application"): "Appl. Reply"}
 TITLES = {"petition": "Petition for a Writ of Certiorari", "opposition": "Brief in Opposition",
           "reply": "Reply Brief", "brief": "Brief on the Merits", "supplemental": "Supplemental Brief",
-          "amicus": "Brief Amicus Curiae"}
+          "amicus": "Brief Amicus Curiae", "application": "Application", "app-response": "Response to the Application",
+          "app-reply": "Reply in Support of the Application"}
 STAGES = [("below", "Decision Below"), ("cert", "Certiorari Stage"), ("merits", "Merits Stage"),
-          ("after argument", "After Argument")]
+          ("after argument", "After Argument"), ("application", "Application")]
 CIRCUITS = {"first": "ca1", "second": "ca2", "third": "ca3", "fourth": "ca4", "fifth": "ca5", "sixth": "ca6",
             "seventh": "ca7", "eighth": "ca8", "ninth": "ca9", "tenth": "ca10", "eleventh": "ca11",
             "district of columbia": "cadc", "federal": "cafc"}
@@ -1708,6 +1720,8 @@ def couple_rows(cp):
 
 def couple_table(cp, E, table):
     rows = couple_rows(cp)
+    if len(rows) < 2:
+        return "{\\footnotesize (fewer than two filings with citations: nothing to compare)}\\par\\vspace{4pt}\n"
     sw = ["\\coverswatch{%s}\\ " % x for x in cp.get("covers", [])] + [""] * len(rows)
     body = [["%s%s %s" % (sw[r], L, E(lab))] + [("$\\cdot$" if v == "·" else v) for v in cells] + ["%d" % n]
             for r, (L, lab, n, cells) in enumerate(rows)]
@@ -1785,12 +1799,14 @@ def docket_tex(data, qp_text):
     E = lambda t: c.esc(t, "tex")
     f = data["feed"]
     lines = ["{\\centering\\bfseries %s\\par}\\vspace{2pt}" % E("%s v. %s" % (party(f.get("PetitionerTitle")), party(f.get("RespondentTitle")))),
-             "{\\centering No. %s \\textperiodcentered\\ docketed %s \\textperiodcentered\\ cert.\\ granted %s%s\\par}\\vspace{2pt}" % (
-                 E(data["number"]), E(f.get("DocketedDate", "")), E(c.long_date(data.get("granted")) or "–"),
+             "{\\centering No. %s \\textperiodcentered\\ docketed %s \\textperiodcentered\\ %s%s\\par}\\vspace{2pt}" % (
+                 E(data["number"]), E(f.get("DocketedDate", "")),
+                 "an application" if "A" in data["number"] else "cert.\\ granted %s" % E(c.long_date(data.get("granted")) or "–"),
                  " \\textperiodcentered\\ argued %s" % E(c.long_date(data["argued"])) if data.get("argued") else ""),
-             "%s, No.~%s, decided %s; rehearing denied %s.\\par" % (
+             "%s, No.~%s%s%s.\\par" % (
                  E(f.get("LowerCourt", "")), E((f.get("LowerCourtCaseNumbers") or "").strip("() ")),
-                 E(f.get("LowerCourtDecision", "")), E(f.get("LowerCourtRehearingDenied", "") or "–"))]
+                 ", decided %s" % E(f["LowerCourtDecision"]) if f.get("LowerCourtDecision") else "",
+                 "; rehearing denied %s" % E(f["LowerCourtRehearingDenied"]) if f.get("LowerCourtRehearingDenied") else "")]
     if qp_text:
         lines.append("\\vspace{3pt}\\textbf{Questions presented} {\\footnotesize (the Clerk's statement)}\\par")
         lines += ["{\\small %s\\par}" % E(p) for p in qp_text]
@@ -2177,9 +2193,10 @@ def build(args):
                      ("status", c.Raw("pending")), ("docket", num), ("granted", c.Raw(data.get("granted") or "")),
                      ("argued", c.Raw(data.get("argued") or "")), ("decision_below", c.Raw(cid or "")), ("source", c.Raw(data["source"])),
                      ("retrieved", c.Raw(data.get("retrieved", ""))), ("synthetic", False)]) + ["", "# %s" % c.esc(title, "md"), "",
-         "%s, No. %s, decided %s · cert. granted %s%s" % (c.esc(feed.get("LowerCourt", ""), "md"), (feed.get("LowerCourtCaseNumbers") or "").strip("() "),
-                                                         feed.get("LowerCourtDecision", ""), c.long_date(data.get("granted")) or "–",
-                                                         " · argued %s" % c.long_date(data["argued"]) if data.get("argued") else ""), "",
+         "%s, No. %s%s · %s%s" % (c.esc(feed.get("LowerCourt", ""), "md"), (feed.get("LowerCourtCaseNumbers") or "").strip("() "),
+                                 ", decided %s" % feed["LowerCourtDecision"] if feed.get("LowerCourtDecision") else "",
+                                 "an application" if "A" in num else "cert. granted %s" % (c.long_date(data.get("granted")) or "–"),
+                                 " · argued %s" % c.long_date(data["argued"]) if data.get("argued") else ""), "",
          "PDF: `%s`" % rel_pdf, ""]
     if qp:
         L += ["## Questions presented", ""] + [c.esc(p, "md") + "\n" for p in qp]
