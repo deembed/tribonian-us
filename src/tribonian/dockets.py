@@ -90,7 +90,12 @@ def built_files():
 
 
 def pacer_url(court, r):
-    return "https://ecf.%s.uscourts.gov/docs1/%s" % (court, r["pacer_doc_id"]) if r.get("pacer_doc_id") else ""
+    """The document on PACER (a login, and charged per page). District and bankruptcy courts serve documents
+    at /doc1/, the courts of appeals at /docs1/."""
+    if not r.get("pacer_doc_id"):
+        return ""
+    path = "docs1" if re.match(r"ca(\d+|dc|fc)$", court or "") else "doc1"
+    return "https://ecf.%s.uscourts.gov/%s/%s" % (court, path, r["pacer_doc_id"])
 
 
 def index(args=None, quiet=False):
