@@ -127,7 +127,7 @@ fn clusters_side(app: &mut App, ui: &mut Ui) {
 }
 
 fn cases_side(app: &mut App, ui: &mut Ui) {
-    ui.heading("View Cases");
+    ui.heading("View Opinions");
     ui.horizontal(|ui| {
         ui.label("Filter");
         ui.text_edit_singleline(&mut app.filter);
@@ -270,7 +270,7 @@ fn home(app: &mut App, ui: &mut Ui) {
                 go = Some(Page::Search { query: String::new(), mode: app.search_mode });
             }
             ui.add_space(8.0);
-            if button(ui, big("View Cases"), "the case notes and PDFs built so far") {
+            if button(ui, big("View Opinions"), "the decided cases built so far: one note and PDF per opinion (tribonian case build)") {
                 go = Some(Page::Cases);
             }
             ui.add_space(8.0);
@@ -346,7 +346,7 @@ fn home(app: &mut App, ui: &mut Ui) {
 }
 
 fn cases_home(app: &mut App, ui: &mut Ui) {
-    ui.heading("View Cases");
+    ui.heading("View Opinions");
     ui.label("Pick a case on the left. Cases come from cases/_index.json, laid out by the md-cases/ folders.");
     ui.add_space(8.0);
     let full = app.files.index.values().filter(|e| e.full).count();

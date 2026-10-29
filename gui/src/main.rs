@@ -1,5 +1,5 @@
 //! lawgui: a read-only browser over what the tribonian-us scripts produced.
-//! Start screen -> View Clusters (areas, lineages, slices, clusters, sub-clusters) and View Cases,
+//! Start screen -> View Clusters (areas, lineages, slices, clusters, sub-clusters) and View Opinions,
 //! all leading to one shared case page. See claude/scope-gui.md in the Project.
 
 mod apisearch;
@@ -663,7 +663,7 @@ impl App {
     pub fn title_of(&self, p: &Page) -> String {
         match p {
             Page::Home => "Start".into(),
-            Page::Cases => "Built cases".into(),
+            Page::Cases => "Built opinions".into(),
             Page::Areas => "Areas".into(),
             Page::Search { query, .. } if query.is_empty() => "Search".into(),
             Page::Search { query, mode: search::Mode::Name } => format!("Search: {query}"),
@@ -781,7 +781,7 @@ impl App {
                 }
             }
             Page::Case(_) => match self.section_at(self.pos) {
-                Section::Cases => c.push(("Built cases".into(), Some(Page::Cases))),
+                Section::Cases => c.push(("Built opinions".into(), Some(Page::Cases))),
                 Section::Search => {
                     // back to the search the case was opened from
                     let s = self.nav[..self.pos].iter().rev().find(|p| matches!(p, Page::Search { .. })).cloned();
