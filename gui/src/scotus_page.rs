@@ -39,7 +39,7 @@ fn matches(f: &str, t: &[&str]) -> bool {
 /// The "Add docket" box: fetch then build a docket by number.
 fn add_box(app: &mut App, ui: &mut Ui) {
     ui.horizontal(|ui| {
-        let r = ui.add(egui::TextEdit::singleline(&mut app.scotus_ui.add_input).hint_text("docket number, e.g. 25-579").desired_width(180.0));
+        let r = ui.add(egui::TextEdit::singleline(&mut app.scotus_ui.add_input).hint_text("docket no. or application, e.g. 25-579, 26A476").desired_width(180.0));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ui
             .button("Fetch & build")
@@ -56,7 +56,7 @@ fn add_box(app: &mut App, ui: &mut Ui) {
                 }
                 None => {
                     app.scotus_ui.add_err = Some(
-                        "Not a docket number like 25-579. Applications (25A374) and original cases aren't read by tribonian scotus fetch.".into(),
+                        "Not a docket number like 25-579 or an application like 26A476. Original cases aren't read by tribonian scotus fetch.".into(),
                     )
                 }
             }
@@ -178,7 +178,7 @@ fn docket_action(app: &mut App, ui: &mut Ui, num: &str) {
             }
         }
         None => {
-            ui.weak("–").on_hover_text("an application or original case: tribonian scotus fetch reads numbered petitions only");
+            ui.weak("–").on_hover_text("an original case: tribonian scotus fetch doesn't read those");
         }
     }
 }
@@ -368,7 +368,37 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
         ui.heading(d.title());
         ui.label(format!("No. {} · docketed {} · {}", d.number, d.docketed, d.status()));
         if !d.lower_court.is_empty() {
-            ui.weak(format!("Below: {}, No. {}, decided {}", d.lower_court, d.lower_numbers, d.lower_decision));
+            ui.horizontal(|ui| {
+                ui.weak(format!("Below: {}, No. {}, decided {}", d.lower_court, d.lower_numbers, d.lower_decision));
+                if let Some((court, below)) = d.below_ref() {
+                    let have = app.recap.iter().find(|r| r.court == court && r.number == below).map(|r| r.id);
+                    match have {
+                        Some(id) => {
+                            if ui.small_button("Open its docket").on_hover_text("the docket below, fetched from RECAP").clicked() {
+                                app.goto = Some(Page::RecapDocket(id));
+                            }
+                        }
+                        None => {
+                            let key = crate::dockets::add_key(&court, &below);
+                            if ui
+                                .add_enabled(!app.is_queued(key), egui::Button::new("Fetch its docket").small())
+                                .on_hover_text(format!("queues tribonian scotus below {}: {court} No. {below} from RECAP", d.number))
+                                .on_disabled_hover_text("in the build queue")
+                                .clicked()
+                            {
+                                app.enqueue(crate::Queued {
+                                    r#ref: key,
+                                    title: format!("No. {}: the docket below ({court} {below})", d.number),
+                                    job: crate::QueuedJob::Steps(vec![(
+                                        vec!["scotus".into(), "below".into(), d.number.clone()],
+                                        Some("saved ".into()),
+                                    )]),
+                                });
+                            }
+                        }
+                    }
+                }
+            });
         }
         ui.weak(format!("Docket retrieved {} (tribonian scotus fetch)", d.retrieved));
         ui.add_space(6.0);

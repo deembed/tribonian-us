@@ -75,7 +75,11 @@ ODD_SPACES = {0x202F: 0xA0, 0x2009: 0xA0, 0x2007: 0xA0}
 # Typographic ligatures (pdftotext keeps them from slip opinions and filings: "Plaintiﬀs"). Folded to
 # plain letters at parse time, like the odd spaces: T1 can't set them, and search needs the letters.
 LIGATURES = {0xFB00: "ff", 0xFB01: "fi", 0xFB02: "fl", 0xFB03: "ffi", 0xFB04: "ffl", 0xFB05: "st", 0xFB06: "st"}
-FOLD = {**ODD_SPACES, **LIGATURES}
+# Box-drawing rules (the separator lines on a brief's cover, "──────"): T1 has no glyph for them, so they
+# printed as boxes. Dropped: the line goes blank, which ends the paragraph as the rule did (an underscore
+# rule would read as a signature line).
+BOX_RULES = {0x2500: None, 0x2501: None, 0x2550: None, 0x2015: None}
+FOLD = {**ODD_SPACES, **LIGATURES, **BOX_RULES}
 
 
 PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places split boxes on the second pass)
@@ -165,7 +169,13 @@ __RULES__
 % via \texorpdfstring) are written as themselves, not expanded into the .aux; \thepage
 % still expands at shipout.
 \newcommand{\recordpath}[1]{\protected@write\@auxout{}{\string\pathmark{\thepage}{#1}}}
+% \recordstart: a part that begins at the top of a page (after \clearpage: a filing, The Law Cited). Its page's
+% header names it rather than the end of the part before.
+\newcommand{\startmark}[2]{\expandafter\gdef\csname hds@#1\endcsname{#2}}
+\newcommand{\recordstart}[1]{\protected@write\@auxout{}{\string\startmark{\thepage}{#1}}\recordpath{#1}}
 \newcommand{\pathheader}{%
+  \ifcsname hds@\number\value{page}\endcsname\csname hds@\number\value{page}\endcsname\else\pathheader@last\fi}
+\newcommand{\pathheader@last}{%
   \begingroup\count@=\value{page}\advance\count@ by -1
   \loop\ifnum\count@>0
     \ifcsname hdr@\number\count@\endcsname
@@ -192,13 +202,18 @@ __RULES__
   \repeat
   \def\cov@none{none}%
   % drawn from the header's own origin (no remember picture: header pictures shift between passes): the page's
-  % top-left corner is 1in+\hoffset+\oddsidemargin to the left and 1in+\voffset+\topmargin+\headheight up
-  \ifx\cov@now\cov@none\else
-    \dimen@=\dimexpr 1in+\hoffset+\oddsidemargin\relax \dimen@ii=\dimexpr 1in+\voffset+\topmargin+\headheight\relax
-    \begin{tikzpicture}[overlay]
+  % top-left corner is 1in+\hoffset+\oddsidemargin to the left and 1in+\voffset+\topmargin+\headheight up.
+  % The picture is made on every page, even with no band: every tikz picture takes the next picture number,
+  % and the margin arrows (\tocback, remember picture) find their saved positions by number. A band that
+  % appeared only from the second pass (its colors come from the .aux) shifted every later number, and the
+  % arrows landed in the text instead of the margin.
+  \dimen@=\dimexpr 1in+\hoffset+\oddsidemargin\relax \dimen@ii=\dimexpr 1in+\voffset+\topmargin+\headheight\relax
+  \begin{tikzpicture}[overlay]
+    \ifx\cov@now\cov@none\else
       \fill[cover-\cov@now] (-\dimen@,\dimen@ii) rectangle (\paperwidth-\dimen@,\dimen@ii-21pt);
       \draw[cover-\cov@now-edge, line width=0.6pt] (-\dimen@,\dimen@ii-21pt) -- (\paperwidth-\dimen@,\dimen@ii-21pt);
-    \end{tikzpicture}\fi
+    \fi
+  \end{tikzpicture}%
   \endgroup}
 \def\ps@pathhead{%
   \def\@oddhead{\coverband{\footnotesize\itshape\pathheader}\hfil}\let\@evenhead\@oddhead

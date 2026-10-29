@@ -46,6 +46,8 @@ def cover(kind, stage, side=None):
     supplemental | joint-appendix | below; stage: cert | merits | after argument | below."""
     if kind == "below" or stage == "below":
         return "gray"
+    if stage == "application":
+        return "white"                            # Rule 22: applications go on letter-size paper, no colored cover
     if kind == "petition":
         return "white"
     if kind == "opposition":

@@ -47,11 +47,36 @@ SKIP_LINK = re.compile(r"proof of service|certificate|affidavit", re.I)
 
 
 def norm_number(s):
-    """'25-579', '25-00579', 'No. 25-579 ' -> '25-579'."""
-    m = re.search(r"(\d{2})[-A]0*(\d+)", s or "")
+    """'25-579', '25-00579', 'No. 25-579 ' -> '25-579'; an application, '26A476' or '26a00476' -> '26A476'
+    (its own docket: '26-476' is a different case)."""
+    m = re.search(r"(\d{2})([-Aa])0*(\d+)", s or "")
     if not m:
-        sys.exit("cannot read %r as a docket number like 25-579" % s)
-    return "%s-%s" % (m.group(1), m.group(2))
+        sys.exit("cannot read %r as a docket number like 25-579 or an application like 26A476" % s)
+    return "%s%s%s" % (m.group(1), "-" if m.group(2) == "-" else "A", m.group(3))
+
+
+def below_ref(feed):
+    """The case below as (CourtListener court id or None, its case number): federal courts of appeals only,
+    which the feed names ("United States Court of Appeals for the Fourth Circuit")."""
+    num = (feed.get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
+    m = re.search(r"for the (.+?) Circuit", feed.get("LowerCourt") or "", re.I)
+    return (CIRCUITS.get(m.group(1).lower()) if m else None), num
+
+
+def below_cmd(args):
+    """Fetch the docket of the case below from RECAP (tribonian case recap fetch --court --number)."""
+    num = norm_number(args.number)
+    if not case_file(num).exists():
+        sys.exit("No. %s isn't fetched: run tribonian scotus fetch %s first" % (num, num))
+    feed = json.loads(case_file(num).read_text(encoding="utf-8"))["feed"]
+    court, below = below_ref(feed)
+    if not below:
+        sys.exit("No. %s: the Court's docket names no case number below" % num)
+    if not court:
+        sys.exit("No. %s: the case below is in %s, No. %s; only federal courts of appeals are in RECAP"
+                 % (num, feed.get("LowerCourt") or "a court the feed doesn't name", below))
+    print("No. %s: below is %s No. %s" % (num, court, below))
+    c.recap_fetch(argparse.Namespace(docket=None, court=court, number=below, docs=None, all=False))
 
 
 def get(url, out=None):
@@ -89,9 +114,19 @@ def classify(text):
     m = re.search(r"\b(?:in support of|supporting)\s+(?:the\s+)?(petitioners?|respondents?|neither party)", t, re.I)
     if m:
         side = "neither" if m.group(1).lower().startswith("neither") else m.group(1).lower().rstrip("s")
-    m = re.match(r"(?i)brief amic(?:us|i) curiae of (.+?)(?:\s+(?:in support of|supporting)\b.*)?\s+filed", t)
+    m = re.match(r"(?i)brief amic(?:us|i) curiae of (.+?)(?:\s+(?:in support of|supporting)\b.*)?\s+filed", t) or \
+        re.match(r"(?i)amic(?:us|i) (?:curiae )?brief of (.+?),?\s+(?:submitted|filed)", t)     # an application's
     if m:
         return "amicus", side, m.group(1).strip(" ,.")
+    # an application (26A476): the application, the response, the reply
+    if re.match(r"(?i)^application \(\d+A\d+\) for .+?\b(?:submitted|filed)\b", t):
+        return "application", "petitioner", ""
+    m = re.match(r"(?i)^response to application from respondents? (.+?)\s+filed", t)
+    if m:
+        return "app-response", "respondent", m.group(1).strip(" ,.")
+    m = re.match(r"(?i)^reply of applicants? (.+?)\s+filed", t)
+    if m:
+        return "app-reply", "petitioner", m.group(1).strip(" ,.")
     rules = [
         (r"(?i)^petition for a writ of certiorari", "petition", "petitioner"),
         (r"(?i)^brief of respondents?\b.*\bin opposition", "opposition", "respondent"),
@@ -159,7 +194,7 @@ def fetch(args):
         entries.append(e)
     grant, argued = stage_dates(entries)
     for e in entries:
-        e["stage"] = stage_of(e["date"], grant, argued)
+        e["stage"] = "application" if "A" in num else stage_of(e["date"], grant, argued)
 
     qp = feed.get("QPLink") or ""
     qp_url = urllib.parse.urljoin(SITE + "docket/DocketFiles/HTML/Public/", qp) if qp else ""   # relative to the docket page
@@ -191,9 +226,11 @@ def fetch(args):
 
     print("%s v. %s, No. %s" % (data["feed"].get("PetitionerTitle", "?").replace(", Petitioners", ""),
                                 data["feed"].get("RespondentTitle", "?"), num))
-    print("  below: %s %s, decided %s; cert granted %s; argued %s" % (
-        data["feed"].get("LowerCourt", ""), data["feed"].get("LowerCourtCaseNumbers", ""),
-        data["feed"].get("LowerCourtDecision", ""), grant or "-", argued or "-"))
+    fd = data["feed"]
+    print("  below: %s %s%s; %s" % (fd.get("LowerCourt", ""), fd.get("LowerCourtCaseNumbers", ""),
+                                    ", decided %s" % fd["LowerCourtDecision"] if fd.get("LowerCourtDecision") else "",
+                                    "application (no petition for certiorari)" if "A" in num else
+                                    "cert granted %s; argued %s" % (grant or "-", argued or "-")))
     save()
     if qp_url:
         mark = pull(data["qp"], "question-presented.pdf")
@@ -452,6 +489,14 @@ def fill_labels(labs):
     return labs
 
 
+def appendix_cover(ls):
+    """A separately captioned appendix bound after the brief: a cover page ("Nos. 26A476 & 26A477 ... IN THE
+    Supreme Court ...") whose title is "APPENDIX TO OPPOSITION ..." or "SUPPLEMENTAL APPENDIX"."""
+    top = [x.strip() for x in ls if x.strip()][:25]
+    return bool(top) and bool(re.match(r"(?i)nos?\.\s*\d", top[0]) or top[0].upper() == "IN THE") and \
+        any(re.fullmatch(r"(?:SUPPLEMENTAL\s+)?APPENDIX\b[A-Z0-9 ,.'’()&-]*", x) for x in top)
+
+
 def split_brief(text, appendix=False):
     """-> dict(cover, front [(label, lines)], body [(label, lines)], qp [(label, lines)], toc)."""
     pages = [page_label(p.replace("\r", "").split("\n")) for p in text.split("\f")]
@@ -465,7 +510,7 @@ def split_brief(text, appendix=False):
     for k in range(start + 1, len(pages)):
         lab, ls = pages[k]
         first = next((x.strip() for x in ls if x.strip()), "")
-        if re.fullmatch(r"\d+a", lab) or re.fullmatch(r"APPENDIX(?:\s+[A-Z])?", first):
+        if re.fullmatch(r"\d+a", lab) or re.fullmatch(r"APPENDIX(?:\s+[A-Z])?", first) or appendix_cover(ls):
             end = k
             break
     front = pages[1:start] if start > 0 else []
@@ -831,12 +876,14 @@ def area_for(db, ref):
 
 ABBR = {("petition", "cert"): "Pet.", ("opposition", "cert"): "Br. in Opp.", ("reply", "cert"): "Cert. Reply",
         ("brief", "petitioner"): "Pet'rs Br.", ("brief", "respondent"): "Resp. Br.", ("reply", "merits"): "Reply Br.",
-        ("reply", "after argument"): "Reply Br."}
+        ("reply", "after argument"): "Reply Br.", ("application", "application"): "Appl.",
+        ("app-response", "application"): "Opp. to Appl.", ("app-reply", "application"): "Appl. Reply"}
 TITLES = {"petition": "Petition for a Writ of Certiorari", "opposition": "Brief in Opposition",
           "reply": "Reply Brief", "brief": "Brief on the Merits", "supplemental": "Supplemental Brief",
-          "amicus": "Brief Amicus Curiae"}
+          "amicus": "Brief Amicus Curiae", "application": "Application", "app-response": "Response to the Application",
+          "app-reply": "Reply in Support of the Application"}
 STAGES = [("below", "Decision Below"), ("cert", "Certiorari Stage"), ("merits", "Merits Stage"),
-          ("after argument", "After Argument")]
+          ("after argument", "After Argument"), ("application", "Application")]
 CIRCUITS = {"first": "ca1", "second": "ca2", "third": "ca3", "fourth": "ca4", "fifth": "ca5", "sixth": "ca6",
             "seventh": "ca7", "eighth": "ca8", "ninth": "ca9", "tenth": "ca10", "eleventh": "ca11",
             "district of columbia": "cadc", "federal": "cafc"}
@@ -1202,7 +1249,7 @@ def law_appendix_tex(lc, fs, appendix=False):
         return ""
     E = lambda t: c.esc(t, "tex")
     secs, repro = law_sources(fs)
-    out = ["\\clearpage\\recordcover{none}\\recordpath{The Law Cited}\\noindent\\tocback\\tocadd{tocstage}{The Law Cited}\\pdfbookmark[0]{The Law Cited}{lawq}"
+    out = ["\\clearpage\\recordcover{none}\\recordstart{The Law Cited}\\noindent\\tocback\\tocadd{tocstage}{The Law Cited}\\pdfbookmark[0]{The Law Cited}{lawq}"
            "{\\Large\\bfseries The Law Cited\\par}\\vspace{4pt}",
            "{\\scriptsize\\itshape Not part of the record. Every statute, constitutional provision and regulation the filings cite: "
            "the law in question first (what the questions presented and the parties' provisions-involved sections name, as each "
@@ -1681,6 +1728,8 @@ def couple_rows(cp):
 
 def couple_table(cp, E, table):
     rows = couple_rows(cp)
+    if len(rows) < 2:
+        return "{\\footnotesize (fewer than two filings with citations: nothing to compare)}\\par\\vspace{4pt}\n"
     sw = ["\\coverswatch{%s}\\ " % x for x in cp.get("covers", [])] + [""] * len(rows)
     body = [["%s%s %s" % (sw[r], L, E(lab))] + [("$\\cdot$" if v == "·" else v) for v in cells] + ["%d" % n]
             for r, (L, lab, n, cells) in enumerate(rows)]
@@ -1758,12 +1807,14 @@ def docket_tex(data, qp_text):
     E = lambda t: c.esc(t, "tex")
     f = data["feed"]
     lines = ["{\\centering\\bfseries %s\\par}\\vspace{2pt}" % E("%s v. %s" % (party(f.get("PetitionerTitle")), party(f.get("RespondentTitle")))),
-             "{\\centering No. %s \\textperiodcentered\\ docketed %s \\textperiodcentered\\ cert.\\ granted %s%s\\par}\\vspace{2pt}" % (
-                 E(data["number"]), E(f.get("DocketedDate", "")), E(c.long_date(data.get("granted")) or "–"),
+             "{\\centering No. %s \\textperiodcentered\\ docketed %s \\textperiodcentered\\ %s%s\\par}\\vspace{2pt}" % (
+                 E(data["number"]), E(f.get("DocketedDate", "")),
+                 "an application" if "A" in data["number"] else "cert.\\ granted %s" % E(c.long_date(data.get("granted")) or "–"),
                  " \\textperiodcentered\\ argued %s" % E(c.long_date(data["argued"])) if data.get("argued") else ""),
-             "%s, No.~%s, decided %s; rehearing denied %s.\\par" % (
+             "%s, No.~%s%s%s.\\par" % (
                  E(f.get("LowerCourt", "")), E((f.get("LowerCourtCaseNumbers") or "").strip("() ")),
-                 E(f.get("LowerCourtDecision", "")), E(f.get("LowerCourtRehearingDenied", "") or "–"))]
+                 ", decided %s" % E(f["LowerCourtDecision"]) if f.get("LowerCourtDecision") else "",
+                 "; rehearing denied %s" % E(f["LowerCourtRehearingDenied"]) if f.get("LowerCourtRehearingDenied") else "")]
     if qp_text:
         lines.append("\\vspace{3pt}\\textbf{Questions presented} {\\footnotesize (the Clerk's statement)}\\par")
         lines += ["{\\small %s\\par}" % E(p) for p in qp_text]
@@ -2150,9 +2201,10 @@ def build(args):
                      ("status", c.Raw("pending")), ("docket", num), ("granted", c.Raw(data.get("granted") or "")),
                      ("argued", c.Raw(data.get("argued") or "")), ("decision_below", c.Raw(cid or "")), ("source", c.Raw(data["source"])),
                      ("retrieved", c.Raw(data.get("retrieved", ""))), ("synthetic", False)]) + ["", "# %s" % c.esc(title, "md"), "",
-         "%s, No. %s, decided %s · cert. granted %s%s" % (c.esc(feed.get("LowerCourt", ""), "md"), (feed.get("LowerCourtCaseNumbers") or "").strip("() "),
-                                                         feed.get("LowerCourtDecision", ""), c.long_date(data.get("granted")) or "–",
-                                                         " · argued %s" % c.long_date(data["argued"]) if data.get("argued") else ""), "",
+         "%s, No. %s%s · %s%s" % (c.esc(feed.get("LowerCourt", ""), "md"), (feed.get("LowerCourtCaseNumbers") or "").strip("() "),
+                                 ", decided %s" % feed["LowerCourtDecision"] if feed.get("LowerCourtDecision") else "",
+                                 "an application" if "A" in num else "cert. granted %s" % (c.long_date(data.get("granted")) or "–"),
+                                 " · argued %s" % c.long_date(data["argued"]) if data.get("argued") else ""), "",
          "PDF: `%s`" % rel_pdf, ""]
     if qp:
         L += ["## Questions presented", ""] + [c.esc(p, "md") + "\n" for p in qp]
@@ -2581,10 +2633,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch", help="the Court's docket and filed PDFs -> cases/scotus/")
-    f.add_argument("number", help="docket number, e.g. 25-579")
+    f.add_argument("number", help="docket number or application, e.g. 25-579, 26A476")
     f.set_defaults(func=fetch)
     b = sub.add_parser("build", help="one PDF, a docket note, a note per filing, the authorities they share")
-    b.add_argument("number", help="docket number, e.g. 25-579")
+    b.add_argument("number", help="docket number or application, e.g. 25-579, 26A476")
     b.add_argument("--amici", action="store_true", help="put the amicus briefs in the PDF too (their notes are always written)")
     b.add_argument("--appendix", action="store_true", help="keep appendices (the petition's repeats the decision below)")
     b.add_argument("--depth", type=int, default=0, help="also write case notes for the decision below and the cited cases (1), "
@@ -2605,6 +2657,9 @@ def main():
     sw = sub.add_parser("swatches", help="one page of the cover colors, to check the tints on the tablet -> pdf/cover-swatches.pdf")
     sw.add_argument("--font", default="XCharter")
     sw.set_defaults(func=swatches_cmd)
+    bw = sub.add_parser("below", help="fetch the docket of the case below from RECAP (federal courts of appeals)")
+    bw.add_argument("number", help="docket number or application, e.g. 26A476")
+    bw.set_defaults(func=below_cmd)
     r = sub.add_parser("recent", help="the Court's recent opinions, grants and orders -> cases/scotus/_recent.json")
     r.add_argument("--json", action="store_true", help="also print the result as JSON")
     r.add_argument("--days", type=int, default=RECENT_DAYS, help="how far back (default %d)" % RECENT_DAYS)
