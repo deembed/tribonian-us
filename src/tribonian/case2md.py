@@ -2233,7 +2233,10 @@ def recap_fetch(args):
 
 SMALL = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "under",
          "v", "vs", "with"}
-HEADER_RE = re.compile(r"^\s*Case:?\s+\S+.*?\bDoc(?:ument)?\.?\s*(?:#\s*)?:?\s*\d+.*?\bPage\s*(\d+)\s*of\s*\d+", re.I)
+# the court's filing stamp atop each page: "Case 2:09-cv-06732 Document 30 ... Page 3 of 7" (district),
+# "USCA4 Appeal: 26-2230  Doc: 30  Filed: 10/07/2026  Pg: 3 of 29" (Fourth Circuit)
+HEADER_RE = re.compile(r"^\s*(?:Case:?\s+\S+.*?\bDoc(?:ument)?\.?\s*(?:#\s*)?:?\s*\d+.*?\bPage"
+                       r"|USCA\d+\s+Appeal:\s*\S+.*?\bDoc:\s*\d+.*?\bPg):?\s*(\d+)\s*of\s*\d+", re.I)
 PAGENUM_RE = re.compile(r"^\s*(?:-\s*)?\d{1,3}(?:\s*-)?\s*$")
 FNLABEL_RE = re.compile(r"^\s*(\d{1,3})\s*$")
 NUMHEAD_RE = re.compile(r"^([IVX]{1,6}|[A-Z]|\d{1,2})\.\s+(\S.{0,90})$")
