@@ -8,6 +8,8 @@ mod check_page;
 mod cocache;
 mod config;
 mod db;
+mod dockets;
+mod dockets_page;
 mod graph;
 mod jobs;
 mod model;
@@ -126,6 +128,11 @@ pub struct App {
     pub docket_errors: Vec<String>,
     pub recent: Result<Option<scotus::Recent>, String>,
     pub scotus_ui: scotus_page::ScotusUi,
+    /// cases/recap/_index.json (tribonian dockets index) and cases/dockets/_courts.json (tribonian dockets courts)
+    pub recap: Vec<dockets::RecapDocket>,
+    pub recap_error: Option<String>,
+    pub courts: Result<Option<dockets::CourtTree>, String>,
+    pub dockets_ui: dockets_page::DocketsUi,
     pub sem_ui: semsearch_page::SemUi,
     pub check_ui: check_page::CheckUi,
     egui_ctx: Option<egui::Context>,
@@ -202,6 +209,10 @@ impl App {
             docket_errors: Vec::new(),
             recent: Ok(None),
             scotus_ui: Default::default(),
+            recap: Vec::new(),
+            recap_error: None,
+            courts: Ok(None),
+            dockets_ui: Default::default(),
             sem_ui: Default::default(),
             check_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
@@ -251,6 +262,11 @@ impl App {
         let Some(cfg) = &self.cfg else { return };
         (self.dockets, self.docket_errors) = scotus::load_dockets(&cfg.cases_dir(), &cfg.work_dir);
         self.recent = scotus::load_recent(&cfg.cases_dir());
+        (self.recap, self.recap_error) = match dockets::load_index(&cfg.cases_dir()) {
+            Ok(v) => (v, None),
+            Err(e) => (Vec::new(), Some(e)),
+        };
+        self.courts = dockets::load_courts(&cfg.cases_dir());
     }
 
     pub fn docket(&self, num: &str) -> Option<&scotus::Docket> {
@@ -340,7 +356,7 @@ impl App {
         self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Steps(steps) });
     }
 
-    fn enqueue(&mut self, q: Queued) {
+    pub(crate) fn enqueue(&mut self, q: Queued) {
         if self.is_queued(q.r#ref) {
             return;
         }
@@ -655,6 +671,29 @@ impl App {
             Page::Scotus => "SCOTUS".into(),
             Page::SemSearch => "Sub-Cluster Search".into(),
             Page::Check => "Check setup".into(),
+            Page::Dockets => "View Dockets".into(),
+            Page::DocketsFederal => "Federal".into(),
+            Page::DocketsState(None) => "State".into(),
+            Page::DocketsState(Some(code)) => self
+                .courts
+                .as_ref()
+                .ok()
+                .and_then(|t| t.as_ref())
+                .and_then(|t| t.state.get(code))
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| code.clone()),
+            Page::CourtDockets(id) => self
+                .courts
+                .as_ref()
+                .ok()
+                .and_then(|t| t.as_ref())
+                .and_then(|t| t.court(id))
+                .map(|c| if c.cite.is_empty() { c.name.clone() } else { c.cite.clone() })
+                .unwrap_or_else(|| id.clone()),
+            Page::RecapDocket(id) => match self.recap.iter().find(|d| d.id == *id) {
+                Some(d) => format!("No. {} {}", d.number, d.name),
+                None => format!("docket {id}"),
+            },
             Page::CoCited(refs) if !self.cache.contains_key(p) && !self.titles.contains_key(p) => {
                 let names: Vec<String> = refs
                     .iter()
@@ -678,6 +717,15 @@ impl App {
             .find(|p| !matches!(p, Page::Case(_)))
             .map(|p| p.section())
             .unwrap_or(Section::Clusters)
+    }
+
+    /// Federal, or State › the state, for a court's breadcrumbs.
+    fn court_crumbs(&self, id: &str) -> Vec<(String, Option<Page>)> {
+        let tree = self.courts.as_ref().ok().and_then(|t| t.as_ref());
+        match tree.and_then(|t| t.state.iter().find(|(_, s)| s.highest.iter().chain(&s.appellate).chain(&s.trial).chain(&s.special).any(|c| c.id == id))) {
+            Some((code, s)) => vec![("State".into(), Some(Page::DocketsState(None))), (s.name.clone(), Some(Page::DocketsState(Some(code.clone()))))],
+            None => vec![("Federal".into(), Some(Page::DocketsFederal))],
+        }
     }
 
     /// The real path to the current page: Start › … › here. Parents come from the page's data
@@ -714,6 +762,24 @@ impl App {
             Page::SemSearch => {}
             Page::Check => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
+            Page::Dockets => {}
+            Page::DocketsFederal | Page::DocketsState(None) => c.push(("View Dockets".into(), Some(Page::Dockets))),
+            Page::DocketsState(Some(_)) => {
+                c.push(("View Dockets".into(), Some(Page::Dockets)));
+                c.push(("State".into(), Some(Page::DocketsState(None))));
+            }
+            Page::CourtDockets(id) => {
+                c.push(("View Dockets".into(), Some(Page::Dockets)));
+                c.extend(self.court_crumbs(id));
+            }
+            Page::RecapDocket(id) => {
+                c.push(("View Dockets".into(), Some(Page::Dockets)));
+                if let Some(d) = self.recap.iter().find(|d| d.id == *id) {
+                    let court = d.court.clone();
+                    c.extend(self.court_crumbs(&court));
+                    c.push((self.title_of(&Page::CourtDockets(court.clone())), Some(Page::CourtDockets(court))));
+                }
+            }
             Page::Case(_) => match self.section_at(self.pos) {
                 Section::Cases => c.push(("Built cases".into(), Some(Page::Cases))),
                 Section::Search => {
@@ -764,6 +830,11 @@ impl App {
                     Page::SemSearch => "semantic search",
                     Page::Check => "check setup",
                     Page::Docket(_) => "docket",
+                    Page::Dockets => "dockets",
+                    Page::DocketsFederal => "federal courts",
+                    Page::DocketsState(_) => "state courts",
+                    Page::CourtDockets(_) => "court",
+                    Page::RecapDocket(_) => "docket",
                     Page::CoCited(_) => "cited together",
                 };
                 let t = self.title_of(p);

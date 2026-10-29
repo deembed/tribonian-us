@@ -707,7 +707,8 @@ impl Db {
                 PageData::Unit { head, children: Vec::new(), cases }
             }
             Page::Case(r) => PageData::Case(self.case(*r)?),
-            Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::CoCited(_) | Page::SemSearch | Page::Check => {
+            Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::CoCited(_) | Page::SemSearch | Page::Check
+            | Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) => {
                 unreachable!("not a load_inner page")
             }
         })

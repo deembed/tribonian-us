@@ -49,6 +49,7 @@ pub fn side_panel(app: &mut App, ui: &mut Ui, section: Section) {
         Section::Search => search_side(app, ui),
         Section::Scotus => crate::scotus_page::scotus_side(app, ui),
         Section::SemSearch => crate::semsearch_page::sem_side(app, ui),
+        Section::Dockets => crate::dockets_page::dockets_side(app, ui),
         Section::Home => {}
     }
 }
@@ -212,6 +213,11 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::Docket(n) => return crate::scotus_page::docket_page(app, ui, n),
         Page::SemSearch => return crate::semsearch_page::sem_page(app, ui),
         Page::Check => return crate::check_page::check_page(app, ui),
+        Page::Dockets => return crate::dockets_page::dockets_home(app, ui),
+        Page::DocketsFederal => return crate::dockets_page::federal_page(app, ui),
+        Page::DocketsState(code) => return crate::dockets_page::state_page(app, ui, code),
+        Page::CourtDockets(id) => return crate::dockets_page::court_page(app, ui, id),
+        Page::RecapDocket(id) => return crate::dockets_page::docket_page(app, ui, *id),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -269,6 +275,14 @@ fn home(app: &mut App, ui: &mut Ui) {
             .clicked()
         {
             app.goto = Some(Page::Scotus);
+        }
+        ui.add_space(8.0);
+        if ui
+            .add_sized(size, egui::Button::new(RichText::new("View Dockets").size(18.0)))
+            .on_hover_text("Federal or State, then the court: fetch a docket from RECAP (tribonian case recap), pick documents, build their PDF and notes")
+            .clicked()
+        {
+            app.goto = Some(Page::Dockets);
         }
         ui.add_space(8.0);
         if ui
