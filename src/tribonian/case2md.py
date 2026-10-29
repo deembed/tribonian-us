@@ -2319,7 +2319,9 @@ STATUTE_RE = re.compile(r"\d+\s*U\.\s?S\.\s?C\.?\s*(?:A\.\s*)?§+\s*\d+[A-Za-z]*
 # a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3" -- not dot leaders ("....2")
 FNMARK = r"(?<!\.\.)(?<!\d[.,])(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
 # the same number set off by a space after punctuation, not the start of a citation ("7(E), 5 U.S.C.")
-FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))"
+# nor a reporter volume ("Madison, 1 Cranch 137", "F. Supp. 1 (D.D.C. 1991)": a word then a page, or a parenthetical)
+FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )(?<!Supp\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)" \
+    r"(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))(?!\s+[A-Z][A-Za-z.’']*(?:\s+[A-Za-z.’']+){0,2}\s+\d)(?!\s*\()"
 
 
 class Ln:
@@ -2389,6 +2391,9 @@ def split_footnotes(raw, nxt, prev_open):
     The footnotes start at a line holding only the next footnote number. label None = the rest of
     the previous page's last footnote (prev_open: that one does not end a sentence yet)."""
     rule = next((j for j in range(len(raw) - 1, 8, -1) if FNRULE_RE.match(raw[j])), None)
+    texty = [j for j, x in enumerate(raw) if x.strip()]         # double-spaced body: a blank line after each line
+    gaps = Counter(b - a for a, b in zip(texty, texty[1:]))      # (the notes at its foot are single-spaced)
+    double = len(texty) > 6 and gaps[2] > gaps[1]
     if rule is not None and any(x.strip() for x in raw[rule + 1:]):
         return split_ruled_footnotes(raw, rule, nxt)
     k = None
@@ -2399,9 +2404,16 @@ def split_footnotes(raw, nxt, prev_open):
             break
     inline = False
     if k is None:                   # "1  Plaintiffs refer to ...": the number on the same line as the note's text
-        # (court of appeals slip opinions); after a blank line, below the page's first lines, the next number only
+        # (court of appeals slip opinions); after a blank line, below the page's first lines, the next number only.
+        # Double-spaced text has a blank line around every line, so there a number starting a line one blank line
+        # after a line that stops mid-sentence, with a blank line after it too, is the body going on ("ECF No. 21,
+        # at\n\n3 (referring to\n\nexample of" is not footnote 3); a note runs on single-spaced, follows a wider
+        # gap, or follows a full stop
         for j in range(4, len(raw)):
             m = FNSTART_RE.match(raw[j])
+            if m and double and raw[j - 2].strip() and not (j + 1 < len(raw) and raw[j + 1].strip()):
+                if not re.search(r"[.:;)\]”’\"]\s*$", raw[j - 2]):    # one blank line, as the body's own
+                    continue
             if m and nxt <= int(m.group(2)) <= nxt + 1 and not raw[j - 1].strip() and any(x.strip() for x in raw[:j]) and \
                     not m.group(3)[:1].isdigit() and not NOT_FNTEXT_RE.match(m.group(3)):
                 k, nxt, inline = j, int(m.group(2)), True
@@ -2419,8 +2431,9 @@ def split_footnotes(raw, nxt, prev_open):
         while j >= 0 and not raw[j].strip():
             blanks, j = blanks + 1, j - 1
         widths = sorted(len(x) for x in raw[:g_start] if len(x.strip()) > 30)
+        # set wider than the body, or single-spaced under a double-spaced body (a brief's notes)
         if g_start < g_end and j >= 0 and blanks >= 2 and widths and \
-                max(len(x) for x in raw[g_start:g_end]) > widths[len(widths) // 2] * 1.12:
+                (max(len(x) for x in raw[g_start:g_end]) > widths[len(widths) // 2] * 1.12 or (double and g_end - g_start >= 2)):
             fns.append((None, [[x.strip() for x in raw[g_start:g_end]]]))
             body_end = g_start
     if k is not None:
@@ -2663,7 +2676,7 @@ def recap_blocks(lines, labels):
         # foot of a page at full width runs on at the top of the next
         if not double and cur is None and carry is not None and run[0].gap is None \
                 and run[0].pi != carry["last"].pi and not short(carry["last"]) \
-                and not (valid_label(run[0].text) or NUMHEAD_RE.match(run[0].text)):
+                and not (valid_label(run[0].text.rstrip(".")) or NUMHEAD_RE.match(run[0].text)):
             cur = carry
         carry = None
         if sig is not None:
@@ -2692,9 +2705,14 @@ def recap_blocks(lines, labels):
                 new("h", label=m.group(1))
                 new("title", pieces=[(m.group(2), l.pi)])
                 continue
-            if closed and l.ind >= 8 and valid_label(t) and abs(l.ind - (right[l.pi] - l.end)) <= 10:
+            # a centred label alone on its line: "II", or with its period "II." / "A." (the Fourth Circuit)
+            # (after a sentence's end even when that line ran to the margin; well indented counts as centred for a
+            # label this short: a caption or a quotation can move the page's margins)
+            ended = closed or re.search(r"[.:;)”\"](?:\s?\d{1,2})?$", cur["last"].text)   # "2026). 1": a footnote mark
+            if ended and l.ind >= 8 and valid_label(t.rstrip(".")) and \
+                    (abs(l.ind - (right[l.pi] - l.end)) <= 10 or (l.ind >= 20 and len(t) <= 5)):
                 cur = None
-                new("h", label=t)
+                new("h", label=t.rstrip("."))
                 continue
             if closed and l.ind >= 8 and right[l.pi] - l.end >= 8 and abs(l.ind - (right[l.pi] - l.end)) <= 10 \
                     and len(t) <= 70 and headingish(t):
@@ -2713,9 +2731,9 @@ def recap_blocks(lines, labels):
             cur = None
             continue
         for i, l in enumerate(run):
-            if len(run) > 1 and l.ind >= 8 and valid_label(l.text) and abs(l.ind - (right[l.pi] - l.end)) <= 12:
+            if len(run) > 1 and l.ind >= 8 and valid_label(l.text.rstrip(".")) and abs(l.ind - (right[l.pi] - l.end)) <= 12:
                 cur = None                      # a centred "II" with no blank line around it
-                new("h", label=l.text)
+                new("h", label=l.text.rstrip("."))
                 continue
             mh = NUMHEAD_RE.match(l.text) if len(run) > 1 and l.ind >= 6 else None
             if mh and headingish(mh.group(2)) and (cur is None or re.search(r"[.:;)”\"]$", cur["last"].text)):
@@ -2797,7 +2815,7 @@ def place_marks(blocks, footnotes, warn, spaced=False):
                         while m and m.end() == len(p[0]) and _continues_number(pieces, pj):
                             m = rx.search(p[0], m.start() + 1)   # "Act, 4" + "2 U.S.C.": a split number, not a mark
                         if m:
-                            found = (bi, pj, m)
+                            found = (bi, pj, m, pat is FNMARK_SPACED)
                             break
                     pj, ch = pj + 1, 0
                 if found is None:
@@ -2809,9 +2827,10 @@ def place_marks(blocks, footnotes, warn, spaced=False):
         mark = El("footnotemark")
         mark.kids.append(lab)
         if found:
-            bi, pj, m = found
+            bi, pj, m, spaced_mark = found
             text, page = blocks[bi]["pieces"][pj]
-            blocks[bi]["pieces"][pj:pj + 1] = [(text[:m.start()], page), mark, (text[m.end():], page)]
+            before = text[:m.start()].rstrip() if spaced_mark else text[:m.start()]   # "2026). 1" -> "2026).¹"
+            blocks[bi]["pieces"][pj:pj + 1] = [(before, page), mark, (text[m.end():], page)]
             pos = [bi, pj + 2, 0]
         elif last:
             bi, pj = last
@@ -2911,7 +2930,7 @@ def read_recap(r, d, oi, warn):
         m = ORDER_RE.match(r.get("description") or "")
         title = m.group(1) if m else "Document %s" % doc_key(r)
     blocks = recap_blocks(lines, labels)
-    place_marks(blocks, footnotes, warn)
+    place_marks(blocks, footnotes, warn, spaced=True)   # "(Aug. 25, 2026). 1": a mark set off by a space
     o = {"oi": oi, "kind": "", "author": "", "byline": [], "flat": [], "footnotes": {}, "api": r,
          "start": labels[lines[0].pi] if lines else "1", "title": titlecase(title), "who": judge_of(r, d)}
     fill_opinion(o, blocks, footnotes)
