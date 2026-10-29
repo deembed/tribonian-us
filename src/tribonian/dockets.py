@@ -1,7 +1,10 @@
 """Dockets: the court tree and the index of fetched dockets that the GUI's View Dockets screen reads.
 
     tribonian dockets courts      # the court tree -> cases/dockets/_courts.json
-    tribonian dockets index       # what is fetched and built -> cases/recap/_index.json (fetch and build refresh it)
+    tribonian dockets index       # what is fetched and built -> cases/recap/_index.json (fetch and build refresh it);
+                                  # moves dockets fetched before the court folders into cases/recap/<court>/
+    tribonian dockets opinions --court md [--pages N] [--json]
+                                  # a court's opinions, newest first (local index, else CourtListener)
     tribonian dockets search brown fcc [--court ca4] [--json]
                                   # fetched dockets, then CourtListener's (not in offline mode)
 
@@ -100,14 +103,35 @@ def pacer_url(court, r):
     return "https://ecf.%s.uscourts.gov/%s/%s" % (court, path, r["pacer_doc_id"])
 
 
-def index(args=None, quiet=False):
-    """One summary per fetched docket (no document text), for the GUI."""
-    notes, pdfs = built_files()
-    rel = lambda p: str(p.relative_to(c.ROOT)) if p else ""
-    out = []
+def move_to_court_folders(quiet=False):
+    """Dockets fetched before the court folders sit at cases/recap/ itself: move each into cases/recap/<court>/."""
+    moved = 0
     for p in sorted(c.RECAP.glob("*.json")) if c.RECAP.is_dir() else []:
         if p.name.startswith("_"):
             continue
+        try:
+            court = json.loads(p.read_text(encoding="utf-8"))["docket"].get("court_id") or "court"
+        except (ValueError, KeyError, TypeError):
+            continue
+        dest = c.RECAP / court / p.name
+        if dest.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        p.replace(dest)
+        moved += 1
+        if not quiet:
+            print("moved %s -> %s" % (p.relative_to(c.ROOT), dest.relative_to(c.ROOT)))
+    return moved
+
+
+def index(args=None, quiet=False):
+    """One summary per fetched docket (no document text), for the GUI. Moves dockets fetched before the
+    court folders into them first."""
+    move_to_court_folders(quiet)
+    notes, pdfs = built_files()
+    rel = lambda p: str(p.relative_to(c.ROOT)) if p else ""
+    out = []
+    for p in c.recap_files():
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             d = data["docket"]
@@ -149,18 +173,14 @@ def words_match(q, *fields):
     return all(w in hay for w in re.findall(r"[\w.:-]+", q.lower()))
 
 
-def api_dockets(query, court=None, pages=1, max_age=24):
-    """CourtListener's docket search, its first `pages` pages (20 hits and 1 request each). Each page is cached
-    a day on its own under cases/api/dockets/, with the link to the next one, so reading one more page costs one
-    request. -> (count, hits, cached: no request made)."""
-    params = {"type": "d", "order_by": "score desc"}
-    params["docket_number" if NUMBER_RE.match(query.strip()) else "case_name"] = query.strip()
-    if court:
-        params["court"] = court
+def api_pages(params, pages, kind, hit, max_age=24):
+    """The first `pages` pages (20 results and 1 request each) of a CourtListener search, each page cached a day
+    on its own under cases/api/<kind>/ with the link to the next, so one more page costs one request.
+    hit: result -> dict. -> (count, hits, cached: no request made)."""
     key = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16]
     url, tok, hits, count, cached = "%s/search/?%s" % (c.API, urllib.parse.urlencode(params)), None, [], None, True
     for n in range(1, max(1, pages) + 1):
-        path = c.CASES / "api" / "dockets" / ("%s-p%d.json" % (key, n))
+        path = c.CASES / "api" / kind / ("%s-p%d.json" % (key, n))
         page = None
         try:
             page = json.loads(path.read_text(encoding="utf-8"))
@@ -172,11 +192,7 @@ def api_dockets(query, court=None, pages=1, max_age=24):
             tok = tok or c.token()
             res = c.call(url, tok)
             page = {"url": url, "time": time.time(), "count": res.get("count"), "next": res.get("next"),
-                    "hits": [{"id": r.get("docket_id"), "court": r.get("court_id") or "", "number": r.get("docketNumber") or "",
-                              "name": r.get("caseName") or "", "filed": r.get("dateFiled") or "",
-                              "terminated": r.get("dateTerminated") or "",
-                              "courtlistener": c.CL + (r.get("docket_absolute_url") or "") if r.get("docket_absolute_url") else ""}
-                             for r in res.get("results") or []]}
+                    "hits": [hit(r) for r in res.get("results") or []]}
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(page, ensure_ascii=False), encoding="utf-8")
             cached = False
@@ -186,6 +202,95 @@ def api_dockets(query, court=None, pages=1, max_age=24):
         if not url:
             break
     return count, hits, cached
+
+
+def api_dockets(query, court=None, pages=1):
+    """CourtListener's docket search. -> (count, hits, cached)."""
+    params = {"type": "d", "order_by": "score desc"}
+    params["docket_number" if NUMBER_RE.match(query.strip()) else "case_name"] = query.strip()
+    if court:
+        params["court"] = court
+    return api_pages(params, pages, "dockets", lambda r: {
+        "id": r.get("docket_id"), "court": r.get("court_id") or "", "number": r.get("docketNumber") or "",
+        "name": r.get("caseName") or "", "filed": r.get("dateFiled") or "", "terminated": r.get("dateTerminated") or "",
+        "courtlistener": c.CL + (r.get("docket_absolute_url") or "") if r.get("docket_absolute_url") else ""})
+
+
+# ------------------------------------------------------------------ a court's opinions
+
+PER_PAGE = 20
+
+
+def local_opinions(con, court, pages):
+    """A court's opinions, newest first, from the local database (needs tribonian db courtindex).
+    -> (hits, more) or None when the index isn't there."""
+    from tribonian import casedb
+    if con is None or not casedb.has_court_index(con):
+        return None
+    n = PER_PAGE * max(1, pages)
+    rows = con.execute("SELECT c.id, c.case_name, c.date_filed, c.citation_count FROM dockets d "
+                       "JOIN clusters c ON c.docket_id = d.id WHERE d.court_id=? "
+                       "ORDER BY c.date_filed DESC LIMIT ?", (court, n + 1)).fetchall()
+    hits = []
+    for cid, name, filed, cited in rows[:n]:
+        cite = con.execute("SELECT volume, reporter, page FROM cites WHERE cluster_id=? ORDER BY type LIMIT 1", (cid,)).fetchone()
+        hits.append({"cluster": cid, "name": name or "", "date": filed or "", "cited": cited or 0,
+                     "cite": " ".join(cite) if cite else ""})
+    return hits, len(rows) > n
+
+
+def api_opinions(court, pages, after=None):
+    """A court's opinions, newest first, from CourtListener's search (after: filed after this date only).
+    -> (count, hits, cached)."""
+    params = {"type": "o", "court": court, "order_by": "dateFiled desc"}
+    if after:
+        params["filed_after"] = after
+    return api_pages(params, pages, "court-opinions", lambda r: {
+        "cluster": r.get("cluster_id"), "name": r.get("caseName") or "", "date": r.get("dateFiled") or "",
+        "cited": r.get("citeCount") or 0, "cite": ", ".join(r.get("citation") or [])})
+
+
+def opinions(args):
+    court, pages = args.court.lower(), max(1, args.pages)
+    out = {"court": court, "source": "", "hits": [], "more": False, "count": None, "cached": False, "error": ""}
+    con = c.local_db()
+    got = local_opinions(con, court, pages)
+    if got is not None:
+        out["source"], (out["hits"], out["more"]) = "local database", got
+        if tconfig.fill_gaps():                 # complete mode: what is newer than the bulk data, on top
+            import datetime
+            stamp = c.bulk_stamp(con)
+            after = str(date.fromisoformat(stamp) - datetime.timedelta(days=c.API_LAG_DAYS)) if stamp else ""
+            try:
+                out["newer_count"], newer, _ = api_opinions(court, 1, after)
+                have = {h["cluster"] for h in out["hits"]}
+                out["hits"] = [dict(h, newer=True) for h in newer if h["cluster"] not in have] + out["hits"]
+                out["newer_after"] = after
+            except SystemExit as e:
+                out["error"] = "newer than the bulk data: %s" % e
+    elif tconfig.online():
+        try:
+            out["count"], out["hits"], out["cached"] = api_opinions(court, pages)
+            out["source"], out["more"] = "CourtListener", (out["count"] or 0) > len(out["hits"])
+        except SystemExit as e:
+            out["error"] = str(e)
+    else:
+        out["error"] = "offline mode, and the local database has no index by court (tribonian db courtindex)"
+    built = {int(k) for k in c.load_index()}
+    for h in out["hits"]:
+        h["built"] = h["cluster"] in built
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    print("%s opinions, newest first, from %s%s:" % (court, out["source"] or "nowhere",
+                                                   " and CourtListener (filed after %s)" % out["newer_after"] if out.get("newer_after") else ""))
+    for h in out["hits"]:
+        print("  %s  %-60s %s%s%s" % (h["date"], h["name"][:60], h["cite"], "  [built]" if h["built"] else "",
+                                      "  [newer]" if h.get("newer") else ""))
+    if out["error"]:
+        print(out["error"])
+    elif out["more"]:
+        print("more: --pages %d" % (pages + 1))
 
 
 def court_cites():
@@ -245,6 +350,12 @@ def main():
     se.add_argument("--pages", type=int, default=1, help="CourtListener result pages to read, 20 hits and 1 request each (default 1)")
     se.add_argument("--json", action="store_true", help="print JSON (for the GUI)")
     se.set_defaults(func=search)
+    op = sub.add_parser("opinions", help="a court's opinions, newest first: the local database (tribonian db courtindex), "
+                        "else CourtListener (not offline)")
+    op.add_argument("--court", required=True, help="CourtListener court id, e.g. md (Supreme Court of Maryland)")
+    op.add_argument("--pages", type=int, default=1, help="pages of %d to show (default 1)" % PER_PAGE)
+    op.add_argument("--json", action="store_true", help="print JSON (for the GUI)")
+    op.set_defaults(func=opinions)
     args = ap.parse_args()
     args.func(args)
 

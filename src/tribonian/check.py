@@ -348,8 +348,18 @@ def run_db():
                         ("opmap", p_opmap), ("citation-map", p_edges), ("parentheticals", p_parens),
                         ("dockets", p_dockets)):
         table_check(name, probe)
+
+    @check("db:courtindex", "Main database", "dockets by court")
+    def _(c):
+        if "c" not in con or not loaded("dockets"):
+            return c.skip("no dockets table")
+        if not casedb.has_court_index(con["c"]):
+            return c.warn("not built: View Dockets lists a court's opinions from CourtListener instead (not offline)",
+                          "tribonian db courtindex")
+        k = con["c"].execute("SELECT count(*) FROM (SELECT 1 FROM dockets WHERE court_id='scotus' LIMIT 100000)").fetchone()[0]
+        c.ok("built; scotus has %s%s dockets" % (n(k), "+" if k >= 100000 else ""))
     # report in load order
-    order = ["db:file"] + ["db:" + x for x in casedb.ORDER if x != "opinions"] + ["db:opmap"]
+    order = ["db:file"] + ["db:" + x for x in casedb.ORDER if x != "opinions"] + ["db:opmap", "db:courtindex"]
     block = sorted([r for r in RESULTS if r.group == "Main database"], key=lambda r: order.index(r.key))
     RESULTS[:] = [r for r in RESULTS if r.group != "Main database"] + block
     return con.get("c")
@@ -487,6 +497,22 @@ def paths():
             "gui": tconfig.gui(), "data_mode": safe_mode()}
 
 
+def mode_mismatch(mode, best, ms):
+    """The mode set and the data installed disagree: a sentence saying how, else "". The mode is a label for
+    full / lite / api (the scripts use whatever local data exists); only offline changes what they do."""
+    order = ["api", "lite", "full"]
+    mode = "full" if mode == "complete" else mode          # complete: the full install, plus gap-filling requests
+    if mode == "offline" or mode not in order:
+        return ""
+    if not ms.get(mode, {}).get("ok"):
+        return "%s is set, but this install lacks %s; the scripts fall back on the API where they can" % (
+            mode, ", ".join(ms.get(mode, {}).get("missing") or ["what it needs"]))
+    if best and order.index(best) > order.index(mode):
+        return ("%s is set, but this install has the data for %s; the scripts still use the local data "
+                "(the mode doesn't make them ignore it)" % (mode, best))
+    return ""
+
+
 def safe_mode():
     """The data mode setting, or "full" when it is not one of the four (the full check reports that)."""
     try:
@@ -514,7 +540,8 @@ def main():
     best, ms = modes()
     if args.json:
         print(json.dumps({"best": best, "modes": ms, "needs": NEEDS, "paths": paths(),
-                          "setting": {"mode": tconfig.data_mode(), "from": tconfig.source("data_mode", "full")[1]},
+                          "setting": {"mode": tconfig.data_mode(), "from": tconfig.source("data_mode", "full")[1],
+                                      "note": mode_mismatch(tconfig.data_mode(), best, ms)},
                           "checks": [r.as_dict() for r in RESULTS]}, indent=1))
     else:
         group = None
@@ -527,6 +554,9 @@ def main():
                 print("  %s  %-34s fix: %s" % ("    ", "", r.fix))
         print("\nData mode set: %s (%s); the best this install supports: %s" % (
             tconfig.data_mode(), tconfig.source("data_mode", "full")[1], best or "none (fix the Tools / API items above)"))
+        note = mode_mismatch(tconfig.data_mode(), best, ms)
+        if note:
+            print("  note: " + note)
         for m in MODES:
             print("  %-4s %s" % (m, "ready" if ms[m]["ok"] else "needs " + ", ".join(ms[m]["missing"])))
     sys.exit(0 if best else 1)

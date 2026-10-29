@@ -296,7 +296,7 @@ The question is **which cases travel together, and how that changes over time**.
 ## 8. Build orchestration: `tribonian build`
 
 - **How it runs:** `tribonian build` (`build.py`) runs in the work folder. Each job runs `python -m tribonian usc …` or `case build …` as a child process (the interpreter is `TRIBONIAN_PY`, the one `tribonian` runs under), `JOBS` at a time from a thread pool; the main thread prints the countdown and appends to the manifest. Plain Python, so it is the same on Linux, macOS and Windows.
-- **Job discovery:** `xml/*.xml` gives one job per chapter (chapter lists are cached in `build/chapters/` until the XML changes). `cases/*.json` gives case jobs and `cases/recap/*.json` gives docket jobs.
+- **Job discovery:** `xml/*.xml` gives one job per chapter (chapter lists are cached in `build/chapters/` until the XML changes). `cases/*.json` gives case jobs and `cases/recap/<court>/*.json` gives docket jobs.
 - **Incremental builds:** `state/built.tsv` maps each job to its PDF. A job builds when it has no record, its PDF is missing, or its source is newer. Failures are never recorded, so the next run retries them. `FORCE=1` after changing a generator.
 - **Parallel runs:** each job gets its own scratch folder (`build/job.*`, or under `SCRATCH`), so parallel `.tex`, `.aux` and `.md` files never collide. Only the main thread writes the manifest.
 - **Success signal:** `tribonian case build` prints `wrote pdf/…` only when pdflatex succeeded. The script parses that line, and a missing line is a failure.

@@ -168,6 +168,7 @@ cd ..
 tribonian db load      # every file in bulk/, smallest first; a finished table is skipped, so rerun after an interruption
 tribonian db status    # each table: file, rows, when loaded
 tribonian db index     # full-text index for case2md.py find (load rebuilds it when clusters or parentheticals change)
+tribonian db courtindex   # dockets by court: View Dockets lists a court's opinions locally (load builds it with dockets)
 ```
 
 Disk: the opinion text alone is about 110 GB in `db/opinions.sqlite`; the main database (`bulk/courtlistener.sqlite`)
@@ -301,7 +302,7 @@ All of these are in the work folder (the checkout, unless `work_dir` says otherw
 | Folder | What's in it | Written by |
 |---|---|---|
 | `xml/` | US Code, USLM XML from [uscode.house.gov](https://uscode.house.gov/download/download.shtml) | you |
-| `cases/` | one `.json` per case with full text; `cases/recap/` for district-court dockets | `tribonian case fetch`, `tribonian map get`/`stubs` |
+| `cases/` | one `.json` per case with full text; `cases/recap/<court>/` for district and appeals court dockets | `tribonian case fetch`, `tribonian map get`/`stubs` |
 | `cases/stubs/` | cases known only from the citation graph (no text yet) | `tribonian map map` |
 | `cases/unparsed/` | text fetched but not in a format `build` can read; left out of builds | `tribonian map stubs --api` |
 | `cases/scotus/` | pending Supreme Court dockets: `<docket>.json` plus `<docket>/` with the filed PDFs and their text; `_recent.json` + `_recent/` (recent opinions, grants, orders) | `tribonian scotus fetch`, `tribonian scotus recent` |
@@ -329,7 +330,7 @@ tribonian build list.txt         # build exactly the jobs in a list, always
 tribonian build build/failed_jobs.txt   # retry last run's failures
 ```
 
-Sources it scans: `xml/*.xml` (one PDF per chapter), `cases/*.json`, `cases/recap/*.json`.
+Sources it scans: `xml/*.xml` (one PDF per chapter), `cases/*.json`, `cases/recap/<court>/*.json`.
 
 How it decides what to build: `state/built.tsv` records the PDF that each successful job made. A job gets built when it has no record, its PDF is gone, or its source is newer than its PDF. Failures aren't recorded, so the next run retries them. The list of jobs that were due is saved in `build/todo.txt`.
 
@@ -409,7 +410,7 @@ tribonian case find glomar                        # search your notes, then the 
 tribonian case find glomar --get 3                # take result 3 from the database and build it
 tribonian case recap fetch --docket 4949363       # the court's orders and opinions (uses the API)
 tribonian case recap fetch --docket 4949363 --docs 35,55,12-1   # these documents (12-1 = attachment); --all: everything
-tribonian case recap build cases/recap/<docket>.json             # --docs 35,55: only these
+tribonian case recap build cases/recap/<court>/<docket>.json             # --docs 35,55: only these
 tribonian case usage                              # API requests used; --days N for history
 ```
 
@@ -474,6 +475,7 @@ tribonian db load citation-map     # one table: courts citations citation-map pa
 tribonian db status
 tribonian db columns               # per bulk file: columns loaded, columns left out
 tribonian db index                 # full-text index for case2md.py find
+tribonian db courtindex            # dockets by court, for a court's opinions in View Dockets
 tribonian db case cases/<case>.json   # smoke test
 ```
 

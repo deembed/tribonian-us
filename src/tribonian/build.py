@@ -3,7 +3,7 @@
     source                  ->  output
     xml/*.xml               ->  pdf/<n>-usc-ch<NN>.pdf, one per chapter   + md/ notes
     cases/*.json            ->  pdf/[<folder>/]<case>.pdf                 + md-cases/ note
-    cases/recap/*.json      ->  pdf/[<folder>/]<docket>.pdf               + md-cases/ notes
+    cases/recap/<court>/*.json -> pdf/[<folder>/]<docket>.pdf            + md-cases/ notes
 
 So: fetch cases (tribonian case fetch / case recap fetch) or drop in XML, then run this.
 
@@ -199,7 +199,9 @@ def all_jobs(scope, jobs):
     out = []
     if scope != "usc":
         out += ["case %s" % p.as_posix() for p in sorted(Path("cases").glob("*.json")) if not p.name.startswith("_")]
-        out += ["recap %s" % p.as_posix() for p in sorted(Path("cases/recap").glob("*.json"))]
+        recap = Path("cases/recap")            # <court>/<docket>.json; at the top level before the court folders
+        out += ["recap %s" % p.as_posix() for p in sorted(list(recap.glob("*.json")) + list(recap.glob("*/*.json")))
+                if not p.name.startswith("_") and p.parent.name != "pdf"]
     if scope != "cases":
         xmls = [p.as_posix() for p in sorted(Path("xml").glob("*.xml"))]
         with ThreadPoolExecutor(jobs) as ex:     # listing parses every changed XML, so in parallel too

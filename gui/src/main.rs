@@ -134,8 +134,11 @@ pub struct App {
     /// Search Dockets results by (query, CourtListener pages read); cleared when the data mode changes
     pub docket_search: HashMap<(String, u32), Result<dockets::SearchResult, String>>,
     docket_search_pending: std::collections::HashSet<(String, u32)>,
-    dstx: Sender<dockets::SearchResp>,
-    dsrx: Receiver<dockets::SearchResp>,
+    /// a court's opinions by (court id, pages read)
+    pub court_opinions: HashMap<(String, u32), Result<dockets::Opinions, String>>,
+    court_opinions_pending: std::collections::HashSet<(String, u32)>,
+    dstx: Sender<dockets::Resp>,
+    dsrx: Receiver<dockets::Resp>,
     pub sem_ui: semsearch_page::SemUi,
     pub check_ui: check_page::CheckUi,
     egui_ctx: Option<egui::Context>,
@@ -218,6 +221,8 @@ impl App {
             dockets_ui: Default::default(),
             docket_search: HashMap::new(),
             docket_search_pending: Default::default(),
+            court_opinions: HashMap::new(),
+            court_opinions_pending: Default::default(),
             dstx,
             dsrx,
             sem_ui: Default::default(),
@@ -432,6 +437,7 @@ impl App {
                 self.files = CaseFiles::load(cfg);
             }
             self.load_scotus();
+            self.court_opinions.clear();          // a Build changes their "built" marks (the API pages are cached a day)
             self.cache.clear();
             self.errors.clear();
             let p = self.current().clone();
@@ -583,7 +589,7 @@ impl App {
     /// The CourtListener half of a search, when "Include CourtListener" is on; once per page.
     fn request_api(&mut self, page: &Page) {
         let Page::Search { query, .. } = page else { return };
-        if !self.online() || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
+        if !self.fill_gaps() || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
             return;
         }
         let Some(cfg) = &self.cfg else { return };
@@ -594,6 +600,11 @@ impl App {
                 c.request_repaint();
             }
         });
+    }
+
+    /// complete mode: lists of local results also show what is newer than the bulk data, from the API.
+    pub fn fill_gaps(&self) -> bool {
+        self.cfg.as_ref().is_some_and(|c| c.mode == "complete")
     }
 
     /// May searches use the CourtListener API: every data mode but offline.
@@ -617,6 +628,22 @@ impl App {
         });
     }
 
+    /// A court's opinions: `tribonian dockets opinions` once per (court, pages).
+    pub fn request_court_opinions(&mut self, court: &str, pages: u32) {
+        let key = (court.to_string(), pages);
+        if self.court_opinions.contains_key(&key) || self.court_opinions_pending.contains(&key) {
+            return;
+        }
+        let Some(cfg) = &self.cfg else { return };
+        let ctx = self.egui_ctx.clone();
+        self.court_opinions_pending.insert(key);
+        dockets::spawn_opinions(cfg.py(), court.to_string(), pages, self.dstx.clone(), move || {
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        });
+    }
+
     /// The top bar's data mode: every script runs with --mode <it>; remembered between sessions.
     fn mode_picker(&mut self, ui: &mut egui::Ui) {
         let Some(cfg) = &self.cfg else { return };
@@ -628,7 +655,8 @@ impl App {
                 for m in config::DATA_MODES {
                     let what = match m {
                         "offline" => "local data only, no CourtListener requests",
-                        "full" => "full bulk data; the API only for what is newer",
+                        "full" => "full bulk data; the API only for what you ask for (fetch, Search Dockets, Build)",
+                        "complete" => "full, plus what is newer than the bulk data from the API on lists of local results (more requests)",
                         "lite" => "small bulk tables; opinion text from the API",
                         _ => "everything from the CourtListener API",
                     };
@@ -656,6 +684,7 @@ impl App {
                 cfg.mode = m;
             }
             self.docket_search.clear();
+            self.court_opinions.clear();
         }
     }
 
@@ -665,9 +694,18 @@ impl App {
 
     fn poll(&mut self) {
         for r in self.dsrx.try_iter().collect::<Vec<_>>() {
-            let key = (r.query, r.pages);
-            self.docket_search_pending.remove(&key);
-            self.docket_search.insert(key, r.result);
+            match r {
+                dockets::Resp::Search { query, pages, result } => {
+                    let key = (query, pages);
+                    self.docket_search_pending.remove(&key);
+                    self.docket_search.insert(key, result);
+                }
+                dockets::Resp::Opinions { court, pages, result } => {
+                    let key = (court, pages);
+                    self.court_opinions_pending.remove(&key);
+                    self.court_opinions.insert(key, result);
+                }
+            }
         }
         for r in self.arx.try_iter().collect::<Vec<_>>() {
             self.api_pending.remove(&r.page);
