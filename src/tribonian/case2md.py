@@ -3195,7 +3195,11 @@ def court_cite(court_id, con):
     """'laed' -> 'E.D. La.'"""
     if court_id not in _COURTS:
         row = con.execute("SELECT citation_string FROM courts WHERE id=?", (court_id,)).fetchone() if con else None
-        _COURTS[court_id] = (row[0] if row and row[0] else court_id or "")
+        cite = row[0] if row and row[0] else ""
+        if not cite:                            # no database: the court tree (tribonian dockets courts), if built
+            from tribonian import dockets
+            cite = dockets.court_cites().get(court_id, "")
+        _COURTS[court_id] = cite or court_id or ""
     return _COURTS[court_id]
 
 
