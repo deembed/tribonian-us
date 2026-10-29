@@ -23,6 +23,18 @@ pub enum Page {
     SemSearch,
     /// Check setup: tools and databases there and answering (check_page.rs)
     Check,
+    /// View Dockets: Federal or State (dockets_page.rs)
+    Dockets,
+    /// the federal courts: Supreme Court, courts of appeals, district, bankruptcy, special
+    DocketsFederal,
+    /// None: every state; Some(postal code): one state's courts
+    DocketsState(Option<String>),
+    /// one court's fetched dockets, by CourtListener court id ("ca4")
+    CourtDockets(String),
+    /// one fetched RECAP docket, by CourtListener docket id
+    RecapDocket(i64),
+    /// Search Dockets: the fetched ones, then CourtListener's (not offline)
+    DocketSearch(String),
 }
 
 impl Page {
@@ -34,12 +46,14 @@ impl Page {
             Page::Search { .. } | Page::CoCited(_) => Section::Search,
             Page::Scotus | Page::Docket(_) => Section::Scotus,
             Page::SemSearch => Section::SemSearch,
+            Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) | Page::DocketSearch(_) => Section::Dockets,
             _ => Section::Clusters,
         }
     }
     /// Pages that need the database (everything but the start screen and the case list).
     pub fn needs_db(&self) -> bool {
-        !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::SemSearch | Page::Check)
+        !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::SemSearch | Page::Check
+            | Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) | Page::DocketSearch(_))
     }
 }
 
@@ -51,6 +65,7 @@ pub enum Section {
     Search,
     Scotus,
     SemSearch,
+    Dockets,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,4 +1,4 @@
-//! Search for Cases: full-text search over bulk/search.sqlite (built by casedb.py), on its own
+//! Search Opinions: full-text search over bulk/search.sqlite (built by casedb.py), on its own
 //! worker thread so a slow search (cold disk) never holds up page loads.
 //!
 //! search.sqlite has two FTS5 tables (FTS5 = SQLite's built-in full-text index):

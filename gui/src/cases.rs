@@ -103,7 +103,7 @@ impl CaseFiles {
                 .unwrap_or_else(|| stem.clone());
             let pdf = cfg.pdf_dir().join(&folder).join(format!("{stem}.pdf"));
             // Supreme Court docket and filing notes are no cases in the index; their front matter says
-            // which docket they belong to, so View Cases can open the docket page for them
+            // which docket they belong to, so View Opinions can open the docket page for them
             let (mut docket, mut source, mut title) = (None, None, title);
             if r.is_none() && stem.starts_with("scotus-") {
                 let fm = head_matter(&p);

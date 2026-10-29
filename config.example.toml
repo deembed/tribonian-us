@@ -28,6 +28,10 @@
 # Downloaded C.F.R. titles and state law (tribonian cfr fetch); default <work>/law   (TRIBONIAN_LAW)
 # law_dir = "/path/to/large/disk/law"
 
+# Data mode: offline (local only, no API requests), full, lite, api            (CL_DATA_MODE)
+# tribonian --mode <mode> <command> overrides it for one command; the GUI has its own selector.
+# data_mode = "full"
+
 # CourtListener API limits per minute, hour, day; members raise them          (CL_LIMITS)
 # api_limits = "5,50,125"
 

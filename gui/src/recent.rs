@@ -64,3 +64,15 @@ pub fn save(list: &[(String, Mode)]) {
         let _ = std::fs::rename(&tmp, &p);
     }
 }
+
+/// The data mode picked in the top bar, kept between sessions (`lawgui/data-mode.txt` beside the searches).
+pub fn load_mode() -> Option<String> {
+    let p = path()?.with_file_name("data-mode.txt");
+    std::fs::read_to_string(p).ok().map(|t| t.trim().to_string()).filter(|m| crate::config::DATA_MODES.contains(&m.as_str()))
+}
+
+pub fn save_mode(mode: &str) {
+    let Some(p) = path().map(|p| p.with_file_name("data-mode.txt")) else { return };
+    let _ = p.parent().map(std::fs::create_dir_all);
+    let _ = std::fs::write(p, mode);
+}

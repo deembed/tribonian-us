@@ -2143,7 +2143,7 @@ KEEP = ("id", "docket_entry_id", "document_number", "entry_number", "attachment_
         "filepath_local", "absolute_url", "pacer_doc_id")
 # The court's own writing, by the start of the clerk's docket text. Everything else (motions,
 # briefs, exhibits) is left out unless named with --docs or --all.
-ORDER_RE = re.compile(r"^\s*(ORDER|OPINION|MEMORANDUM|JUDGMENT|FINAL JUDGMENT|REPORT AND RECOMMENDATION|"
+ORDER_RE = re.compile(r"^\s*(?:COURT\s+)?(ORDER|OPINION|MEMORANDUM|JUDGMENT|FINAL JUDGMENT|REPORT AND RECOMMENDATION|"
                       r"FINDINGS|RULING|DECISION|PER CURIAM)", re.I)
 
 
@@ -2196,12 +2196,34 @@ def pdf_text(r):
     return t, "pdftotext -layout of the filed PDF"
 
 
+def find_docket(court, number, tok):
+    """A court's case number, as the court writes it ("26-2230", "1:26-cv-00376") -> its CourtListener docket id.
+    One API request: the local dockets table has no index on the number (a full scan), and the monthly bulk
+    files lag the live dockets this is for."""
+    q = urllib.parse.urlencode({"court": court, "docket_number": number, "fields": "id,case_name,docket_number,date_filed"})
+    hits = (call("%s/dockets/?%s" % (API, q), tok) or {}).get("results") or []
+    if not hits:
+        sys.exit("No docket %s in court %s on CourtListener. Check the number as the court writes it, or pass "
+                 "--docket with the CourtListener docket id." % (number, court))
+    if len(hits) > 1:
+        print("More than one docket %s in %s; pass --docket with one of these:" % (number, court))
+        for h in hits:
+            print("  %-10s %s  %s  filed %s" % (h["id"], h.get("docket_number"), h.get("case_name"), h.get("date_filed")))
+        sys.exit(1)
+    return hits[0]["id"]
+
+
 def recap_fetch(args):
     tok = token()
-    m = re.search(r"(\d+)", args.docket)
-    if not m:
-        sys.exit("--docket takes a CourtListener docket id or URL, e.g. 4949363")
-    did = int(m.group(1))
+    if args.docket:
+        m = re.search(r"(\d+)", args.docket)
+        if not m:
+            sys.exit("--docket takes a CourtListener docket id or URL, e.g. 4949363")
+        did = int(m.group(1))
+    elif args.court and args.number:
+        did = find_docket(args.court.lower(), args.number.strip(), tok)
+    else:
+        sys.exit("Name the docket: --docket ID (CourtListener), or --court ID --number N (e.g. --court ca4 --number 26-2230)")
     RECAP.mkdir(parents=True, exist_ok=True)
     old = recap_file(did)
     data = json.loads(old.read_text(encoding="utf-8")) if old else {"docket": None, "documents": []}
@@ -2255,6 +2277,8 @@ def recap_fetch(args):
                                            r.get("page_count") or "?", clean(r.get("description") or "")[:90]))
     print("  (* text saved, - not in RECAP, ! no text; others not selected: --docs N,N or --all)")
     print("saved %s" % out.relative_to(ROOT))
+    from tribonian import dockets
+    dockets.index(quiet=True)                   # the GUI's View Dockets reads it
     print("next:  tribonian case recap build %s" % out.relative_to(ROOT))
 
 
@@ -3324,6 +3348,8 @@ def recap_build(args):
     unmapped_note()
     for o in ops:
         print("  ECF No. %-6s %-14s %-32s %s" % (doc_key(o["api"]), o["who"], o["title"][:32], o["summary"]))
+    from tribonian import dockets
+    dockets.index(quiet=True)                   # the GUI's View Dockets reads it
     for w in warnings:
         print("  note:", w)
     for k, hint in missing:
@@ -3565,10 +3591,12 @@ def main():
     fd.add_argument("--get", type=int, metavar="N", help="fetch result N from the local database and build its PDF")
     fd.add_argument("--max", type=int, default=10, help="results per list (default 10)")
     fd.set_defaults(func=find)
-    rc = sub.add_parser("recap", help="district-court filings from RECAP: fetch, build")
+    rc = sub.add_parser("recap", help="district and appeals court filings from RECAP: fetch, build")
     rsub = rc.add_subparsers(dest="rcmd", required=True)
     rf = rsub.add_parser("fetch", help="download a docket's orders to cases/recap/*.json")
-    rf.add_argument("--docket", required=True, help="CourtListener docket id or URL, e.g. 4949363")
+    rf.add_argument("--docket", help="CourtListener docket id or URL, e.g. 4949363")
+    rf.add_argument("--court", help="with --number: CourtListener court id, e.g. ca4 (4th Cir.), mdd (D. Md.)")
+    rf.add_argument("--number", help="with --court: the court's case number, e.g. 26-2230")
     rf.add_argument("--docs", help="document numbers, e.g. 35,55,66 or 12-1 for an attachment (default: the court's orders and opinions)")
     rf.add_argument("--all", action="store_true", help="every available document, attachments included")
     rf.set_defaults(func=recap_fetch)

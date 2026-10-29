@@ -49,6 +49,7 @@ pub fn side_panel(app: &mut App, ui: &mut Ui, section: Section) {
         Section::Search => search_side(app, ui),
         Section::Scotus => crate::scotus_page::scotus_side(app, ui),
         Section::SemSearch => crate::semsearch_page::sem_side(app, ui),
+        Section::Dockets => crate::dockets_page::dockets_side(app, ui),
         Section::Home => {}
     }
 }
@@ -126,7 +127,7 @@ fn clusters_side(app: &mut App, ui: &mut Ui) {
 }
 
 fn cases_side(app: &mut App, ui: &mut Ui) {
-    ui.heading("View Cases");
+    ui.heading("View Opinions");
     ui.horizontal(|ui| {
         ui.label("Filter");
         ui.text_edit_singleline(&mut app.filter);
@@ -212,6 +213,12 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::Docket(n) => return crate::scotus_page::docket_page(app, ui, n),
         Page::SemSearch => return crate::semsearch_page::sem_page(app, ui),
         Page::Check => return crate::check_page::check_page(app, ui),
+        Page::Dockets => return crate::dockets_page::dockets_home(app, ui),
+        Page::DocketsFederal => return crate::dockets_page::federal_page(app, ui),
+        Page::DocketsState(code) => return crate::dockets_page::state_page(app, ui, code),
+        Page::CourtDockets(id) => return crate::dockets_page::court_page(app, ui, id),
+        Page::RecapDocket(id) => return crate::dockets_page::docket_page(app, ui, *id),
+        Page::DocketSearch(q) => return crate::dockets_page::search_page(app, ui, q),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -249,45 +256,73 @@ fn home(app: &mut App, ui: &mut Ui) {
     ui.add_space(30.0);
     ui.vertical_centered(|ui| {
         ui.heading(RichText::new("What do you want to do?").size(26.0));
-        ui.add_space(24.0);
-        let size = egui::vec2(320.0, 48.0);
-        if ui.add_sized(size, egui::Button::new(RichText::new("View Clusters").size(18.0))).clicked() {
-            app.goto = Some(Page::Areas);
-        }
-        ui.add_space(8.0);
-        if ui.add_sized(size, egui::Button::new(RichText::new("View Cases").size(18.0))).clicked() {
-            app.goto = Some(Page::Cases);
-        }
-        ui.add_space(8.0);
-        if ui.add_sized(size, egui::Button::new(RichText::new("Search for Cases").size(18.0))).clicked() {
-            app.goto = Some(Page::Search { query: String::new(), mode: app.search_mode });
-        }
-        ui.add_space(8.0);
-        if ui
-            .add_sized(size, egui::Button::new(RichText::new("SCOTUS").size(18.0)))
-            .on_hover_text("Supreme Court: dockets fetched with tribonian scotus, recent opinions, grants and orders; add a docket by number")
-            .clicked()
-        {
-            app.goto = Some(Page::Scotus);
-        }
-        ui.add_space(8.0);
-        if ui
-            .add_sized(size, egui::Button::new(RichText::new("Sub-Cluster Search (draft)").size(18.0)))
-            .on_hover_text("paste a draft: CourtListener semantic search per paragraph, grouped by sub-cluster (tribonian map semsearch)")
-            .clicked()
-        {
-            app.goto = Some(Page::SemSearch);
-        }
-        ui.add_space(8.0);
-        let trouble = app.cfg_err.is_some() || app.view_err.is_some();
-        let label = if trouble { RichText::new("Check setup (something is missing)").size(18.0).color(Color32::LIGHT_RED) } else { RichText::new("Check setup").size(18.0) };
-        if ui
-            .add_sized(size, egui::Button::new(label))
-            .on_hover_text("is each tool and database there, and does it answer a query (tribonian check)")
-            .clicked()
-        {
-            app.goto = Some(Page::Check);
-        }
+    });
+    ui.add_space(24.0);
+    let size = egui::vec2(300.0, 48.0);
+    let button = |ui: &mut Ui, label: RichText, tip: &str| ui.add_sized(size, egui::Button::new(label)).on_hover_text(tip).clicked();
+    let big = |t: &str| RichText::new(t).size(18.0);
+    let mut go = None;
+    let mut courts = false;
+    ui.columns(3, |cols| {
+        cols[0].vertical_centered(|ui| {
+            ui.heading("Find and read");
+            ui.add_space(12.0);
+            if button(ui, big("Search Opinions"), "case names and courts' parentheticals in the local database, and CourtListener for newer cases (not offline)") {
+                go = Some(Page::Search { query: String::new(), mode: app.search_mode });
+            }
+            ui.add_space(8.0);
+            if button(ui, big("Search Dockets"), "party or case name, or a case number: the dockets fetched here, and CourtListener's (not offline)") {
+                go = Some(Page::DocketSearch(String::new()));
+            }
+            ui.add_space(8.0);
+            if button(ui, big("View Opinions"), "the decided cases built so far: one note and PDF per opinion (tribonian case build)") {
+                go = Some(Page::Cases);
+            }
+            ui.add_space(8.0);
+            if button(
+                ui,
+                big("View Dockets"),
+                "Federal or State, then the court: the Supreme Court (tribonian scotus), and dockets fetched from RECAP (tribonian case recap)",
+            ) {
+                go = Some(Page::Dockets);
+            }
+        });
+        cols[1].vertical_centered(|ui| {
+            ui.heading("Analysis");
+            ui.add_space(12.0);
+            if button(ui, big("View Clusters"), "co-citation areas, lineages, clusters and sub-clusters over time") {
+                go = Some(Page::Areas);
+            }
+            ui.add_space(8.0);
+            if button(ui, big("Sub-Cluster Search (draft)"), "paste a draft: CourtListener semantic search per paragraph, grouped by sub-cluster (tribonian map semsearch)") {
+                go = Some(Page::SemSearch);
+            }
+        });
+        cols[2].vertical_centered(|ui| {
+            ui.heading("Setup");
+            ui.add_space(12.0);
+            let trouble = app.cfg_err.is_some() || app.view_err.is_some();
+            let label = if trouble { big("Check setup (something is missing)").color(Color32::LIGHT_RED) } else { big("Check setup") };
+            if button(ui, label, "is each tool and database there, and does it answer a query (tribonian check)") {
+                go = Some(Page::Check);
+            }
+            ui.add_space(8.0);
+            let queued = app.is_queued(crate::dockets::COURTS_KEY);
+            let have = matches!(app.courts, Ok(Some(_)));
+            let r = ui
+                .add_enabled(!queued, egui::Button::new(big(if have { "Refresh court list" } else { "Build court list" })).min_size(size))
+                .on_hover_text("queues tribonian dockets courts: every court from the local courts table (tribonian db load courts), else CourtListener's API; View Dockets reads it")
+                .on_disabled_hover_text("in the build queue");
+            courts = r.clicked();
+        });
+    });
+    if courts {
+        crate::dockets_page::queue_courts(app);
+    }
+    if go.is_some() {
+        app.goto = go;
+    }
+    ui.vertical_centered(|ui| {
         ui.add_space(30.0);
         if let Some(e) = &app.cfg_err {
             ui.colored_label(Color32::LIGHT_RED, e);
@@ -316,7 +351,7 @@ fn home(app: &mut App, ui: &mut Ui) {
 }
 
 fn cases_home(app: &mut App, ui: &mut Ui) {
-    ui.heading("View Cases");
+    ui.heading("View Opinions");
     ui.label("Pick a case on the left. Cases come from cases/_index.json, laid out by the md-cases/ folders.");
     ui.add_space(8.0);
     let full = app.files.index.values().filter(|e| e.full).count();
@@ -1366,7 +1401,7 @@ fn skeleton(ui: &mut Ui, page: &Page) {
 
 fn search_side(app: &mut App, ui: &mut Ui) {
     use crate::search::Mode;
-    ui.heading("Search for Cases");
+    ui.heading("Search Opinions");
     let r = ui.add(
         egui::TextEdit::singleline(&mut app.search_input)
             .hint_text(if app.search_mode == Mode::Name { "name or citation" } else { "what the case stands for" })
@@ -1384,11 +1419,12 @@ fn search_side(app: &mut App, ui: &mut Ui) {
     });
     let changed = mode != app.search_mode;
     app.search_mode = mode;
-    ui.checkbox(&mut app.include_api, "Include CourtListener").on_hover_text(
-        "also search CourtListener for cases filed after the local database's bulk data (less a month): \
-         1 API request per search, reused for a day (tribonian case api-search). Cases already in the local \
-         database are left to the local results.",
-    );
+    ui.weak(if app.online() {
+        "Also searches CourtListener for cases filed after the local database's bulk data (less a month): 1 API request \
+         per search, reused for a day. Offline mode (top bar) turns that off."
+    } else {
+        "Offline mode (top bar): the local database only."
+    });
     if (ui.button("Search").clicked() || enter || (changed && !app.search_input.trim().is_empty()))
         && !app.search_input.trim().is_empty()
     {
@@ -1479,7 +1515,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     use crate::search::Mode;
     let Page::Search { query, mode } = page else { return };
     if query.is_empty() {
-        ui.heading("Search for Cases");
+        ui.heading("Search Opinions");
         ui.label("Type a case name, a citation, a Supreme Court docket number (25-579), or (with Parentheticals) what a case stands for, then press Enter.");
         return;
     }
@@ -1487,7 +1523,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     if *mode == Mode::Name {
         crate::scotus_page::docket_hits(app, ui, query);
     }
-    if app.include_api {
+    if app.online() {
         api_hits(app, ui, page);
     }
     let Some(res) = app.search_cache.get(page).cloned() else {

@@ -18,6 +18,7 @@ See config.example.toml. Paths may start with ~; a relative path is relative to 
     api_limits           CL_LIMITS              "5,50,125"  (per minute, hour, day)
     courtlistener_token  COURTLISTENER_TOKEN    secret-tool lookup service courtlistener
     law_dir              TRIBONIAN_LAW          <work>/law   (downloaded C.F.R. and state law: cfr.py)
+    data_mode            CL_DATA_MODE           "full"  (offline | full | lite | api; `tribonian --mode X` sets it per command)
 
 Standard library only. Python 3.11+ reads the file with tomllib; on 3.10 a small reader handles the
 subset this file needs ([tables], key = "string" | 'string' | number | true/false, # comments).
@@ -32,7 +33,7 @@ REPO = PKG.parent.parent if (PKG.parent.parent / "pyproject.toml").is_file() els
 # key -> environment variable
 ENV = {"work_dir": "TRIBONIAN_WORK", "bulk_dir": "CL_BULK", "main_db": "CL_DB", "opinions_db": "CL_OPS_DB", "search_db": "CL_SEARCH_DB",
        "cocite_db": "CL_COCITE_DB", "api_limits": "CL_LIMITS", "courtlistener_token": "COURTLISTENER_TOKEN",
-       "law_dir": "TRIBONIAN_LAW"}
+       "law_dir": "TRIBONIAN_LAW", "data_mode": "CL_DATA_MODE"}
 PATH_KEYS = {"work_dir", "bulk_dir", "main_db", "opinions_db", "search_db", "cocite_db", "law_dir"}
 
 
@@ -160,6 +161,27 @@ def source(key, default=None):
     else:
         return default, "default"
     return (_path(v) if key in PATH_KEYS else v), src
+
+
+# What the data comes from, and whether the CourtListener API may be used:
+#   offline  local data only, no API requests
+#   full     full bulk data; the API only for what is newer than the dump
+#   lite     the small bulk tables locally; opinion text from the API
+#   api      everything from the API
+DATA_MODES = ("offline", "full", "lite", "api")
+
+
+def data_mode():
+    """The data mode in effect: `tribonian --mode`, else CL_DATA_MODE, else the config file's data_mode, else full."""
+    v = str(get("data_mode", "full") or "full").strip().lower()
+    if v not in DATA_MODES:
+        sys.exit("data_mode %r: use one of %s (CL_DATA_MODE, the config file, or tribonian --mode)" % (v, ", ".join(DATA_MODES)))
+    return v
+
+
+def online():
+    """May the scripts make CourtListener API requests (every mode but offline)."""
+    return data_mode() != "offline"
 
 
 def gui():

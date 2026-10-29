@@ -1,5 +1,5 @@
 //! lawgui: a read-only browser over what the tribonian-us scripts produced.
-//! Start screen -> View Clusters (areas, lineages, slices, clusters, sub-clusters) and View Cases,
+//! Start screen -> View Clusters (areas, lineages, slices, clusters, sub-clusters) and View Opinions,
 //! all leading to one shared case page. See claude/scope-gui.md in the Project.
 
 mod apisearch;
@@ -8,6 +8,8 @@ mod check_page;
 mod cocache;
 mod config;
 mod db;
+mod dockets;
+mod dockets_page;
 mod graph;
 mod jobs;
 mod model;
@@ -99,8 +101,6 @@ pub struct App {
     /// Searches, newest first, without repeats; kept between sessions (`recent.rs`).
     pub search_history: Vec<(String, search::Mode)>,
     pub show_history: bool,
-    /// "Include CourtListener": also search the API for cases newer than the local database.
-    pub include_api: bool,
     /// "Fetch state law" (on by default): case and docket builds also download and build the state law they cite
     /// that is not local (--fetch-state-law), so its text is printed at the end of the PDF.
     pub fetch_state_law: bool,
@@ -126,6 +126,16 @@ pub struct App {
     pub docket_errors: Vec<String>,
     pub recent: Result<Option<scotus::Recent>, String>,
     pub scotus_ui: scotus_page::ScotusUi,
+    /// cases/recap/_index.json (tribonian dockets index) and cases/dockets/_courts.json (tribonian dockets courts)
+    pub recap: Vec<dockets::RecapDocket>,
+    pub recap_error: Option<String>,
+    pub courts: Result<Option<dockets::CourtTree>, String>,
+    pub dockets_ui: dockets_page::DocketsUi,
+    /// Search Dockets results by (query, CourtListener pages read); cleared when the data mode changes
+    pub docket_search: HashMap<(String, u32), Result<dockets::SearchResult, String>>,
+    docket_search_pending: std::collections::HashSet<(String, u32)>,
+    dstx: Sender<dockets::SearchResp>,
+    dsrx: Receiver<dockets::SearchResp>,
     pub sem_ui: semsearch_page::SemUi,
     pub check_ui: check_page::CheckUi,
     egui_ctx: Option<egui::Context>,
@@ -152,6 +162,7 @@ struct PopOut {
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> App {
         let (atx, arx) = std::sync::mpsc::channel();
+        let (dstx, dsrx) = std::sync::mpsc::channel();
         let mut app = App {
             cfg: None,
             cfg_path: None,
@@ -183,7 +194,6 @@ impl App {
             search_mode: search::Mode::Name,
             search_history: recent::load(),
             show_history: false,
-            include_api: false,
             fetch_state_law: true,
             print_law: true,
             api_cache: HashMap::new(),
@@ -202,6 +212,14 @@ impl App {
             docket_errors: Vec::new(),
             recent: Ok(None),
             scotus_ui: Default::default(),
+            recap: Vec::new(),
+            recap_error: None,
+            courts: Ok(None),
+            dockets_ui: Default::default(),
+            docket_search: HashMap::new(),
+            docket_search_pending: Default::default(),
+            dstx,
+            dsrx,
             sem_ui: Default::default(),
             check_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
@@ -251,6 +269,11 @@ impl App {
         let Some(cfg) = &self.cfg else { return };
         (self.dockets, self.docket_errors) = scotus::load_dockets(&cfg.cases_dir(), &cfg.work_dir);
         self.recent = scotus::load_recent(&cfg.cases_dir());
+        (self.recap, self.recap_error) = match dockets::load_index(&cfg.cases_dir()) {
+            Ok(v) => (v, None),
+            Err(e) => (Vec::new(), Some(e)),
+        };
+        self.courts = dockets::load_courts(&cfg.cases_dir());
     }
 
     pub fn docket(&self, num: &str) -> Option<&scotus::Docket> {
@@ -340,7 +363,7 @@ impl App {
         self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Steps(steps) });
     }
 
-    fn enqueue(&mut self, q: Queued) {
+    pub(crate) fn enqueue(&mut self, q: Queued) {
         if self.is_queued(q.r#ref) {
             return;
         }
@@ -560,7 +583,7 @@ impl App {
     /// The CourtListener half of a search, when "Include CourtListener" is on; once per page.
     fn request_api(&mut self, page: &Page) {
         let Page::Search { query, .. } = page else { return };
-        if !self.include_api || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
+        if !self.online() || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
             return;
         }
         let Some(cfg) = &self.cfg else { return };
@@ -573,11 +596,79 @@ impl App {
         });
     }
 
+    /// May searches use the CourtListener API: every data mode but offline.
+    pub fn online(&self) -> bool {
+        self.cfg.as_ref().is_some_and(|c| c.mode != "offline")
+    }
+
+    /// Search Dockets: run `tribonian dockets search` once per query (it may make one API request).
+    pub fn request_docket_search(&mut self, query: &str, pages: u32) {
+        let key = (query.to_string(), pages);
+        if self.docket_search.contains_key(&key) || self.docket_search_pending.contains(&key) {
+            return;
+        }
+        let Some(cfg) = &self.cfg else { return };
+        let ctx = self.egui_ctx.clone();
+        self.docket_search_pending.insert(key);
+        dockets::spawn_search(cfg.py(), query.to_string(), pages, self.dstx.clone(), move || {
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        });
+    }
+
+    /// The top bar's data mode: every script runs with --mode <it>; remembered between sessions.
+    fn mode_picker(&mut self, ui: &mut egui::Ui) {
+        let Some(cfg) = &self.cfg else { return };
+        let (cur, set) = (cfg.mode.clone(), cfg.data_mode.clone());
+        let mut pick = None;
+        egui::ComboBox::from_id_salt("data-mode")
+            .selected_text(format!("Data: {cur}"))
+            .show_ui(ui, |ui| {
+                for m in config::DATA_MODES {
+                    let what = match m {
+                        "offline" => "local data only, no CourtListener requests",
+                        "full" => "full bulk data; the API only for what is newer",
+                        "lite" => "small bulk tables; opinion text from the API",
+                        _ => "everything from the CourtListener API",
+                    };
+                    let label = if m == set { format!("{m}  (config)") } else { m.to_string() };
+                    match cfg.supports(m) {
+                        Ok(()) => {
+                            if ui.selectable_label(cur == m, label).on_hover_text(what).clicked() {
+                                pick = Some(m.to_string());
+                            }
+                        }
+                        Err(why) => {
+                            ui.add_enabled(false, egui::Button::selectable(false, label)).on_disabled_hover_text(format!("{what}: {why}"));
+                        }
+                    }
+                }
+            })
+            .response
+            .on_hover_text(format!(
+                "the data mode every script runs with (tribonian --mode {cur}); the config file says {set}. \
+                 Offline: no CourtListener requests at all."
+            ));
+        if let Some(m) = pick {
+            recent::save_mode(&m);
+            if let Some(cfg) = &mut self.cfg {
+                cfg.mode = m;
+            }
+            self.docket_search.clear();
+        }
+    }
+
     pub fn api_pending(&self, page: &Page) -> bool {
         self.api_pending.contains(page)
     }
 
     fn poll(&mut self) {
+        for r in self.dsrx.try_iter().collect::<Vec<_>>() {
+            let key = (r.query, r.pages);
+            self.docket_search_pending.remove(&key);
+            self.docket_search.insert(key, r.result);
+        }
         for r in self.arx.try_iter().collect::<Vec<_>>() {
             self.api_pending.remove(&r.page);
             if let Ok(res) = &r.result {
@@ -647,7 +738,7 @@ impl App {
     pub fn title_of(&self, p: &Page) -> String {
         match p {
             Page::Home => "Start".into(),
-            Page::Cases => "Built cases".into(),
+            Page::Cases => "Built opinions".into(),
             Page::Areas => "Areas".into(),
             Page::Search { query, .. } if query.is_empty() => "Search".into(),
             Page::Search { query, mode: search::Mode::Name } => format!("Search: {query}"),
@@ -655,6 +746,31 @@ impl App {
             Page::Scotus => "SCOTUS".into(),
             Page::SemSearch => "Sub-Cluster Search".into(),
             Page::Check => "Check setup".into(),
+            Page::Dockets => "View Dockets".into(),
+            Page::DocketsFederal => "Federal".into(),
+            Page::DocketsState(None) => "State".into(),
+            Page::DocketsState(Some(code)) => self
+                .courts
+                .as_ref()
+                .ok()
+                .and_then(|t| t.as_ref())
+                .and_then(|t| t.state.get(code))
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| code.clone()),
+            Page::CourtDockets(id) => self
+                .courts
+                .as_ref()
+                .ok()
+                .and_then(|t| t.as_ref())
+                .and_then(|t| t.court(id))
+                .map(|c| if c.cite.is_empty() { c.name.clone() } else { c.cite.clone() })
+                .unwrap_or_else(|| id.clone()),
+            Page::DocketSearch(q) if q.is_empty() => "Search Dockets".into(),
+            Page::DocketSearch(q) => format!("Dockets: {q}"),
+            Page::RecapDocket(id) => match self.recap.iter().find(|d| d.id == *id) {
+                Some(d) => format!("No. {} {}", d.number, d.name),
+                None => format!("docket {id}"),
+            },
             Page::CoCited(refs) if !self.cache.contains_key(p) && !self.titles.contains_key(p) => {
                 let names: Vec<String> = refs
                     .iter()
@@ -678,6 +794,15 @@ impl App {
             .find(|p| !matches!(p, Page::Case(_)))
             .map(|p| p.section())
             .unwrap_or(Section::Clusters)
+    }
+
+    /// Federal, or State › the state, for a court's breadcrumbs.
+    fn court_crumbs(&self, id: &str) -> Vec<(String, Option<Page>)> {
+        let tree = self.courts.as_ref().ok().and_then(|t| t.as_ref());
+        match tree.and_then(|t| t.state.iter().find(|(_, s)| s.highest.iter().chain(&s.appellate).chain(&s.trial).chain(&s.special).any(|c| c.id == id))) {
+            Some((code, s)) => vec![("State".into(), Some(Page::DocketsState(None))), (s.name.clone(), Some(Page::DocketsState(Some(code.clone()))))],
+            None => vec![("Federal".into(), Some(Page::DocketsFederal))],
+        }
     }
 
     /// The real path to the current page: Start › … › here. Parents come from the page's data
@@ -714,8 +839,27 @@ impl App {
             Page::SemSearch => {}
             Page::Check => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
+            Page::Dockets => {}
+            Page::DocketSearch(_) => {}
+            Page::DocketsFederal | Page::DocketsState(None) => c.push(("View Dockets".into(), Some(Page::Dockets))),
+            Page::DocketsState(Some(_)) => {
+                c.push(("View Dockets".into(), Some(Page::Dockets)));
+                c.push(("State".into(), Some(Page::DocketsState(None))));
+            }
+            Page::CourtDockets(id) => {
+                c.push(("View Dockets".into(), Some(Page::Dockets)));
+                c.extend(self.court_crumbs(id));
+            }
+            Page::RecapDocket(id) => {
+                c.push(("View Dockets".into(), Some(Page::Dockets)));
+                if let Some(d) = self.recap.iter().find(|d| d.id == *id) {
+                    let court = d.court.clone();
+                    c.extend(self.court_crumbs(&court));
+                    c.push((self.title_of(&Page::CourtDockets(court.clone())), Some(Page::CourtDockets(court))));
+                }
+            }
             Page::Case(_) => match self.section_at(self.pos) {
-                Section::Cases => c.push(("Built cases".into(), Some(Page::Cases))),
+                Section::Cases => c.push(("Built opinions".into(), Some(Page::Cases))),
                 Section::Search => {
                     // back to the search the case was opened from
                     let s = self.nav[..self.pos].iter().rev().find(|p| matches!(p, Page::Search { .. })).cloned();
@@ -764,6 +908,12 @@ impl App {
                     Page::SemSearch => "semantic search",
                     Page::Check => "check setup",
                     Page::Docket(_) => "docket",
+                    Page::Dockets => "dockets",
+                    Page::DocketsFederal => "federal courts",
+                    Page::DocketsState(_) => "state courts",
+                    Page::CourtDockets(_) => "court",
+                    Page::RecapDocket(_) => "docket",
+                    Page::DocketSearch(_) => "docket search",
                     Page::CoCited(_) => "cited together",
                 };
                 let t = self.title_of(p);
@@ -824,6 +974,7 @@ impl App {
                 self.goto = go;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.mode_picker(ui);
                 if ui
                     .button("⧉ Pop out")
                     .on_hover_text("open this page in a window of its own (Ctrl+click a link does the same for the link)")

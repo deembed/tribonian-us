@@ -1,4 +1,4 @@
-//! "Include CourtListener" on Search for Cases: cases newer than the local database. Runs the repo's
+//! Search Opinions, in every data mode but offline: cases newer than the local database. Runs the repo's
 //! `case2md.py api-search --json` (one API request per search, cached a day under cases/api/search/;
 //! the token and the rate limits stay in the Python, as for every other script) on its own thread.
 //! Default date filter: filed after the bulk data's date less a month, so it fills the gap only.
