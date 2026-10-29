@@ -186,6 +186,9 @@ pub struct Hit {
     pub id: i64,
     #[serde(default)]
     pub court: String,
+    /// the court's citation form ("N.D. Ill."), from the court tree; "" when it has none
+    #[serde(default)]
+    pub court_cite: String,
     #[serde(default)]
     pub number: String,
     #[serde(default)]
@@ -218,15 +221,22 @@ pub struct SearchResult {
     pub error: String,
 }
 
+impl Hit {
+    pub fn court_label(&self) -> &str {
+        if self.court_cite.is_empty() { &self.court } else { &self.court_cite }
+    }
+}
+
 pub struct SearchResp {
     pub query: String,
+    pub pages: u32,
     pub result: Result<SearchResult, String>,
 }
 
 /// Run the search on its own thread (it may make one API request).
-pub fn spawn_search(py: crate::config::Py, query: String, tx: std::sync::mpsc::Sender<SearchResp>, wake: impl Fn() + Send + 'static) {
+pub fn spawn_search(py: crate::config::Py, query: String, pages: u32, tx: std::sync::mpsc::Sender<SearchResp>, wake: impl Fn() + Send + 'static) {
     std::thread::spawn(move || {
-        let out = py.cmd().args(["dockets", "search", "--json", "--"]).args(query.split_whitespace()).output();
+        let out = py.cmd().args(["dockets", "search", "--json", "--pages", &pages.to_string(), "--"]).args(query.split_whitespace()).output();
         let result = match out {
             Err(e) => Err(format!("{} -m tribonian: {e}", py.python)),
             Ok(o) => {
@@ -241,7 +251,7 @@ pub fn spawn_search(py: crate::config::Py, query: String, tx: std::sync::mpsc::S
                 }
             }
         };
-        let _ = tx.send(SearchResp { query, result });
+        let _ = tx.send(SearchResp { query, pages, result });
         wake();
     });
 }

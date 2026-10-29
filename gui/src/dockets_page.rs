@@ -28,6 +28,8 @@ pub struct DocketsUi {
     /// documents ticked on a docket page: (docket id, document keys)
     pub sel: (i64, BTreeSet<String>),
     pub search_input: String,
+    /// CourtListener result pages shown per query (20 hits each); "Show more" adds one
+    pub pages: std::collections::HashMap<String, u32>,
 }
 
 const TBD: &str = "TBD: not wired up yet";
@@ -579,8 +581,12 @@ pub fn search_page(app: &mut App, ui: &mut Ui, query: &str) {
             return;
         }
         ui.add_space(8.0);
-        app.request_docket_search(query);
-        let Some(res) = app.docket_search.get(query).cloned() else {
+        let pages = app.dockets_ui.pages.get(query).copied().unwrap_or(1);
+        app.request_docket_search(query, pages);
+        // while more pages load, keep showing the ones already read
+        let loading = !app.docket_search.contains_key(&(query.to_string(), pages));
+        let shown = (1..=pages).rev().find_map(|p| app.docket_search.get(&(query.to_string(), p)).cloned());
+        let Some(res) = shown else {
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label("searching…");
@@ -601,7 +607,7 @@ pub fn search_page(app: &mut App, ui: &mut Ui, query: &str) {
         }
         for h in &res.fetched {
             ui.horizontal(|ui| {
-                ui.label(format!("{} {}", h.court, h.number));
+                ui.label(format!("{} {}", h.court_label(), h.number)).on_hover_text(&h.court);
                 if ui.link(&h.name).clicked() {
                     go = Some(Page::RecapDocket(h.id));
                 }
@@ -624,7 +630,7 @@ pub fn search_page(app: &mut App, ui: &mut Ui, query: &str) {
                 let mut fetch = None;
                 egui::Grid::new("docket-hits").striped(true).num_columns(5).show(ui, |ui| {
                     for h in hits {
-                        ui.label(&h.court);
+                        ui.label(h.court_label()).on_hover_text(&h.court);
                         ui.label(&h.number);
                         if !h.courtlistener.is_empty() {
                             if ui.link(&h.name).on_hover_text("open on CourtListener").clicked() {
@@ -652,6 +658,22 @@ pub fn search_page(app: &mut App, ui: &mut Ui, query: &str) {
                         ui.end_row();
                     }
                 });
+                let total = res.count.unwrap_or(0) as usize;
+                if loading {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("reading the next page…");
+                    });
+                } else if hits.len() < total {
+                    let more = (total - hits.len()).min(20);
+                    if ui
+                        .button(format!("Show {more} more"))
+                        .on_hover_text("reads CourtListener's next page of results: 1 API request (reused for a day)")
+                        .clicked()
+                    {
+                        app.dockets_ui.pages.insert(query.to_string(), pages + 1);
+                    }
+                }
                 if let Some(h) = fetch {
                     let args = vec![s("case"), s("recap"), s("fetch"), s("--docket"), h.id.to_string()];
                     queue(app, dockets::docket_key(h.id), format!("{} {}: fetch", h.court, h.number), vec![(args, Some(s("saved ")))]);

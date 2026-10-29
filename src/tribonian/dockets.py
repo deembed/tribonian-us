@@ -149,28 +149,46 @@ def words_match(q, *fields):
     return all(w in hay for w in re.findall(r"[\w.:-]+", q.lower()))
 
 
-def api_dockets(query, court=None, max_age=24):
-    """CourtListener's docket search, cached a day under cases/api/dockets/. -> (count, hits, cached)."""
+def api_dockets(query, court=None, pages=1, max_age=24):
+    """CourtListener's docket search, its first `pages` pages (20 hits and 1 request each), cached a day under
+    cases/api/dockets/. -> (count, hits, cached)."""
     params = {"type": "d", "order_by": "score desc"}
     params["docket_number" if NUMBER_RE.match(query.strip()) else "case_name"] = query.strip()
     if court:
         params["court"] = court
-    path = c.CASES / "api" / "dockets" / (hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16] + ".json")
+    key = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16]
+    path = c.CASES / "api" / "dockets" / ("%s-%d.json" % (key, pages))
     try:
         out = json.loads(path.read_text(encoding="utf-8"))
         if time.time() - out.get("time", 0) <= max_age * 3600:
             return out["count"], out["hits"], True
     except (OSError, ValueError, KeyError):
         pass
-    res = c.call("%s/search/?%s" % (c.API, urllib.parse.urlencode(params)), c.token())
-    hits = [{"id": r.get("docket_id"), "court": r.get("court_id") or "", "number": r.get("docketNumber") or "",
-             "name": r.get("caseName") or "", "filed": r.get("dateFiled") or "", "terminated": r.get("dateTerminated") or "",
-             "courtlistener": c.CL + (r.get("docket_absolute_url") or "") if r.get("docket_absolute_url") else ""}
-            for r in res.get("results") or []]
+    url, tok, hits, count = "%s/search/?%s" % (c.API, urllib.parse.urlencode(params)), c.token(), [], None
+    for _ in range(max(1, pages)):
+        res = c.call(url, tok)
+        count = res.get("count") if count is None else count
+        hits += [{"id": r.get("docket_id"), "court": r.get("court_id") or "", "number": r.get("docketNumber") or "",
+                  "name": r.get("caseName") or "", "filed": r.get("dateFiled") or "", "terminated": r.get("dateTerminated") or "",
+                  "courtlistener": c.CL + (r.get("docket_absolute_url") or "") if r.get("docket_absolute_url") else ""}
+                 for r in res.get("results") or []]
+        url = res.get("next")
+        if not url:
+            break
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"params": params, "time": time.time(), "count": res.get("count"), "hits": hits},
+    path.write_text(json.dumps({"params": params, "time": time.time(), "count": count, "hits": hits},
                                ensure_ascii=False), encoding="utf-8")
-    return res.get("count"), hits, False
+    return count, hits, False
+
+
+def court_cites():
+    """court id -> its citation form ("N.D. Ill.") from the court tree, where it has one."""
+    try:
+        t = json.loads(COURTS_JSON.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    lists = list(t.get("federal", {}).values()) + [v for s in t.get("state", {}).values() for k, v in s.items() if k != "name"]
+    return {x["id"]: x.get("cite") or "" for lst in lists for x in lst if x.get("cite")}
 
 
 def search(args):
@@ -186,22 +204,26 @@ def search(args):
            "api": None, "count": None, "cached": False, "error": ""}
     if tconfig.online():
         try:
-            out["count"], hits, out["cached"] = api_dockets(q, court)
+            out["count"], hits, out["cached"] = api_dockets(q, court, args.pages)
             out["api"] = [dict(h, fetched=h["id"] in have) for h in hits]
         except SystemExit as e:                     # no token, the daily limit ...: the local half still answers
             out["error"] = str(e)
+    cites = court_cites()
+    for h in out["fetched"] + (out["api"] or []):
+        h["court_cite"] = cites.get(h["court"], "")
+    out["pages"] = args.pages
     if args.json:
         print(json.dumps(out, ensure_ascii=False))
         return
     print("Fetched (%d):" % len(mine))
     for d in mine:
-        print("  %-6s %-16s %s  %s" % (d["court"], d["number"], d["name"][:60], "open" if not d["terminated"] else "closed"))
+        print("  %-14s %-16s %s  %s" % (d["court_cite"] or d["court"], d["number"], d["name"][:60], "open" if not d["terminated"] else "closed"))
     if out["api"] is None:
         print("CourtListener: %s" % (out["error"] or "not searched (offline mode)"))
         return
     print("CourtListener (%s of %s%s):" % (len(out["api"]), out["count"], ", cached" if out["cached"] else ""))
     for h in out["api"]:
-        print("  %-6s %-16s %s  %s%s" % (h["court"], h["number"], h["name"][:60], h["filed"], "  [fetched]" if h["fetched"] else ""))
+        print("  %-14s %-16s %s  %s%s" % (h["court_cite"] or h["court"], h["number"], h["name"][:60], h["filed"], "  [fetched]" if h["fetched"] else ""))
     print("fetch one:  tribonian case recap fetch --docket <id>")
 
 
@@ -213,6 +235,7 @@ def main():
     se = sub.add_parser("search", help="fetched dockets, then CourtListener's (not in offline mode)")
     se.add_argument("words", nargs="+", help="party or case name words, or a case number (26-2230)")
     se.add_argument("--court", help="only this court, e.g. ca4")
+    se.add_argument("--pages", type=int, default=1, help="CourtListener result pages to read, 20 hits and 1 request each (default 1)")
     se.add_argument("--json", action="store_true", help="print JSON (for the GUI)")
     se.set_defaults(func=search)
     args = ap.parse_args()

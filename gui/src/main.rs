@@ -131,9 +131,9 @@ pub struct App {
     pub recap_error: Option<String>,
     pub courts: Result<Option<dockets::CourtTree>, String>,
     pub dockets_ui: dockets_page::DocketsUi,
-    /// Search Dockets results by query (cleared when the data mode changes)
-    pub docket_search: HashMap<String, Result<dockets::SearchResult, String>>,
-    docket_search_pending: std::collections::HashSet<String>,
+    /// Search Dockets results by (query, CourtListener pages read); cleared when the data mode changes
+    pub docket_search: HashMap<(String, u32), Result<dockets::SearchResult, String>>,
+    docket_search_pending: std::collections::HashSet<(String, u32)>,
     dstx: Sender<dockets::SearchResp>,
     dsrx: Receiver<dockets::SearchResp>,
     pub sem_ui: semsearch_page::SemUi,
@@ -602,14 +602,15 @@ impl App {
     }
 
     /// Search Dockets: run `tribonian dockets search` once per query (it may make one API request).
-    pub fn request_docket_search(&mut self, query: &str) {
-        if self.docket_search.contains_key(query) || self.docket_search_pending.contains(query) {
+    pub fn request_docket_search(&mut self, query: &str, pages: u32) {
+        let key = (query.to_string(), pages);
+        if self.docket_search.contains_key(&key) || self.docket_search_pending.contains(&key) {
             return;
         }
         let Some(cfg) = &self.cfg else { return };
         let ctx = self.egui_ctx.clone();
-        self.docket_search_pending.insert(query.to_string());
-        dockets::spawn_search(cfg.py(), query.to_string(), self.dstx.clone(), move || {
+        self.docket_search_pending.insert(key);
+        dockets::spawn_search(cfg.py(), query.to_string(), pages, self.dstx.clone(), move || {
             if let Some(c) = &ctx {
                 c.request_repaint();
             }
@@ -664,8 +665,9 @@ impl App {
 
     fn poll(&mut self) {
         for r in self.dsrx.try_iter().collect::<Vec<_>>() {
-            self.docket_search_pending.remove(&r.query);
-            self.docket_search.insert(r.query, r.result);
+            let key = (r.query, r.pages);
+            self.docket_search_pending.remove(&key);
+            self.docket_search.insert(key, r.result);
         }
         for r in self.arx.try_iter().collect::<Vec<_>>() {
             self.api_pending.remove(&r.page);
