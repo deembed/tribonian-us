@@ -255,53 +255,69 @@ fn home(app: &mut App, ui: &mut Ui) {
     ui.add_space(30.0);
     ui.vertical_centered(|ui| {
         ui.heading(RichText::new("What do you want to do?").size(26.0));
-        ui.add_space(24.0);
-        let size = egui::vec2(320.0, 48.0);
-        if ui.add_sized(size, egui::Button::new(RichText::new("View Clusters").size(18.0))).clicked() {
-            app.goto = Some(Page::Areas);
-        }
-        ui.add_space(8.0);
-        if ui.add_sized(size, egui::Button::new(RichText::new("View Cases").size(18.0))).clicked() {
-            app.goto = Some(Page::Cases);
-        }
-        ui.add_space(8.0);
-        if ui.add_sized(size, egui::Button::new(RichText::new("Search for Cases").size(18.0))).clicked() {
-            app.goto = Some(Page::Search { query: String::new(), mode: app.search_mode });
-        }
-        ui.add_space(8.0);
-        if ui
-            .add_sized(size, egui::Button::new(RichText::new("SCOTUS").size(18.0)))
-            .on_hover_text("Supreme Court: dockets fetched with tribonian scotus, recent opinions, grants and orders; add a docket by number")
-            .clicked()
-        {
-            app.goto = Some(Page::Scotus);
-        }
-        ui.add_space(8.0);
-        if ui
-            .add_sized(size, egui::Button::new(RichText::new("View Dockets").size(18.0)))
-            .on_hover_text("Federal or State, then the court: fetch a docket from RECAP (tribonian case recap), pick documents, build their PDF and notes")
-            .clicked()
-        {
-            app.goto = Some(Page::Dockets);
-        }
-        ui.add_space(8.0);
-        if ui
-            .add_sized(size, egui::Button::new(RichText::new("Sub-Cluster Search (draft)").size(18.0)))
-            .on_hover_text("paste a draft: CourtListener semantic search per paragraph, grouped by sub-cluster (tribonian map semsearch)")
-            .clicked()
-        {
-            app.goto = Some(Page::SemSearch);
-        }
-        ui.add_space(8.0);
-        let trouble = app.cfg_err.is_some() || app.view_err.is_some();
-        let label = if trouble { RichText::new("Check setup (something is missing)").size(18.0).color(Color32::LIGHT_RED) } else { RichText::new("Check setup").size(18.0) };
-        if ui
-            .add_sized(size, egui::Button::new(label))
-            .on_hover_text("is each tool and database there, and does it answer a query (tribonian check)")
-            .clicked()
-        {
-            app.goto = Some(Page::Check);
-        }
+    });
+    ui.add_space(24.0);
+    let size = egui::vec2(300.0, 48.0);
+    let button = |ui: &mut Ui, label: RichText, tip: &str| ui.add_sized(size, egui::Button::new(label)).on_hover_text(tip).clicked();
+    let big = |t: &str| RichText::new(t).size(18.0);
+    let mut go = None;
+    let mut courts = false;
+    ui.columns(3, |cols| {
+        cols[0].vertical_centered(|ui| {
+            ui.heading("Find and read");
+            ui.add_space(12.0);
+            if button(ui, big("Search for Cases"), "case names and courts' parentheticals in the local database, and CourtListener for newer cases") {
+                go = Some(Page::Search { query: String::new(), mode: app.search_mode });
+            }
+            ui.add_space(8.0);
+            if button(ui, big("View Cases"), "the case notes and PDFs built so far") {
+                go = Some(Page::Cases);
+            }
+            ui.add_space(8.0);
+            if button(
+                ui,
+                big("View Dockets"),
+                "Federal or State, then the court: the Supreme Court (tribonian scotus), and dockets fetched from RECAP (tribonian case recap)",
+            ) {
+                go = Some(Page::Dockets);
+            }
+        });
+        cols[1].vertical_centered(|ui| {
+            ui.heading("Analysis");
+            ui.add_space(12.0);
+            if button(ui, big("View Clusters"), "co-citation areas, lineages, clusters and sub-clusters over time") {
+                go = Some(Page::Areas);
+            }
+            ui.add_space(8.0);
+            if button(ui, big("Sub-Cluster Search (draft)"), "paste a draft: CourtListener semantic search per paragraph, grouped by sub-cluster (tribonian map semsearch)") {
+                go = Some(Page::SemSearch);
+            }
+        });
+        cols[2].vertical_centered(|ui| {
+            ui.heading("Setup");
+            ui.add_space(12.0);
+            let trouble = app.cfg_err.is_some() || app.view_err.is_some();
+            let label = if trouble { big("Check setup (something is missing)").color(Color32::LIGHT_RED) } else { big("Check setup") };
+            if button(ui, label, "is each tool and database there, and does it answer a query (tribonian check)") {
+                go = Some(Page::Check);
+            }
+            ui.add_space(8.0);
+            let queued = app.is_queued(crate::dockets::COURTS_KEY);
+            let have = matches!(app.courts, Ok(Some(_)));
+            let r = ui
+                .add_enabled(!queued, egui::Button::new(big(if have { "Refresh court list" } else { "Build court list" })).min_size(size))
+                .on_hover_text("queues tribonian dockets courts: every court from the local courts table (tribonian db load courts), else CourtListener's API; View Dockets reads it")
+                .on_disabled_hover_text("in the build queue");
+            courts = r.clicked();
+        });
+    });
+    if courts {
+        crate::dockets_page::queue_courts(app);
+    }
+    if go.is_some() {
+        app.goto = go;
+    }
+    ui.vertical_centered(|ui| {
         ui.add_space(30.0);
         if let Some(e) = &app.cfg_err {
             ui.colored_label(Color32::LIGHT_RED, e);

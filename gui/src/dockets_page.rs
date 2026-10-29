@@ -70,7 +70,7 @@ fn queue_add(app: &mut App, court: &str, number: &str) {
     queue(app, dockets::add_key(court, number), format!("{court} No. {number}: fetch"), vec![(args, Some(s("saved ")))]);
 }
 
-fn queue_courts(app: &mut App) {
+pub fn queue_courts(app: &mut App) {
     queue(app, dockets::COURTS_KEY, s("Court list"), vec![(vec![s("dockets"), s("courts")], None)]);
 }
 
