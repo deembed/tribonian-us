@@ -6,8 +6,8 @@
     tribonian case find glomar                     # search case names + courts' parentheticals
     tribonian case find "arbitrary and capricious" rulemaking   # quoted = a phrase; all terms must match
     tribonian case find glomar --get 3             # fetch result 3 from the local database and build its PDF
-    tribonian case recap fetch --docket 4949363    # district-court filings (RECAP) -> cases/recap/*.json
-    tribonian case recap build cases/recap/laed-09-cv-06732_*.json   # one PDF, a note per order
+    tribonian case recap fetch --docket 4949363    # district and appeals court filings (RECAP) -> cases/recap/<court>/*.json
+    tribonian case recap build cases/recap/laed/laed-09-cv-06732_*.json   # one PDF, a note per order
     tribonian case usage                           # API requests used (minute/hour/day) and history
 The citation graph (stub notes, wikilinks, cited-by statistics) is casemap.py.
 
@@ -2174,9 +2174,23 @@ def doc_slug(dslug, r):
     return "%s-ecf-%s%s" % (dslug, r.get("document_number"), "-%s" % att if att else "")
 
 
+def recap_files():
+    """Every fetched docket: cases/recap/<court>/<docket>.json (and any still at cases/recap/ itself, from before
+    the court folders: tribonian dockets index moves those). Not _index.json, not the pdf/ downloads."""
+    if not RECAP.is_dir():
+        return []
+    return sorted(p for p in list(RECAP.glob("*.json")) + list(RECAP.glob("*/*.json"))
+                  if not p.name.startswith("_") and p.parent.name != "pdf")
+
+
+def recap_path(d):
+    """Where a docket's JSON goes: cases/recap/<court id>/<slug>.json."""
+    return RECAP / (d.get("court_id") or "court") / (docket_slug(d) + ".json")
+
+
 def recap_file(did):
     """The saved JSON for a docket id, if fetched before."""
-    for p in sorted(RECAP.glob("*.json")) if RECAP.is_dir() else []:
+    for p in recap_files():
         try:
             if json.loads(p.read_text(encoding="utf-8"))["docket"]["id"] == did:
                 return p
@@ -2243,13 +2257,13 @@ def recap_fetch(args):
         did = find_docket(args.court.lower(), args.number.strip(), tok)
     else:
         sys.exit("Name the docket: --docket ID (CourtListener), or --court ID --number N (e.g. --court ca4 --number 26-2230)")
-    RECAP.mkdir(parents=True, exist_ok=True)
     old = recap_file(did)
     data = json.loads(old.read_text(encoding="utf-8")) if old else {"docket": None, "documents": []}
     if not data.get("docket"):
         data["docket"] = local_docket(did) or call("%s/dockets/%d/?fields=%s" % (API, did, ",".join(DOCKET_FIELDS)), tok)
     d = data["docket"]
-    out = old or RECAP / (docket_slug(d) + ".json")
+    out = old or recap_path(d)
+    out.parent.mkdir(parents=True, exist_ok=True)
 
     def save():
         out.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
@@ -3635,14 +3649,14 @@ def main():
     fd.set_defaults(func=find)
     rc = sub.add_parser("recap", help="district and appeals court filings from RECAP: fetch, build")
     rsub = rc.add_subparsers(dest="rcmd", required=True)
-    rf = rsub.add_parser("fetch", help="download a docket's orders to cases/recap/*.json")
+    rf = rsub.add_parser("fetch", help="download a docket's orders to cases/recap/<court>/*.json")
     rf.add_argument("--docket", help="CourtListener docket id or URL, e.g. 4949363")
     rf.add_argument("--court", help="with --number: CourtListener court id, e.g. ca4 (4th Cir.), mdd (D. Md.)")
     rf.add_argument("--number", help="with --court: the court's case number, e.g. 26-2230")
     rf.add_argument("--docs", help="document numbers, e.g. 35,55,66 or 12-1 for an attachment (default: the court's orders and opinions)")
     rf.add_argument("--all", action="store_true", help="every available document, attachments included")
     rf.set_defaults(func=recap_fetch)
-    rb = rsub.add_parser("build", help="cases/recap/*.json -> one PDF, a note per document, a docket note")
+    rb = rsub.add_parser("build", help="cases/recap/<court>/*.json -> one PDF, a note per document, a docket note")
     rb.add_argument("json", help="file written by recap fetch")
     rb.add_argument("--docs", help="only these document numbers (default: every one with text)")
     rb.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")

@@ -1,7 +1,8 @@
 """Dockets: the court tree and the index of fetched dockets that the GUI's View Dockets screen reads.
 
     tribonian dockets courts      # the court tree -> cases/dockets/_courts.json
-    tribonian dockets index       # what is fetched and built -> cases/recap/_index.json (fetch and build refresh it)
+    tribonian dockets index       # what is fetched and built -> cases/recap/_index.json (fetch and build refresh it);
+                                  # moves dockets fetched before the court folders into cases/recap/<court>/
     tribonian dockets search brown fcc [--court ca4] [--json]
                                   # fetched dockets, then CourtListener's (not in offline mode)
 
@@ -100,14 +101,35 @@ def pacer_url(court, r):
     return "https://ecf.%s.uscourts.gov/%s/%s" % (court, path, r["pacer_doc_id"])
 
 
-def index(args=None, quiet=False):
-    """One summary per fetched docket (no document text), for the GUI."""
-    notes, pdfs = built_files()
-    rel = lambda p: str(p.relative_to(c.ROOT)) if p else ""
-    out = []
+def move_to_court_folders(quiet=False):
+    """Dockets fetched before the court folders sit at cases/recap/ itself: move each into cases/recap/<court>/."""
+    moved = 0
     for p in sorted(c.RECAP.glob("*.json")) if c.RECAP.is_dir() else []:
         if p.name.startswith("_"):
             continue
+        try:
+            court = json.loads(p.read_text(encoding="utf-8"))["docket"].get("court_id") or "court"
+        except (ValueError, KeyError, TypeError):
+            continue
+        dest = c.RECAP / court / p.name
+        if dest.exists():
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        p.replace(dest)
+        moved += 1
+        if not quiet:
+            print("moved %s -> %s" % (p.relative_to(c.ROOT), dest.relative_to(c.ROOT)))
+    return moved
+
+
+def index(args=None, quiet=False):
+    """One summary per fetched docket (no document text), for the GUI. Moves dockets fetched before the
+    court folders into them first."""
+    move_to_court_folders(quiet)
+    notes, pdfs = built_files()
+    rel = lambda p: str(p.relative_to(c.ROOT)) if p else ""
+    out = []
+    for p in c.recap_files():
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             d = data["docket"]
