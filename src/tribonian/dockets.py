@@ -150,35 +150,42 @@ def words_match(q, *fields):
 
 
 def api_dockets(query, court=None, pages=1, max_age=24):
-    """CourtListener's docket search, its first `pages` pages (20 hits and 1 request each), cached a day under
-    cases/api/dockets/. -> (count, hits, cached)."""
+    """CourtListener's docket search, its first `pages` pages (20 hits and 1 request each). Each page is cached
+    a day on its own under cases/api/dockets/, with the link to the next one, so reading one more page costs one
+    request. -> (count, hits, cached: no request made)."""
     params = {"type": "d", "order_by": "score desc"}
     params["docket_number" if NUMBER_RE.match(query.strip()) else "case_name"] = query.strip()
     if court:
         params["court"] = court
     key = hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16]
-    path = c.CASES / "api" / "dockets" / ("%s-%d.json" % (key, pages))
-    try:
-        out = json.loads(path.read_text(encoding="utf-8"))
-        if time.time() - out.get("time", 0) <= max_age * 3600:
-            return out["count"], out["hits"], True
-    except (OSError, ValueError, KeyError):
-        pass
-    url, tok, hits, count = "%s/search/?%s" % (c.API, urllib.parse.urlencode(params)), c.token(), [], None
-    for _ in range(max(1, pages)):
-        res = c.call(url, tok)
-        count = res.get("count") if count is None else count
-        hits += [{"id": r.get("docket_id"), "court": r.get("court_id") or "", "number": r.get("docketNumber") or "",
-                  "name": r.get("caseName") or "", "filed": r.get("dateFiled") or "", "terminated": r.get("dateTerminated") or "",
-                  "courtlistener": c.CL + (r.get("docket_absolute_url") or "") if r.get("docket_absolute_url") else ""}
-                 for r in res.get("results") or []]
-        url = res.get("next")
+    url, tok, hits, count, cached = "%s/search/?%s" % (c.API, urllib.parse.urlencode(params)), None, [], None, True
+    for n in range(1, max(1, pages) + 1):
+        path = c.CASES / "api" / "dockets" / ("%s-p%d.json" % (key, n))
+        page = None
+        try:
+            page = json.loads(path.read_text(encoding="utf-8"))
+            if time.time() - page.get("time", 0) > max_age * 3600 or (n > 1 and page.get("url") != url):
+                page = None
+        except (OSError, ValueError):
+            pass
+        if page is None:
+            tok = tok or c.token()
+            res = c.call(url, tok)
+            page = {"url": url, "time": time.time(), "count": res.get("count"), "next": res.get("next"),
+                    "hits": [{"id": r.get("docket_id"), "court": r.get("court_id") or "", "number": r.get("docketNumber") or "",
+                              "name": r.get("caseName") or "", "filed": r.get("dateFiled") or "",
+                              "terminated": r.get("dateTerminated") or "",
+                              "courtlistener": c.CL + (r.get("docket_absolute_url") or "") if r.get("docket_absolute_url") else ""}
+                             for r in res.get("results") or []]}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(page, ensure_ascii=False), encoding="utf-8")
+            cached = False
+        count = page["count"] if count is None else count
+        hits += page["hits"]
+        url = page.get("next")
         if not url:
             break
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"params": params, "time": time.time(), "count": count, "hits": hits},
-                               ensure_ascii=False), encoding="utf-8")
-    return count, hits, False
+    return count, hits, cached
 
 
 def court_cites():
