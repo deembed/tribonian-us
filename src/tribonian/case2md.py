@@ -3178,6 +3178,9 @@ def recap_build(args):
     index = load_index()
     links = {int(k): e["slug"] for k, e in index.items()}
     statutes = statute_notes()
+    from tribonian import lawappendix, statecites
+    # forms that do not name their state ("Penal Code § 187") are read as the court's state's
+    statecites.CONTEXT["states"] = statecites.court_states(d.get("court_id"))
     warnings, ops = [], []
     for i, r in enumerate(docs):
         o = read_recap(r, d, i, lambda w, k=doc_key(r): warnings.append("ECF No. %s: %s" % (k, w)))
@@ -3189,7 +3192,20 @@ def recap_build(args):
         o["byline_tex"] = clean(inline(o["byline"][0], "tex", o["ctx"], []))
         labels = [b[1] for b in o["flat"] if b[0] == "h"]
         o["tree"] = tree_of(o, assign_levels(labels))
+        for b in o["flat"]:
+            mark_law(b[1])
+        for fn in o["footnotes"].values():
+            mark_law(fn)
+        o["law"] = list(dict.fromkeys(lawappendix.keys_in([o["flat"], o["footnotes"]])))
         ops.append(o)
+
+    # the law the documents cite: every provision once at the end of the PDF, each cite linking to it
+    law = list(dict.fromkeys(k for o in ops for k in o["law"]))
+    missing = lawappendix.fetch_missing(law, federal=getattr(args, "fetch", False),
+                                        state=getattr(args, "fetch_state_law", False), warnings=warnings)
+    targets = {lawcites_section(k): lawappendix.anchor(k) for k in law}
+    for o in ops:
+        o["ctx"].lawtargets = targets
 
     # one note per document, then the docket's note
     written = []
@@ -3219,15 +3235,9 @@ def recap_build(args):
         elif named is None:
             tail += ["## Cites", "", "*%d opinions (CourtListener opinion ids %s); names need the local database (casedb.py).*"
                      % (len(r["cites"]), ", ".join(map(str, r["cites"]))), ""]
-        stat = Counter(statute_note(m.group(0)) for m in STATUTE_RE.finditer(r.get("plain_text") or ""))
-        stat.pop(None, None)
-        if stat:
-            tail += ["## Statutes cited", ""]
-            for sn, n in sorted(stat.items(), key=lambda kv: (-kv[1], kv[0])):
-                t, sec = sn.split("-usc-")
-                lab = "%s U.S.C. § %s" % (t, sec)
-                tail.append("- %s%s" % ("[[%s|%s]]" % (sn, lab) if sn in statutes else lab, " ×%d" % n if n > 1 else ""))
-            tail.append("")
+        law_md = lawappendix.md_lines(o["law"], statutes)
+        if law_md:
+            tail += law_md + [""]
         md = render_md(None, [o], "\n".join(tail), head=head)
         (where / (slug + ".md")).write_text(md, encoding="utf-8")
         written.append(where / (slug + ".md"))
@@ -3236,7 +3246,14 @@ def recap_build(args):
                 "srcline": ["No. %s (%s)" % (d.get("docket_number"), court),
                             "ECF No%s. %s" % ("s" if len(ops) > 1 else "", ", ".join(doc_key(o["api"]) for o in ops)),
                             "CourtListener docket %s (RECAP, text from the filed PDFs)" % d.get("id"),
-                            "retrieved " + date.today().isoformat()]}
+                            "retrieved " + date.today().isoformat()],
+                "law": law,
+                "posttex": lawappendix.appendix_tex(
+                    law, intro="Not part of the filing. Every statute, constitutional provision and regulation the "
+                    "document%s cite%s, with its text where it is stored locally: today's text, not the law as of %s; "
+                    "a cite of one in the text links here." % ("s" if len(ops) > 1 else "", "" if len(ops) > 1 else "s",
+                                                                 (ops[0]["api"].get("entry_date_filed") or "")[:4] or "filing"),
+                    editions=law_editions(ops))}
     pdf_name = dslug + (("-ecf-" + "-".join(slugify(x) for x in sorted(want, key=lambda x: (len(x), x)))) if want else "")
     rel_pdf = (pdf_dir(ndir) / (pdf_name + ".pdf")).relative_to(ROOT)
 
@@ -3279,6 +3296,8 @@ def recap_build(args):
         print("  ECF No. %-6s %-14s %-32s %s" % (doc_key(o["api"]), o["who"], o["title"][:32], o["summary"]))
     for w in warnings:
         print("  note:", w)
+    for k, hint in missing:
+        print("  law not local: %s%s" % (lawcites_label(k), " (%s)" % hint if hint else ""))
 
 
 # ================================================================ find
@@ -3527,6 +3546,9 @@ def main():
     rb.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
     rb.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     rb.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
+    rb.add_argument("--fetch", action="store_true", help="download cited federal law that is not local (C.F.R. titles)")
+    rb.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
+                    help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     rb.set_defaults(func=recap_build)
     args = ap.parse_args()
     args.func(args)
