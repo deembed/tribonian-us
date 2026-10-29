@@ -270,7 +270,7 @@ GOODLAW_RECENT, GOODLAW_MAX = 500, 1500
 GOODLAW_QUICK = 100           # quick check: only the newest N citing opinions, any court. On goodlaw_eval.py's
                               # 60 cases (2026-10-07): 34 of 40 overruled red, 4 yellow, 2 green (the full check:
                               # 37/2/1), 19 of 20 never overruled green (full: 14). Gives status now, not the year.
-GOODLAW_VERSION = 5            # bump when the rules change: cached results are redone
+GOODLAW_VERSION = 6            # bump when the rules change: cached results are redone
 RANK = {"supreme": 3, "circuit": 2, "district": 1, "other": 0}
 V_PASSIVE = r"overruled|abrogated|superseded|rev'd|reversed|vacated|disapproved"
 V_MORE = V_PASSIVE + r"|overturned|repudiated|abandoned"
@@ -288,6 +288,9 @@ SENT_HYPO_RE = re.compile(r"\b(unless|until|if|whether|should|would|will|shall|u
 HYPOTHETICAL_RE = re.compile(r"\b(unless|if|until|whether|not|never|nor|would|should|could|might|may|to|urge[sd]?|ask(?:s|ed)?)\s+(?:\w+\s+){0,4}$", re.I)
 WEAK_TIGHT_RE = re.compile(r"\b(questioned|criticized|called into (?:serious )?(?:question|doubt)|declin\w+ to (?:follow|extend)|"
                            r"no longer (?:good law|valid|followed)|limited to its facts|eroded)", re.I)
+# the case's name as the object of a preposition, not the subject of the verb that follows:
+# "challenges ... for purposes of Bruen and the second amendment have been rejected" (the challenges were)
+NAME_OBJECT_RE = re.compile(r"\b(?:purposes of|for|under|after|since|applying|following|post-)\s*$", re.I)
 NAME_STOP = {"united states", "state", "people", "commonwealth", "commissioner", "in re", "ex parte", "doe", "smith"}
 STATES = {"alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "florida", "georgia",
           "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky", "louisiana", "maine", "maryland", "massachusetts",
@@ -418,6 +421,8 @@ def evaluate(case, rs, c=None):
             for s in o["sents"]:
                 for m in rx.finditer(s):
                     if other_case(s, parties, names, m):
+                        continue
+                    if kind_rx == "passive" and NAME_OBJECT_RE.search(s[max(0, m.start() - 30):m.start()]):
                         continue
                     if kind_rx != "passive" and HYPOTHETICAL_RE.search(s[max(0, m.start() - 60):m.start()]):
                         continue
