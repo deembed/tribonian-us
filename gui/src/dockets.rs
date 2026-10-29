@@ -178,3 +178,70 @@ struct Index {
 pub fn load_index(cases_dir: &Path) -> Result<Vec<RecapDocket>, String> {
     Ok(read::<Index>(&cases_dir.join("recap").join("_index.json"))?.map(|i| i.dockets).unwrap_or_default())
 }
+
+// ------------------------------------------------------------------ Search Dockets
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Hit {
+    pub id: i64,
+    #[serde(default)]
+    pub court: String,
+    #[serde(default)]
+    pub number: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub filed: String,
+    #[serde(default)]
+    pub terminated: String,
+    #[serde(default)]
+    pub courtlistener: String,
+    /// already fetched here (CourtListener hits only)
+    #[serde(default)]
+    pub fetched: bool,
+}
+
+/// `tribonian dockets search --json`: the fetched dockets that match, and CourtListener's (None when offline).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SearchResult {
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub fetched: Vec<Hit>,
+    #[serde(default)]
+    pub api: Option<Vec<Hit>>,
+    #[serde(default)]
+    pub count: Option<i64>,
+    #[serde(default)]
+    pub cached: bool,
+    #[serde(default)]
+    pub error: String,
+}
+
+pub struct SearchResp {
+    pub query: String,
+    pub result: Result<SearchResult, String>,
+}
+
+/// Run the search on its own thread (it may make one API request).
+pub fn spawn_search(py: crate::config::Py, query: String, tx: std::sync::mpsc::Sender<SearchResp>, wake: impl Fn() + Send + 'static) {
+    std::thread::spawn(move || {
+        let out = py.cmd().args(["dockets", "search", "--json", "--"]).args(query.split_whitespace()).output();
+        let result = match out {
+            Err(e) => Err(format!("{} -m tribonian: {e}", py.python)),
+            Ok(o) => {
+                let stdout = String::from_utf8_lossy(&o.stdout);
+                match stdout.lines().rev().find(|l| l.starts_with('{')) {
+                    Some(line) if o.status.success() => serde_json::from_str::<SearchResult>(line).map_err(|e| e.to_string()),
+                    _ => {
+                        let err = String::from_utf8_lossy(&o.stderr);
+                        let tail: Vec<&str> = err.lines().rev().take(3).collect();
+                        Err(tail.into_iter().rev().collect::<Vec<_>>().join(" · "))
+                    }
+                }
+            }
+        };
+        let _ = tx.send(SearchResp { query, result });
+        wake();
+    });
+}

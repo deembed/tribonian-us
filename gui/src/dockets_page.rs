@@ -27,6 +27,7 @@ pub struct DocketsUi {
     pub show: Show,
     /// documents ticked on a docket page: (docket id, document keys)
     pub sel: (i64, BTreeSet<String>),
+    pub search_input: String,
 }
 
 const TBD: &str = "TBD: not wired up yet";
@@ -145,8 +146,22 @@ fn add_box(app: &mut App, ui: &mut Ui, fixed: Option<&str>) {
 
 // ------------------------------------------------------------------ side panel
 
+/// The "Search dockets" box: party or case name words, or a case number.
+fn search_box(app: &mut App, ui: &mut Ui) {
+    ui.horizontal(|ui| {
+        let r = ui.add(egui::TextEdit::singleline(&mut app.dockets_ui.search_input).hint_text("party, case name or number").desired_width(200.0));
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if (ui.button("Search").clicked() || enter) && !app.dockets_ui.search_input.trim().is_empty() {
+            app.goto = Some(Page::DocketSearch(app.dockets_ui.search_input.trim().to_string()));
+        }
+    });
+}
+
 pub fn dockets_side(app: &mut App, ui: &mut Ui) {
     ui.heading("Dockets");
+    ui.label("Search dockets");
+    search_box(app, ui);
+    ui.add_space(4.0);
     ui.label("Add a federal docket");
     add_box(app, ui, None);
     ui.separator();
@@ -542,6 +557,112 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, id: i64) {
             Some((true, rel)) => open_note(app, &rel),
             Some((false, url)) => open_external(&url),
             None => {}
+        }
+    });
+}
+
+// ------------------------------------------------------------------ Search Dockets
+
+pub fn search_page(app: &mut App, ui: &mut Ui, query: &str) {
+    egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
+        ui.heading("Search Dockets");
+        if app.dockets_ui.search_input.is_empty() && !query.is_empty() {
+            app.dockets_ui.search_input = query.to_string();
+        }
+        search_box(app, ui);
+        ui.weak(if app.online() {
+            "The dockets fetched here, then CourtListener's docket search (1 API request per search, reused for a day)."
+        } else {
+            "Offline mode (top bar): only the dockets fetched here are searched."
+        });
+        if query.is_empty() {
+            return;
+        }
+        ui.add_space(8.0);
+        app.request_docket_search(query);
+        let Some(res) = app.docket_search.get(query).cloned() else {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("searching…");
+            });
+            return;
+        };
+        let res = match res {
+            Ok(r) => r,
+            Err(e) => {
+                ui.colored_label(Color32::LIGHT_RED, format!("Search failed: {e}"));
+                return;
+            }
+        };
+        let mut go = None;
+        ui.strong(format!("Fetched here ({})", res.fetched.len()));
+        if res.fetched.is_empty() {
+            ui.weak("none match");
+        }
+        for h in &res.fetched {
+            ui.horizontal(|ui| {
+                ui.label(format!("{} {}", h.court, h.number));
+                if ui.link(&h.name).clicked() {
+                    go = Some(Page::RecapDocket(h.id));
+                }
+                ui.weak(if h.terminated.is_empty() { format!("open · filed {}", h.filed) } else { format!("closed {}", h.terminated) });
+            });
+        }
+        ui.add_space(10.0);
+        match &res.api {
+            None => {
+                ui.strong("CourtListener");
+                ui.weak(if res.error.is_empty() { "not searched: Offline mode" } else { &res.error });
+            }
+            Some(hits) => {
+                ui.strong(format!(
+                    "CourtListener ({} of {}{})",
+                    hits.len(),
+                    res.count.map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
+                    if res.cached { ", from today's cache" } else { "" }
+                ));
+                let mut fetch = None;
+                egui::Grid::new("docket-hits").striped(true).num_columns(5).show(ui, |ui| {
+                    for h in hits {
+                        ui.label(&h.court);
+                        ui.label(&h.number);
+                        if !h.courtlistener.is_empty() {
+                            if ui.link(&h.name).on_hover_text("open on CourtListener").clicked() {
+                                open_external(&h.courtlistener);
+                            }
+                        } else {
+                            ui.label(&h.name);
+                        }
+                        ui.label(if h.terminated.is_empty() { format!("open · filed {}", h.filed) } else { format!("closed {}", h.terminated) });
+                        if h.fetched {
+                            if ui.small_button("open").clicked() {
+                                go = Some(Page::RecapDocket(h.id));
+                            }
+                        } else {
+                            let queued = app.is_queued(dockets::docket_key(h.id));
+                            if ui
+                                .add_enabled(!queued, egui::Button::new("Fetch").small())
+                                .on_hover_text(format!("queues tribonian case recap fetch --docket {}", h.id))
+                                .on_disabled_hover_text("in the build queue")
+                                .clicked()
+                            {
+                                fetch = Some(h.clone());
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+                if let Some(h) = fetch {
+                    let args = vec![s("case"), s("recap"), s("fetch"), s("--docket"), h.id.to_string()];
+                    queue(app, dockets::docket_key(h.id), format!("{} {}: fetch", h.court, h.number), vec![(args, Some(s("saved ")))]);
+                }
+                if !res.error.is_empty() {
+                    ui.colored_label(Color32::LIGHT_RED, &res.error);
+                }
+            }
+        }
+        if go.is_some() {
+            app.goto = go;
         }
     });
 }

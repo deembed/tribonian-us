@@ -43,7 +43,13 @@ struct ScriptPaths {
     /// The config file's [gui] table.
     #[serde(default)]
     gui: serde_json::Map<String, serde_json::Value>,
+    /// data_mode from the config file (or CL_DATA_MODE).
+    #[serde(default)]
+    data_mode: Option<String>,
 }
+
+/// The data modes, in the order the top bar lists them (tconfig.DATA_MODES).
+pub const DATA_MODES: [&str; 4] = ["offline", "full", "lite", "api"];
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -77,6 +83,10 @@ pub struct Config {
     /// ignored if it was.
     pub config_file: Option<PathBuf>,
     pub config_error: Option<String>,
+    /// data_mode in the config file (CL_DATA_MODE); "full" when unset.
+    pub data_mode: String,
+    /// The mode in use: the top bar's choice (remembered), else data_mode. Every script runs with --mode <it>.
+    pub mode: String,
 }
 
 /// TRIBONIAN_COMMAND_PREFIX, split on spaces: when set (e.g. "wsl", or "docker exec -i tribonian"),
@@ -177,6 +187,7 @@ impl Config {
         let python = fc.python.clone().or_else(|| g("python")).unwrap_or(python);
         let config_file = sp.as_ref().and_then(|s| s.config_file.as_ref()).map(PathBuf::from);
         let config_error = sp.as_ref().and_then(|s| s.config_error.clone());
+        let data_mode = sp.as_ref().and_then(|s| s.data_mode.clone()).filter(|m| DATA_MODES.contains(&m.as_str())).unwrap_or_else(|| "full".into());
         let cfg = Config {
             bulk_dir: from(&fc.bulk_dir, |s| &s.cocite_dir).unwrap_or_else(|| work_dir.join("bulk")),
             main_db: from(&fc.main_db, |s| &s.main_db),
@@ -193,13 +204,27 @@ impl Config {
             overrides,
             config_file,
             config_error,
+            mode: crate::recent::load_mode().unwrap_or_else(|| data_mode.clone()),
+            data_mode,
         };
         Ok((cfg, file))
     }
 
     /// `python -m tribonian` with this config's interpreter and checkout (see [`tribonian`]).
     pub fn py(&self) -> Py {
-        Py { python: self.python.clone(), repo: self.repo_dir.clone(), work: self.work_dir.clone() }
+        Py { python: self.python.clone(), mode: self.mode.clone(), repo: self.repo_dir.clone(), work: self.work_dir.clone() }
+    }
+
+/// Can this install run in this mode: Err(what is missing). Offline and api need no local data;
+    /// lite needs the main database, full the opinion-text database too. (tribonian check says more.)
+    pub fn supports(&self, mode: &str) -> Result<(), String> {
+        let have = |p: PathBuf| p.is_file();
+        match mode {
+            "lite" if !have(self.main_db()) => Err("needs the main database (tribonian db load)".into()),
+            "full" if !have(self.main_db()) => Err("needs the main database (tribonian db load)".into()),
+            "full" if !have(self.opinions_db()) => Err("needs opinions.sqlite (tribonian db load opinions)".into()),
+            _ => Ok(()),
+        }
     }
 
     // The fallbacks below apply only when tribonian check --paths could not run.
@@ -234,6 +259,8 @@ impl Config {
 #[derive(Clone, Debug)]
 pub struct Py {
     pub python: String,
+    /// The data mode every command runs with (`tribonian --mode`): the top bar's choice.
+    pub mode: String,
     pub repo: PathBuf,
     /// The work folder: relative paths the commands print (pdf/..., cases/...) are relative to it.
     pub work: PathBuf,
@@ -242,6 +269,8 @@ pub struct Py {
 impl Py {
     /// `tribonian` (no subcommand yet): add the command and its arguments.
     pub fn cmd(&self) -> Command {
-        tribonian(&self.python, &self.repo)
+        let mut c = tribonian(&self.python, &self.repo);
+        c.args(["--mode", &self.mode]);
+        c
     }
 }

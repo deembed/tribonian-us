@@ -33,6 +33,8 @@ pub enum Page {
     CourtDockets(String),
     /// one fetched RECAP docket, by CourtListener docket id
     RecapDocket(i64),
+    /// Search Dockets: the fetched ones, then CourtListener's (not offline)
+    DocketSearch(String),
 }
 
 impl Page {
@@ -44,14 +46,14 @@ impl Page {
             Page::Search { .. } | Page::CoCited(_) => Section::Search,
             Page::Scotus | Page::Docket(_) => Section::Scotus,
             Page::SemSearch => Section::SemSearch,
-            Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) => Section::Dockets,
+            Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) | Page::DocketSearch(_) => Section::Dockets,
             _ => Section::Clusters,
         }
     }
     /// Pages that need the database (everything but the start screen and the case list).
     pub fn needs_db(&self) -> bool {
         !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::SemSearch | Page::Check
-            | Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_))
+            | Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) | Page::DocketSearch(_))
     }
 }
 

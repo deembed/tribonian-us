@@ -218,6 +218,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::DocketsState(code) => return crate::dockets_page::state_page(app, ui, code),
         Page::CourtDockets(id) => return crate::dockets_page::court_page(app, ui, id),
         Page::RecapDocket(id) => return crate::dockets_page::docket_page(app, ui, *id),
+        Page::DocketSearch(q) => return crate::dockets_page::search_page(app, ui, q),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -266,8 +267,12 @@ fn home(app: &mut App, ui: &mut Ui) {
         cols[0].vertical_centered(|ui| {
             ui.heading("Find and read");
             ui.add_space(12.0);
-            if button(ui, big("Search for Cases"), "case names and courts' parentheticals in the local database, and CourtListener for newer cases") {
+            if button(ui, big("Search Opinions"), "case names and courts' parentheticals in the local database, and CourtListener for newer cases (not offline)") {
                 go = Some(Page::Search { query: String::new(), mode: app.search_mode });
+            }
+            ui.add_space(8.0);
+            if button(ui, big("Search Dockets"), "party or case name, or a case number: the dockets fetched here, and CourtListener's (not offline)") {
+                go = Some(Page::DocketSearch(String::new()));
             }
             ui.add_space(8.0);
             if button(ui, big("View Opinions"), "the decided cases built so far: one note and PDF per opinion (tribonian case build)") {
@@ -1396,7 +1401,7 @@ fn skeleton(ui: &mut Ui, page: &Page) {
 
 fn search_side(app: &mut App, ui: &mut Ui) {
     use crate::search::Mode;
-    ui.heading("Search for Cases");
+    ui.heading("Search Opinions");
     let r = ui.add(
         egui::TextEdit::singleline(&mut app.search_input)
             .hint_text(if app.search_mode == Mode::Name { "name or citation" } else { "what the case stands for" })
@@ -1414,11 +1419,12 @@ fn search_side(app: &mut App, ui: &mut Ui) {
     });
     let changed = mode != app.search_mode;
     app.search_mode = mode;
-    ui.checkbox(&mut app.include_api, "Include CourtListener").on_hover_text(
-        "also search CourtListener for cases filed after the local database's bulk data (less a month): \
-         1 API request per search, reused for a day (tribonian case api-search). Cases already in the local \
-         database are left to the local results.",
-    );
+    ui.weak(if app.online() {
+        "Also searches CourtListener for cases filed after the local database's bulk data (less a month): 1 API request \
+         per search, reused for a day. Offline mode (top bar) turns that off."
+    } else {
+        "Offline mode (top bar): the local database only."
+    });
     if (ui.button("Search").clicked() || enter || (changed && !app.search_input.trim().is_empty()))
         && !app.search_input.trim().is_empty()
     {
@@ -1509,7 +1515,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     use crate::search::Mode;
     let Page::Search { query, mode } = page else { return };
     if query.is_empty() {
-        ui.heading("Search for Cases");
+        ui.heading("Search Opinions");
         ui.label("Type a case name, a citation, a Supreme Court docket number (25-579), or (with Parentheticals) what a case stands for, then press Enter.");
         return;
     }
@@ -1517,7 +1523,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     if *mode == Mode::Name {
         crate::scotus_page::docket_hits(app, ui, query);
     }
-    if app.include_api {
+    if app.online() {
         api_hits(app, ui, page);
     }
     let Some(res) = app.search_cache.get(page).cloned() else {

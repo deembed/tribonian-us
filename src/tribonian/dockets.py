@@ -2,18 +2,20 @@
 
     tribonian dockets courts      # the court tree -> cases/dockets/_courts.json
     tribonian dockets index       # what is fetched and built -> cases/recap/_index.json (fetch and build refresh it)
+    tribonian dockets search brown fcc [--court ca4] [--json]
+                                  # fetched dockets, then CourtListener's (not in offline mode)
 
 The tree: Federal (Supreme Court, courts of appeals, district, bankruptcy, special courts) and every state
 (highest, appellate, trial, special courts), from the local courts table (tribonian db load courts), else
 CourtListener's courts API. Fetching dockets (RECAP) works for federal appeals and district courts; the rest
 of the tree is there to be filled in.
 """
-import argparse, json, re, sys
+import argparse, hashlib, json, re, sys, time, urllib.parse
 from datetime import date
 from pathlib import Path
 
 from tribonian import case2md as c
-from tribonian import statecites
+from tribonian import statecites, tconfig
 
 COURTS_JSON = c.CASES / "dockets" / "_courts.json"
 INDEX_JSON = c.RECAP / "_index.json"
@@ -138,11 +140,81 @@ def index(args=None, quiet=False):
         print("%d dockets -> %s" % (len(out), INDEX_JSON.relative_to(c.ROOT)))
 
 
+NUMBER_RE = re.compile(r"^(?:\d+:)?\d{2}-[\w-]*\d+$")          # 26-2230, 1:26-cv-00376
+
+
+def words_match(q, *fields):
+    """Every word of the query in one of the fields (case-insensitive)."""
+    hay = " ".join(f or "" for f in fields).lower()
+    return all(w in hay for w in re.findall(r"[\w.:-]+", q.lower()))
+
+
+def api_dockets(query, court=None, max_age=24):
+    """CourtListener's docket search, cached a day under cases/api/dockets/. -> (count, hits, cached)."""
+    params = {"type": "d", "order_by": "score desc"}
+    params["docket_number" if NUMBER_RE.match(query.strip()) else "case_name"] = query.strip()
+    if court:
+        params["court"] = court
+    path = c.CASES / "api" / "dockets" / (hashlib.sha1(json.dumps(params, sort_keys=True).encode()).hexdigest()[:16] + ".json")
+    try:
+        out = json.loads(path.read_text(encoding="utf-8"))
+        if time.time() - out.get("time", 0) <= max_age * 3600:
+            return out["count"], out["hits"], True
+    except (OSError, ValueError, KeyError):
+        pass
+    res = c.call("%s/search/?%s" % (c.API, urllib.parse.urlencode(params)), c.token())
+    hits = [{"id": r.get("docket_id"), "court": r.get("court_id") or "", "number": r.get("docketNumber") or "",
+             "name": r.get("caseName") or "", "filed": r.get("dateFiled") or "", "terminated": r.get("dateTerminated") or "",
+             "courtlistener": c.CL + (r.get("docket_absolute_url") or "") if r.get("docket_absolute_url") else ""}
+            for r in res.get("results") or []]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"params": params, "time": time.time(), "count": res.get("count"), "hits": hits},
+                               ensure_ascii=False), encoding="utf-8")
+    return res.get("count"), hits, False
+
+
+def search(args):
+    q, court = " ".join(args.words), (args.court or "").lower() or None
+    try:
+        fetched = json.loads(INDEX_JSON.read_text(encoding="utf-8"))["dockets"]
+    except (OSError, ValueError, KeyError):
+        fetched = []
+    mine = [{k: d.get(k, "") for k in ("id", "court", "number", "name", "filed", "terminated", "courtlistener")}
+            for d in fetched if (not court or d.get("court") == court) and words_match(q, d.get("name"), d.get("number"), d.get("court"))]
+    have = {d["id"] for d in fetched}
+    out = {"query": q, "court": court or "", "mode": tconfig.data_mode(), "fetched": mine,
+           "api": None, "count": None, "cached": False, "error": ""}
+    if tconfig.online():
+        try:
+            out["count"], hits, out["cached"] = api_dockets(q, court)
+            out["api"] = [dict(h, fetched=h["id"] in have) for h in hits]
+        except SystemExit as e:                     # no token, the daily limit ...: the local half still answers
+            out["error"] = str(e)
+    if args.json:
+        print(json.dumps(out, ensure_ascii=False))
+        return
+    print("Fetched (%d):" % len(mine))
+    for d in mine:
+        print("  %-6s %-16s %s  %s" % (d["court"], d["number"], d["name"][:60], "open" if not d["terminated"] else "closed"))
+    if out["api"] is None:
+        print("CourtListener: %s" % (out["error"] or "not searched (offline mode)"))
+        return
+    print("CourtListener (%s of %s%s):" % (len(out["api"]), out["count"], ", cached" if out["cached"] else ""))
+    for h in out["api"]:
+        print("  %-6s %-16s %s  %s%s" % (h["court"], h["number"], h["name"][:60], h["filed"], "  [fetched]" if h["fetched"] else ""))
+    print("fetch one:  tribonian case recap fetch --docket <id>")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("courts", help="the court tree -> cases/dockets/_courts.json").set_defaults(func=courts)
     sub.add_parser("index", help="fetched dockets and what is built -> cases/recap/_index.json").set_defaults(func=index)
+    se = sub.add_parser("search", help="fetched dockets, then CourtListener's (not in offline mode)")
+    se.add_argument("words", nargs="+", help="party or case name words, or a case number (26-2230)")
+    se.add_argument("--court", help="only this court, e.g. ca4")
+    se.add_argument("--json", action="store_true", help="print JSON (for the GUI)")
+    se.set_defaults(func=search)
     args = ap.parse_args()
     args.func(args)
 

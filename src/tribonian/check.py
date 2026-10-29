@@ -484,7 +484,15 @@ def paths():
             "main_db": str(casedb.DB), "opinions_db": str(casedb.OPS_DB),
             "search_db": str(casedb.SEARCH_DB), "cocite_dir": str(COCITE_BASE.parent),
             "config_file": str(tconfig.FILE_PATH) if tconfig.FILE_PATH else None, "config_error": tconfig.FILE_ERROR,
-            "gui": tconfig.gui()}
+            "gui": tconfig.gui(), "data_mode": safe_mode()}
+
+
+def safe_mode():
+    """The data mode setting, or "full" when it is not one of the four (the full check reports that)."""
+    try:
+        return tconfig.data_mode()
+    except SystemExit:
+        return "full"
 
 
 def main():
@@ -506,6 +514,7 @@ def main():
     best, ms = modes()
     if args.json:
         print(json.dumps({"best": best, "modes": ms, "needs": NEEDS, "paths": paths(),
+                          "setting": {"mode": tconfig.data_mode(), "from": tconfig.source("data_mode", "full")[1]},
                           "checks": [r.as_dict() for r in RESULTS]}, indent=1))
     else:
         group = None
@@ -516,7 +525,8 @@ def main():
             print("  %s  %-34s %s" % (MARK[r.status], r.label, r.detail))
             if r.fix and r.status in ("warn", "fail"):
                 print("  %s  %-34s fix: %s" % ("    ", "", r.fix))
-        print("\nData mode: %s" % (best or "none (fix the Tools / API items above)"))
+        print("\nData mode set: %s (%s); the best this install supports: %s" % (
+            tconfig.data_mode(), tconfig.source("data_mode", "full")[1], best or "none (fix the Tools / API items above)"))
         for m in MODES:
             print("  %-4s %s" % (m, "ready" if ms[m]["ok"] else "needs " + ", ".join(ms[m]["missing"])))
     sys.exit(0 if best else 1)

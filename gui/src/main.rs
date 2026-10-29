@@ -101,8 +101,6 @@ pub struct App {
     /// Searches, newest first, without repeats; kept between sessions (`recent.rs`).
     pub search_history: Vec<(String, search::Mode)>,
     pub show_history: bool,
-    /// "Include CourtListener": also search the API for cases newer than the local database.
-    pub include_api: bool,
     /// "Fetch state law" (on by default): case and docket builds also download and build the state law they cite
     /// that is not local (--fetch-state-law), so its text is printed at the end of the PDF.
     pub fetch_state_law: bool,
@@ -133,6 +131,11 @@ pub struct App {
     pub recap_error: Option<String>,
     pub courts: Result<Option<dockets::CourtTree>, String>,
     pub dockets_ui: dockets_page::DocketsUi,
+    /// Search Dockets results by query (cleared when the data mode changes)
+    pub docket_search: HashMap<String, Result<dockets::SearchResult, String>>,
+    docket_search_pending: std::collections::HashSet<String>,
+    dstx: Sender<dockets::SearchResp>,
+    dsrx: Receiver<dockets::SearchResp>,
     pub sem_ui: semsearch_page::SemUi,
     pub check_ui: check_page::CheckUi,
     egui_ctx: Option<egui::Context>,
@@ -159,6 +162,7 @@ struct PopOut {
 impl App {
     fn new(cc: &eframe::CreationContext<'_>) -> App {
         let (atx, arx) = std::sync::mpsc::channel();
+        let (dstx, dsrx) = std::sync::mpsc::channel();
         let mut app = App {
             cfg: None,
             cfg_path: None,
@@ -190,7 +194,6 @@ impl App {
             search_mode: search::Mode::Name,
             search_history: recent::load(),
             show_history: false,
-            include_api: false,
             fetch_state_law: true,
             print_law: true,
             api_cache: HashMap::new(),
@@ -213,6 +216,10 @@ impl App {
             recap_error: None,
             courts: Ok(None),
             dockets_ui: Default::default(),
+            docket_search: HashMap::new(),
+            docket_search_pending: Default::default(),
+            dstx,
+            dsrx,
             sem_ui: Default::default(),
             check_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
@@ -576,7 +583,7 @@ impl App {
     /// The CourtListener half of a search, when "Include CourtListener" is on; once per page.
     fn request_api(&mut self, page: &Page) {
         let Page::Search { query, .. } = page else { return };
-        if !self.include_api || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
+        if !self.online() || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
             return;
         }
         let Some(cfg) = &self.cfg else { return };
@@ -589,11 +596,77 @@ impl App {
         });
     }
 
+    /// May searches use the CourtListener API: every data mode but offline.
+    pub fn online(&self) -> bool {
+        self.cfg.as_ref().is_some_and(|c| c.mode != "offline")
+    }
+
+    /// Search Dockets: run `tribonian dockets search` once per query (it may make one API request).
+    pub fn request_docket_search(&mut self, query: &str) {
+        if self.docket_search.contains_key(query) || self.docket_search_pending.contains(query) {
+            return;
+        }
+        let Some(cfg) = &self.cfg else { return };
+        let ctx = self.egui_ctx.clone();
+        self.docket_search_pending.insert(query.to_string());
+        dockets::spawn_search(cfg.py(), query.to_string(), self.dstx.clone(), move || {
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        });
+    }
+
+    /// The top bar's data mode: every script runs with --mode <it>; remembered between sessions.
+    fn mode_picker(&mut self, ui: &mut egui::Ui) {
+        let Some(cfg) = &self.cfg else { return };
+        let (cur, set) = (cfg.mode.clone(), cfg.data_mode.clone());
+        let mut pick = None;
+        egui::ComboBox::from_id_salt("data-mode")
+            .selected_text(format!("Data: {cur}"))
+            .show_ui(ui, |ui| {
+                for m in config::DATA_MODES {
+                    let what = match m {
+                        "offline" => "local data only, no CourtListener requests",
+                        "full" => "full bulk data; the API only for what is newer",
+                        "lite" => "small bulk tables; opinion text from the API",
+                        _ => "everything from the CourtListener API",
+                    };
+                    let label = if m == set { format!("{m}  (config)") } else { m.to_string() };
+                    match cfg.supports(m) {
+                        Ok(()) => {
+                            if ui.selectable_label(cur == m, label).on_hover_text(what).clicked() {
+                                pick = Some(m.to_string());
+                            }
+                        }
+                        Err(why) => {
+                            ui.add_enabled(false, egui::Button::selectable(false, label)).on_disabled_hover_text(format!("{what}: {why}"));
+                        }
+                    }
+                }
+            })
+            .response
+            .on_hover_text(format!(
+                "the data mode every script runs with (tribonian --mode {cur}); the config file says {set}. \
+                 Offline: no CourtListener requests at all."
+            ));
+        if let Some(m) = pick {
+            recent::save_mode(&m);
+            if let Some(cfg) = &mut self.cfg {
+                cfg.mode = m;
+            }
+            self.docket_search.clear();
+        }
+    }
+
     pub fn api_pending(&self, page: &Page) -> bool {
         self.api_pending.contains(page)
     }
 
     fn poll(&mut self) {
+        for r in self.dsrx.try_iter().collect::<Vec<_>>() {
+            self.docket_search_pending.remove(&r.query);
+            self.docket_search.insert(r.query, r.result);
+        }
         for r in self.arx.try_iter().collect::<Vec<_>>() {
             self.api_pending.remove(&r.page);
             if let Ok(res) = &r.result {
@@ -690,6 +763,8 @@ impl App {
                 .and_then(|t| t.court(id))
                 .map(|c| if c.cite.is_empty() { c.name.clone() } else { c.cite.clone() })
                 .unwrap_or_else(|| id.clone()),
+            Page::DocketSearch(q) if q.is_empty() => "Search Dockets".into(),
+            Page::DocketSearch(q) => format!("Dockets: {q}"),
             Page::RecapDocket(id) => match self.recap.iter().find(|d| d.id == *id) {
                 Some(d) => format!("No. {} {}", d.number, d.name),
                 None => format!("docket {id}"),
@@ -763,6 +838,7 @@ impl App {
             Page::Check => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Dockets => {}
+            Page::DocketSearch(_) => {}
             Page::DocketsFederal | Page::DocketsState(None) => c.push(("View Dockets".into(), Some(Page::Dockets))),
             Page::DocketsState(Some(_)) => {
                 c.push(("View Dockets".into(), Some(Page::Dockets)));
@@ -835,6 +911,7 @@ impl App {
                     Page::DocketsState(_) => "state courts",
                     Page::CourtDockets(_) => "court",
                     Page::RecapDocket(_) => "docket",
+                    Page::DocketSearch(_) => "docket search",
                     Page::CoCited(_) => "cited together",
                 };
                 let t = self.title_of(p);
@@ -895,6 +972,7 @@ impl App {
                 self.goto = go;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.mode_picker(ui);
                 if ui
                     .button("⧉ Pop out")
                     .on_hover_text("open this page in a window of its own (Ctrl+click a link does the same for the link)")

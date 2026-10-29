@@ -708,7 +708,7 @@ impl Db {
             }
             Page::Case(r) => PageData::Case(self.case(*r)?),
             Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::CoCited(_) | Page::SemSearch | Page::Check
-            | Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) => {
+            | Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) | Page::DocketSearch(_) => {
                 unreachable!("not a load_inner page")
             }
         })

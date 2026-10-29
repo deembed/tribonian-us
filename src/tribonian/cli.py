@@ -1,7 +1,10 @@
 """tribonian -- one command for the whole pipeline.
 
-    tribonian <command> [arguments...]
+    tribonian [--mode offline|full|lite|api] <command> [arguments...]
     tribonian <command> --help
+
+--mode overrides the data mode (config data_mode, CL_DATA_MODE) for this one command and
+everything it runs.
 
 Every command runs in the work folder (tconfig.WORK: TRIBONIAN_WORK, else the config file's
 work_dir, else the checkout), so relative paths in arguments (xml/usc05.xml, cases/<file>.json)
@@ -39,12 +42,23 @@ def usage(out=sys.stdout):
     for name, (_, what) in COMMANDS.items():
         print("  %-16s %s" % (name, what), file=out)
     print("\nwork folder: %s" % tconfig.WORK, file=out)
+    print("data mode:   %s (%s)" % (tconfig.data_mode(), tconfig.source("data_mode", "full")[1]), file=out)
 
 
 def main(argv=None):
     if hasattr(signal, "SIGPIPE"):                 # `tribonian ... | head` ends quietly
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     argv = sys.argv[1:] if argv is None else argv
+    while argv and (argv[0] == "--mode" or argv[0].startswith("--mode=")):
+        if "=" in argv[0]:
+            mode, argv = argv[0].split("=", 1)[1], argv[1:]
+        elif len(argv) > 1:
+            mode, argv = argv[1], argv[2:]
+        else:
+            sys.exit("tribonian: --mode needs a value: offline, full, lite or api")
+        os.environ["CL_DATA_MODE"] = mode          # child processes inherit it
+        from tribonian import tconfig
+        tconfig.data_mode()                         # an unknown mode stops here, with the choices
     if not argv or argv[0] in ("-h", "--help", "help"):
         usage()
         return 0
