@@ -47,11 +47,36 @@ SKIP_LINK = re.compile(r"proof of service|certificate|affidavit", re.I)
 
 
 def norm_number(s):
-    """'25-579', '25-00579', 'No. 25-579 ' -> '25-579'."""
-    m = re.search(r"(\d{2})[-A]0*(\d+)", s or "")
+    """'25-579', '25-00579', 'No. 25-579 ' -> '25-579'; an application, '26A476' or '26a00476' -> '26A476'
+    (its own docket: '26-476' is a different case)."""
+    m = re.search(r"(\d{2})([-Aa])0*(\d+)", s or "")
     if not m:
-        sys.exit("cannot read %r as a docket number like 25-579" % s)
-    return "%s-%s" % (m.group(1), m.group(2))
+        sys.exit("cannot read %r as a docket number like 25-579 or an application like 26A476" % s)
+    return "%s%s%s" % (m.group(1), "-" if m.group(2) == "-" else "A", m.group(3))
+
+
+def below_ref(feed):
+    """The case below as (CourtListener court id or None, its case number): federal courts of appeals only,
+    which the feed names ("United States Court of Appeals for the Fourth Circuit")."""
+    num = (feed.get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
+    m = re.search(r"for the (.+?) Circuit", feed.get("LowerCourt") or "", re.I)
+    return (CIRCUITS.get(m.group(1).lower()) if m else None), num
+
+
+def below_cmd(args):
+    """Fetch the docket of the case below from RECAP (tribonian case recap fetch --court --number)."""
+    num = norm_number(args.number)
+    if not case_file(num).exists():
+        sys.exit("No. %s isn't fetched: run tribonian scotus fetch %s first" % (num, num))
+    feed = json.loads(case_file(num).read_text(encoding="utf-8"))["feed"]
+    court, below = below_ref(feed)
+    if not below:
+        sys.exit("No. %s: the Court's docket names no case number below" % num)
+    if not court:
+        sys.exit("No. %s: the case below is in %s, No. %s; only federal courts of appeals are in RECAP"
+                 % (num, feed.get("LowerCourt") or "a court the feed doesn't name", below))
+    print("No. %s: below is %s No. %s" % (num, court, below))
+    c.recap_fetch(argparse.Namespace(docket=None, court=court, number=below, docs=None, all=False))
 
 
 def get(url, out=None):
@@ -2581,10 +2606,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fetch", help="the Court's docket and filed PDFs -> cases/scotus/")
-    f.add_argument("number", help="docket number, e.g. 25-579")
+    f.add_argument("number", help="docket number or application, e.g. 25-579, 26A476")
     f.set_defaults(func=fetch)
     b = sub.add_parser("build", help="one PDF, a docket note, a note per filing, the authorities they share")
-    b.add_argument("number", help="docket number, e.g. 25-579")
+    b.add_argument("number", help="docket number or application, e.g. 25-579, 26A476")
     b.add_argument("--amici", action="store_true", help="put the amicus briefs in the PDF too (their notes are always written)")
     b.add_argument("--appendix", action="store_true", help="keep appendices (the petition's repeats the decision below)")
     b.add_argument("--depth", type=int, default=0, help="also write case notes for the decision below and the cited cases (1), "
@@ -2605,6 +2630,9 @@ def main():
     sw = sub.add_parser("swatches", help="one page of the cover colors, to check the tints on the tablet -> pdf/cover-swatches.pdf")
     sw.add_argument("--font", default="XCharter")
     sw.set_defaults(func=swatches_cmd)
+    bw = sub.add_parser("below", help="fetch the docket of the case below from RECAP (federal courts of appeals)")
+    bw.add_argument("number", help="docket number or application, e.g. 26A476")
+    bw.set_defaults(func=below_cmd)
     r = sub.add_parser("recent", help="the Court's recent opinions, grants and orders -> cases/scotus/_recent.json")
     r.add_argument("--json", action="store_true", help="also print the result as JSON")
     r.add_argument("--days", type=int, default=RECENT_DAYS, help="how far back (default %d)" % RECENT_DAYS)

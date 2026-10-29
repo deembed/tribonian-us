@@ -32,6 +32,23 @@ pub struct Entry {
     pub links: Vec<Link>,
 }
 
+impl Docket {
+    /// The case below as (CourtListener court id, case number) when it is in a federal court of appeals (RECAP).
+    pub fn below_ref(&self) -> Option<(String, String)> {
+        let num = self.lower_numbers.trim_matches(|c| c == '(' || c == ')' || c == ' ').split(',').next()?.trim().to_string();
+        let lc = self.lower_court.to_lowercase();
+        let (_, rest) = lc.split_once("for the ")?;
+        let name = rest.strip_suffix(" circuit").or_else(|| rest.split(" circuit").next())?;
+        let id = match name {
+            "first" => "ca1", "second" => "ca2", "third" => "ca3", "fourth" => "ca4", "fifth" => "ca5", "sixth" => "ca6",
+            "seventh" => "ca7", "eighth" => "ca8", "ninth" => "ca9", "tenth" => "ca10", "eleventh" => "ca11",
+            "district of columbia" => "cadc", "federal" => "cafc",
+            _ => return None,
+        };
+        (!num.is_empty()).then(|| (id.to_string(), num))
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Docket {
     /// "25-579"
@@ -132,11 +149,19 @@ pub fn status(entries: &[Entry], granted: &str, argued: &str) -> String {
     "petition pending".into()
 }
 
-/// "25-579", "No. 25-579", "25-00579" -> "25-579". Applications ("25A374") and original cases are
-/// refused: tribonian scotus fetch reads only numbered petitions (its norm_number would misread "25A374").
+/// "25-579", "No. 25-579", "25-00579" -> "25-579"; an application "25A374", "25a00374" -> "25A374".
+/// Original cases ("22O145") are refused: tribonian scotus fetch doesn't read them.
 pub fn norm_docket(s: &str) -> Option<String> {
     let s = s.trim();
     let s = s.strip_prefix("No.").or_else(|| s.strip_prefix("No")).or_else(|| s.strip_prefix("no.")).unwrap_or(s).trim();
+    // an application: "26A476" (its own docket; "26-476" is a different case)
+    if let Some((yy, n)) = s.split_once(['A', 'a']) {
+        if yy.len() == 2 && yy.bytes().all(|b| b.is_ascii_digit()) && !n.is_empty() && n.len() <= 5 && n.bytes().all(|b| b.is_ascii_digit()) {
+            let n: u32 = n.parse().ok()?;
+            return (n > 0).then(|| format!("{yy}A{n}"));
+        }
+        return None;
+    }
     let (yy, n) = s.split_once('-')?;
     if yy.len() != 2 || !yy.bytes().all(|b| b.is_ascii_digit()) || n.is_empty() || n.len() > 5 || !n.bytes().all(|b| b.is_ascii_digit()) {
         return None;
@@ -150,8 +175,11 @@ pub fn norm_docket(s: &str) -> Option<String> {
 
 /// A queue key for a docket, apart from every CourtListener cluster id (those are positive).
 pub fn docket_key(num: &str) -> i64 {
-    let (yy, n) = num.split_once('-').unwrap_or(("0", "0"));
-    -(1_000_000_000 + yy.parse::<i64>().unwrap_or(0) * 100_000 + n.parse::<i64>().unwrap_or(0))
+    let (base, (yy, n)) = match num.split_once('A') {
+        Some(p) => (1_500_000_000, p),
+        None => (1_000_000_000, num.split_once('-').unwrap_or(("0", "0"))),
+    };
+    -(base + yy.parse::<i64>().unwrap_or(0) * 100_000 + n.parse::<i64>().unwrap_or(0))
 }
 /// The queue key of `scotus.py recent`.
 pub const RECENT_KEY: i64 = -1;
@@ -352,7 +380,9 @@ mod tests {
         assert_eq!(norm_docket("25-579").as_deref(), Some("25-579"));
         assert_eq!(norm_docket(" No. 25-579 ").as_deref(), Some("25-579"));
         assert_eq!(norm_docket("25-00579").as_deref(), Some("25-579"));
-        assert_eq!(norm_docket("25A374"), None);
+        assert_eq!(norm_docket("25A374").as_deref(), Some("25A374"));
+        assert_eq!(norm_docket("26a00476").as_deref(), Some("26A476"));
+        assert_ne!(docket_key("26A476"), docket_key("26-476"));
         assert_eq!(norm_docket("463 U.S. 29"), None);
         assert_eq!(norm_docket("chevron"), None);
         assert!(docket_key("25-579") < 0 && docket_key("25-579") != docket_key("25-580"));
