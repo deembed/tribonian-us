@@ -2034,7 +2034,9 @@ def build(args):
     # ---- the analysis
     cp = coupling(fs, below_cites, con)
     lc = law_analysis(fs, qp_paragraphs(data))
-    missing = law_missing(lc, getattr(args, "fetch", False), warnings, getattr(args, "fetch_state_law", False))
+    # --no-law: no appendix, nothing fetched (the authority and provision tables stay)
+    missing = law_missing(lc, getattr(args, "fetch", False), warnings, getattr(args, "fetch_state_law", False)) \
+        if getattr(args, "law", True) else []
     allc = set(cp["P"]) | set(cp["R"]) | cp["below"] | {k for f in fs for k in f["cites"]}
     names = case_names(con, allc)
     areas = []
@@ -2083,7 +2085,7 @@ def build(args):
         o["tree"] = c.tree_of(o, o["levels"])
         o["stage"] = f["stage"]
         ops.append(o)
-    targets = {k: law_anchor(k) for k, _ in law_rows(lc)}       # every provision has its entry at the end
+    targets = {k: law_anchor(k) for k, _ in law_rows(lc)} if getattr(args, "law", True) else {}   # each provision's entry at the end
     for o in ops:                                # the decision below is read from HTML: mark its statute cites too
         for b in o.get("flat", []):
             c.mark_law(b[1])
@@ -2097,7 +2099,7 @@ def build(args):
             "foot": "%s v. %s, No. %s" % (short_party(feed.get("PetitionerTitle")), short_party(feed.get("RespondentTitle")), num),
             "page": "1", "toc": True, "pretex": covers_defs() + docket_tex(data, qp) + "\\contentspage\n" + couple_tex(cp, names, fs, areas) + authorities_tex(cp, names) + law_tex(lc) + usc_tex(*uc) +
                                    (status_tex(cols, names, gl, set(cp["amici_only"])) if gl else ""),
-            "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs, args.appendix), "doc_newpage": True,
+            "stages": dict(STAGES), "posttex": law_appendix_tex(lc, fs, args.appendix) if args.law else "", "doc_newpage": True,
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",
                         "decision below: CourtListener cluster %s" % cid if cid else "", "retrieved " + data.get("retrieved", "")]}
     (c.ROOT / "build").mkdir(exist_ok=True)
@@ -2596,8 +2598,9 @@ def main():
     b.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                    help="download and build the cited state law that is not local (each code's item: a title or chapter)")
-    b.add_argument("--fetch", action="store_true", help="download the text of the cited federal law that is not local "
+    b.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                    "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
+    b.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
     b.set_defaults(func=build_cmd)
     sw = sub.add_parser("swatches", help="one page of the cover colors, to check the tints on the tablet -> pdf/cover-swatches.pdf")
     sw.add_argument("--font", default="XCharter")
