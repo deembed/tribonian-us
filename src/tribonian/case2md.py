@@ -40,6 +40,7 @@ NOTES = ROOT / "md-cases"      # case notes; md/ belongs to the US Code build (t
 # 125 a day. A member sets CL_LIMITS, e.g. CL_LIMITS=10,75,300 for the $10 tier.
 LIMITS = [int(x) for x in str(tconfig.get("api_limits", "5,50,125")).split(",")]
 WINDOWS = (60, 3600, 86400)
+OFFLINE_NOTED = False   # the "offline mode: requests skipped" note is printed once per command
 PAUSE = 0               # extra seconds between requests, on top of the limits
 SIG_LINES = 8          # a signature block longer than this, or crossing a page, has ended
 PDFLATEX_TIMEOUT = int(os.environ.get("PDFLATEX_TIMEOUT") or 1800)   # seconds per pass; a TeX loop must not hang a build worker
@@ -105,6 +106,8 @@ class Unsupported(Exception):
 
 
 def token():
+    if not tconfig.online():
+        return ""                                # offline: call() refuses before any request needs it
     t = tconfig.get("courtlistener_token")       # COURTLISTENER_TOKEN, or the config file
     if t:
         return str(t).strip()
@@ -122,7 +125,18 @@ def token():
 def call(url, tok, data=None, soft=False):
     """GET url (or POST when data is a dict); return parsed JSON.
     Paces itself, waits and retries when rate-limited. soft=True: a 404 returns None;
-    soft=(403, 404): any of those codes does."""
+    soft=(403, 404): any of those codes does.
+    Offline data mode (tribonian --mode offline, data_mode, the GUI's selector): no request is made; a soft call
+    returns None (the caller goes on with what is local), any other stops the command with the reason."""
+    global OFFLINE_NOTED
+    if not tconfig.online():
+        if soft:
+            if not OFFLINE_NOTED:
+                print("offline mode: CourtListener requests skipped; using what is local", file=sys.stderr)
+                OFFLINE_NOTED = True
+            return None
+        sys.exit("Offline mode: this step needs a CourtListener request (%s). Run it with tribonian --mode full "
+                 "(or lite / api), or pick another mode in the GUI's top bar." % urllib.parse.urlparse(url).path)
     body = urllib.parse.urlencode(data).encode() if data else None
     for attempt in range(5):
         throttle(url)
@@ -2185,6 +2199,8 @@ def pdf_text(r):
         return "", "no text and no PDF in RECAP"
     out = RECAP / "pdf" / Path(r["filepath_local"]).name
     out.parent.mkdir(parents=True, exist_ok=True)
+    if not out.exists() and not tconfig.online():
+        return "", "offline mode: the filed PDF isn't downloaded"
     if not out.exists():
         try:
             req = urllib.request.Request(STORAGE + r["filepath_local"], headers={"User-Agent": "case2md/0.2"})
