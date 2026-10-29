@@ -489,6 +489,14 @@ def fill_labels(labs):
     return labs
 
 
+def appendix_cover(ls):
+    """A separately captioned appendix bound after the brief: a cover page ("Nos. 26A476 & 26A477 ... IN THE
+    Supreme Court ...") whose title is "APPENDIX TO OPPOSITION ..." or "SUPPLEMENTAL APPENDIX"."""
+    top = [x.strip() for x in ls if x.strip()][:25]
+    return bool(top) and bool(re.match(r"(?i)nos?\.\s*\d", top[0]) or top[0].upper() == "IN THE") and \
+        any(re.fullmatch(r"(?:SUPPLEMENTAL\s+)?APPENDIX\b[A-Z0-9 ,.'’()&-]*", x) for x in top)
+
+
 def split_brief(text, appendix=False):
     """-> dict(cover, front [(label, lines)], body [(label, lines)], qp [(label, lines)], toc)."""
     pages = [page_label(p.replace("\r", "").split("\n")) for p in text.split("\f")]
@@ -502,7 +510,7 @@ def split_brief(text, appendix=False):
     for k in range(start + 1, len(pages)):
         lab, ls = pages[k]
         first = next((x.strip() for x in ls if x.strip()), "")
-        if re.fullmatch(r"\d+a", lab) or re.fullmatch(r"APPENDIX(?:\s+[A-Z])?", first):
+        if re.fullmatch(r"\d+a", lab) or re.fullmatch(r"APPENDIX(?:\s+[A-Z])?", first) or appendix_cover(ls):
             end = k
             break
     front = pages[1:start] if start > 0 else []
@@ -1241,7 +1249,7 @@ def law_appendix_tex(lc, fs, appendix=False):
         return ""
     E = lambda t: c.esc(t, "tex")
     secs, repro = law_sources(fs)
-    out = ["\\clearpage\\recordcover{none}\\recordpath{The Law Cited}\\noindent\\tocback\\tocadd{tocstage}{The Law Cited}\\pdfbookmark[0]{The Law Cited}{lawq}"
+    out = ["\\clearpage\\recordcover{none}\\recordstart{The Law Cited}\\noindent\\tocback\\tocadd{tocstage}{The Law Cited}\\pdfbookmark[0]{The Law Cited}{lawq}"
            "{\\Large\\bfseries The Law Cited\\par}\\vspace{4pt}",
            "{\\scriptsize\\itshape Not part of the record. Every statute, constitutional provision and regulation the filings cite: "
            "the law in question first (what the questions presented and the parties' provisions-involved sections name, as each "

@@ -126,7 +126,7 @@ def appendix_tex(keys, title="The Law Cited", intro="", note=None, editions=None
     """The whole closing part: a contents entry, the intro line, then entries_tex."""
     if not keys:
         return ""
-    out = ["\\clearpage\\recordcover{none}\\recordpath{%s}\\noindent\\tocback\\tocadd{tocstage}{%s}\\pdfbookmark[0]{%s}{lawcited}"
+    out = ["\\clearpage\\recordcover{none}\\recordstart{%s}\\noindent\\tocback\\tocadd{tocstage}{%s}\\pdfbookmark[0]{%s}{lawcited}"
            "{\\Large\\bfseries %s\\par}\\vspace{4pt}" % (title, title, title, title)]
     if intro:
         out.append("{\\scriptsize\\itshape %s\\par}\\vspace{6pt}" % intro)

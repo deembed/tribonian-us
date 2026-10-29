@@ -1844,12 +1844,14 @@ def render_tex(meta, ops, fontpkg, style):
                 parts.append(fns)
             return rec
 
+        fresh = False                            # this filing starts a page
         if o.get("stage") and o["stage"] != stage:
-            stage = o["stage"]
+            stage, fresh = o["stage"], True
             name = (meta.get("stages") or {}).get(stage, stage)
             body.append("\\clearpage%s\\pdfbookmark[0]{%s}{stage%d}{\\Large\\bfseries %s\\par}\\vspace{8pt}\n" % (
                 "\\noindent\\tocback" + toc_entry("tocstage", name) if toc else "", esc(name, "tex"), n, esc(name, "tex")))
         elif n and meta.get("doc_newpage"):
+            fresh = True
             body.append("\\clearpage\n")         # scotus.py: every filing on its own page (one cover color per page)
         elif n:
             # new opinion: start a fresh page unless 8 lines still fit under its heading
@@ -1862,8 +1864,9 @@ def render_tex(meta, ops, fontpkg, style):
             body.append("\\noindent\\tocback" + entry)
         if o.get("cover"):                       # scotus.py: the page band takes this filing's cover color from here
             body.append("\\recordcover{%s}" % o["cover"])
-        body.append("\\recordpath{%s}\\pdfbookmark[%d]{%s}{o%d}{\\large\\bfseries %s}\\ {\\large %s}\\par\n" % (
-            ctx.path(), base, esc("%s — %s · *%s" % (ctx.who, o["kindname"], ctx.page), "tex"), ctx.oi,
+        # a filing that starts a page names that page's header, not the end of the filing before
+        body.append(("\\recordstart{%s}" if fresh else "\\recordpath{%s}") % ctx.path() + "\\pdfbookmark[%d]{%s}{o%d}{\\large\\bfseries %s}\\ {\\large %s}\\par\n" % (
+            base, esc("%s — %s · *%s" % (ctx.who, o["kindname"], ctx.page), "tex"), ctx.oi,
             esc(ctx.who, "tex"), esc(o["kindname"], "tex")))
         if o["byline_tex"]:
             body.append("{\\small\\itshape %s\\par}\n" % o["byline_tex"])
