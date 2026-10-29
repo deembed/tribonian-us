@@ -881,11 +881,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
     ui.horizontal(|ui| {
         let queued = app.is_queued(c.r#ref);
         let title = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
-        ui.checkbox(&mut app.fetch_state_law, "Fetch state law").on_hover_text(
-            "also download and build the state law the case cites that is not stored here (--fetch-state-law), so the PDF's \
-                 last part, The Law Cited, prints its text. Each state's source is asked once per title or chapter, then it is local; \
-                 codes with no usable source (Purdon's, LexisNexis-only states) print a source error instead.",
-        );
+        law_checkboxes(ui, app, "case");
         let quick = ui
             .add_enabled(!queued, egui::Button::new("Quick build"))
             .on_hover_text(format!(
@@ -1963,4 +1959,20 @@ fn cocited_page(app: &mut App, ui: &mut Ui, c: &CoCited) {
     if go.is_some() {
         app.goto = go;
     }
+}
+
+/// The two law checkboxes beside every Build button (case, docket, RECAP), the same everywhere: "Print the law
+/// cited" (off: --no-law) and "Fetch state law" (--fetch-state-law; greyed out when nothing is printed).
+/// `what`: "case", "filings" or "documents", for the hover text.
+pub fn law_checkboxes(ui: &mut egui::Ui, app: &mut App, what: &str) {
+    ui.checkbox(&mut app.print_law, "Print the law cited").on_hover_text(format!(
+        "end the PDF with The Law Cited: every statute, constitutional provision and regulation the {what} cite, with \
+         its text where it is stored here; each cite links to it. Off: --no-law (no appendix, nothing fetched; the \
+         note keeps its list)."
+    ));
+    ui.add_enabled(app.print_law, egui::Checkbox::new(&mut app.fetch_state_law, "Fetch state law")).on_hover_text(format!(
+        "also download and build the state law the {what} cite that is not stored here (--fetch-state-law), so The Law \
+         Cited prints its text. Each state's source is asked once per title or chapter, then it is local; codes with no \
+         usable source (Purdon's, LexisNexis-only states) print a source error instead."
+    ));
 }

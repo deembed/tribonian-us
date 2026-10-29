@@ -1947,14 +1947,15 @@ def build(args):
         for fn in o["footnotes"].values():
             mark_law(fn)
     law = list(dict.fromkeys(lawappendix.keys_in([o["flat"] for o in ops] + [o["footnotes"] for o in ops])))
-    missing = lawappendix.fetch_missing(law, federal=getattr(args, "fetch", False),
+    printed = law if getattr(args, "law", True) else []          # --no-law: no appendix, nothing fetched
+    missing = lawappendix.fetch_missing(printed, federal=getattr(args, "fetch", False),
                                         state=getattr(args, "fetch_state_law", False), warnings=warnings)
-    targets = {lawcites_section(k): lawappendix.anchor(k) for k in law}
+    targets = {lawcites_section(k): lawappendix.anchor(k) for k in printed}
     for o in ops:
         o["ctx"].lawtargets = targets
     meta["law"] = law
     meta["posttex"] = lawappendix.appendix_tex(
-        law, intro="Not part of the opinion. Every statute, constitutional provision and regulation the opinions cite, "
+        printed, intro="Not part of the opinion. Every statute, constitutional provision and regulation the opinions cite, "
         "with its text where it is stored locally: today's text, not the law as of %s; a cite of one in the opinion "
         "links here." % (meta.get("year") or "the decision"), editions=law_editions(ops))
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
@@ -3201,9 +3202,10 @@ def recap_build(args):
 
     # the law the documents cite: every provision once at the end of the PDF, each cite linking to it
     law = list(dict.fromkeys(k for o in ops for k in o["law"]))
-    missing = lawappendix.fetch_missing(law, federal=getattr(args, "fetch", False),
+    printed = law if getattr(args, "law", True) else []          # --no-law: no appendix, nothing fetched
+    missing = lawappendix.fetch_missing(printed, federal=getattr(args, "fetch", False),
                                         state=getattr(args, "fetch_state_law", False), warnings=warnings)
-    targets = {lawcites_section(k): lawappendix.anchor(k) for k in law}
+    targets = {lawcites_section(k): lawappendix.anchor(k) for k in printed}
     for o in ops:
         o["ctx"].lawtargets = targets
 
@@ -3249,7 +3251,7 @@ def recap_build(args):
                             "retrieved " + date.today().isoformat()],
                 "law": law,
                 "posttex": lawappendix.appendix_tex(
-                    law, intro="Not part of the filing. Every statute, constitutional provision and regulation the "
+                    printed, intro="Not part of the filing. Every statute, constitutional provision and regulation the "
                     "document%s cite%s, with its text where it is stored locally: today's text, not the law as of %s; "
                     "a cite of one in the text links here." % ("s" if len(ops) > 1 else "", "" if len(ops) > 1 else "s",
                                                                  (ops[0]["api"].get("entry_date_filed") or "")[:4] or "filing"),
@@ -3513,7 +3515,9 @@ def main():
     b.add_argument("--quick-goodlaw", dest="quick_goodlaw", type=int, nargs="?", const=100, metavar="N",
                    help="quick good-law check instead: only the newest N citing opinions (default 100, casemap.GOODLAW_QUICK); "
                    "status now, not the year it changed; a current full result is kept")
-    b.add_argument("--fetch", action="store_true", help="download cited federal law that is not local (C.F.R. titles)")
+    b.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
+                   "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
+    b.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
     b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                    help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     b.add_argument("--coupling", action="store_true",
@@ -3546,7 +3550,9 @@ def main():
     rb.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
     rb.add_argument("--style", default="boxes", choices=["boxes", "rails"])
     rb.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
-    rb.add_argument("--fetch", action="store_true", help="download cited federal law that is not local (C.F.R. titles)")
+    rb.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
+                    "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
+    rb.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
     rb.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                     help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     rb.set_defaults(func=recap_build)
