@@ -28,7 +28,8 @@
 # Downloaded C.F.R. titles and state law (tribonian cfr fetch); default <work>/law   (TRIBONIAN_LAW)
 # law_dir = "/path/to/large/disk/law"
 
-# Data mode: offline (local only, no API requests), full, lite, api            (CL_DATA_MODE)
+# Data mode: offline (local only, no API requests), full (the API only for what you ask for),
+# complete (full, plus whatever is newer than the bulk data from the API), lite, api   (CL_DATA_MODE)
 # tribonian --mode <mode> <command> overrides it for one command; the GUI has its own selector.
 # data_mode = "full"
 

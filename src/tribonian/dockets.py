@@ -239,9 +239,13 @@ def local_opinions(con, court, pages):
     return hits, len(rows) > n
 
 
-def api_opinions(court, pages):
-    """A court's opinions, newest first, from CourtListener's search. -> (count, hits, cached)."""
-    return api_pages({"type": "o", "court": court, "order_by": "dateFiled desc"}, pages, "court-opinions", lambda r: {
+def api_opinions(court, pages, after=None):
+    """A court's opinions, newest first, from CourtListener's search (after: filed after this date only).
+    -> (count, hits, cached)."""
+    params = {"type": "o", "court": court, "order_by": "dateFiled desc"}
+    if after:
+        params["filed_after"] = after
+    return api_pages(params, pages, "court-opinions", lambda r: {
         "cluster": r.get("cluster_id"), "name": r.get("caseName") or "", "date": r.get("dateFiled") or "",
         "cited": r.get("citeCount") or 0, "cite": ", ".join(r.get("citation") or [])})
 
@@ -249,9 +253,21 @@ def api_opinions(court, pages):
 def opinions(args):
     court, pages = args.court.lower(), max(1, args.pages)
     out = {"court": court, "source": "", "hits": [], "more": False, "count": None, "cached": False, "error": ""}
-    got = local_opinions(c.local_db(), court, pages)
+    con = c.local_db()
+    got = local_opinions(con, court, pages)
     if got is not None:
         out["source"], (out["hits"], out["more"]) = "local database", got
+        if tconfig.fill_gaps():                 # complete mode: what is newer than the bulk data, on top
+            import datetime
+            stamp = c.bulk_stamp(con)
+            after = str(date.fromisoformat(stamp) - datetime.timedelta(days=c.API_LAG_DAYS)) if stamp else ""
+            try:
+                out["newer_count"], newer, _ = api_opinions(court, 1, after)
+                have = {h["cluster"] for h in out["hits"]}
+                out["hits"] = [dict(h, newer=True) for h in newer if h["cluster"] not in have] + out["hits"]
+                out["newer_after"] = after
+            except SystemExit as e:
+                out["error"] = "newer than the bulk data: %s" % e
     elif tconfig.online():
         try:
             out["count"], out["hits"], out["cached"] = api_opinions(court, pages)
@@ -266,9 +282,11 @@ def opinions(args):
     if args.json:
         print(json.dumps(out, ensure_ascii=False))
         return
-    print("%s opinions, newest first, from %s:" % (court, out["source"] or "nowhere"))
+    print("%s opinions, newest first, from %s%s:" % (court, out["source"] or "nowhere",
+                                                   " and CourtListener (filed after %s)" % out["newer_after"] if out.get("newer_after") else ""))
     for h in out["hits"]:
-        print("  %s  %-60s %s%s" % (h["date"], h["name"][:60], h["cite"], "  [built]" if h["built"] else ""))
+        print("  %s  %-60s %s%s%s" % (h["date"], h["name"][:60], h["cite"], "  [built]" if h["built"] else "",
+                                      "  [newer]" if h.get("newer") else ""))
     if out["error"]:
         print(out["error"])
     elif out["more"]:

@@ -589,7 +589,7 @@ impl App {
     /// The CourtListener half of a search, when "Include CourtListener" is on; once per page.
     fn request_api(&mut self, page: &Page) {
         let Page::Search { query, .. } = page else { return };
-        if !self.online() || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
+        if !self.fill_gaps() || query.trim().is_empty() || self.api_cache.contains_key(page) || self.api_pending.contains(page) {
             return;
         }
         let Some(cfg) = &self.cfg else { return };
@@ -600,6 +600,11 @@ impl App {
                 c.request_repaint();
             }
         });
+    }
+
+    /// complete mode: lists of local results also show what is newer than the bulk data, from the API.
+    pub fn fill_gaps(&self) -> bool {
+        self.cfg.as_ref().is_some_and(|c| c.mode == "complete")
     }
 
     /// May searches use the CourtListener API: every data mode but offline.
@@ -650,7 +655,8 @@ impl App {
                 for m in config::DATA_MODES {
                     let what = match m {
                         "offline" => "local data only, no CourtListener requests",
-                        "full" => "full bulk data; the API only for what is newer",
+                        "full" => "full bulk data; the API only for what you ask for (fetch, Search Dockets, Build)",
+                        "complete" => "full, plus what is newer than the bulk data from the API on lists of local results (more requests)",
                         "lite" => "small bulk tables; opinion text from the API",
                         _ => "everything from the CourtListener API",
                     };

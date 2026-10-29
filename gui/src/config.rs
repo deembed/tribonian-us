@@ -49,7 +49,7 @@ struct ScriptPaths {
 }
 
 /// The data modes, in the order the top bar lists them (tconfig.DATA_MODES).
-pub const DATA_MODES: [&str; 4] = ["offline", "full", "lite", "api"];
+pub const DATA_MODES: [&str; 5] = ["offline", "full", "complete", "lite", "api"];
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -221,8 +221,8 @@ impl Config {
         let have = |p: PathBuf| p.is_file();
         match mode {
             "lite" if !have(self.main_db()) => Err("needs the main database (tribonian db load)".into()),
-            "full" if !have(self.main_db()) => Err("needs the main database (tribonian db load)".into()),
-            "full" if !have(self.opinions_db()) => Err("needs opinions.sqlite (tribonian db load opinions)".into()),
+            "full" | "complete" if !have(self.main_db()) => Err("needs the main database (tribonian db load)".into()),
+            "full" | "complete" if !have(self.opinions_db()) => Err("needs opinions.sqlite (tribonian db load opinions)".into()),
             _ => Ok(()),
         }
     }

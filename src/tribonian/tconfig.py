@@ -18,7 +18,7 @@ See config.example.toml. Paths may start with ~; a relative path is relative to 
     api_limits           CL_LIMITS              "5,50,125"  (per minute, hour, day)
     courtlistener_token  COURTLISTENER_TOKEN    secret-tool lookup service courtlistener
     law_dir              TRIBONIAN_LAW          <work>/law   (downloaded C.F.R. and state law: cfr.py)
-    data_mode            CL_DATA_MODE           "full"  (offline | full | lite | api; `tribonian --mode X` sets it per command)
+    data_mode            CL_DATA_MODE           "full"  (offline | full | complete | lite | api; `tribonian --mode X` per command)
 
 Standard library only. Python 3.11+ reads the file with tomllib; on 3.10 a small reader handles the
 subset this file needs ([tables], key = "string" | 'string' | number | true/false, # comments).
@@ -165,10 +165,11 @@ def source(key, default=None):
 
 # What the data comes from, and whether the CourtListener API may be used:
 #   offline  local data only, no API requests
-#   full     full bulk data; the API only for what is newer than the dump
+#   full     full bulk data; the API only for what you ask for (fetch a docket or case, Search Dockets)
+#   complete full, plus filling the gap: lists of local results also show what is newer than the dump, from the API
 #   lite     the small bulk tables locally; opinion text from the API
 #   api      everything from the API
-DATA_MODES = ("offline", "full", "lite", "api")
+DATA_MODES = ("offline", "full", "complete", "lite", "api")
 
 
 def data_mode():
@@ -177,6 +178,11 @@ def data_mode():
     if v not in DATA_MODES:
         sys.exit("data_mode %r: use one of %s (CL_DATA_MODE, the config file, or tribonian --mode)" % (v, ", ".join(DATA_MODES)))
     return v
+
+
+def fill_gaps():
+    """complete mode: lists of local results also ask the API for what is newer than the bulk data."""
+    return data_mode() == "complete"
 
 
 def online():

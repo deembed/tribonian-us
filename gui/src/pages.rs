@@ -1419,11 +1419,11 @@ fn search_side(app: &mut App, ui: &mut Ui) {
     });
     let changed = mode != app.search_mode;
     app.search_mode = mode;
-    ui.weak(if app.online() {
-        "Also searches CourtListener for cases filed after the local database's bulk data (less a month): 1 API request \
-         per search, reused for a day. Offline mode (top bar) turns that off."
+    ui.weak(if app.fill_gaps() {
+        "Complete mode (top bar): also searches CourtListener for cases filed after the local database's bulk data \
+         (less a month): 1 API request per search, reused for a day."
     } else {
-        "Offline mode (top bar): the local database only."
+        "The local database only. Complete mode (top bar) adds CourtListener's cases newer than the bulk data."
     });
     if (ui.button("Search").clicked() || enter || (changed && !app.search_input.trim().is_empty()))
         && !app.search_input.trim().is_empty()
@@ -1523,7 +1523,7 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
     if *mode == Mode::Name {
         crate::scotus_page::docket_hits(app, ui, query);
     }
-    if app.online() {
+    if app.fill_gaps() {
         api_hits(app, ui, page);
     }
     let Some(res) = app.search_cache.get(page).cloned() else {

@@ -735,12 +735,19 @@ fn opinions_section(app: &mut App, ui: &mut Ui, court: &str) {
         return;
     }
     ui.weak(match res.source.as_str() {
-        "local database" => "from the local database".to_string(),
+        "local database" if !res.newer_after.is_empty() => format!(
+            "from the local database, and CourtListener's filed after {} (complete mode; 1 request, reused for a day)",
+            res.newer_after
+        ),
+        "local database" => "from the local database (complete mode, top bar, adds what is newer than the bulk data)".to_string(),
         _ => format!(
             "from CourtListener (1 API request per page, reused for a day){}; tribonian db courtindex lists them from the local database",
             res.count.map(|n| format!(", {n} in all")).unwrap_or_default()
         ),
     });
+    if !res.error.is_empty() {
+        ui.colored_label(Color32::from_rgb(200, 140, 40), &res.error);
+    }
     if res.hits.is_empty() {
         ui.weak("none");
         return;
@@ -750,7 +757,11 @@ fn opinions_section(app: &mut App, ui: &mut Ui, court: &str) {
     egui::Grid::new(("court-ops", court)).striped(true).num_columns(5).show(ui, |ui| {
         for h in &res.hits {
             ui.label(&h.date);
-            ui.label(&h.name);
+            if h.newer {
+                ui.label(RichText::new(&h.name).strong()).on_hover_text("from CourtListener: newer than the bulk data");
+            } else {
+                ui.label(&h.name);
+            }
             ui.weak(&h.cite);
             ui.weak(if h.cited > 0 { format!("cited {}", h.cited) } else { String::new() });
             if h.built {

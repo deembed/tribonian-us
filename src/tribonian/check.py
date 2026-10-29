@@ -501,6 +501,7 @@ def mode_mismatch(mode, best, ms):
     """The mode set and the data installed disagree: a sentence saying how, else "". The mode is a label for
     full / lite / api (the scripts use whatever local data exists); only offline changes what they do."""
     order = ["api", "lite", "full"]
+    mode = "full" if mode == "complete" else mode          # complete: the full install, plus gap-filling requests
     if mode == "offline" or mode not in order:
         return ""
     if not ms.get(mode, {}).get("ok"):

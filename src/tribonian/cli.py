@@ -1,6 +1,6 @@
 """tribonian -- one command for the whole pipeline.
 
-    tribonian [--mode offline|full|lite|api] <command> [arguments...]
+    tribonian [--mode offline|full|complete|lite|api] <command> [arguments...]
     tribonian <command> --help
 
 --mode overrides the data mode (config data_mode, CL_DATA_MODE) for this one command and
@@ -55,7 +55,7 @@ def main(argv=None):
         elif len(argv) > 1:
             mode, argv = argv[1], argv[2:]
         else:
-            sys.exit("tribonian: --mode needs a value: offline, full, lite or api")
+            sys.exit("tribonian: --mode needs a value: offline, full, complete, lite or api")
         os.environ["CL_DATA_MODE"] = mode          # child processes inherit it
         from tribonian import tconfig
         tconfig.data_mode()                         # an unknown mode stops here, with the choices

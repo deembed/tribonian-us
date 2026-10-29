@@ -242,6 +242,9 @@ pub struct OpinionHit {
     /// a case note is built for it (cases/_index.json)
     #[serde(default)]
     pub built: bool,
+    /// complete mode: from CourtListener, newer than the bulk data
+    #[serde(default)]
+    pub newer: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -257,6 +260,9 @@ pub struct Opinions {
     pub count: Option<i64>,
     #[serde(default)]
     pub error: String,
+    /// complete mode: the date the newer ones were asked from ("" when not asked)
+    #[serde(default)]
+    pub newer_after: String,
 }
 
 /// What a `tribonian dockets` run sent back: a docket search or a court's opinions, by (query or court, pages).
