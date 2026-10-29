@@ -216,9 +216,11 @@ def fetch(args):
 
     print("%s v. %s, No. %s" % (data["feed"].get("PetitionerTitle", "?").replace(", Petitioners", ""),
                                 data["feed"].get("RespondentTitle", "?"), num))
-    print("  below: %s %s, decided %s; cert granted %s; argued %s" % (
-        data["feed"].get("LowerCourt", ""), data["feed"].get("LowerCourtCaseNumbers", ""),
-        data["feed"].get("LowerCourtDecision", ""), grant or "-", argued or "-"))
+    fd = data["feed"]
+    print("  below: %s %s%s; %s" % (fd.get("LowerCourt", ""), fd.get("LowerCourtCaseNumbers", ""),
+                                    ", decided %s" % fd["LowerCourtDecision"] if fd.get("LowerCourtDecision") else "",
+                                    "application (no petition for certiorari)" if "A" in num else
+                                    "cert granted %s; argued %s" % (grant or "-", argued or "-")))
     save()
     if qp_url:
         mark = pull(data["qp"], "question-presented.pdf")
