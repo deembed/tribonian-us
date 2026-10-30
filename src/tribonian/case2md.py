@@ -656,24 +656,35 @@ def mark_cases(node):
         return
     from tribonian import scotus
     out = []
-    for k in node.kids:
+    def flat(n):                                     # text without page markers or footnote marks
+        return n if isinstance(n, str) else "" if n.tag in ("page-number", "footnotemark") else "".join(flat(x) for x in n.kids)
+    for i, k in enumerate(node.kids):
         if not isinstance(k, str):
             out.append(k)
             continue
         at = 0
+        # the text on either side runs on past a page break ("(N.D. Cal. [*15] Mar. 23, 2009)")
+        prev = "".join(flat(x) for x in node.kids[:i])[-400:]
+        nxt = "".join(flat(x) for x in node.kids[i + 1:])[:160]
         for m in scotus.CITE_RE.finditer(k):
-            vol, rep, page, before = m.group(1), scotus.canon(m.group(2)), m.group(4), k[max(0, m.start() - 160):m.start()]
+            vol, rep, page = m.group(1), scotus.canon(m.group(2)), m.group(4)
+            before, after = (prev + k[:m.start()])[-400:], (k[m.end():] + nxt)[:160]
             why = ""
             if m.group(3):                           # "at": a pin cite; marked only when the name finds the case
-                cid = scotus.resolve_pin(con, vol, rep, page, before)
+                cid = scotus.resolve_pin(con, vol, rep, page, before) or scotus.found_again(vol, rep, page, pin=True)
                 if not cid:
                     continue
             else:
-                cid = scotus.resolve(con, vol, rep, page, before)
+                cid = scotus.resolve(con, vol, rep, page, before) or scotus.found_again(vol, rep, page)
                 if not cid:                          # no such citation in the data: try the name, court and date
-                    cid, why = scotus.resolve_name(con, vol, rep, page, before, k[m.end():m.end() + 160])
+                    cid, why = scotus.resolve_name(con, vol, rep, page, before, after)
+                    if not cid and not why:          # a RECAP docket by its number (Westlaw cites of district orders)
+                        d = scotus.resolve_docket(con, before, after)
+                        cid = ("docket", d[0]) if d else None
+                    if cid:
+                        scotus.FOUND[(vol, rep, page)] = cid
             e = El("case", {"ok": "1"} if cid else {"why": why} if why else
-                   {"why": "Westlaw only: CourtListener has no copy, by citation or by name", "tint": "orange"} if rep == "WL" else {})
+                   {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} if rep == "WL" else {})
             e.kids.append(m.group(0))
             out += [k[at:m.start()], e]
             at = m.end()

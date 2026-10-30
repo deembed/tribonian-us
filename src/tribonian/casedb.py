@@ -7,8 +7,8 @@
     tribonian db status
     tribonian db columns [opinion-clusters ...]   # per bulk file: columns kept, columns left out
     tribonian db index                 # full-text index of case names and parentheticals, for case2md.py find
-    tribonian db courtindex            # dockets by court and cases by date: a court's opinions, cites found by name
-                                      #   (load builds both too)
+    tribonian db courtindex            # dockets by court and number, cases by date: a court's opinions, cites found
+                                      #   by name or docket number (load builds them too)
     tribonian db opmap [--force]       # opinion id -> case table in the main database (load builds it after opinions)
     tribonian db case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
 
@@ -64,6 +64,8 @@ def keep_opinion(r):
 COURT_INDEX = "CREATE INDEX IF NOT EXISTS dockets_by_court ON dockets(court_id)"
 # Cases by date: a cite the citations table lacks (most since 2018) is found by name, court and date (scotus.resolve_name).
 DATE_INDEX = "CREATE INDEX IF NOT EXISTS clusters_by_date ON clusters(date_filed)"
+# Dockets by number: a Westlaw cite ("No. C 07-02299 JF (PR), 2009 WL 773499") is found by its court and docket number.
+NUMBER_INDEX = "CREATE INDEX IF NOT EXISTS dockets_by_number ON dockets(court_id, docket_number)"
 
 # name -> (table, CREATE body, row function(dict) -> tuple, statements to run after the load)
 TABLES = {
@@ -99,7 +101,7 @@ TABLES = {
                     r.get(k) or None for k in ("case_name", "case_name_short", "nature_of_suit", "cause", "date_filed",
                                                "date_terminated", "assigned_to_str", "referred_to_str",
                                                "jurisdiction_type", "pacer_case_id", "slug")),
-                ["CREATE UNIQUE INDEX dockets_by_id ON dockets(id)", COURT_INDEX]),
+                ["CREATE UNIQUE INDEX dockets_by_id ON dockets(id)", COURT_INDEX, NUMBER_INDEX]),
     "opinions": ("opinions", "id INTEGER, cluster_id INTEGER, type TEXT, author_str TEXT, field TEXT, text BLOB",
                  keep_opinion, ["CREATE UNIQUE INDEX opinions_by_id ON opinions(id)",
                                 "CREATE INDEX opinions_by_cluster ON opinions(cluster_id)"]),
@@ -453,7 +455,7 @@ def main():
     sub.add_parser("status")
     sub.add_parser("index", help="(re)build the full-text index case2md.py find uses")
     sub.add_parser("courtindex", help="index dockets by court (a court's opinions in View Dockets) and cases by date "
-                                      "(cites found by name); load builds both too")
+                                      "(cites found by name), dockets by number (Westlaw cites); load builds them too")
     p = sub.add_parser("opmap", help="(re)build opinion id -> case in the main database (load does it after opinions)")
     p.add_argument("--force", action="store_true", help="rebuild even if current")
     p = sub.add_parser("case")
@@ -481,7 +483,8 @@ def main():
             sys.exit("casedb.py load is running; index after it finishes.")
         con = sqlite3.connect(DB, timeout=600)
         for name, sql, what in (("dockets_by_court", COURT_INDEX, "dockets by court (one pass over the dockets table)"),
-                                ("clusters_by_date", DATE_INDEX, "cases by date (one pass over the clusters table)")):
+                                ("clusters_by_date", DATE_INDEX, "cases by date (one pass over the clusters table)"),
+                                ("dockets_by_number", NUMBER_INDEX, "dockets by court and number (one pass over the dockets table)")):
             if con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?", (name,)).fetchone():
                 print("%s is already there" % name)
                 continue

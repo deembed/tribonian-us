@@ -18,6 +18,8 @@ PAREN_CHARS = 260
 def _text(n, hrefs):
     if isinstance(n, str):
         return n
+    if n.tag in ("page-number", "footnotemark"):     # so a cite's parenthetical runs on past a page break
+        return ""
     m = re.match(r"/opinion/(\d+)/", n.attrs.get("href", "")) if n.tag == "a" else None
     if m:
         hrefs.append(int(m.group(1)))
@@ -34,8 +36,16 @@ def cited(con, ops):
     for o in ops:
         parts += [_text(b[1], hrefs) for b in o.get("flat", [])]
         parts += [_text(fn, hrefs) for fn in (o.get("footnotes") or {}).values() if not isinstance(fn, list)]
-    got, _ = scotus.authorities(con, "\n".join(parts))
+    text = "\n".join(parts)
+    got, _ = scotus.authorities(con, text)
     out = list(got)
+    t = " ".join(text.split())                         # cites CourtListener has only as RECAP dockets, by docket number
+    for m in scotus.CITE_RE.finditer(t):
+        if not m.group(3) and scotus.canon(m.group(2)) == "WL":
+            d = scotus.resolve_docket(con, t[max(0, m.start() - 400):m.start()], t[m.end():m.end() + 160])
+            if d:
+                out.append(("docket", d[0]))
+                scotus.FOUND[(m.group(1), "WL", m.group(4))] = ("docket", d[0])
     if hrefs:
         try:
             q = ",".join("?" * len(set(hrefs)))
@@ -104,7 +114,7 @@ def section_tex(con, cids, doc="document"):
     if con is None or not cids:
         return ""
     E = lambda t: c.esc(t, "tex")
-    names = scotus.case_names(con, cids)
+    names = scotus.case_names(con, [k for k in cids if not isinstance(k, tuple)])
     out = ["\\clearpage\\recordcover{none}\\recordstart{The Cases Cited}\\noindent\\tocback\\tocadd{tocstage}{The Cases Cited}"
            "\\pdfbookmark[0]{The Cases Cited}{casescited}{\\Large\\bfseries The Cases Cited\\par}\\vspace{4pt}",
            "{\\scriptsize\\itshape Not part of the %s. Each case cited, once, in order of first citation, with a sketch "
@@ -112,6 +122,9 @@ def section_tex(con, cids, doc="document"):
            "parentheticals later courts most often wrote about it (\u00d7n: how many wrote much the same). Other "
            "people's words, not the case's: read the opinion before relying on them.\\par}\\vspace{6pt}" % E(doc)]
     for cid in cids:
+        if isinstance(cid, tuple):                     # ("docket", id): a RECAP docket, no opinion in the data
+            out.append(docket_tex(con, cid[1], E))
+            continue
         n = names.get(cid) or {}
         head = "{\\small\\bfseries %s}" % E(n.get("name") or "cluster %s" % cid)
         tail = ", ".join(x for x in (n.get("cite"), " ".join(x for x in (n.get("court"), n.get("year")) if x)) if x)
@@ -122,3 +135,17 @@ def section_tex(con, cids, doc="document"):
         out.append("\\noindent%s{\\small%s}\\par\\nopagebreak{\\leftskip=1.2em\\noindent %s\\par}\\vspace{4pt}"
                    % (head, (", " + E(tail)) if tail else "", body))
     return "\n".join(out) + "\n"
+
+
+def docket_tex(con, did, E):
+    """One RECAP docket's entry: its name, number, court and year, and what the docket says the suit was about."""
+    r = con.execute("SELECT d.case_name, d.docket_number, ct.citation_string, d.date_filed, d.nature_of_suit, d.cause "
+                    "FROM dockets d LEFT JOIN courts ct ON ct.id = d.court_id WHERE d.id=?", (did,)).fetchone()
+    if not r:
+        return ""
+    name, number, court, filed, nos, cause = r
+    about = "; ".join(" ".join(x.split()) for x in (nos, cause) if x)
+    return ("\\noindent{\\small\\bfseries %s}{\\small, No. %s (%s)}\\par\\nopagebreak{\\leftskip=1.2em\\noindent "
+            "{\\footnotesize\\itshape RECAP docket %s, no opinion text in the data%s}\\par}\\vspace{4pt}"
+            % (E(name or "docket %s" % did), E(number or ""), E(" ".join(x for x in (court, (filed or "")[:4]) if x)),
+               did, (":} {\\footnotesize " + E(about)) if about else ""))

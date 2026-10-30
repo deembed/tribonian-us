@@ -366,7 +366,10 @@ def run_db():
         if not scotus.has_date_index(con["c"]):
             return c.warn("not built: cites missing from the citations table (most since 2018) stay red instead of "
                           "being found by case name, court and date", "tribonian db courtindex")
-        c.ok("built")
+        if not scotus.has_index(con["c"], "dockets_by_number"):
+            return c.warn("dockets by number not built: Westlaw cites are not matched to their RECAP dockets",
+                          "tribonian db courtindex")
+        c.ok("built (cases by date, dockets by number)")
     # report in load order
     order = ["db:file"] + ["db:" + x for x in casedb.ORDER if x != "opinions"] + ["db:opmap", "db:courtindex", "db:dateindex"]
     block = sorted([r for r in RESULTS if r.group == "Main database"], key=lambda r: order.index(r.key))

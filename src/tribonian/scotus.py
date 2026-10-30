@@ -813,6 +813,26 @@ def _ascii(s):
     return unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode()
 
 
+# Cites found by name or docket number this run: (volume, reporter, page) -> cluster id, or ("docket", id). A later
+# short form of the same cite ("Martinez, 2019 WL 5432052, at *9"; "Schwarz, 761 F. App'x at 735") reuses it.
+FOUND = {}
+
+
+def found_again(vol, rep, page, pin=False):
+    """A cite resolved earlier by name or docket number: the same one, or (pin) one in the same volume starting at most
+    300 pages before."""
+    if not pin:
+        return FOUND.get((vol, rep, page))
+    near = [(int(p), v) for (vv, r, p), v in FOUND.items() if vv == vol and r == rep and p.isdigit() and page.isdigit()
+            and 0 <= int(page) - int(p) < 300]
+    return max(near)[1] if near else None
+
+
+def unpage(text):
+    """Whitespace collapsed and star-page markers taken out: '(N.D. Cal. [*15] Mar. 23, 2009)' -> '(N.D. Cal. Mar. 23, 2009)'."""
+    return " ".join(re.sub(r"\[\*\d+a?\]", " ", text).split())
+
+
 def name_words(before):
     """The words of the case name that ends just before a cite: 'See Schwarz v. Meinberg, ' -> ['schwarz', 'meinberg'];
     a short form 'Iqbal, ' -> ['iqbal']. None when there is no name next to the cite."""
@@ -820,8 +840,9 @@ def name_words(before):
     last = None
     for m in re.finditer(r"([A-Z][\w.'&-]*(?:\s+(?:of|the|and|&|de|la|[A-Z][\w.'&-]*)){0,5})\s+v\.\s+([A-Z][^,;()]{1,80}?),", b):
         last = m
-    if last and len(b) - last.end() <= 80:            # room for a docket number or a parallel cite in between
-        text = last.group(1) + " " + last.group(2)
+    if last and len(b) - last.end() <= (360 if history(b) else 80):   # room for a docket number or a parallel cite
+        # a sentence ends inside the first party ("… in Carlson. Martinez v. …"): keep what follows it
+        text = re.split(r"\b[A-Za-z]{4,}\.\s+", last.group(1))[-1] + " " + last.group(2)
     else:
         m = re.search(r"([A-Z][\w'-]{2,}),\s*$", b)     # a short form: "Iqbal, 556 U.S. at 676"
         if not m:
@@ -831,25 +852,90 @@ def name_words(before):
     return words or None
 
 
-def has_date_index(con):
+def has_index(con, name):
     try:
-        return bool(con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='clusters_by_date'").fetchone())
+        return bool(con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?", (name,)).fetchone())
     except sqlite3.Error:
         return False
 
 
+def has_date_index(con):
+    return has_index(con, "clusters_by_date")
+
+
+# A docket number just before a cite: "No. C 07-02299 JF (PR)", "Case No.: 2:20-cv-00914-JAD-VCF",
+# "No. 1:09–cv– 00957–DLB (PC)", "No. 22-16017" -> (year, type or '', number)
+# Subsequent history ("…, report and recommendation adopted, 2023 WL 2188692 (C.D. Cal. …)"): the case name and
+# docket number are those of the cite before it, further back than usual.
+HISTORY_RE = re.compile(r"(?:recommendation adopted|adopted|aff[’']?d|rev[’']?d|vacated|modified)(?: in part)?,?\s*(?:by\s*)?$")
+
+
+def history(before):
+    return bool(HISTORY_RE.search(" ".join(before.split())))
+
+
+CITE_DOCKET_RE = re.compile(r"\bNo(?:s)?\.?:?\s*(?:[A-Z]{1,3}\s+){0,2}(?:\d:)?(\d{2})\s*[-–]\s*(?:([A-Za-z]{2,3})\s*[-–]\s*)?(\d{3,6})\b")
+DOCKET_TYPES = ("cv", "cr", "mj", "mc", "pc", "hc", "ap", "bk")
+_DOCKETS = {}
+
+
+def resolve_docket(con, before, after):
+    """A cite by docket number (Westlaw cites of district court orders, which CourtListener has as RECAP dockets but
+    not as opinions) -> (docket id, case name) or None. The court comes from the parenthetical after the cite."""
+    b = " ".join(before.split())[-(400 if history(before) else 140):]
+    ms = list(CITE_DOCKET_RE.finditer(b))
+    p = PAREN_RE.match(unpage(after))
+    if not ms or not p or not p.group(1).strip() or not has_index(con, "dockets_by_number"):
+        return None
+    m = ms[-1]
+    yy, kind, num = m.group(1), (m.group(2) or "").lower(), m.group(3)
+    courts = court_ids(con, p.group(1))
+    key = (tuple(sorted(courts)), yy, kind, num)
+    if key in _DOCKETS:
+        return _DOCKETS[key]
+    want = []
+    for k in ([kind] if kind else DOCKET_TYPES):
+        n5 = num.zfill(5)
+        want += ["%s%s-%s-%s" % (o, yy, k, n5) for o in [""] + ["%d:" % i for i in range(10)]]
+    want.append("%s-%s" % (yy, num))                         # courts of appeals: "22-16017"
+    rows = []
+    for ct in courts:
+        rows += con.execute("SELECT id, case_name FROM dockets WHERE court_id=? AND docket_number IN (%s)" % ",".join("?" * len(want)),
+                            [ct] + want).fetchall()
+    words = name_words(b[:m.start()] + ", ") or []
+    if len(rows) > 1 and words:                               # several (2:20-mj-00914 and 2:20-cv-00914): the name decides
+        named = [r for r in rows if any(w in _ascii(r[1]).lower() for w in words)]
+        rows = named or rows
+    names = {re.sub(r"[^a-z]", "", _ascii(r[1]).lower()) for r in rows}
+    _DOCKETS[key] = rows[0] if rows and len(names) == 1 else None
+    return _DOCKETS[key]
+
+
+def court_key(label):
+    """A court abbreviation reduced for matching: spaces and periods out, state names to their Bluebook form
+    (CourtListener writes 'M.D. Penn.' and 'D. Maryland' where a cite has 'M.D. Pa.' and 'D. Md.')."""
+    from tribonian import statecites
+    t = label or ""
+    for name, abbr in sorted(statecites.STATES.values(), key=lambda v: -len(v[0])):
+        t = re.sub(r"\b%s\b" % re.escape(name), abbr, t)
+    t = re.sub(r"\bPenn\b\.?", "Pa.", t)
+    return re.sub(r"[\s.]", "", t).lower()
+
+
 def court_ids(con, label):
-    """'9th Cir.' -> {'ca9'} through the courts table's citation strings."""
+    """'9th Cir.' -> {'ca9'}, 'M.D. Pa.' -> {'pamd'} through the courts table's citation strings."""
     if not _COURTS:
         for cid, cs in con.execute("SELECT id, citation_string FROM courts"):
-            _COURTS.setdefault(re.sub(r"[\s.]", "", cs or "").lower(), set()).add(cid)
-    return _COURTS.get(re.sub(r"[\s.]", "", label).lower(), set())
+            for k in {re.sub(r"[\s.]", "", cs or "").lower(), court_key(cs)}:
+                _COURTS.setdefault(k, set()).add(cid)
+    k = court_key(label)
+    return _COURTS.get(k) or _COURTS.get(re.sub(r"^(2|3)d(?=cir)", lambda m: m.group(1) + ("nd" if m.group(1) == "2" else "rd"), k), set())
 
 
 def resolve_name(con, vol, rep, page, before, after):
     """-> (cluster id or None, why). why names the right page when the case is found at another page of the reporter."""
     words = name_words(before)
-    m = PAREN_RE.match(" ".join(after.split()))
+    m = PAREN_RE.match(unpage(after))
     key = (vol, rep, page, tuple(words or ()), m.group(0) if m else "")
     if key in _NAMED:
         return _NAMED[key]
