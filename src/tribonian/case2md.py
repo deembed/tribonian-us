@@ -1787,6 +1787,15 @@ def coupling_md(meta):
     return L + [""]
 
 
+def coupling_items_tex(c):
+    """The coupled cases of one coupling result, as list items (coupling_tex, scotus.coupling_appendix_tex)."""
+    E = lambda t: esc(t or "", "tex")
+    return "".join("\\item[\\textbf{%d}] %s%s {\\footnotesize\\ score %.1f; shared: %s%s}\n" % (
+        x["shared"], E(x["name"]), " (%s)" % E(", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)) if x["cite"] or x["year"] else "",
+        x["score"], E("; ".join(r["name"] for r in x["refs"][:COUPLING_SHOW_REFS])), " \\dots" if len(x["refs"]) > COUPLING_SHOW_REFS else "")
+        for x in c["results"])
+
+
 def coupling_tex(meta):
     c = meta.get("coupling")
     if not c or not c.get("results"):

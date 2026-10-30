@@ -1451,6 +1451,74 @@ def cases_cited_tex(con, below_ops, fs, args):
     return casesummary.section_tex(con, list(dict.fromkeys(cids)), "filings")
 
 
+# ---------------------------------------------------------------- --coupling: decided cases that draw on the same law
+# The case builds' "Coupled with" (cocite.coupling: shared cited cases, rare ones weighted up), run on each side's
+# authorities (the parties' filings, amici left out) and on the decision below, printed as an appendix part.
+COUPLING_SIDES = (("petitioner", "Petitioners' authorities"), ("respondent", "Respondent's authorities"))
+
+
+def coupling_parts(con, fs, cid):
+    """-> [(title, coupling result)] for each side and the decision below; a part that fails is a note, not an error."""
+    from tribonian import cocite
+    out = []
+    for side, title in COUPLING_SIDES:
+        refs = set()
+        for f in fs:
+            if f["kind"] != "amicus" and f["side"] == side:
+                refs.update(k for k in (f.get("cites") or {}) if isinstance(k, int))
+        if not refs:
+            continue
+        try:
+            res = cocite.coupling(0, con, cocite.COUPLING_MAX_DF, cocite.COUPLING_TOP, refs=refs)
+        except (ImportError, sqlite3.Error, SystemExit, OSError) as e:
+            print("  (coupling skipped for %s: %s)" % (title, e), file=sys.stderr)
+            continue
+        res["stamp"], res["computed"] = c.bulk_stamp(con), datetime.now().strftime("%Y-%m-%d %H:%M")
+        out.append((title, res))
+    if cid:
+        res = c.coupling_data(int(cid), compute=True)
+        if res:
+            out.append(("The decision below", res))
+    return [(t, r) for t, r in out if r.get("results")]
+
+
+def coupling_appendix_tex(parts):
+    if not parts:
+        return ""
+    E = lambda t: c.esc(t or "", "tex")
+    out = ["\\clearpage\\recordcover{none}\\recordstart{Coupled cases}\\noindent\\tocback\\tocadd{tocstage}{Coupled cases}"
+           "\\pdfbookmark[0]{Coupled cases}{coupledcases}{\\Large\\bfseries Coupled cases\\par}\\vspace{4pt}",
+           "{\\scriptsize\\itshape Not part of the record. Decided cases that cite the most of the same cases as each side's "
+           "filings (the parties', amici left out) and as the decision below, rare shared citations counting more: each "
+           "shared cited case, cited by df decisions, adds log(N/df). The number is the count of shared cited cases; cited "
+           "cases cited by more than %s decisions are left out. Bulk data %s.\\par}\\vspace{6pt}"
+           % (format(parts[0][1]["max_df"], ","), E(parts[0][1].get("stamp") or "?"))]
+    for title, res in parts:
+        out.append("\\noindent{\\bfseries %s} {\\footnotesize(%d cited cases, %d used)}\\par\\vspace{2pt}\n"
+                   "{\\small\\begin{list}{}{\\leftmargin=2.2em\\labelwidth=1.8em\\labelsep=0.4em\\itemsep=1pt\\parsep=0pt\\topsep=2pt}\n"
+                   "%s\\end{list}}\\vspace{8pt}\n" % (E(title), res["refs"], res["used"], c.coupling_items_tex(res)))
+    return "\n".join(out) + "\n"
+
+
+def coupling_appendix_md(parts, names, index):
+    if not parts:
+        return []
+    L = ["## Coupled cases", "",
+         "*Decided cases that cite the most of the same cases as each side's filings (the parties', amici left out) and as "
+         "the decision below, rare shared citations counting more; the number is the count of shared cited cases.*", ""]
+    for title, res in parts:
+        L += ["### %s" % title, ""]
+        for x in res["results"]:
+            e = index.get(str(x["cluster"]))
+            label = c.esc(x["name"], "md")
+            L.append("- **%d** %s (%s) — score %.1f; shared: %s" % (
+                x["shared"], "[[%s\\|%s]]" % (e["slug"], label) if e else label,
+                ", ".join(t for t in (x["cite"], x["court"], x["year"]) if t),
+                x["score"], c.esc("; ".join(r["name"] for r in x["refs"][:5]), "md") + (" …" if len(x["refs"]) > 5 else "")))
+        L.append("")
+    return L
+
+
 def law_appendix_tex(lc, fs, appendix=False):
     """The last part of the PDF: every provision the filings cite, the law in question first (as the parties set it
     out, then its text), then the rest by side; each with its text where it is stored locally. Every cite of a
@@ -2355,6 +2423,7 @@ def build(args):
     for n, o in enumerate(ops):                  # unique ids for bookmarks and footnote keys across the documents
         o["oi"] = o["ctx"].oi = n
         o["ctx"].lawtargets = targets
+    cpl = coupling_parts(con, fs, cid) if getattr(args, "coupling", False) else []   # --coupling (appendix)
     qp = qp_paragraphs(data)
     feed = data["feed"]
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
@@ -2364,7 +2433,7 @@ def build(args):
                                    (status_tex(cols, names, gl, set(cp["amici_only"])) if gl else ""),
             "stages": dict(STAGES), "doc_newpage": True,
             "posttex": (cases_cited_tex(con, below_ops, fs, args) if getattr(args, "cases", False) else "") +
-                       (law_appendix_tex(lc, fs, args.appendix) if args.law else ""),
+                       (law_appendix_tex(lc, fs, args.appendix) if args.law else "") + coupling_appendix_tex(cpl),
             "srcline": ["No. %s (U.S.)" % num, "Supreme Court docket and filings (supremecourt.gov)",
                         "decision below: CourtListener cluster %s" % cid if cid else "", "retrieved " + data.get("retrieved", "")]}
     (c.ROOT / "build").mkdir(exist_ok=True)
@@ -2442,6 +2511,7 @@ def build(args):
     L += law_md(lc, statutes)
     L += usc_md(uc[0], uc[1], uc[2], statutes)
     L += law_appendix_md(lc, fs, statutes)
+    L += coupling_appendix_md(cpl, names, index)
     if gl:
         L += status_md(cols, names, index, gl, set(cp["amici_only"]))
     L += ["## Proceedings and orders", ""]
@@ -2887,6 +2957,8 @@ def main():
     b.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                    "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     b.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
+    b.add_argument("--coupling", action="store_true", help="appendix: the decided cases that cite the most of the same "
+                   "cases as each side's filings and as the decision below (needs tribonian cocite prep)")
     b.add_argument("--cases", action="store_true", help="end the PDF with The Cases Cited: each cited case once, with its "
                    "reporter summary or syllabus, else how later courts describe it")
     b.set_defaults(func=build_cmd)

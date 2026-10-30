@@ -7,7 +7,7 @@ current code may lay things out a little differently.
 | File | Made by | What it shows |
 |---|---|---|
 | `1-usc-ch1.pdf` | `tribonian build usc` | US Code formatting: 1 U.S.C. ch. 1, Rules of Construction (2 pages) |
-| `463-us-29-state-farm.pdf` | `tribonian case fetch --cite "463 U.S. 29"` then `tribonian build cases` | A case: headmatter, case profile with the good-law check and cited-by chart, co-citation boxes, then the opinions (16 pages) |
+| `463-us-29-state-farm.pdf` | `tribonian case fetch --cite "463 U.S. 29"`, `tribonian map citedby --cite "463 U.S. 29" --full`, then `tribonian case build cases/463-u-s-29_*.json --cases --coupling --fetch --fetch-state-law` | A case: headmatter and the legend of marks, case profile with the good-law check and cited-by chart, co-citation boxes, then the opinions with cites tinted and the sentences later opinions cite it for hatched; at the end Quote lineage, Cited by, The Cases Cited, The Law Cited and Cites not resolved (37 pages) |
 | `463-us-29-state-farm.md` | same build | The Obsidian note for the same case. Its `[[wikilinks]]` resolve inside a vault, not on GitHub |
 | `8-usc-1101.pdf` | `tribonian usc xml/usc08.xml --section /us/usc/t8/s1101 --credits` | A long definitions section (visa classes down to (a)(15)(H)(i)(b)), then how appellate courts cite it: Cited with by five-year slice, Cited by, Recent appellate cites |
 | `42-usc-1395ww.pdf` | `tribonian usc xml/usc42.xml --section /us/usc/t42/s1395ww --credits` | Depth: Medicare inpatient payment, nested to items like (d)(5)(F)(vii)(I) |
