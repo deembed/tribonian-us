@@ -572,6 +572,7 @@ def inline(node, mode, ctx, marks):
     mark_usc(node)
     if mode != "md":
         mark_cases(node)
+        mark_quotes(node, ctx)
     out = []
     for k in node.kids:
         if isinstance(k, str):
@@ -599,6 +600,8 @@ def inline(node, mode, ctx, marks):
             out.append(wrap(inline(k, mode, ctx, marks), *(("**", "**") if mode == "md" else ("\\textbf{", "}"))))
         elif k.tag == "a" and mode != "md" and re.match(r"/opinion/\d+/", k.attrs.get("href", "")):
             out.append(citemarks.mark("ok", inline(k, mode, ctx, marks)))    # CourtListener linked it: the case is there
+        elif k.tag == "quoted":                              # wording later opinions reuse (mark_quotes)
+            out.append(quote_tex(inline(k, mode, ctx, marks), k.attrs, ctx))
         elif k.tag == "case" and mode != "md":            # a reporter cite found in the text (mark_cases)
             inner = inline(k, mode, ctx, marks)
             out.append(citemarks.mark("ok", inner) if k.attrs.get("ok") else
@@ -638,6 +641,114 @@ def inline(node, mode, ctx, marks):
         else:
             out.append(inline(k, mode, ctx, marks))
     return "".join(out)
+
+
+# ---------------------------------------------------------------- quote marks: where later opinions reuse the wording
+# The sentences 2+ later parentheticals restate (quotelineage.py) are hatched in the case's PDF like a highlighter,
+# rounded where the sentence starts and ends, darker with more, with "×N" at the end linking to the sentence's entry in
+# Quote lineage. Cites inside the sentence keep their own tint (ulem marks do not nest), so a sentence can be marked in
+# pieces. QUOTE_MARKS=0 turns it off; QUOTED_MIN sets the threshold.
+QUOTE_MARKS = os.environ.get("QUOTE_MARKS", "1") != "0"
+QUOTED_MIN = int(os.environ.get("QUOTED_MIN", "2"))
+NOQUOTE = ("a", "case", "law", "usc", "quoted")          # never split: cites keep their tint
+
+
+def _compact(t):
+    return re.sub(r"[^a-z0-9]", "", t.lower())
+
+
+def mark_quotes(node, ctx):
+    """Wrap the reused sentences in node's text in <quoted n first last> elements (block by block: once per node,
+    and its descendants are left alone after)."""
+    quotes = getattr(ctx, "quotes", None)
+    if not quotes or getattr(node, "quotes_done", False) or node.tag in NOQUOTE + ("page-number", "footnotemark"):
+        return
+    leaves = []                                          # [parent, index, text, markable]
+
+    def walk(n, ok):
+        n.quotes_done = True
+        for i, k in enumerate(n.kids):
+            if isinstance(k, str):
+                leaves.append([n, i, k, ok])
+            elif k.tag not in ("page-number", "footnotemark"):
+                walk(k, ok and k.tag not in NOQUOTE and not (k.tag == "span" and "citation" in k.attrs.get("class", "")))
+    walk(node, True)
+    full = "".join(l[2] for l in leaves)
+    comp, at = [], []                                    # compact text and each compact char's place in full
+    for i, ch in enumerate(full.lower()):
+        if ch.isalnum() and ch.isascii():
+            comp.append(ch)
+            at.append(i)
+    comp = "".join(comp)
+    spans = []
+    for n, sent, qk in quotes:
+        head, tail = sent[:40], sent[-40:]
+        a = comp.find(head)
+        if a < 0:
+            continue
+        z = comp.find(tail, a + len(head) - 40)
+        if z < 0 or z + len(tail) - a > len(sent) * 1.3 + 40:
+            continue
+        lo, hi = at[a], at[z + len(tail) - 1] + 1
+        if not any(lo < h and l < hi for l, h, _, _ in spans):
+            spans.append((lo, hi, n, qk))
+    if not spans:
+        return
+    spans.sort()
+    pieces, pos = {}, 0                                  # (parent id, index) -> new kids; span -> its elements
+    made = {}
+    for parent, i, text, ok in leaves:
+        lo_leaf, hi_leaf = pos, pos + len(text)
+        pos = hi_leaf
+        if not ok:
+            continue
+        cuts = [(max(l, lo_leaf), min(h, hi_leaf), j) for j, (l, h, _, _) in enumerate(spans) if l < hi_leaf and lo_leaf < h]
+        if not cuts:
+            continue
+        new, cur = [], lo_leaf
+        for l, h, j in cuts:
+            if l > cur:
+                new.append(text[cur - lo_leaf:l - lo_leaf])
+            e = El("quoted", {"n": str(spans[j][2]), "k": str(spans[j][3])})
+            e.kids.append(text[l - lo_leaf:h - lo_leaf])
+            e.quotes_done = True
+            new.append(e)
+            made.setdefault(j, []).append(e)
+            cur = h
+        if cur < hi_leaf:
+            new.append(text[cur - lo_leaf:])
+        pieces[(id(parent), i)] = (parent, new)
+    for j, els in made.items():                          # caps where the marked text starts and ends
+        els = [e for e in els if e.kids[0].strip()]
+        if els:
+            els[0].attrs["first"] = "1"
+            els[-1].attrs["last"] = "1"
+    for (_, i), (parent, new) in sorted(pieces.items(), key=lambda kv: -kv[0][1]):
+        parent.kids[i:i + 1] = [k for k in new if k != ""]
+
+
+def quote_tex(inner, attrs, ctx=None):
+    """A marked piece: hatched, darker with more reuse; a rounded cap where the sentence starts (with the link target
+    Quote lineage points back to) and ends (with ×N, linking to the sentence's entry there)."""
+    from tribonian import citemarks
+    if not inner.strip() or any(u in inner for u in citemarks.UNSAFE):
+        return inner
+    n = int(attrs.get("n") or 0)
+    lvl = "A" if n < 10 else "B" if n < 50 else "C"
+    lead, body, trail = re.match(r"(\s*)(.*?)(\s*)$", inner, re.S).groups()
+    out = "\\quote%s{%s}" % (lvl, body)
+    k = attrs.get("k") or "0"
+    if attrs.get("first"):
+        seen = getattr(ctx, "quote_seen", None)
+        if seen is None and ctx is not None:
+            seen = ctx.quote_seen = set()
+        target = "" if seen is None or k in seen else "\\hypertarget{qs-%s}{}\\label{qs-%s}" % (k, k)
+        if seen is not None:
+            seen.add(k)
+        out = target + "\\usebox\\ql%s\\kern-.3pt " % lvl + out
+    if attrs.get("last"):
+        out += "\\kern-.3pt\\quotecount{\\qr%s}{%d}{%s}" % (lvl, n, k)
+    return lead + out + trail
 
 
 def mark_cases(node):
@@ -2106,6 +2217,16 @@ def build(args):
     if getattr(args, "cases", False):              # --cases: The Cases Cited before The Law Cited
         from tribonian import casesummary
         meta["posttex"] = casesummary.section_tex(shared_db(), casesummary.cited(shared_db(), ops), "opinion") + meta["posttex"]
+    qd = None                                           # quote marks and Quote lineage (quotelineage.py)
+    if QUOTE_MARKS and meta.get("cluster"):
+        from tribonian import quotelineage
+        qd = quotelineage.data(shared_db(), data, index, QUOTED_MIN, meta["cluster"])
+    if qd:
+        for o in ops:
+            o["ctx"].quotes = [(e["n"], e["compact"], e["k"]) for e in qd["entries"]]
+        meta["srcline"] = list(meta.get("srcline") or []) + [
+            "hatched: what later opinions cite it for (\u00d7N parentheticals; see Quote lineage)"]
+        meta["posttex"] = quotelineage.section_tex(qd, bulk_stamp(shared_db())) + meta["posttex"]
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
     quick = getattr(args, "quick_goodlaw", None)
     meta["profile"] = profile_data(meta["cluster"], scan=not (getattr(args, "no_goodlaw", False) or quick), quick=quick)

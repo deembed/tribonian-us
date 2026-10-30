@@ -114,6 +114,27 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \newcommand\citensrc{\bgroup\markoverwith{\textcolor{orange!35}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}   % skins -> "enhanced"; breakable -> page splits
+% Quote marks (case2md.mark_quotes): the opinion's sentences whose wording later opinions reuse (map citedby),
+% hatched behind the text like a highlighter, rounded at the start and end, darker with more reuse (\quoteA 2-9,
+% \quoteB 10-49, \quoteC 50+). The hatch and caps are drawn once, at \begin{document}, and reused as boxes: a new
+% tikz picture per quote would shift the picture numbers the margin arrows rely on.
+\newsavebox\qhA \newsavebox\qhB \newsavebox\qhC
+\newsavebox\qlA \newsavebox\qlB \newsavebox\qlC \newsavebox\qrA \newsavebox\qrB \newsavebox\qrC
+\newcommand\qhatch[3]{\begin{tikzpicture}[baseline=0pt]\useasboundingbox (0,-.55ex) rectangle (2pt,1.9ex);
+  \clip (0,-.55ex) rectangle (2pt,1.9ex); \fill[#1] (0,-.55ex) rectangle (2pt,1.9ex);
+  \foreach \k in {0,...,7}{\draw[#2, line width=#3] ({-\k*2pt},-.55ex) -- ++(2.6ex,2.6ex);}\end{tikzpicture}}
+\newcommand\qcapl[1]{\begin{tikzpicture}[baseline=0pt]\fill[#1] (2.5pt,-.55ex) arc[start angle=270, end angle=90,
+  x radius=2.5pt, y radius=1.225ex] -- cycle;\end{tikzpicture}}
+\newcommand\qcapr[1]{\begin{tikzpicture}[baseline=0pt]\fill[#1] (0,-.55ex) arc[start angle=-90, end angle=90,
+  x radius=2.5pt, y radius=1.225ex] -- cycle;\end{tikzpicture}}
+\AtBeginDocument{%
+  \sbox\qhA{\qhatch{blue!6}{blue!30}{.3pt}}\sbox\qlA{\qcapl{blue!6}}\sbox\qrA{\qcapr{blue!6}}%
+  \sbox\qhB{\qhatch{blue!10}{blue!50}{.35pt}}\sbox\qlB{\qcapl{blue!10}}\sbox\qrB{\qcapr{blue!10}}%
+  \sbox\qhC{\qhatch{blue!15}{blue!70}{.4pt}}\sbox\qlC{\qcapl{blue!15}}\sbox\qrC{\qcapr{blue!15}}}
+\newcommand\quoteA{\bgroup\markoverwith{\usebox\qhA}\ULon}
+\newcommand\quoteB{\bgroup\markoverwith{\usebox\qhB}\ULon}
+\newcommand\quoteC{\bgroup\markoverwith{\usebox\qhC}\ULon}
+\newcommand\quotecount[3]{\usebox{#1}\,\hyperlink{ql-#3}{\fontsize{5.5}{6}\selectfont\textcolor{blue!70!black}{$\times$#2}}}
 \usepackage{longtable}          % tables that run across pages (scotus.py: authorities by side)
 % PDF outline (the reMarkable shows it as the table of contents). hidelinks: no
 % coloured/boxed links. hyperfootnotes=false: marks and \footnotetext are paired
