@@ -116,7 +116,7 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \tcbuselibrary{skins,breakable}   % skins -> "enhanced"; breakable -> page splits
 % Quote marks (case2md.mark_quotes): the opinion's sentences whose wording later opinions reuse (map citedby),
 % hatched behind the text like a highlighter, rounded at the start and end, darker with more reuse (\quoteA 2-9,
-% \quoteB 10-49, \quoteC 50+). The hatch and caps are drawn once, at \begin{document}, and reused as boxes: a new
+% \quoteB 10-49, \quoteC 50+). The hatch and caps are drawn once, at the start of the document, and reused as boxes: a new
 % tikz picture per quote would shift the picture numbers the margin arrows rely on.
 \newsavebox\qhA \newsavebox\qhB \newsavebox\qhC
 \newsavebox\qlA \newsavebox\qlB \newsavebox\qlC \newsavebox\qrA \newsavebox\qrB \newsavebox\qrC

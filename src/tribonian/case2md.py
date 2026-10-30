@@ -1971,6 +1971,42 @@ def toc_head(part, el):
     return part.label
 
 
+# ---------------------------------------------------------------- legend of marks (first page, after the headmatter)
+# Every mark the PDF uses, once, each drawn by its own macro: cite tints (citemarks.py), old US Code cites (usc_out),
+# quote hatching (mark_quotes). Only the marks found in this PDF's body are listed; none, no legend.
+LEGEND_SPOT = "%%MARK-LEGEND%%\n"
+LEGEND_ROWS = [   # (macro that shows it is used, sample, explanation)
+    ("\\citeok{", "\\citeok{463 U.S. 29}", "cite checked: the case is in CourtListener (found by citation, case name or "
+     "docket number), or the law's text is stored here"),
+    ("\\citebad{", "\\citebad{761 F. App'x 732}", "not found, or not fetched yet: a likely miscite, or law whose text "
+     "is not here; listed with the reason in Cites not resolved"),
+    ("\\citensrc{", "\\citensrc{2009 WL 773499}", "no source: it exists, but nothing here can read it (a "
+     "LexisNexis-only code, a Westlaw-only decision); listed in Cites not resolved"),
+    ("\\uscmark{", "\\uscmark{42 U.S.C. \\S\\ 1983}", "a US Code section changed since the decision, with a tag: "
+     "amd amended, rd redesignated"),
+    ("\\usclight{", "\\usclight{5 U.S.C. \\S\\ 552}", "its section was amended, but elsewhere than the part cited"),
+    ("\\uscstrike{", "\\uscstrike{15 U.S.C. \\S\\ 1394}", "the number moved or is gone (mv moved, rep repealed, om "
+     "omitted, nf not found), followed by the current number"),
+    ("\\quoteA{", "\\usebox\\qlA\\kern-.3pt\\quoteA{2--9}\\kern-.3pt\\usebox\\qrA\\,"
+     "\\usebox\\qlB\\kern-.3pt\\quoteB{10--49}\\kern-.3pt\\usebox\\qrB\\,"
+     "\\usebox\\qlC\\kern-.3pt\\quoteC{50+}\\kern-.3pt\\usebox\\qrC",
+     "what later opinions cite the case for: the sentence their parentheticals restate, darker with more of "
+     "them; the \\(\\times\\)N at its end goes to its entry in Quote lineage"),
+]
+
+
+def legend_tex(body):
+    """The 'Marks in this PDF' box for the marks body uses; '' when it uses none."""
+    rows = [(sample, text) for used, sample, text in LEGEND_ROWS
+            if used in body or (used == "\\quoteA{" and ("\\quoteB{" in body or "\\quoteC{" in body))]
+    if not rows:
+        return ""
+    lines = "".join("\\item[{%s}] %s\n" % r for r in rows)
+    return ("\\par\\vspace{8pt}\\noindent{\\bfseries Marks in this PDF}\\par\\vspace{2pt}\n"
+            "{\\footnotesize\\begin{list}{}{\\leftmargin=11.5em\\labelwidth=11em\\labelsep=.5em\\itemsep=3pt"
+            "\\parsep=0pt\\topsep=0pt\\renewcommand\\makelabel[1]{#1\\hfil}}\n%s\\end{list}}\\par\n" % lines)
+
+
 def render_tex(meta, ops, fontpkg, style):
     from tribonian.render import PREAMBLE, RULES
     toc = meta.get("toc", True)              # contents page: cases, dockets, scotus.py (US Code has its own render_tex)
@@ -1987,8 +2023,12 @@ def render_tex(meta, ops, fontpkg, style):
     head = headmatter_tex(meta)
     if toc and head:
         head = toc_entry("tocsec", "Headmatter") + head.replace("\\pdfbookmark[1]", "\\pdfbookmark[0]", 1)   # the yellow box: listed, no arrow
-    contents = "" if not toc or meta.get("pretex") else "\\contentspage\n" if head else "\\contentsbody\n"
-    body = [TOC_DEFS if toc else "", meta.get("pretex", ""), head, contents, sec(profile_tex(meta), "Case profile"),
+    # the legend of marks sits after the headmatter on the first page; the contents always start a fresh page
+    contents = "" if not toc or meta.get("pretex") else "\\contentspage\n"
+    pretex = meta.get("pretex", "")
+    if toc and "\\contentspage" in pretex:
+        pretex = pretex.replace("\\contentspage", LEGEND_SPOT + "\\contentspage", 1)
+    body = [TOC_DEFS if toc else "", pretex, head, LEGEND_SPOT if toc and not meta.get("pretex") else "", contents, sec(profile_tex(meta), "Case profile"),
             sec(cocite_tex(meta), "Co-citation"), sec(draws_tex(meta), "What it draws on"),
             sec(coupling_tex(meta), "Coupled with"), sec(parens_tex(meta), "How later courts describe it")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
@@ -2102,7 +2142,9 @@ def render_tex(meta, ops, fontpkg, style):
            .replace("__DOCHEAD__", esc(meta["name"], "tex"))
            .replace("__SRCLINE__", src))
     foot = "\\renewcommand{\\docfoot}{%s}\n" % esc(meta["foot"], "tex") if meta.get("foot") else ""
-    return pre + foot + "".join(body) + meta.get("posttex", "") + citemarks.section_tex(lambda t: esc(t, "tex")) + "\n\\end{document}\n"
+    tex = pre + foot + "".join(body) + meta.get("posttex", "") + citemarks.section_tex(lambda t: esc(t, "tex")) + "\n\\end{document}\n"
+    body_tex = tex[tex.find("\n\\begin{document}"):]       # the document itself: the preamble defines every macro
+    return tex.replace(LEGEND_SPOT, legend_tex(body_tex), 1).replace(LEGEND_SPOT, "")
 
 
 # ---------------------------------------------------------------- driver
@@ -2224,8 +2266,6 @@ def build(args):
     if qd:
         for o in ops:
             o["ctx"].quotes = [(e["n"], e["compact"], e["k"]) for e in qd["entries"]]
-        meta["srcline"] = list(meta.get("srcline") or []) + [
-            "hatched: what later opinions cite it for (\u00d7N parentheticals; see Quote lineage)"]
         meta["posttex"] = quotelineage.section_tex(qd, bulk_stamp(shared_db())) + meta["posttex"]
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
     quick = getattr(args, "quick_goodlaw", None)
