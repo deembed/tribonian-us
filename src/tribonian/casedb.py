@@ -7,7 +7,8 @@
     tribonian db status
     tribonian db columns [opinion-clusters ...]   # per bulk file: columns kept, columns left out
     tribonian db index                 # full-text index of case names and parentheticals, for case2md.py find
-    tribonian db courtindex            # dockets by court, for listing a court's opinions (load builds it too)
+    tribonian db courtindex            # dockets by court and cases by date: a court's opinions, cites found by name
+                                      #   (load builds both too)
     tribonian db opmap [--force]       # opinion id -> case table in the main database (load builds it after opinions)
     tribonian db case cases/463-u-s-29_*.json    # smoke test: who cites this case, how deeply, and for what
 
@@ -61,6 +62,8 @@ def keep_opinion(r):
 
 # A court's dockets (View Dockets lists a court's opinions newest first: dockets by court, then their clusters).
 COURT_INDEX = "CREATE INDEX IF NOT EXISTS dockets_by_court ON dockets(court_id)"
+# Cases by date: a cite the citations table lacks (most since 2018) is found by name, court and date (scotus.resolve_name).
+DATE_INDEX = "CREATE INDEX IF NOT EXISTS clusters_by_date ON clusters(date_filed)"
 
 # name -> (table, CREATE body, row function(dict) -> tuple, statements to run after the load)
 TABLES = {
@@ -85,7 +88,8 @@ TABLES = {
                                     integer(r["citation_count"]), integer(r["docket_id"]), r["slug"], r["judges"],
                                     r["precedential_status"], r["scdb_id"], r["other_dates"], r["summary"] or None, r["syllabus"] or None,
                                     zlib.compress(r["headmatter"].encode("utf-8"), 6) if r["headmatter"] else None),   # zlib, like opinion text
-                         ["CREATE UNIQUE INDEX clusters_by_id ON clusters(id)", "CREATE INDEX clusters_by_docket ON clusters(docket_id)"]),
+                         ["CREATE UNIQUE INDEX clusters_by_id ON clusters(id)", "CREATE INDEX clusters_by_docket ON clusters(docket_id)",
+                          DATE_INDEX]),
     # nature_of_suit / cause sort case notes into folders (case2md.py FOLDERS); the rest lets
     # recap fetch skip its docket request
     "dockets": ("dockets", "id INTEGER, court_id TEXT, docket_number TEXT, case_name TEXT, case_name_short TEXT, "
@@ -448,7 +452,8 @@ def main():
                                               "file; the production tables are not touched")
     sub.add_parser("status")
     sub.add_parser("index", help="(re)build the full-text index case2md.py find uses")
-    sub.add_parser("courtindex", help="index dockets by court (a court's opinions in View Dockets); load builds it too")
+    sub.add_parser("courtindex", help="index dockets by court (a court's opinions in View Dockets) and cases by date "
+                                      "(cites found by name); load builds both too")
     p = sub.add_parser("opmap", help="(re)build opinion id -> case in the main database (load does it after opinions)")
     p.add_argument("--force", action="store_true", help="rebuild even if current")
     p = sub.add_parser("case")
@@ -475,12 +480,14 @@ def main():
         if Path(str(DB) + ".loading").exists():
             sys.exit("casedb.py load is running; index after it finishes.")
         con = sqlite3.connect(DB, timeout=600)
-        if has_court_index(con):
-            print("dockets_by_court is already there")
-        else:
+        for name, sql, what in (("dockets_by_court", COURT_INDEX, "dockets by court (one pass over the dockets table)"),
+                                ("clusters_by_date", DATE_INDEX, "cases by date (one pass over the clusters table)")):
+            if con.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name=?", (name,)).fetchone():
+                print("%s is already there" % name)
+                continue
             t = time.time()
-            print("indexing dockets by court (one pass over the dockets table) ...")
-            con.execute(COURT_INDEX)
+            print("indexing %s ..." % what)
+            con.execute(sql)
             con.commit()
             print("done in %.0f s" % (time.time() - t))
     elif args.cmd == "index":

@@ -602,7 +602,8 @@ def inline(node, mode, ctx, marks):
         elif k.tag == "case" and mode != "md":            # a reporter cite found in the text (mark_cases)
             inner = inline(k, mode, ctx, marks)
             out.append(citemarks.mark("ok", inner) if k.attrs.get("ok") else
-                       citemarks.mark("red", inner, k.text(), "no case found for this citation in the local database"))
+                       citemarks.mark(k.attrs.get("tint") or "red", inner, k.text(),
+                                      k.attrs.get("why") or "no case found for this citation in the local database"))
         elif (k.tag == "span" and mode != "md" and "no-link" in cls and "citation" in cls
               and not any(k.find(t) is not None for t in ("law", "usc", "a"))):
             out.append(citemarks.mark("red", inline(k, mode, ctx, marks), k.text(), "CourtListener found no case for this citation"))
@@ -661,10 +662,18 @@ def mark_cases(node):
             continue
         at = 0
         for m in scotus.CITE_RE.finditer(k):
-            if m.group(3):                           # "at": a pin cite of a case named before
-                continue
-            cid = scotus.resolve(con, m.group(1), scotus.canon(m.group(2)), m.group(4), k[max(0, m.start() - 160):m.start()])
-            e = El("case", {"ok": "1"} if cid else {})
+            vol, rep, page, before = m.group(1), scotus.canon(m.group(2)), m.group(4), k[max(0, m.start() - 160):m.start()]
+            why = ""
+            if m.group(3):                           # "at": a pin cite; marked only when the name finds the case
+                cid = scotus.resolve_pin(con, vol, rep, page, before)
+                if not cid:
+                    continue
+            else:
+                cid = scotus.resolve(con, vol, rep, page, before)
+                if not cid:                          # no such citation in the data: try the name, court and date
+                    cid, why = scotus.resolve_name(con, vol, rep, page, before, k[m.end():m.end() + 160])
+            e = El("case", {"ok": "1"} if cid else {"why": why} if why else
+                   {"why": "Westlaw only: CourtListener has no copy, by citation or by name", "tint": "orange"} if rep == "WL" else {})
             e.kids.append(m.group(0))
             out += [k[at:m.start()], e]
             at = m.end()
@@ -2083,6 +2092,9 @@ def build(args):
         printed, intro="Not part of the opinion. Every statute, constitutional provision and regulation the opinions cite, "
         "with its text where it is stored locally: today's text, not the law as of %s; a cite of one in the opinion "
         "links here." % (meta.get("year") or "the decision"), editions=law_editions(ops))
+    if getattr(args, "cases", False):              # --cases: The Cases Cited before The Law Cited
+        from tribonian import casesummary
+        meta["posttex"] = casesummary.section_tex(shared_db(), casesummary.cited(shared_db(), ops), "opinion") + meta["posttex"]
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
     quick = getattr(args, "quick_goodlaw", None)
     meta["profile"] = profile_data(meta["cluster"], scan=not (getattr(args, "no_goodlaw", False) or quick), quick=quick)
@@ -3501,6 +3513,10 @@ def recap_build(args):
                     "a cite of one in the text links here." % ("s" if len(ops) > 1 else "", "" if len(ops) > 1 else "s",
                                                                  (ops[0]["api"].get("entry_date_filed") or "")[:4] or "filing"),
                     editions=law_editions(ops))}
+    if getattr(args, "cases", False):              # --cases: The Cases Cited before The Law Cited
+        from tribonian import casesummary
+        tex_meta["posttex"] = casesummary.section_tex(shared_db(), casesummary.cited(shared_db(), ops),
+                                                      "filing" + ("s" if len(ops) > 1 else "")) + tex_meta["posttex"]
     pdf_name = dslug + (("-ecf-" + "-".join(slugify(x) for x in sorted(want, key=lambda x: (len(x), x)))) if want else "")
     rel_pdf = (pdf_dir(ndir) / (pdf_name + ".pdf")).relative_to(ROOT)
 
@@ -3765,6 +3781,8 @@ def main():
     b.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                    "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     b.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
+    b.add_argument("--cases", action="store_true", help="end the PDF with The Cases Cited: each cited case once, with its "
+                   "reporter summary or syllabus, else how later courts describe it")
     b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                    help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     b.add_argument("--coupling", action="store_true",
@@ -3802,6 +3820,8 @@ def main():
     rb.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                     "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     rb.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
+    rb.add_argument("--cases", action="store_true", help="end the PDF with The Cases Cited: each cited case once, with its "
+                   "reporter summary or syllabus, else how later courts describe it")
     rb.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                     help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     rb.set_defaults(func=recap_build)

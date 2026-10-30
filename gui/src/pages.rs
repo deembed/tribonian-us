@@ -1997,8 +1997,9 @@ fn cocited_page(app: &mut App, ui: &mut Ui, c: &CoCited) {
     }
 }
 
-/// The two law checkboxes beside every Build button (case, docket, RECAP), the same everywhere: "Print the law
-/// cited" (off: --no-law) and "Fetch state law" (--fetch-state-law; greyed out when nothing is printed).
+/// The checkboxes beside every Build button (case, docket, RECAP), the same everywhere: "Print the law cited"
+/// (off: --no-law), "Fetch state law" (--fetch-state-law; greyed out when nothing is printed) and "Summarize the
+/// cases cited" (--cases).
 /// `what`: "case", "filings" or "documents", for the hover text.
 pub fn law_checkboxes(ui: &mut egui::Ui, app: &mut App, what: &str) {
     ui.checkbox(&mut app.print_law, "Print the law cited").on_hover_text(format!(
@@ -2010,5 +2011,9 @@ pub fn law_checkboxes(ui: &mut egui::Ui, app: &mut App, what: &str) {
         "also download and build the state law the {what} cite that is not stored here (--fetch-state-law), so The Law \
          Cited prints its text. Each state's source is asked once per title or chapter, then it is local; codes with no \
          usable source (Purdon's, LexisNexis-only states) print a source error instead."
+    ));
+    ui.checkbox(&mut app.cases_cited, "Summarize the cases cited").on_hover_text(format!(
+        "end the PDF with The Cases Cited: each case the {what} cite, once, with CourtListener's reporter summary or \
+         syllabus where it has one, otherwise the parentheticals later courts most often wrote about it (--cases)."
     ));
 }

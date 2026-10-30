@@ -172,7 +172,8 @@ cd ..
 tribonian db load      # every file in bulk/, smallest first; a finished table is skipped, so rerun after an interruption
 tribonian db status    # each table: file, rows, when loaded
 tribonian db index     # full-text index for case2md.py find (load rebuilds it when clusters or parentheticals change)
-tribonian db courtindex   # dockets by court: View Dockets lists a court's opinions locally (load builds it with dockets)
+tribonian db courtindex   # dockets by court (View Dockets lists a court's opinions locally) and cases by date (cites
+                          #   missing from CourtListener's citations, most since 2018, found by name); load builds both
 ```
 
 Disk: the opinion text alone is about 110 GB in `db/opinions.sqlite`; the main database (`bulk/courtlistener.sqlite`)
@@ -423,7 +424,8 @@ tribonian case recap build cases/recap/<court>/<docket>.json             # --doc
 tribonian case usage                              # API requests used; --days N for history
 ```
 
-- **Cite tints:** every cite in the PDF has a faint tint: green when it resolved (the case is in CourtListener or the local database; the law's text is local), red when it did not (no such case or provision found, or not fetched yet), orange when the law has no source here. The PDF ends with *Cites not resolved*, the red and orange ones with their reasons and pages. `CITE_MARKS=0` turns the tints off.
+- **Cite tints:** every cite in the PDF has a faint tint: green when it resolved (the case is in CourtListener or the local database; the law's text is local), red when it did not (no such case or provision found, or not fetched yet), orange when it has no source here (law with no usable source, or a Westlaw-only decision CourtListener does not have). CourtListener has no reporter citation for most decisions since 2018, so a case cite it cannot find by citation is looked up by the case name before it and the court and date in its parenthetical (needs `tribonian db courtindex`); a case found that way at another page of the same reporter stays red and names the right page. Short forms ("Iqbal, 556 U.S. at 676") are tinted when the name finds the case in that volume. The PDF ends with *Cites not resolved*, the red and orange ones with their reasons and pages. `CITE_MARKS=0` turns the tints off.
+- **The Cases Cited** (`--cases`; the GUI's "Summarize the cases cited" checkbox, off by default; case, recap and scotus builds): before The Law Cited, each cited case once, in order of first citation, with a short sketch of what it was about: CourtListener's reporter summary or syllabus where it has one, otherwise the three largest groups of parentheticals later courts wrote about it ("holding that …"). Other people's words, not the case's.
 - **The Law Cited:** the PDF ends with every statute, constitutional provision and regulation the opinions cite (federal and state), once each, with its text where it is stored locally; every cite in the opinion links to its entry, and the note lists them under "The law cited". The text is today's, not the law as of the decision; a cite's edition parenthetical ("(West 2019)") is shown beside it. State law that is not local is fetched with `--fetch-state-law` (the GUI's "Fetch state law" checkbox, on by default); a code with no usable source prints "source error" and why. For a code whose site has a page per section (or per chapter), this fetch is sparse: only the cited sections' pages, so the local title is partial until `tribonian state fetch` gets the whole of it. Different states are fetched side by side, each one a request at a time. See [State law cites](#state-law-cites).
 - **Where notes go:** a note that already exists anywhere in `md-cases/` is rewritten in place, so moving a note (inside `md-cases/`, not in the vault) is how you file it. New notes follow the `FOLDERS` table in the script (for example, Freedom of Information Act and Privacy Act cases go to `FOIA/`).
 - **Old US Code cites:** every Code cite in the opinion text is checked against the current Code (`xml/`, plus `usc_map.json` from `tribonian cocite usc-map` when it exists), judged at the year the cite is as of: its edition parenthetical ("(1976 ed., Supp. V)" ≈ 1981), else the decision year. A changed one is highlighted yellow and tagged: **mv** renumbered (struck, current number given), **rep** repealed (struck; successor given when the stub names one), **om** omitted (struck), **pre** current section enacted after the cite, so the number meant something else (struck), **nf** not in the current Code (struck), **amd** same number, amended since (highlighted, not struck; year of the latest amendment). Section level only, and approximate: a tag means look closer. `USC_MARKS=0` turns it off. Check one cite: `tribonian usc-status "42 U.S.C. § 1973(b)" --year 1986`.
@@ -485,7 +487,7 @@ tribonian db load citation-map     # one table: courts citations citation-map pa
 tribonian db status
 tribonian db columns               # per bulk file: columns loaded, columns left out
 tribonian db index                 # full-text index for case2md.py find
-tribonian db courtindex            # dockets by court, for a court's opinions in View Dockets
+tribonian db courtindex            # dockets by court (View Dockets) and cases by date (cites found by name)
 tribonian db case cases/<case>.json   # smoke test
 ```
 

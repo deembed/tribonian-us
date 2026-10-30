@@ -49,7 +49,7 @@ pub struct Queued {
 }
 
 pub enum QueuedJob {
-    /// law: the law flags when it was queued (`App::law_args`: --no-law or --fetch-state-law)
+    /// law: the law flags when it was queued (`App::law_args`: --no-law or --fetch-state-law, --cases)
     Build { quick: bool, law: Vec<String> },
     /// arguments after the interpreter, e.g. casemap.py coupling --cluster N
     Script(Vec<String>),
@@ -106,6 +106,8 @@ pub struct App {
     pub fetch_state_law: bool,
     /// "Print the law cited" (on by default): builds end with The Law Cited; off passes --no-law.
     pub print_law: bool,
+    /// "Summarize the cases cited" (off by default): builds end with The Cases Cited (--cases).
+    pub cases_cited: bool,
     pub api_cache: HashMap<Page, Result<apisearch::ApiResults, String>>,
     api_pending: std::collections::HashSet<Page>,
     atx: Sender<apisearch::Resp>,
@@ -199,6 +201,7 @@ impl App {
             show_history: false,
             fetch_state_law: true,
             print_law: true,
+            cases_cited: false,
             api_cache: HashMap::new(),
             api_pending: Default::default(),
             atx,
@@ -285,16 +288,20 @@ impl App {
         self.dockets.iter().find(|d| d.number == num)
     }
 
-    /// The law flags every build passes, from the two checkboxes: --no-law when The Law Cited is off (then
-    /// nothing is fetched), else --fetch-state-law when "Fetch state law" is on.
+    /// The closing-section flags every build passes, from the checkboxes: --no-law when The Law Cited is off (then
+    /// nothing is fetched), else --fetch-state-law when "Fetch state law" is on; --cases for The Cases Cited.
     pub fn law_args(&self) -> Vec<String> {
-        if !self.print_law {
+        let mut v: Vec<String> = if !self.print_law {
             vec!["--no-law".into()]
         } else if self.fetch_state_law {
             vec!["--fetch-state-law".into()]
         } else {
             vec![]
+        };
+        if self.cases_cited {
+            v.push("--cases".into());
         }
+        v
     }
 
     /// Queue scotus.py commands for a docket ("fetch", "build" or both, in that order) as one job.
