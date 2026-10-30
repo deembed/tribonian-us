@@ -2448,6 +2448,8 @@ def build(args):
     for e in data["entries"]:
         docs = " ".join("[%s](%s)" % (c.esc(l["desc"], "md"), l["url"]) for l in e["links"] if l.get("url") and not SKIP_LINK.search(l["desc"]))
         L.append("- %s — %s%s" % (e["date"], c.esc(e["text"], "md"), " · " + docs if docs else ""))
+    from tribonian import citemarks                 # the PDF is rendered above: its cites not resolved are registered
+    L += [""] + citemarks.section_md(lambda t: c.esc(t, "md"))
     (ndir / (slug + ".md")).write_text("\n".join(L) + "\n", encoding="utf-8")
     print("wrote %s (+ %d filing notes)" % ((ndir / (slug + ".md")).relative_to(c.ROOT), len(fs)))
     print("wrote %s" % tex_path.relative_to(c.ROOT))

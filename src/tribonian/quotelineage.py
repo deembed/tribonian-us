@@ -141,3 +141,29 @@ def section_tex(qd, bulk=""):
             items.append("\\textit{Wording from:} %s \\(\\rightarrow\\) this case" % chain)
         out.append("{\\leftskip=1.2em\\footnotesize\\noindent " + "\\par\\noindent ".join(items) + "\\par}\\vspace{5pt}")
     return "\n".join(out) + "\n"
+
+
+def section_md(qd):
+    """The note's '## Quote lineage': the same entries as the PDF's, without the links."""
+    from tribonian import casemap
+    if not qd or not qd["entries"]:
+        return []
+    E = lambda t: c.esc(t, "md")
+    L = ["## Quote lineage", "",
+         "*What later opinions cite this case for, sentence by sentence: their parentheticals (\"holding that …\") matched "
+         "to the sentence they restate (5+ consecutive shared words); ×N = how many. Other courts' words: quote the opinion.%s*"
+         % ("" if qd.get("lineage_run") else " Wording not traced yet: tribonian map citedby."), ""]
+    for e in qd["entries"]:
+        L += ["### ×%d · %s" % (e["n"], E(e["where"])), "", "> " + E(e["text"]), ""]
+        if e["years"]:
+            L.append("- **When:** %d–%d (%s)" % (e["years"][0], e["years"][1], ", ".join("%s %d" % d for d in e["decades"])))
+        lv = ", ".join("%s %d" % (casemap.LEVEL_NAMES[l], e["levels"][l]) for l in casemap.LEVELS if e["levels"][l])
+        if lv:
+            L.append("- **Where:** %s%s" % (lv, ("; most: " + ", ".join("%s %d" % x for x in e["courts"])) if e["courts"] else ""))
+        for t, m, ex in e["how"]:
+            L.append("- **How:** (%s)%s%s" % (E(t), " ×%d" % m if m > 1 else "", " — *%s*" % E(ex) if ex else ""))
+        if e["lineage"]:
+            L.append("- **Wording from:** " + " → ".join("%s, %s %s (%d words)" % (
+                E(x.get("case") or ""), x.get("court") or "", (x.get("date") or "")[:4], x.get("words") or 0) for x in e["lineage"]) + " → this case")
+        L.append("")
+    return L

@@ -149,3 +149,14 @@ def docket_tex(con, did, E):
             "{\\footnotesize\\itshape RECAP docket %s, no opinion text in the data%s}\\par}\\vspace{4pt}"
             % (E(name or "docket %s" % did), E(number or ""), E(" ".join(x for x in (court, (filed or "")[:4]) if x)),
                did, (":} {\\footnotesize " + E(about)) if about else ""))
+
+
+def sketch_md(con, cid, esc):
+    """The note's version of a case's sketch: indented lines under its bullet in '## Cites' (plain text, so the
+    entry's [[link]] stays the only link: Obsidian's graph and backlinks are unchanged)."""
+    if con is None:
+        return []
+    kind, lines = sketch(con, cid)
+    if not kind:
+        return []
+    return ["    - *%s:*" % LABEL[kind]] + ["        - %s" % esc(l) for l in lines]

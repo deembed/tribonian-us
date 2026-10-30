@@ -1545,6 +1545,26 @@ def editorial(cluster):
     return L
 
 
+def editorial_tex(meta):
+    """The reporter's summary and syllabus (editorial(), the note's callouts) as a front box in the PDF."""
+    import html as _html
+    cl = meta.get("editorial") or {}
+    parts = []
+    for field, title in (("summary", "Reporter's summary"), ("syllabus", "Syllabus")):
+        raw = cl.get(field) or ""
+        paras = [clean(_html.unescape(re.sub(r"<[^>]+>", " ", p))) for p in re.split(r"</p>|<br\s*/?>|\n\s*\n", raw)]
+        paras = [esc(p, "tex") for p in paras if p]
+        if paras:
+            parts.append("\\textbf{%s.} {\\footnotesize\\itshape (editorial, not part of the opinion)}\\par\\vspace{2pt}%s"
+                         % (title, "\\par\\vspace{2pt}".join(paras)))
+    if not parts:
+        return ""
+    return ("\\pdfbookmark[1]{Reporter's summary and syllabus}{editorial}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=gray!6, colframe=gray!40!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n"
+            % "\\par\\vspace{6pt}".join(parts))
+
+
 def cocite_md(meta):
     """'## Co-citation' from cocite.py's appellate view; nothing when it isn't built (or numpy is missing)."""
     if not meta or not meta.get("cluster"):
@@ -1822,12 +1842,16 @@ def render_md(meta, ops, tail="", cluster=None, head=None):
     return "\n".join(L) + "\n" + tail + ("\n" if tail else "") + "\n".join(notes) + "\n"
 
 
-def tail_sections(data, index):
+def tail_sections(data, index, sketches=False):
     """'## Cites' (from the links in this case's text) and '## Cited by' (written
-    by casemap.py citedby, if it has been run for this case)."""
+    by casemap.py citedby, if it has been run for this case). sketches (--cases): each cited case's sketch under it,
+    as in the PDF's The Cases Cited."""
     L = []
     cited = cited_clusters(data)
     if cited:
+        con = shared_db()
+        from tribonian import casesummary, scotus
+        named = scotus.case_names(con, [k for k in cited if str(k) not in index]) if con is not None else {}
         L += ["## Cites", ""]
         def key(kv):
             e = index.get(str(kv[0]), {})
@@ -1837,8 +1861,15 @@ def tail_sections(data, index):
             times = " ×%d" % n if n > 1 else ""
             if e:
                 L.append("- [[%s|%s, %s (%s)]]%s" % (e["slug"], esc(e["short"] or e["name"], "md"), e["cite"], e["year"], times))
+            elif named.get(cid) and not named[cid]["name"].startswith("cluster "):
+                v = named[cid]
+                L.append("- [%s](%s)%s%s" % (esc(v["name"], "md"), opinion_url(cid),
+                                            ", " + ", ".join(x for x in (v["cite"], " ".join(x for x in (v["court"], v["year"]) if x)) if x)
+                                            if v["cite"] or v["year"] else "", times))
             else:
                 L.append("- [cluster %d](%s)%s" % (cid, opinion_url(cid), times))
+            if sketches:
+                L += casesummary.sketch_md(con, cid, lambda t: esc(t, "md"))
         L.append("")
     elif not data.get("opinions"):
         L += ["## Cites", "", "*Unknown until the text is fetched.*", ""]
@@ -2030,7 +2061,8 @@ def render_tex(meta, ops, fontpkg, style):
         pretex = pretex.replace("\\contentspage", LEGEND_SPOT + "\\contentspage", 1)
     body = [TOC_DEFS if toc else "", pretex, head, LEGEND_SPOT if toc and not meta.get("pretex") else "", contents, sec(profile_tex(meta), "Case profile"),
             sec(cocite_tex(meta), "Co-citation"), sec(draws_tex(meta), "What it draws on"),
-            sec(coupling_tex(meta), "Coupled with"), sec(parens_tex(meta), "How later courts describe it")]
+            sec(coupling_tex(meta), "Coupled with"), sec(parens_tex(meta), "How later courts describe it"),
+            sec(editorial_tex(meta), "Reporter's summary and syllabus")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
     base = 1 if meta.get("stages") else 0    # outline level of a document: under its stage, else at the top
     for n, o in enumerate(ops):
@@ -2263,6 +2295,11 @@ def build(args):
     if QUOTE_MARKS and meta.get("cluster"):
         from tribonian import quotelineage
         qd = quotelineage.data(shared_db(), data, index, QUOTED_MIN, meta["cluster"])
+    meta["editorial"] = data.get("cluster") or {}       # the reporter's summary and syllabus, as in the note
+    frag = CASES / "citedby" / str(meta.get("cluster")) / "section.md"   # map citedby's Cited by, as in the note
+    if frag.exists():
+        from tribonian import mdtex
+        meta["posttex"] = mdtex.part_tex(frag.read_text(encoding="utf-8"), "Cited by", "citedby") + meta["posttex"]
     if qd:
         for o in ops:
             o["ctx"].quotes = [(e["n"], e["compact"], e["k"]) for e in qd["entries"]]
@@ -2277,10 +2314,14 @@ def build(args):
     (here / "build").mkdir(exist_ok=True)
     ndir = note_dir(meta["slug"], data.get("docket"))
     md_path = ndir / (meta["slug"] + ".md")
-    tail = tail_sections(data, index)
+    tail = tail_sections(data, index, sketches=getattr(args, "cases", False))
     law_md = "\n".join(lawappendix.md_lines(law, statute_notes()))
+    if qd:
+        from tribonian import quotelineage
+        tail = "\n".join(quotelineage.section_md(qd)) + "\n" + tail
+    tex = render_tex(meta, ops, args.font, args.style)     # first: it registers the cites not resolved
+    tail += "\n".join(citemarks.section_md(lambda t: esc(t, "md")))
     md_path.write_text(render_md(meta, ops, (law_md + "\n" + tail) if law_md else tail, data["cluster"]), encoding="utf-8")
-    tex = render_tex(meta, ops, args.font, args.style)
     tex_path = here / "build" / (meta["slug"] + ".tex")
     tex_path.write_text(tex, encoding="utf-8")
     print("wrote %s\nwrote build/%s" % (md_path.relative_to(here), tex_path.name))
@@ -3564,9 +3605,9 @@ def opinions_named(ids, con):
     if con is None:
         return None
     try:
-        rows = con.execute("SELECT DISTINCT o.cluster_id, c.case_name, c.date_filed, d.court_id FROM ops.opinions o "
+        rows = con.execute("SELECT DISTINCT o.cluster_id, c.case_name, c.date_filed, d.court_id FROM opmap o "
                            "JOIN clusters c ON c.id = o.cluster_id LEFT JOIN dockets d ON d.id = c.docket_id "
-                           "WHERE o.id IN (%s)" % ",".join("?" * len(ids)), list(ids)).fetchall()
+                           "WHERE o.id IN (%s)" % ",".join("?" * len(ids)), list(ids)).fetchall()   # opmap: main database
     except sqlite3.Error:
         return None
     out = []
@@ -3662,6 +3703,9 @@ def recap_build(args):
                 label = "%s, %s (%s %s)" % (esc(nm, "md"), ct, cc, yr) if ct else "%s (%s %s)" % (esc(nm, "md"), cc, yr)
                 tail.append("- [[%s|%s]]" % (links[cid], label) if cid in links else "- [%s](%s)%s (%s %s)" % (
                     esc(nm, "md"), opinion_url(cid, nm), ", " + ct if ct else "", cc, yr))
+                if getattr(args, "cases", False):         # --cases: the sketch, as in the PDF's The Cases Cited
+                    from tribonian import casesummary
+                    tail += casesummary.sketch_md(con, cid, lambda t: esc(t, "md"))
             tail.append("")
         elif named is None:
             tail += ["## Cites", "", "*%d opinions (CourtListener opinion ids %s); names need the local database (casedb.py).*"
@@ -3714,13 +3758,15 @@ def recap_build(args):
             L.append("- ECF No. %s (%s)%s — %s [↗](%s%s)" % (doc_key(r), r.get("entry_date_filed") or "?",
                                                            "" if r.get("is_available") else " *not purchased*",
                                                            esc(clean(r.get("description") or "")[:160], "md"), CL, r.get("absolute_url") or ""))
+    tex = render_tex(tex_meta, ops, args.font, args.style)  # first: it registers the cites not resolved
+    L += [""] + citemarks.section_md(lambda t: esc(t, "md"))
     (ndir / (dslug + ".md")).write_text("\n".join(L) + "\n", encoding="utf-8")
     for p in [ndir / (dslug + ".md")] + written:
         print("wrote %s" % p.relative_to(ROOT))
 
     (ROOT / "build").mkdir(exist_ok=True)
     tex_path = ROOT / "build" / (pdf_name + ".tex")
-    tex_path.write_text(render_tex(tex_meta, ops, args.font, args.style), encoding="utf-8")
+    tex_path.write_text(tex, encoding="utf-8")
     print("wrote %s" % tex_path.relative_to(ROOT))
     if not args.no_pdf:
         pdf = run_pdflatex(tex_path, pdf_dir(ndir))

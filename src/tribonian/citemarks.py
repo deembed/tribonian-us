@@ -88,3 +88,23 @@ def section_tex(esc):
                           pages))
         out.append("\\end{list}\\vspace{6pt}")
     return "\n".join(out) + "\n"
+
+
+def section_md(esc):
+    """The note's '## Cites not resolved': the PDF's red and orange cites, once each with their reason and count.
+    Call after the PDF's render (the marks are registered as it renders). [] when none."""
+    if not CITE_MARKS or not _REG:
+        return []
+    L = ["## Cites not resolved", "",
+         "*Every cite the PDF tints red or orange, once each, with its reason (×n: how many times).*", ""]
+    for status, head in (("red", "Likely miscites, or not fetched yet"), ("orange", "No source")):
+        seen = {}
+        for st, text, reason, _ in _REG:
+            if st == status:
+                seen[(text, reason)] = seen.get((text, reason), 0) + 1
+        if seen:
+            L += ["### %s (%d)" % (head, len(seen)), ""]
+            L += ["- %s%s%s" % (esc(t), " — *%s*" % esc(r) if r else "", " ×%d" % n if n > 1 else "")
+                  for (t, r), n in sorted(seen.items(), key=lambda kv: kv[0][0].lower())]
+            L.append("")
+    return L
