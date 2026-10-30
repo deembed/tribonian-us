@@ -2251,11 +2251,29 @@ def build(args):
     for w in warnings:
         print("  note:", w)
     if missing:
-        print("  cited law not stored locally (%s):" % ("could not fetch" if getattr(args, "fetch", False) else
-                                                     "--fetch (federal) and --fetch-state-law get what they can"))
-        for k, hint in missing:
-            print("    %-34s %s" % (lawcites.label(k), hint or "no reader yet"))
+        print_missing(missing, args, "tribonian scotus build %s" % args.number)
     return data, fs, cp, cid
+
+
+def print_missing(missing, args, rebuild):
+    """The cited law with no local text: the cites no fetch can get, each with its reason, then every fetch
+    command once (flush left, to copy as a block), with the rebuild that fetches them all."""
+    fetch, other = {}, []
+    for k, hint in missing:
+        if hint and hint.startswith("tribonian "):
+            fetch.setdefault(hint, []).append(lawcites.label(k))
+        else:
+            other.append((k, hint))
+    tried = getattr(args, "fetch", False) or getattr(args, "fetch_state_law", False)
+    print("  cited law not stored locally: %d cites%s" % (len(missing), " (fetched what could be)" if tried else ""))
+    for k, hint in other:
+        print("    %-34s %s" % (lawcites.label(k), hint or "no reader yet"))
+    if fetch:
+        print("  %d fetch commands get the other %d (or rebuild with --fetch --fetch-state-law):"
+              % (len(fetch), sum(len(v) for v in fetch.values())))
+        print("%s --fetch --fetch-state-law" % rebuild)
+        for cmd in sorted(fetch):
+            print(cmd)
 
 
 

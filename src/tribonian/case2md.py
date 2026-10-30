@@ -28,6 +28,7 @@ from html.parser import HTMLParser
 import urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
+from tribonian import citemarks               # cite tints in the PDF and the closing "Cites not resolved" part
 from tribonian import tconfig                  # settings: CL_* variable, else ~/.config/tribonian-us/config.toml, else default
 
 API = "https://www.courtlistener.com/api/rest/v4"
@@ -203,6 +204,38 @@ def opinion_url(cid, name=None):
                 pass
         _SLUGS[cid] = slug or (slugify(name, 75) if name else None) or "case"
     return "%s/opinion/%d/%s/" % (CL, cid, _SLUGS[cid])
+
+
+# A first party that is a government or a place: the short form is then the other party (Bluebook rule 10.9).
+_GOV_PARTY = re.compile(
+    r"(?i)^(the )?(united states|u\. ?s\.|usa|america|state|states|people|commonwealth|territory|government|republic|"
+    r"district of columbia|puerto rico|guam|(city|county|town|village|borough|parish|township) of\b|"
+    r"in re\b|ex parte\b|matter of\b|in the matter\b|"
+    r"alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|florida|georgia|hawaii|idaho|"
+    r"illinois|indiana|iowa|kansas|kentucky|louisiana|maine|maryland|massachusetts|michigan|minnesota|"
+    r"mississippi|missouri|montana|nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|"
+    r"north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|south dakota|tennessee|texas|"
+    r"utah|vermont|virginia|washington|west virginia|wisconsin|wyoming)\b")
+
+
+_GOV_BODY = re.compile(r"\b(Service|Department|Dep't|Commission|Board|Bureau|Agency|Administration|Authority|"
+                       r"Secretary|Commissioner|Attorney General|Director|Office|Federal|National Labor|INS|NLRB|SEC|FCC|EPA)\b")
+
+
+def case_short(short, full, limit=60):
+    """The name to show for a case. CourtListener's case_name_short sometimes names the second party when the
+    first is a private one ('Duran-Morales v. Blanche' -> 'Blanche', the Attorney General, a party to
+    thousands of cases); the short form is the first party unless that one is a government or a place."""
+    name = short or full or ""
+    if short and full and " v. " in full:
+        first, second = full.split(" v. ", 1)
+        low = short.lower()
+        if (low in second.lower() and low not in first.lower() and not _GOV_PARTY.match(first.strip())
+                and not _GOV_BODY.search(first)):
+            name = re.split(r",\s", first.strip(), 1)[0]
+    if not short and full and len(full) > limit:
+        name = full[:limit - 3] + "..."
+    return name
 
 
 def slugify(s, limit=60):
@@ -537,6 +570,8 @@ class Ctx:
 
 def inline(node, mode, ctx, marks):
     mark_usc(node)
+    if mode != "md":
+        mark_cases(node)
     out = []
     for k in node.kids:
         if isinstance(k, str):
@@ -562,6 +597,15 @@ def inline(node, mode, ctx, marks):
             out.append(wrap(inline(k, mode, ctx, marks), *(("*", "*") if mode == "md" else ("\\emph{", "}"))))
         elif k.tag in ("b", "strong"):
             out.append(wrap(inline(k, mode, ctx, marks), *(("**", "**") if mode == "md" else ("\\textbf{", "}"))))
+        elif k.tag == "a" and mode != "md" and re.match(r"/opinion/\d+/", k.attrs.get("href", "")):
+            out.append(citemarks.mark("ok", inline(k, mode, ctx, marks)))    # CourtListener linked it: the case is there
+        elif k.tag == "case" and mode != "md":            # a reporter cite found in the text (mark_cases)
+            inner = inline(k, mode, ctx, marks)
+            out.append(citemarks.mark("ok", inner) if k.attrs.get("ok") else
+                       citemarks.mark("red", inner, k.text(), "no case found for this citation in the local database"))
+        elif (k.tag == "span" and mode != "md" and "no-link" in cls and "citation" in cls
+              and not any(k.find(t) is not None for t in ("law", "usc", "a"))):
+            out.append(citemarks.mark("red", inline(k, mode, ctx, marks), k.text(), "CourtListener found no case for this citation"))
         elif k.tag == "a" and mode == "md" and k.attrs.get("href", "").startswith("/"):
             m = re.match(r"/opinion/(\d+)/", k.attrs["href"])
             if m and int(m.group(1)) in ctx.links:       # a case we have a note for
@@ -578,8 +622,10 @@ def inline(node, mode, ctx, marks):
             note, target = lawcites.note_name(key), ctx.lawtargets.get(lawcites.section_of(key))
             if mode == "md" and note in ctx.statutes and not key.startswith("usc:"):   # U.S.C.: mark_usc's <usc> inside links it
                 out.append(wrap(inner, "[[%s|" % note, "]]"))
-            elif mode != "md" and target:
-                out.append(wrap(inner, "\\hyperlink{%s}{" % target, "}"))
+            elif mode != "md":
+                st, why = citemarks.law_status(key)
+                tinted = citemarks.mark(st, inner, k.text(), why)
+                out.append(wrap(tinted, "\\hyperlink{%s}{" % target, "}") if target else tinted)
             else:
                 out.append(inner)
         elif k.tag == "leader":                          # toc entry: dots out to the page(s)
@@ -591,6 +637,39 @@ def inline(node, mode, ctx, marks):
         else:
             out.append(inline(k, mode, ctx, marks))
     return "".join(out)
+
+
+def mark_cases(node):
+    """Reporter cites in node's own text ("500 U.S. 1", "123 F.3d 456") -> <case ok=...> elements, looked up in the
+    local database (scotus.resolve), so the PDF can tint them. Text-layout documents (briefs, RECAP filings, slip
+    opinions) have no CourtListener links except relink()'s; HTML opinions' cites are already in links and spans,
+    which are left alone. Pin cites ("500 U.S. at 12") are not marked. Once per element; nothing without the database."""
+    if getattr(node, "cases_done", False) or not citemarks.CITE_MARKS:
+        return
+    node.cases_done = True
+    if node.tag in ("a", "law", "usc", "case", "page-number", "footnotemark", "leader") or \
+            (node.tag == "span" and "citation" in node.attrs.get("class", "")):
+        return
+    con = shared_db()
+    if con is None or not any(isinstance(k, str) for k in node.kids):
+        return
+    from tribonian import scotus
+    out = []
+    for k in node.kids:
+        if not isinstance(k, str):
+            out.append(k)
+            continue
+        at = 0
+        for m in scotus.CITE_RE.finditer(k):
+            if m.group(3):                           # "at": a pin cite of a case named before
+                continue
+            cid = scotus.resolve(con, m.group(1), scotus.canon(m.group(2)), m.group(4), k[max(0, m.start() - 160):m.start()])
+            e = El("case", {"ok": "1"} if cid else {})
+            e.kids.append(m.group(0))
+            out += [k[at:m.start()], e]
+            at = m.end()
+        out.append(k[at:])
+    node.kids = [k for k in out if k != ""]
 
 
 def plain(el, words=7):
@@ -1765,6 +1844,7 @@ def render_tex(meta, ops, fontpkg, style):
     from tribonian.render import PREAMBLE, RULES
     toc = meta.get("toc", True)              # contents page: cases, dockets, scotus.py (US Code has its own render_tex)
     _anchors.clear()                         # bookmark names are unique per PDF
+    citemarks.reset()                        # this PDF's red and orange cites, for the closing list
 
     def sec(tex, title):                     # a front box: contents entry + back arrow on its first line
         i = tex.find("\\begin{tcolorbox}")
@@ -1891,7 +1971,7 @@ def render_tex(meta, ops, fontpkg, style):
            .replace("__DOCHEAD__", esc(meta["name"], "tex"))
            .replace("__SRCLINE__", src))
     foot = "\\renewcommand{\\docfoot}{%s}\n" % esc(meta["foot"], "tex") if meta.get("foot") else ""
-    return pre + foot + "".join(body) + meta.get("posttex", "") + "\n\\end{document}\n"
+    return pre + foot + "".join(body) + meta.get("posttex", "") + citemarks.section_tex(lambda t: esc(t, "tex")) + "\n\\end{document}\n"
 
 
 # ---------------------------------------------------------------- driver
@@ -2209,6 +2289,18 @@ def doc_key(r):
     return "%s%s" % (r.get("document_number"), "-%s" % att if att else "")
 
 
+# The party list after "by Plaintiffs"/"by Defendants" fills the listing's 90 columns, and cuts off what tells
+# four affidavits of service apart ("regarding Summons served on Thomas Dart").
+_PARTY_LIST = re.compile(r"\b(by (?:All )?(?:Plaintiffs?|Defendants?))\s+[^;()]+?(?=\s+(?:regarding|in support|in opposition|to|for|re|pursuant)\b)")
+
+
+def listing_text(r):
+    """One line for the fetch listing: an attachment by its own name, an entry without its party list."""
+    if r.get("attachment_number"):
+        return "attachment: %s" % clean(r.get("short_description") or "") or "attachment"
+    return _PARTY_LIST.sub(r"\1", clean(r.get("description") or ""))
+
+
 def pdf_text(r):
     """No plain_text from the API: download the filed PDF (public storage, not an API request)
     and run pdftotext -layout on it, which is what CourtListener does."""
@@ -2306,8 +2398,8 @@ def recap_fetch(args):
                 mark = "*" if text.strip() else "!"
             else:
                 mark = "*"
-        print("  %s %-6s %s %3s pp  %s" % (mark, doc_key(r), r.get("entry_date_filed") or "          ",
-                                           r.get("page_count") or "?", clean(r.get("description") or "")[:90]))
+        print("  %s %-6s %s %3s pp  %s" % (mark, doc_key(r) if r.get("document_number") is not None else "-", r.get("entry_date_filed") or "          ",
+                                           r.get("page_count") or "?", listing_text(r)[:90]))
     print("  (* text saved, - not in RECAP, ! no text; others not selected: --docs N,N or --all)")
     print("saved %s" % out.relative_to(ROOT))
     from tribonian import dockets
@@ -2934,19 +3026,64 @@ def judge_of(r, d):
     return "%s, %s" % (last, "M.J." if mj else "J.") if last else "Court"
 
 
+# A party's filing names its filer in the docket text: "MEMORANDUM by Thomas Dart, ..., The County of Cook in
+# support of motion for summary judgment 80 (Yeddanapudi, Prathima)". The court's own documents don't ("ORDER:
+# ... Signed by the Honorable ..."), so a "by <filer>" in the first words marks a party filing.
+_FILER = re.compile(r"^\W*\w+(?:[ ,]+[\w.,']+){0,4}? by (?!the Honorable|Judge|Magistrate)(.+?)"
+                    r"(?=\s+(?:in support|in response|in opposition|regarding|to|for|pursuant)\b|\s*\(|\s+\d+\b|$)", re.I)
+_FILED_FOR = re.compile(r"\s+((?:in support|in response|in opposition|regarding|to|for|pursuant)\b[^(]*?)"
+                        r"(?=(?<!No\.)\s+\d+\b|\s*\(|$)", re.I)
+# a brief's first heading in capitals is often its front matter, not its title
+_FRONT_MATTER = re.compile(r"(?i)^\s*(table of contents|table of authorities|index|contents|introduction|"
+                           r"preliminary statement|background|argument|statement of (the )?(facts|case))\s*$")
+
+
+def filer_of(r, d):
+    """'Plaintiffs' / 'Defendants' / the filer as the docket text names it, or None for the court's own documents."""
+    desc = clean(r.get("description") or "")
+    m = _FILER.match(desc)
+    if not m:
+        return None
+    who = m.group(1).strip(" ,")
+    if re.fullmatch(r"(?i)(all )?(plaintiffs?|defendants?)", who):
+        return who.split()[-1].capitalize()
+    cap = d.get("case_name") or ""
+    pl, _, df = cap.partition(" v. ")
+    key = lambda x: re.sub(r"(?i)^the\s+|,.*$", "", x).strip().lower()
+    if pl and key(pl) and key(pl) in who.lower():
+        return "Plaintiffs" if "," in who else who
+    if df and key(df) and key(df) in who.lower():
+        return "Defendants" if "," in who else who
+    return who if len(who) <= 40 else who[:38].rstrip(" ,") + "..."
+
+
+def filed_title(r):
+    """A party filing's title from its docket text: 'Memorandum in support of motion for summary judgment'."""
+    desc = clean(r.get("description") or "")
+    kind = (desc.split() or ["Document"])[0].strip(":,").capitalize()
+    m = _FILER.match(desc)
+    rest = _FILED_FOR.match(desc[m.end():]) if m else None
+    return ("%s %s" % (kind, rest.group(1).strip())) if rest else kind
+
+
 def read_recap(r, d, oi, warn):
     """One RECAP document -> the same opinion dict read_opinion() makes, so render_md and
     render_tex print it unchanged."""
     lines, footnotes, labels = layout_pages(r.get("plain_text") or "")
     start, title = split_caption(lines)
     lines = lines[start:]
+    filer = filer_of(r, d)
+    if filer:                                   # a party filing: the docket text names it whole; a brief's first
+        title = filed_title(r)                  # capitals are often front matter ("TABLE OF CONTENTS") or cut short
+    elif title and _FRONT_MATTER.match(title):
+        title = None
     if not title:
         m = ORDER_RE.match(r.get("description") or "")
         title = m.group(1) if m else "Document %s" % doc_key(r)
     blocks = recap_blocks(lines, labels)
     place_marks(blocks, footnotes, warn, spaced=True)   # "(Aug. 25, 2026). 1": a mark set off by a space
     o = {"oi": oi, "kind": "", "author": "", "byline": [], "flat": [], "footnotes": {}, "api": r,
-         "start": labels[lines[0].pi] if lines else "1", "title": titlecase(title), "who": judge_of(r, d)}
+         "start": labels[lines[0].pi] if lines else "1", "title": titlecase(title), "who": filer or judge_of(r, d)}
     fill_opinion(o, blocks, footnotes)
     desc = El("p")
     desc.kids.append(clean(r.get("description") or ""))

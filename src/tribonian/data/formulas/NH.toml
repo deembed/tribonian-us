@@ -14,6 +14,8 @@
 name    = "New Hampshire Revised Statutes Annotated"
 doc     = "/us-nh/rsa"                        # /us-nh/rsa/tI/s1:14/I/a
 fetch   = "index"
+sparse_match = '(?P<c>[^:]+):.+'                                  # 354-A:17: chapter 354-A (pages are whole chapters)
+sparse  = '/{c}/{c}-mrg\.htm$'
 item    = ""                                  # titles are roman numerals, some suffixed: I, XIX-A, XXXIV-A
 index_file = "NHTOC-{item}.htm"
 # The title page NHTOC-I.htm links one chapter TOC page per chapter (NHTOC-I-1.htm, NHTOC-I-1-A.htm,

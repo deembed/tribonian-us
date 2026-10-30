@@ -72,6 +72,11 @@ def tex_chars(s):
 
 
 ODD_SPACES = {0x202F: 0xA0, 0x2009: 0xA0, 0x2007: 0xA0}
+# The other Unicode spaces (category Zs): en/em quads and spaces, the six-per-em to hair spaces, the medium
+# mathematical and ideographic spaces. T1 has no glyph for them, so they printed as boxed "?"s; the Law
+# Revision Counsel uses runs of U+2001 EM QUAD as hand indentation inside quoted notes (8 U.S.C. 1101 note).
+# Folded to a plain space: the layout already carries the depth.
+ODD_SPACES.update({o: 0x20 for o in (0x1680, *range(0x2000, 0x2007), 0x2008, 0x200A, 0x205F, 0x3000)})
 # Typographic ligatures (pdftotext keeps them from slip opinions and filings: "Plaintiﬀs"). Folded to
 # plain letters at parse time, like the odd spaces: T1 can't set them, and search needs the letters.
 LIGATURES = {0xFB00: "ff", 0xFB01: "fi", 0xFB02: "fl", 0xFB03: "ffi", 0xFB04: "ffl", 0xFB05: "st", 0xFB06: "st"}
@@ -103,6 +108,10 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \newcommand\uscmark{\bgroup\markoverwith{\textcolor{yellow}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \newcommand\usclight{\bgroup\markoverwith{\textcolor{yellow!35}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \newcommand\uscstrike{\bgroup\markoverwith{\rlap{\textcolor{yellow}{\rule[-.55ex]{2pt}{2.45ex}}}\rule[.55ex]{2pt}{.5pt}}\ULon}
+% cite tints (citemarks.py): \citeok = resolved; \citebad = likely miscite or not fetched; \citensrc = no source.
+\newcommand\citeok{\bgroup\markoverwith{\textcolor{green!12}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
+\newcommand\citebad{\bgroup\markoverwith{\textcolor{red!22}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
+\newcommand\citensrc{\bgroup\markoverwith{\textcolor{orange!35}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}   % skins -> "enhanced"; breakable -> page splits
 \usepackage{longtable}          % tables that run across pages (scotus.py: authorities by side)

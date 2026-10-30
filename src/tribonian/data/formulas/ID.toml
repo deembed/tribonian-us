@@ -22,6 +22,9 @@
 name    = "Idaho Statutes"
 doc     = "/us-id/code"                       # /us-id/code/t1/s1-101/1
 fetch   = "index"
+sparse_match = '(?P<t>\d+)-(?P<c>\d+?)(?P<s>\d{2}[A-Z]?)'       # 67-5909: title 67, chapter 59
+sparse  = '/SECT{sec}$'
+sparse_lists = ['/T{t}CH{c}$']
 item    = "%d"                                # title 1 -> "1" (URLs are Title1, not Title01)
 index_file = "Title{item}.html"               # the title's chapter table
 links   = ['href="(/statutesrules/idstat/Title\d+/T\d+CH\d+[A-Z]?)"',                    # title -> chapter pages (_idx/)

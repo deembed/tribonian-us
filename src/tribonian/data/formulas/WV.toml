@@ -21,6 +21,9 @@
 name    = "Code of West Virginia"
 doc     = "/us-wv/code"                       # /us-wv/code/t1/s1-1-5/a/1 (t = chapter)
 fetch   = "index"
+sparse_match = '(?P<c>[0-9A-Za-z]+)-(?P<a>[0-9A-Za-z]+)-.+'       # 18-31-11: chapter 18, article 31
+sparse  = '/{sec}/$'
+sparse_lists = ['/{c}-{a}/$']
 item    = ""                                  # chapter as written: 1, 5A, 29A
 index_file = "{item}.html"                    # the chapter's article list
 links   = ["href='(/\\d+[A-Za-z]*-\\d+[A-Za-z]*/)'",               # chapter page -> article pages (list level, _idx/)
@@ -45,7 +48,7 @@ catalog = [
 
 [WV.code.html]
 root     = "div#results-box"                  # chapter selector, search form, sidebar and footer are outside it
-blocks   = ["p", "h4"]
+blocks   = ["p", "h4", "h5"]                 # h5: one paragraph set as a heading by mistake (18-9B-22(b))
 headings = ["div.art-head"]                   # the article line, repeated on every section page
 opening  = ["h4"]                             # the whole "§1-1-5. Heading." line
 verbatim = ["table"]                          # districting tables (§1-2-1, 1-2-2: county/tract/block populations)

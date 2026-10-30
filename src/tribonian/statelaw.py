@@ -45,7 +45,7 @@ def pace(url):
     """Wait until `DELAY` (or the host's robots.txt Crawl-delay, if longer) has passed since the last request to the
     same host. Measured from that request's start, so the download time itself counts toward the gap."""
     host = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(url))
-    wait = DELAY
+    wait = max(DELAY, _slow.get(host, 0))
     rp = _robots.get(host)
     try:
         cd = rp.crawl_delay(UA) if rp is not None else None
@@ -57,6 +57,27 @@ def pace(url):
     if gap < wait:
         time.sleep(wait - gap)
     _last[host] = time.monotonic()
+
+
+_slow = {}             # host -> its own longer gap, after it answered 429 Too Many Requests
+RETRY_CODES = (429, 503)
+RETRIES = 4
+
+
+def backoff(url, e, attempt):
+    """A 429/503: wait what Retry-After asks (else 30 s, doubling), and from now on keep a longer gap to that host
+    (doubled each time, up to 10 s). -> True to retry, False when out of attempts."""
+    if attempt >= RETRIES:
+        return False
+    host = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(url))
+    ra = (e.headers or {}).get("Retry-After") if getattr(e, "headers", None) is not None else None
+    wait = float(ra) if ra and str(ra).strip().isdigit() else 30.0 * 2 ** attempt
+    wait = min(wait, 300.0)
+    _slow[host] = min(10.0, max(_slow.get(host, DELAY), DELAY) * 2)
+    print("  %s: HTTP %d; waiting %.0f s, then %.1f s between requests to this host" % (host, e.code, wait, _slow[host]),
+          flush=True)
+    time.sleep(wait)
+    return True
 
 
 def allowed(url):
@@ -86,15 +107,21 @@ def download(url, path):
     if not allowed(url):
         rp = _robots["{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(url))]
         sys.exit("%s; not fetched: %s" % (getattr(rp, "reason", "robots.txt disallows it"), shown))
-    pace(url)
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    try:
-        with cfr.urlopen(req, timeout=120) as r:
-            body = r.read()
-    except urllib.error.HTTPError as e:
-        sys.exit("%s: HTTP %d %s" % (shown, e.code, e.reason))
-    except urllib.error.URLError as e:
-        sys.exit("%s: %s" % (shown, e.reason))
+    attempt = 0
+    while True:
+        pace(url)
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        try:
+            with cfr.urlopen(req, timeout=120) as r:
+                body = r.read()
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in RETRY_CODES and backoff(url, e, attempt):
+                attempt += 1
+                continue
+            sys.exit("%s: HTTP %d %s" % (shown, e.code, e.reason))
+        except urllib.error.URLError as e:
+            sys.exit("%s: %s" % (shown, e.reason))
     if _REJECT is not None and not body.startswith(b"PK\x03\x04") and _REJECT.search(body[:200000].decode("utf-8", "replace")):
         # an app answers every unknown path with 200 and its page shell (Texas): never save that as law
         sys.exit("%s: the answer (%d bytes: %r) matches the formula's reject pattern (not a law page)"
@@ -196,13 +223,20 @@ def get_text(url):
     """A page's HTML (robots.txt obeyed, a second between requests)."""
     if not allowed(url):
         sys.exit("robots.txt disallows %s; not fetched" % url)
-    pace(url)
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    try:
-        with cfr.urlopen(req, timeout=60) as r:
-            return r.read().decode("utf-8", "replace")
-    except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        sys.exit("%s: %s" % (url, e))
+    attempt = 0
+    while True:
+        pace(url)
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        try:
+            with cfr.urlopen(req, timeout=60) as r:
+                return r.read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            if e.code in RETRY_CODES and backoff(url, e, attempt):
+                attempt += 1
+                continue
+            sys.exit("%s: %s" % (url, e))
+        except urllib.error.URLError as e:
+            sys.exit("%s: %s" % (url, e))
 
 
 def sos_url(path):
@@ -366,9 +400,11 @@ def uslm_file(st, code, item):
     return None
 
 
-def fetch_and_build(st, code, item, force=False):
-    """One item, fetched (unless its source is local) and built to USLM. Raises SystemExit with the reason."""
-    fetch_formula(st, code, [item] if item else [], force)
+def fetch_and_build(st, code, item, force=False, want=None):
+    """One item, fetched (unless its source is local) and built to USLM. Raises SystemExit with the reason.
+    want: cite fields of the sections needed ([{'title': '5', 'sec': '4602'}]): a sparse fetch where the formula
+    has a `sparse` rule (only those sections' pages; the build is then a partial title), else the whole item."""
+    fetch_formula(st, code, [item] if item else [], force, want=want)
     if build_formula(st, code, [item] if item else []):
         print("  %s %s %s: built, but verify reports problems (the text is still used)" % (st, code, item))
 
@@ -478,7 +514,81 @@ def outline_page(f, name):
     return ("<html><body>" + tpl.format(text=_h.escape(name[len(OUTLINE):])) + "</body></html>").encode("utf-8")
 
 
-def walk_index(f, idx, url, ld, fetch=False, force=False, label="", item=""):
+# ---------------------------------------------------------------- sparse fetch (only the cited sections)
+# A formula's `sparse` rule: regex template(s) a leaf page's URL must match for a wanted section, filled from the cite
+# fields (statecites: {sec}, {title}, {ch} ...) and from `sparse_match`, a regex with named groups read from the
+# section number (Montana's 20-7-1703 -> t=20 c=7 p=17 s=03). A group that is all digits is an int, so {c:03d}0
+# formats it; a template naming a field that is missing (a group that did not take part) is skipped, so a list of
+# templates goes from the most specific to the plainest (Arizona's 1-101.01 -> 00101-01.htm, 15-2401 -> 02401.htm).
+# `sparse_lists`: the same, one per list level of `links` (None = follow every list page of that level), so a
+# walk skips the chapters and parts that cannot hold a wanted section. A sparse fetch leaves _sparse-<item>.json
+# beside the pages; a build then takes the missing pages as expected, and a full fetch removes the marker.
+
+def _sparse_fields(f, want):
+    v = {k: x for k, x in want.items() if x is not None}
+    m = re.fullmatch(f["sparse_match"], v.get("sec", "")) if f.get("sparse_match") else None
+    if m:
+        v.update({k: x for k, x in m.groupdict().items() if x is not None})
+    return {k: (int(x) if isinstance(x, str) and x.isdigit() else x) for k, x in v.items()}
+
+
+class _Esc(str):
+    """A field value as a regex literal (a section's dots), still formattable by its own spec."""
+    def __format__(self, spec):
+        return re.escape(format(str(self), spec))
+
+
+def _sparse_rxs(templates, wants, f):
+    """Each wanted section -> the first template that fills; compiled. [] when nothing fills (follow all)."""
+    if isinstance(templates, str):
+        templates = [templates]
+    out = []
+    for w in wants:
+        fields = {k: (_Esc(x) if isinstance(x, str) else x) for k, x in _sparse_fields(f, w).items()}
+        for t in templates:
+            try:
+                out.append(re.compile(t.format(**fields)))
+                break
+            except (KeyError, ValueError, IndexError):
+                continue
+    return out
+
+
+def _sec_key(x):
+    """'4501a' -> [(0, 4501), (1, 'a')]: sections compared as numbers, then letters (1-101 < 1-310 < 2-101)."""
+    return [(0, int(t)) if t.isdigit() else (1, t.lower()) for t in re.findall(r"\d+|[A-Za-z]+", str(x))]
+
+
+def _ranged(f, raw, wants):
+    """sparse_range = regex with groups href, lo, hi (hi optional) over a list page: the links whose section range
+    holds a wanted section (Vermont's title page: "Chapter 139 ... Contains: §§ 4451 - 4507")."""
+    keys = [_sec_key(w.get("sec", "")) for w in wants]
+    keep = set()
+    for m in re.finditer(f["sparse_range"], raw, re.S):
+        lo, hi = _sec_key(m.group("lo")), _sec_key(m.group("hi") or m.group("lo"))
+        if any(lo <= k <= hi for k in keys):
+            keep.add(m.group("href"))
+    return keep
+
+
+def sparse_marker(ld, name):
+    return ld / ("_sparse-%s.json" % re.sub(r"[^A-Za-z0-9._-]+", "_", name))
+
+
+def is_partial(st, code, item):
+    """True when a code item was fetched sparse (only cited sections) and is not yet whole."""
+    f = formulas().get((st, code))
+    if not f or item is None:
+        return False
+    name = item_name(f.get("item"), item)
+    if f.get("fetch") == "list":
+        return sparse_marker(formula_dir(st, code, f) / name, name).exists()
+    if f.get("fetch") != "index":
+        return False
+    return any(sparse_marker(formula_dir(st, code, f) / L["name"], name).exists() for L in f.get("layers", []))
+
+
+def walk_index(f, idx, url, ld, fetch=False, force=False, label="", item="", want=None):
     """The pages an index leads to, in reading order: [(file name, url)]. `links` is one regex (index -> pages)
     or a list, one per level (title -> chapters -> sections): every level but the last is a list page, kept in
     <layer>/_idx/. A list page with no links of the next level is itself a text page (mixed depth: Delaware's
@@ -504,6 +614,9 @@ def walk_index(f, idx, url, ld, fetch=False, force=False, label="", item=""):
         return page_name(f, href)
 
     outline = [re.compile(x) for x in (f.get("outline") or [])]
+    leaf_rx = _sparse_rxs(f["sparse"], want, f) if want and f.get("sparse") else None
+    list_rx = [(_sparse_rxs(t, want, f) if t else None) for t in (f.get("sparse_lists") or [])] if leaf_rx else []
+    by_range = bool(want and f.get("sparse_range"))
 
     def natural(h):                       # leaf_sort = "natural": K1 K2 K10, not K1 K10 K2 (folder listings)
         h = re.sub(r"\.s?html?$", "", h, flags=re.I)        # K1 before K1.01 ("." < ".html" otherwise)
@@ -533,6 +646,7 @@ def walk_index(f, idx, url, ld, fetch=False, force=False, label="", item=""):
         return [(h, t) for _, h, t in sorted(ev, key=lambda e: e[0])]
 
     def visit(path, base, i):
+        ranged = _ranged(f, path.read_bytes().decode(enc, errors="replace"), want) if by_range else None
         for href, head in events(path, i):
             if head is not None:          # a heading from the index outline: a synthetic page (build_index)
                 out.append((OUTLINE + head, None))
@@ -541,11 +655,19 @@ def walk_index(f, idx, url, ld, fetch=False, force=False, label="", item=""):
             if i == len(levels) - 1:
                 if f.get("rewrite"):      # rewrite = [regex, replacement]: a listed page -> the page to fetch
                     u = re.sub(f["rewrite"][0], f["rewrite"][1], u)     # (Vermont: chapter -> fullchapter)
+                if leaf_rx is not None and not any(r.search(u) for r in leaf_rx):
+                    continue              # sparse: not a cited section's page
+                if ranged is not None and href not in ranged:
+                    continue              # sparse: a chapter whose section range holds no cited section
+                if f.get("rewrite"):
                     sp = urllib.parse.urlsplit(u)       # the query names the page too (default.aspx?cite=1.04)
                     out.append((page_name(f, sp.path + ("?" + sp.query if sp.query else "")), u))
                 else:
                     out.append((name_of(href, u), u))
                 continue
+            rxs = list_rx[i] if i < len(list_rx) else None
+            if rxs and not any(r.search(u) for r in rxs):
+                continue                  # sparse: a chapter or part that cannot hold a cited section
             name = name_of(href, u)
             p = ld / "_idx" / name
             if fetch:
@@ -566,7 +688,7 @@ def walk_index(f, idx, url, ld, fetch=False, force=False, label="", item=""):
     return list(dict.fromkeys(out))
 
 
-def fetch_formula(st, code, items, force=False):
+def fetch_formula(st, code, items, force=False, want=None):
     """The generic downloader; robots.txt obeyed, a second between requests. Strategies:
         template  url with {edition} and {item} (and {n} {lo} {hi} {suffix}: url_fields): one file per item
         index     per layer, an index page per item, then every page it links to that matches `links`
@@ -585,7 +707,7 @@ def fetch_formula(st, code, items, force=False):
     failures = []
     for it in items:
         try:
-            _fetch_item(st, code, f, d, it, force)
+            _fetch_item(st, code, f, d, it, force, want)
         except SystemExit as e:          # one missing title (a 404, an unassigned number) must not stop the rest
             print("  %s %s %s: %s" % (st, code, it, e.code))
             failures.append(str(it))
@@ -593,7 +715,7 @@ def fetch_formula(st, code, items, force=False):
         sys.exit("%s %s: %d of %d items not fetched: %s" % (st, code, len(failures), len(items), " ".join(failures[:20])))
 
 
-def _fetch_item(st, code, f, d, it, force):
+def _fetch_item(st, code, f, d, it, force, want=None):
     if True:
         name = item_name(f.get("item"), it)
         if f["fetch"] == "template":
@@ -607,11 +729,23 @@ def _fetch_item(st, code, f, d, it, force):
                      "%s %s %s section list" % (st, code, name))
             entries = [e[f["list_field"]] for e in json.loads(listing.read_text(encoding="utf-8"))]
             print("  %d entries" % len(entries))
+            marker = sparse_marker(d_item, name)
+            if want:                                 # sparse: the list names every section, so just the cited ones
+                cited = {str(w.get("sec", "")).lower() for w in want}
+                keep = [e for e in entries if str(e).lower() in cited]
+                print("  sparse: %d of %d entries for %d cited section(s)" % (len(keep), len(entries), len(want)))
+                if marker.exists() or any(not (d_item / f["file"].format(entry=e)).exists() for e in entries if e not in keep):
+                    old = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {"sections": []}
+                    marker.write_text(json.dumps({"sections": sorted(set(old.get("sections", [])) | set(keep)),
+                                                  "fetched": date.today().isoformat()}, indent=1), encoding="utf-8")
+                entries = keep
             if f.get("titles_url"):
                 _get_one(f["titles_url"], d / "_titles.json", "titles", False, "%s %s article names" % (st, code))
             for e in entries:
                 _get_one(f["url"].format(item=name, entry=urllib.parse.quote(e)), d_item / f["file"].format(entry=e),
                          f.get("edition", "current"), force, "  %s %s" % (name, e))
+            if not want and marker.exists():         # the whole article is local now
+                marker.unlink()
         elif f["fetch"] == "resolve":
             _fetch_resolve(st, code, f, d, name, force)
         elif f["fetch"] == "zip":
@@ -641,9 +775,20 @@ def _fetch_item(st, code, f, d, it, force):
                 elif not _get_one(url, idx, layer["name"], force, "%s %s %s %s index" % (st, code, layer["name"], name),
                                 missing_ok=layer.get("optional", False)):
                     continue
-                leaves = walk_index(f, idx, url, ld, fetch=True, force=force, label=layer["name"], item=name)
+                sparse = bool(want and (f.get("sparse") or f.get("sparse_range")))
+                leaves = walk_index(f, idx, url, ld, fetch=True, force=force, label=layer["name"], item=name,
+                                    want=want if sparse else None)
+                marker = sparse_marker(ld, name)
+                if sparse:
+                    print("  %s %s %s: sparse, %d page(s) for %d cited section(s)" % (st, code, name,
+                          sum(1 for _, u in leaves if u), len(want)), flush=True)
+                    old = json.loads(marker.read_text(encoding="utf-8")) if marker.exists() else {"sections": []}
+                    secs = sorted(set(old.get("sections", [])) | {str(w.get("sec")) for w in want})
+                    if marker.exists() or not all((ld / p).exists() for p, u in walk_index(f, idx, url, ld, item=name) if u):
+                        marker.write_text(json.dumps({"sections": secs, "fetched": date.today().isoformat()}, indent=1),
+                                          encoding="utf-8")
                 if not leaves:
-                    print("  no pages matching %s under %s" % (f["links"], idx.name))
+                    print("  no pages matching %s under %s" % ("the cited sections" if sparse else f["links"], idx.name))
                 bad = []
                 for page, page_url in leaves:
                     if page_url is None:                 # an outline heading, not a page
@@ -655,6 +800,8 @@ def _fetch_item(st, code, f, d, it, force):
                         bad.append(page)
                 if bad:
                     sys.exit("%d of %d pages not fetched (%s ...)" % (len(bad), len(leaves), ", ".join(bad[:3])))
+                if not sparse and marker.exists():       # the whole item is local now: no longer partial
+                    marker.unlink()
         else:
             sys.exit("%s %s: fetch strategy %r not written yet" % (st, code, f["fetch"]))
 
@@ -846,7 +993,7 @@ def build_index(st, code, f, items, everything=False):
         sys.exit("%s %s: nothing to build (fetch first, or name the titles)" % (st, code))
     failed = 0
     for name in names:
-        layers, metas, all_missing = [], [], []
+        layers, metas, all_missing, partial, missing_ok = [], [], [], [], set()
         for L in f["layers"]:
             idx = d / L["name"] / f["index_file"].format(item=name)
             if not idx.exists():
@@ -856,8 +1003,11 @@ def build_index(st, code, f, items, everything=False):
             url = L["url"].format(**url_fields(f, name))
             pages = [p for p, _ in walk_index(f, idx, url, d / L["name"], item=name)]
             missing = [p for p in pages if not p.startswith(OUTLINE) and not (d / L["name"] / p).exists()]
-            all_missing += ["%s/%s" % (L["name"], p) for p in missing]
-            if missing:
+            if sparse_marker(d / L["name"], name).exists():     # a sparse fetch: only the cited sections are meant
+                partial.append("%s: %d of %d pages" % (L["name"], len(pages) - len(missing), len(pages)))
+                missing_ok.update(missing)
+            all_missing += ["%s/%s" % (L["name"], p) for p in missing if p not in missing_ok]
+            if missing and not missing_ok:
                 print("%s %s title %s: %s pages not local (%s ...); fetch again" % (st, code, name, L["name"], ", ".join(missing[:3])))
             layers.append((L["name"], [(p, outline_page(f, p) if p.startswith(OUTLINE) else (d / L["name"] / p).read_bytes())
                                        for p in pages if p not in missing]))
@@ -883,9 +1033,14 @@ def build_index(st, code, f, items, everything=False):
         report["missing_pages"] = all_missing
         if all_missing:                   # a build from a partial download must not pass
             report["ok"] = False
+        if partial:                       # ... unless the download was sparse on purpose (the cited sections)
+            report["partial"] = partial
         out = state_dir(st) / "uslm" / code / ("title-%s.xml" % name)
         build.write(tree, report, out)
         print(verify.summary("%s %s title %s" % (st, code, name), report))
+        if partial:
+            print("  partial       only the cited sections (%s); tribonian state fetch %s %s %s for the whole title"
+                  % ("; ".join(partial), st, code, name))
         for layer, log in list(report["layers"].items())[1:]:
             print("  %-13s replaced %d sections, added %d, new chapters %d" % (layer, len(log["replaced"]), len(log["added"]), len(log["chapters_added"])))
         print("  -> %s" % out)
@@ -922,19 +1077,25 @@ def build_list(st, code, f, items, everything=False):
         for e in entries:
             p = d / name / f["file"].format(entry=e)
             (pages.append((e, p.read_bytes())) if p.exists() else missing.append(e))
-        if missing:
+        partial = sparse_marker(d / name, name).exists() and missing
+        if missing and not partial:
             print("%s %s %s: %d of %d pages not local (%s ...); fetch again" % (st, code, name, len(missing), len(entries), ", ".join(missing[:3])))
         ident = "%s/%s" % (f["doc"], f.get("title_id", "{item}").format(item=name))
         meta = local_meta(listing) or {}
         tree, report = build.convert_layers([("current", pages)], f, ident, "", titles.get(name, ""),
                                             {"edition": "current", "retrieved": meta.get("fetched"), "formula": "%s.%s" % (st, code)},
                                             title_num=name)
-        report["missing_pages"] = missing
+        report["missing_pages"] = [] if partial else missing
+        if partial:
+            report["partial"] = ["%d of %d pages" % (len(entries) - len(missing), len(entries))]
         out = state_dir(st) / "uslm" / code / ("%s.xml" % name)
         build.write(tree, report, out)
         print(verify.summary("%s %s %s (%s)" % (st, code, name, titles.get(name, "?")), report))
+        if partial:
+            print("  partial       only the cited sections (%d of %d pages); tribonian state fetch %s %s %s for the whole"
+                  % (len(entries) - len(missing), len(entries), st, code, name))
         print("  -> %s" % out)
-        failed += not report["ok"] or bool(missing)
+        failed += not report["ok"] or (bool(missing) and not partial)
     return failed
 
 

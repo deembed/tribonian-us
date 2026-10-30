@@ -1249,7 +1249,7 @@ def section_md(identifier, view=None, top=3, min_n=5):
 #   ## Recent appellate cites   appellate decisions citing it per year, and the newest ones
 # Precomputed once into cocite-cache/usc/citedby.sqlite, so a note build only reads a few rows.
 
-CITEDBY_VERSION = 2                             # 2: slug per case (CourtListener needs /opinion/<id>/<slug>/)
+CITEDBY_VERSION = 3                             # 2: slug per case (CourtListener needs /opinion/<id>/<slug>/); 3: case_short names
 APPELLATE = (1, 2, 4, 5)                        # cocite.COURT_LEVELS codes: scotus, circuit, state-supreme, state-appellate
 CAND = 400                                      # newest-candidates per section, sorted by filing date afterwards
 
@@ -1261,7 +1261,7 @@ def citedby_path():
 def case_rows(con, want):
     """cluster id -> (name, best citation, date filed, slug). One sequential scan for many ids, as cocite.fill_names
     (on the hard disk each index lookup is a seek). The slug as case2md.opinion_url: the database's, else from the name."""
-    from tribonian.case2md import slugify
+    from tribonian.case2md import slugify, case_short
     want = sorted({int(x) for x in want})
     info, cites = {}, {}
     if not want:
@@ -1288,9 +1288,7 @@ def case_rows(con, want):
     out = {}
     for cid in want:
         short, full, filed, slug = info.get(cid, (None, None, None, None))
-        name = short or full or "cluster %d" % cid
-        if not short and full and len(full) > 60:
-            name = full[:57] + "..."
+        name = case_short(short, full) or "cluster %d" % cid
         slug = slug or slugify(full or short or "", 75) or "case"
         out[cid] = (name, cites.get(cid, (0, ""))[1], filed or "", slug)
     return out

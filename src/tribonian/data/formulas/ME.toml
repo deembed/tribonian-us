@@ -16,6 +16,7 @@
 name    = "Maine Revised Statutes"
 doc     = "/us-me/statutes"                   # /us-me/statutes/t1/s15-A/1/A
 fetch   = "index"
+sparse  = '/title{title}sec{sec}\.html$'                 # sparse: only the cited sections' pages (title5sec4602.html)
 item    = ""                                  # as written: 1, 13-A
 index_file = "title{item}ch0sec0.html"
 links   = ["href=\"\\./(title[0-9A-Z-]+ch[0-9A-Z-]+sec0\\.html)\"",    # title page -> chapter pages (_idx/)

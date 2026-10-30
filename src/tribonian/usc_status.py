@@ -35,7 +35,7 @@ from tribonian import tconfig
 ROOT = tconfig.WORK
 XML = ROOT / "xml"
 CACHE = ROOT / "build" / "usc_status.json"
-VERSION = 4
+VERSION = 5                    # 5: range stubs ("§§ 1394 to 1410b. Repealed.") give each section in the range an entry
 
 SEC = r"\d+[A-Za-z]*(?:-\d+[A-Za-z]*)?"
 SUB = r"(?:\([A-Za-z0-9]{1,5}\))*"
@@ -178,6 +178,32 @@ def see_also(title, body):
     return out
 
 
+def range_entries(title, rng, status, body):
+    """'1394...1410b' -> entries for 1394, the whole numbers between, and 1410b (letters between the ends are
+    unknowable). A repealed range's note has one paragraph per section ("Section 1396, Pub. L. ..., related to
+    ... See sections 30111 and 30166 of Title 49."): each section's own See-also comes from its paragraph."""
+    a, b = rng.split("...", 1)
+    nums = [a]
+    ia, ib = re.match(r"\d+", a), re.match(r"\d+", b)
+    if ia and ib and int(ib.group()) - int(ia.group()) < 1000:
+        nums += [str(n) for n in range(int(ia.group()) + 1, int(ib.group()) + 1)]
+    nums.append(b)
+    paras = {}
+    text = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", body)))
+    for m in re.finditer(r"Section (%s)\s*,(.*?)(?=Section %s\s*,|$)" % (SEC, SEC), text):
+        paras.setdefault(m.group(1).lower(), m.group(2))
+    st = status or "repealed"
+    out = []
+    for n in dict.fromkeys(nums):
+        e = {"st": st}
+        if st == "repealed":
+            e["see"] = see_also(title, paras.get(n.lower(), ""))
+        elif st in ("transferred", "renumbered"):
+            e["to"] = list(dict.fromkeys(ukey(t, x) for t, x in MOVE_RE.findall(paras.get(n.lower(), ""))))
+        out.append((ukey(title, n), e))
+    return out
+
+
 def build_index():
     secs, titles = {}, set()
     for f in sorted(XML.glob("usc*.xml")):
@@ -195,6 +221,10 @@ def build_index():
                 if not k:
                     continue
                 titles.add(ukey(k.group(1), "0").split(":")[0])
+                if "..." in k.group(2):                    # a range stub: one entry per section in it
+                    for key, e in range_entries(k.group(1), k.group(2), status, body):
+                        secs.setdefault(key, e)
+                    continue
                 key = ukey(k.group(1), k.group(2))
                 e = {"st": status}
                 if status in ("transferred", "renumbered"):

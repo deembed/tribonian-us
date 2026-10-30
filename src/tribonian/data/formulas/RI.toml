@@ -19,6 +19,8 @@
 name    = "General Laws of Rhode Island"
 doc     = "/us-ri/gl"                          # /us-ri/gl/t1/ch2 ; sections /us-ri/gl/t1/s1-2-1/a/1
 fetch   = "index"
+sparse  = '/{sec}\.htm$'
+sparse_lists = ['/INDEX\.htm$|/{sec}\.htm$']     # level 1 holds chapter indexes and, in small chapters, the sections themselves
 item    = ""                                   # chapters as written
 item_match = '(?P<title>[0-9A-Z.]+?)-(?P<chapter>.+)'     # "40.1-1.1" -> title 40.1; "6A-2" -> title 6A
 title_id = ['^([0-9A-Z.]+?)-.+$', 't\1']      # the file's root: /us-ri/gl/t6A for chapter 6A-2

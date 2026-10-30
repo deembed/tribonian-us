@@ -27,6 +27,8 @@
 name    = "Kansas Statutes Annotated"
 doc     = "/us-ks/ksa"                        # /us-ks/ksa/t1/s1-201/a/1  (t = chapter; K.S.A. has no titles)
 fetch   = "index"
+sparse_match = '(?P<c>\d+)(?P<cx>[a-z]?)-(?:(?P<a2>\d+)-(?P<s2>\d+)|(?P<a>\d+?)(?P<s>\d{2}))(?P<sx>[a-z]*)'   # 44-1009 -> 044_010_0009; 16a-1-101 -> 016a_001_0101
+sparse  = ['/{c:03d}{cx}_{a2:03d}_{s2:04d}{sx}\.html$', '/{c:03d}{cx}_{a:03d}_{s:04d}{sx}\.html$']
 item    = ""                                  # chapter as written: 1, 16a, 84 (the URL has no padding)
 index_file = "ksa_ch{item}.html"
 links   = 'href="(/statutes/chapters/ch[0-9a-z]+/[0-9]{3}[a-z]?_[0-9]{3}[a-z]?_[0-9]{4}[a-z]*\.html)"'

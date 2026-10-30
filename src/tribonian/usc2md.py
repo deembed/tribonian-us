@@ -535,6 +535,85 @@ def tex_notes(notes, secpath, fns, sink, flush):
     return "".join(out)
 
 
+# The derived sections (cited_with: Cited with, Cited by, Recent appellate cites) come as markdown lines, the
+# same lines the note gets. derived_tex() reads that small subset back: ##/### headings, a whole-line *italic*
+# caption, plain paragraphs and pipe tables, with [[note\|text]] -> text (no links across PDFs) and
+# [text](url) -> \href. One source for both outputs, so the PDF never says something the note doesn't.
+PDF_ROWS = {"Recent appellate cites": 10}       # table rows kept in the PDF per section (the note keeps them all)
+_INLINE = re.compile(r"\[\[([^\]]*?)\]\]|\[([^\]]+)\]\((https?://[^)\s]+)\)|`([^`]+)`")
+
+
+def inline_tex(t):
+    out, i = [], 0
+    for m in _INLINE.finditer(t):
+        out.append(tex_chars(t[i:m.start()]))
+        if m.group(1) is not None:                           # [[note|text]]: the text only
+            out.append(tex_chars(re.split(r"\\?\|", m.group(1), 1)[-1]))
+        elif m.group(2) is not None:
+            url = m.group(3).replace("\\", "/").replace("%", "\\%").replace("#", "\\#")
+            out.append("\\href{%s}{%s}" % (url, tex_chars(m.group(2))))
+        else:
+            out.append("\\texttt{%s}" % tex_chars(m.group(4)))
+        i = m.end()
+    return "".join(out) + tex_chars(t[i:])
+
+
+def table_tex(rows, keep=None):
+    """rows: lists of markdown cells, the header first. A longtable: the column with the longest text
+    wraps, numeric columns sit right."""
+    head, body = rows[0], rows[1:]
+    dropped = 0
+    if keep is not None and len(body) > keep:
+        body, dropped = body[:keep], len(body) - keep
+    n = len(head)
+    plain = lambda c: re.sub(r"\[\[[^\]]*?\\?\|([^\]]*)\]\]|\[([^\]]+)\]\([^)]*\)", lambda m: m.group(1) or m.group(2) or "", c)
+    avg = [sum(len(plain(r[k])) for r in body if k < len(r)) / max(1, len(body)) for k in range(n)]
+    wide = max(range(n), key=lambda k: avg[k])
+    num = [all(re.fullmatch(r"[\d,.\s\u2013-]*", plain(r[k])) for r in body if k < len(r)) for k in range(n)]
+    spec = ["p{%.2f\\linewidth}" % max(0.3, 1 - 0.13 * (n - 1)) if k == wide else ("r" if num[k] else "l")
+            for k in range(n)]
+    line = lambda r: " & ".join(inline_tex(c) for c in (r + [""] * n)[:n]) + " \\\\"
+    out = ["{\\footnotesize\\setlength{\\LTleft}{0pt}\\setlength{\\LTpre}{2pt}\\setlength{\\LTpost}{2pt}",
+           "\\begin{longtable}{@{}%s@{}}" % " ".join(spec),
+           "\\textbf{" + "} & \\textbf{".join(inline_tex(c) for c in head) + "} \\\\ \\hline\\endhead"]
+    out += [line(r) for r in body]
+    out.append("\\end{longtable}}")
+    if dropped:
+        out.append("{\\footnotesize\\itshape and %d more in the note.\\par}" % dropped)
+    return "\n".join(out) + "\n"
+
+
+def derived_tex(lines, secno):
+    """TeX for the derived sections after a section's law (and notes); '' when there are none."""
+    out, table, section = [], [], ""
+
+    def flush():
+        if table:
+            out.append(table_tex(table, PDF_ROWS.get(section)))
+            del table[:]
+
+    for ln in lines:
+        cells = ln.strip()
+        if cells.startswith("|"):
+            row = [c.strip() for c in re.split(r"(?<!\\)\|", cells.strip("|"))]
+            if not all(re.fullmatch(r":?-+:?", c) for c in row):
+                table.append(row)
+            continue
+        flush()
+        if ln.startswith("## "):
+            section = ln[3:].strip()
+            out.append("\\vspace{8pt}\\pdfbookmark[2]{%s}{derived%d-%d}{\\bfseries %s\\par}\\nopagebreak\n"
+                       % (gather_text_str(section, "tex"), secno, len(out), inline_tex(section)))
+        elif ln.startswith("### "):
+            out.append("\\vspace{3pt}{\\small\\bfseries %s\\par}\\nopagebreak\n" % inline_tex(ln[4:].strip()))
+        elif re.fullmatch(r"\*[^*].*\*", cells):
+            out.append("{\\scriptsize\\itshape %s\\par}\\vspace{2pt}\n" % inline_tex(cells[1:-1]))
+        elif cells:
+            out.append("{\\footnotesize %s\\par}\\vspace{2pt}\n" % inline_tex(cells))
+    flush()
+    return "".join(out)
+
+
 def render_tex(docs, doctitle, dochead, fontpkg, style, release, credits=False, notes=False):
     """docs: list of (meta, nodes, fns, notes). One .tex, one section after another."""
     body = []
@@ -677,6 +756,8 @@ def render_tex(docs, doctitle, dochead, fontpkg, style, release, credits=False, 
                 body.append(part)
         if notes and secnotes:
             body.append(tex_notes(secnotes, secpath, fns, sink, pending_footnotes))
+        if meta.get("derived"):
+            body.append(derived_tex(meta["derived"], i))
 
     pre = (PREAMBLE
            .replace("__FONTPKG__", fontpkg)
@@ -871,7 +952,8 @@ def main():
                     help="show each section's source credit (Added Pub. L. ...) under its heading")
     ap.add_argument("--notes", action="store_true",
                     help="append each section's editorial and statutory notes")
-    ap.add_argument("--out", default=".")
+    ap.add_argument("--out", help="write the markdown tree and the .tex here and stop (what `tribonian build` does); "
+                    "default: notes into md/, the PDF compiled into pdf/ under the work folder")
     ap.add_argument("--no-cocite", dest="no_cocite", action="store_true",
                     help="leave out the derived sections: Cited with, Cited by, Recent appellate cites (when built)")
     ap.add_argument("--style", choices=list(RULES), default="boxes",
@@ -986,21 +1068,43 @@ def main():
         base = args.name
 
     # ---- write ------------------------------------------------------------
-    os.makedirs(args.out, exist_ok=True)
+    # --out: the generator alone (build.py compiles in its own scratch folder). Without it, a standalone
+    # run lands where every other builder's output does: md/ and pdf/ under the work folder, compiled.
+    standalone = args.out is None
+    if standalone:
+        from tribonian.tconfig import WORK
+        md_root, tex_root = str(WORK / "md"), str(WORK / "build")
+    else:
+        md_root = tex_root = args.out
+    os.makedirs(md_root, exist_ok=True)
+    os.makedirs(tex_root, exist_ok=True)
     for meta, nodes, fns, refs, nmd, _ in docs:   # markdown: always one file per section
-        md_dir = os.path.join(args.out, meta["mdsubdir"])
+        md_dir = os.path.join(md_root, meta["mdsubdir"])
         os.makedirs(md_dir, exist_ok=True)
         md_path = os.path.join(md_dir, slug(meta) + ".md")
         with open(md_path, "w", encoding="utf-8") as f:
-            f.write(render_md(None, nodes, meta, refs, fns, nmd, args.credits, cited_with(meta, args)))
+            derived = cited_with(meta, args)
+            meta["derived"] = derived                 # the PDF prints the same sections (render_tex)
+            f.write(render_md(None, nodes, meta, refs, fns, nmd, args.credits, derived))
         print("wrote %s" % md_path)
 
-    tex_path = os.path.join(args.out, base + ".tex")
+    tex_path = os.path.join(tex_root, base + ".tex")
     with open(tex_path, "w", encoding="utf-8") as f:
         f.write(render_tex([(m, n, fn, nt) for m, n, fn, _, _, nt in docs], doctitle, dochead,
                            args.font, args.style, first["release"], args.credits, args.notes))
     print("wrote %s" % tex_path)
-    print("compile: pdflatex %s   (run twice)" % os.path.basename(tex_path))
+    if not standalone:
+        print("compile: pdflatex %s   (run twice)" % os.path.basename(tex_path))
+        return 0
+    from pathlib import Path
+    from tribonian.case2md import run_pdflatex, unmapped_note
+    pdf_root = WORK / "pdf"
+    pdf_root.mkdir(exist_ok=True)
+    pdf = run_pdflatex(Path(tex_path), pdf_root)
+    unmapped_note()
+    if not pdf:
+        return 1
+    print("wrote %s" % os.path.relpath(pdf, WORK))
     return 0
 
 

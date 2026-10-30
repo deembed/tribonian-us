@@ -8,6 +8,8 @@
 name    = "Code of Laws of South Carolina, 1976"
 doc     = "/us-sc/code"                       # /us-sc/code/t1/ch1/a1, /us-sc/code/t1/s1-1-10/A/1
 fetch   = "index"
+sparse_match = '(?P<t>\d+)-(?P<c>\d+)(?P<cx>[A-Z]?)-.+'         # 59-8-150: title 59, chapter 8 (pages are whole chapters)
+sparse  = '/t{t:02d}c{c:03d}{cx}\.php$'
 item    = "%d"                                # title 1 -> "1" (title1.php is not zero-padded; the chapter files are)
 index_file = "title{item}.php"
 links   = 'href="[^"]*?(t\d+c\d+[A-Za-z]*\.php)"'   # /code/t01c001.php; letter suffixes allowed in case of t12c036A-style chapters
