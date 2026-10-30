@@ -23,7 +23,7 @@ judges: "White, Rehnquist, Powell, O'Connor"
 courtlistener_cluster: 110991
 cited_by_count: 8567
 source: https://www.courtlistener.com/opinion/110991/motor-vehicle-mfrs-assn-of-united-states-inc-v-state-farm-mut/
-retrieved: 2026-10-29
+retrieved: 2026-10-30
 synthetic: false
 ---
 
@@ -160,6 +160,41 @@ pie showData title Who cites it, 2020-24: sub-clusters
 
 **Areas:** [[Standing and judicial review of agency action|Standing and judicial review of agency action]] 47% · [[First Amendment and individual liberties|First Amendment and individual liberties]] 5% · [[Section 1983, qualified immunity and prisoner rights|Section 1983, qualified immunity and prisoner rights]] 5%
 
+## Coupled with
+
+*Cases that cite the most of the same cases as this one, rare shared citations counting more: each shared cited case, cited by df decisions, adds log(N/df), N = 6,977,679 decisions citing anything. Cited cases cited by more than 2,000 decisions are left out (6 of this case's 19). Computed 2026-10-30 13:08 from the bulk data of 2026-06-30 by `tribonian map coupling`. Not part of the record.*
+
+1. Columbia Broadcasting System, Inc. v. Federal Communications Commission and United States of America, Democratic National Committee and Republican National Committee, Intervenors. Democratic National Committee v. Federal Communications Commission and United States of America, Republican National Committee, Intervenor (454 F.2d 1018, cadc, 1971) · score 31.9 · 3 shared: State of New York v. United States; Labor Board; Greater Boston Television Corp. v. Federal Communications Commission
+2. Columbia Broadcasting System, Inc. v. Federal Communications Commission (454 F.2d 1018, cadc, 1971) · score 31.9 · 3 shared: State of New York v. United States; Labor Board; Greater Boston Television Corp. v. Federal Communications Commission
+3. Department (980 P.2d 701, wash, 1999) · score 31.7 · 3 shared: State of New York v. United States; Industrial Union; Donovan
+4. Aviation West Corp. v. Department of Labor & Industries (138 Wash. 2d 413, wash, 1999) · score 31.7 · 3 shared: State of New York v. United States; Industrial Union; Donovan
+5. Industrial Union Department, Afl-Cio v. James D. Hodgson, Secretary, Department of Labor, Environmentaldefense Fund, Inc., Intervenor (499 F.2d 467, cadc, 1974) · score 31.3 · 3 shared: Chrysler Corp. v. Department of Transportation; Greater Boston Television Corp. v. Federal Communications Commission; Permian Basin Area Rate Cases
+6. International Ladies' Garment Workers' Union v. Raymond J. Donovan (722 F.2d 795, cadc, 1983) · score 31.2 · 3 shared: State of New York v. United States; Greater Boston Television Corp. v. Federal Communications Commission; Atchison Co
+7. Ceramica Regiomontanam, S.A. v. United States (636 F. Supp. 961, cit, 1986) · score 30.8 · 3 shared: State of New York v. United States; Haig; Bob Jones University v. United States
+8. Edwin I. Hatch v. Federal Energy Regulatory Commission (654 F.2d 825, cadc, 1981) · score 30.2 · 3 shared: American Trucking; Labor Board; Atchison Co
+9. Kindred Nursing Centers East, LLC v. National Labor Relations Board (727 F.3d 552, ca6, 2013) · score 30.2 · 3 shared: American Trucking; Labor Board; Atchison Co
+10. Kindred Nursing Centers East v. NLRB (ca6, 2013) · score 30.2 · 3 shared: American Trucking; Labor Board; Atchison Co
+11. Local 777, Democratic Union Organizing Committee, Seafarers International Union of North America, Afl-Cio v. National Labor Relations Board, Yellow Cab Company and Checker Taxi Company, Inc. v. National Labor Relations Board, Local 777, Democratic Union, Etc., Intervenor (603 F.2d 862, cadc, 1979) · score 29.5 · 3 shared: Labor Board; Greater Boston Television Corp. v. Federal Communications Commission; Atchison Co
+12. Local 777, Democratic Union Organizing Committee v. National Labor Relations Board (603 F.2d 862, cadc, 1978) · score 29.5 · 3 shared: Labor Board; Greater Boston Television Corp. v. Federal Communications Commission; Atchison Co
+13. Paralyzed Veterans of America, and Disabled American Veterans, and National Organization of Veterans' Advocates, Inc., and National Association of Black Veterans, John J. Castillo, and Joseph Holmes v. Secretary of Veterans Affairs (345 F.3d 1334, cafc, 2003) · score 29.4 · 3 shared: Labor Board; Atchison Co; Sperry & Hutchinson
+14. Borusan Mannesmann Boru Sanayi ve Ticaret A.S. v. United States (222 F. Supp. 3d 1255, cit, 2017) · score 29.4 · 3 shared: Labor Board; Atchison Co; Sperry & Hutchinson
+15. Paralyzed Veterans of America v. Secretary of Veterans Affairs (345 F.3d 1334, cafc, 2003) · score 29.4 · 3 shared: Labor Board; Atchison Co; Sperry & Hutchinson
+16. American Federation of Labor and Congress of Industrial Organizations v. Raymond J. Donovan, Secretary of Labor (757 F.2d 330, cadc, 1985) · score 29.4 · 3 shared: American Trucking; Donovan; Bob Jones University v. United States
+17. Bowen (476 U.S. 610, scotus, 1986) · score 29.2 · 3 shared: Industrial Union; Donovan; Sperry & Hutchinson
+18. Northwest Environmental Defense Center, Public Employees for Environmental Responsibility Northwest Sportfishing Industry Association, Northwest Power and Conservation Council, Intervenor v. Bonneville Power Administration, Confederated Tribes and Bands of the Yakama Indian Nation v. Bonneville Power Administration (477 F.3d 668, ca9, 2007) · score 29.1 · 3 shared: Industrial Union; Greater Boston Television Corp. v. Federal Communications Commission; Atchison Co
+19. Bpa (477 F.3d 668, ca9, 2007) · score 29.1 · 3 shared: Industrial Union; Greater Boston Television Corp. v. Federal Communications Commission; Atchison Co
+20. International Brotherhood Of Teamsters, Chauffeurs, Warehousemen And Helpers Of America v. United States (735 F.2d 1525, cadc, 1984) · score 29.1 · 3 shared: American Trucking; Donovan; Permian Basin Area Rate Cases
+21. International Brotherhood of Teamsters v. United States (735 F.2d 1525, cadc, 1984) · score 29.1 · 3 shared: American Trucking; Donovan; Permian Basin Area Rate Cases
+22. Telocator Network of America v. Federal Communications Commission and United States of America (691 F.2d 525, cadc, 1982) · score 28.9 · 3 shared: American Trucking; Greater Boston Television Corp. v. Federal Communications Commission; Permian Basin Area Rate Cases
+23. Seia (ca9, 2023) · score 28.9 · 3 shared: American Trucking; Greater Boston Television Corp. v. Federal Communications Commission; Permian Basin Area Rate Cases
+24. YANEZ (23 I. & N. Dec. 390, bia, 2002) · score 28.8 · 3 shared: American Trucking; Atchison Co; Permian Basin Area Rate Cases
+25. Ray Baillie Trash Hauling, Inc. v. Thomas S. Kleppe, Administrator, Small Business Administration (477 F.2d 696, ca5, 1973) · score 28.8 · 3 shared: American Trucking; Sperry & Hutchinson; Permian Basin Area Rate Cases
+26. Advanced Micro Devices, Data General Corporation, Electronic Memories & Magnetics Corporation, Hewlett-Packard Co., Intel Corporation, Mostek Corporation, National Semiconductor Corporation, Rca Corporation, Rockwell International and Signetics Corporation v. Civil Aeronautics Board, Flying Tiger Line, Inc., Intervenor. Advanced Micro Devices, Data General Corporation, Electronic Memories & Magnetics Corporation, Hewlett-Packard Co., Intel Corporation, Mostek Corporation, National Semiconductor Corporation, Rca Corporation, Rockwell International and Signetics Corporation v. Civil Aeronautics Board, Flying Tiger Line, Inc., Intervenor (742 F.2d 1520, cadc, 1984) · score 28.6 · 3 shared: American Trucking; Bob Jones University v. United States; Permian Basin Area Rate Cases
+27. Advanced Micro Devices v. Civil Aeronautics Board (742 F.2d 1520, cadc, 1984) · score 28.6 · 3 shared: American Trucking; Bob Jones University v. United States; Permian Basin Area Rate Cases
+28. American Petroleum Institute v. Environmental Protection Agency (787 F.2d 965, ca5, 1986) · score 28.4 · 3 shared: Industrial Union; Sperry & Hutchinson; Permian Basin Area Rate Cases
+29. Giles Lowery Stockyards, Inc. D/B/A Lufkin Livestock Exchange v. Department of Agriculture (565 F.2d 321, ca5, 1977) · score 28.1 · 3 shared: Greater Boston Television Corp. v. Federal Communications Commission; Atchison Co; Permian Basin Area Rate Cases
+30. Potomac Electric Power Company v. United States of America and Interstate Commerce Commission, Consolidated Rail Corporation, Intervenor (584 F.2d 1058, cadc, 1978) · score 28.1 · 3 shared: Greater Boston Television Corp. v. Federal Communications Commission; Atchison Co; Permian Basin Area Rate Cases
+
 ## How later courts describe it
 
 *The parentheticals later courts wrote after citing this case ("holding that …"), grouped by CourtListener into similar wordings, largest group first; each shows the group's best-scored wording. 1,052 parentheticals in all. Other courts' words, not this opinion's: quote the opinion.*
@@ -193,7 +228,7 @@ No. 82-354. · Argued April 26, 1983 · Decided June 24, 1983[^hm-0-star]
 
 The development of the automobile gave Americans unprecedented freedom to travel, but exacted a high price for `*33` enhanced mobility. Since 1929, motor vehicles have been the leading cause of accidental deaths and injuries in the United States. In 1982, 46,300 Americans died in motor vehicle accidents and hundreds of thousands more were maimed and injured.[^1] While a consensus exists that the current loss of life on our highways is unacceptably high, improving safety does not admit to easy solution. In 1966, Congress decided that at least part of the answer lies in improving the design and safety features of the vehicle itself.[^2] But much of the technology for building safer cars was undeveloped or untested. Before changes in automobile design could be mandated, the effectiveness of these changes had to be studied, their costs examined, and public acceptance considered. This task called for considerable expertise and Congress responded by enacting the National Traffic and Motor Vehicle Safety Act of 1966 (Act), 80 Stat. 718, as amended, [[15-usc-1381|==~~15 U. S. C. § 1381~~== ==**mv** [[49-usc-30101|49 U.S.C. § 30101]]==]] *et seq.* (1976 ed. and Supp. V). The Act, created for the purpose of “reducing] traffic accidents and deaths and injuries to persons resulting from traffic accidents,” [[15-usc-1381|==~~15 U. S. C. § 1381~~== ==**mv** [[49-usc-30101|49 U.S.C. § 30101]]==]], directs the Secretary of Transportation or his delegate to issue motor vehicle safety standards that “shall be practicable, shall meet the need for motor vehicle safety, and shall be stated in objective terms.” ==~~15 U. S. C. § 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==(a) (1976 ed., Supp. V). In issuing these standards, the Secretary is directed to consider “relevant available motor vehicle safety data,” whether the proposed standard “is reasonable, practicable and appropriate” for the particular type of motor vehicle, and the “extent to which `*34` such standards will contribute to carrying out the purposes” of the Act. ==~~15 U. S. C. §§ 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==(f)(1), (3), (4).[^3]
 
-The Act also authorizes judicial review under the provisions of the Administrative Procedure Act (APA), [[5-usc-706|[[5-usc-706|5 U. S. C. §706]]]], of all “orders establishing, amending, or revoking a Federal motor vehicle safety standard,” ==~~15 U. S. C. § 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==(b). Under this authority, we review today whether NHTSA acted arbitrarily and capriciously in revoking the requirement in Motor Vehicle Safety Standard 208 that new motor vehicles produced after September 1982 be equipped with passive restraints to protect the safety of the occupants of the vehicle in the event of a collision. Briefly summarized, we hold that the agency failed to present an adequate basis and explanation for rescinding the passive restraint requirement and that the agency must either consider the matter further or adhere to or amend Standard 208 along lines which its analysis supports.
+The Act also authorizes judicial review under the provisions of the Administrative Procedure Act (APA), [[5-usc-706|[[5-usc-706|5 U. S. C. §706]]]], of all “orders establishing, amending, or revoking a Federal motor vehicle safety standard,” ==~~15 U. S. C. § 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==(b). Under this authority, we review today whether NHTSA acted arbitrarily and capriciously in revoking the requirement in Motor Vehicle Safety Standard 208 that new motor vehicles produced after September 1982 be equipped with passive restraints to protect the safety of the occupants of the vehicle in the event of a collision. \usebox\qlA\kern-.3pt \quoteA{Briefly summarized, we hold that the agency failed to present an adequate basis and explanation for rescinding the passive restraint requirement and that the agency must either consider the matter further or adhere to or amend Standard 208 along lines which its analysis supports}\kern-.3pt\quotecount{\qrA}{2}{1}.
 
 ### I
 
@@ -203,7 +238,7 @@ As originally issued by the Department of Transportation in 1967, Standard 208 s
 
 In 1969, the Department formally proposed a standard requiring the installation of passive restraints, 34 Fed. Reg. 11148, thereby commencing a lengthy series of proceedings. In 1970, the agency revised Standard 208 to include passive protection requirements, 35 Fed. Reg. 16927, and in 1972, the agency amended the Standard to require full passive protection for all front seat occupants of vehicles manufactured after August 15, 1975. 37 Fed. Reg. 3911. In the interim, vehicles built between August 1973 and August 1975 were to carry either passive restraints or lap and shoulder belts coupled with an “ignition interlock” that would prevent starting the vehicle if the belts were not connected.[^4] On review, the `*36` agency’s decision to require passive restraints was found to be supported by “substantial evidence” and upheld. *Chrysler Corp.* v. *Department of Transportation,* [[472-f2d-659-chrysler-corp-v-department-of|472 F. 2d 659]] (CA6 1972).[^5]
 
-In preparing for the upcoming model year, most car makers chose the “ignition interlock” option, a decision which was highly unpopular, and led Congress to amend the Act to prohibit a motor vehicle safety standard from requiring or permitting compliance by means of an ignition interlock or a continuous buzzer designed to indicate that safety belts were not in use. Motor Vehicle and Schoolbus Safety Amendments of 1974, Pub. L. 93-492, §109, 88 Stat. 1482, ==~~15 U. S. C. § 1410b(b)~~== ==**mv** [[49-usc-30124|49 U.S.C. § 30124]]==. The 1974 Amendments also provided that any safety standard that could be satisfied by a system other than seatbelts would have to be submitted to Congress where it could be vetoed by concurrent resolution of both Houses. ==~~15 U. S. C. § 1410b(b)(2)~~== ==**mv** [[49-usc-30124|49 U.S.C. § 30124]]==.[^6]
+\usebox\qlA\kern-.3pt \quoteA{In preparing for the upcoming model year, most car makers chose the “ignition interlock” option, a decision which was highly unpopular, and led Congress to amend the Act to prohibit a motor vehicle safety standard from requiring or permitting compliance by means of an ignition interlock or a continuous buzzer designed to indicate that safety belts were not in use}\kern-.3pt\quotecount{\qrA}{3}{2}. Motor Vehicle and Schoolbus Safety Amendments of 1974, Pub. L. 93-492, §109, 88 Stat. 1482, ==~~15 U. S. C. § 1410b(b)~~== ==**mv** [[49-usc-30124|49 U.S.C. § 30124]]==. The 1974 Amendments also provided that any safety standard that could be satisfied by a system other than seatbelts would have to be submitted to Congress where it could be vetoed by concurrent resolution of both Houses. ==~~15 U. S. C. § 1410b(b)(2)~~== ==**mv** [[49-usc-30124|49 U.S.C. § 30124]]==.[^6]
 
 The effective date for mandatory passive restraint systems was extended for a year until August 31,1976. 40 Fed. Reg. 16217 (1975); *id.,* at 33977. But in June 1976, Secretary of Transportation William T. Coleman, Jr., initiated a new rulemaking on the issue, 41 Fed. Reg. 24070. After hearing testimony and reviewing written comments, Coleman extended the optional alternatives indefinitely and suspended the passive restraint requirement. Although he found pas `*37` sive restraints technologically and economically feasible, the Secretary based his decision on the expectation that there would be widespread public resistance to the new systems. He instead proposed a demonstration project involving up to 500,000 cars installed with passive restraints, in order to smooth the way for public acceptance of mandatory passive restraints at a later date. Department of Transportation, The Secretary’s Decision Concerning Motor Vehicle Occupant Crash Protection (Dec. 6, 1976), App. 2068.
 
@@ -221,19 +256,19 @@ In a statement explaining the rescission, NHTSA maintained that it was no longer
 
 In view of the possibly minimal safety benefits, the automatic restraint requirement no longer was reasonable or practicable in the agency’s view. The requirement would require approximately \$1 billion to implement and the agency did not believe it would be reasonable to impose such substantial costs on manufacturers and consumers without more adequate assurance that sufficient safety benefits would accrue. In addition, NHTSA concluded that automatic restraints might have an adverse effect on the public’s attitude toward safety. Given the high expense and limited benefits of detachable belts, NHTSA feared that many consumers would regard the Standard as an instance of ineffective regulation, adversely affecting the public’s view of safety regulation and, in particular, “poisoning . . . popular sentiment toward efforts to improve occupant restraint systems in the future.” *Id.,* at 53424.
 
-State Farm Mutual Automobile Insurance Co. and the National Association of Independent Insurers filed petitions for review of NHTSA’s rescission of the passive restraint Standard. The United States Court of Appeals for the District of Columbia Circuit held that the agency’s rescission of the passive restraint requirement was arbitrary and capricious. 220 U. S. App. D. C. 170, [680 F. 2d 206](https://www.courtlistener.com/c/F.%202d/680/206/) (1982). While observing that rescission is not unrelated to an agency’s refusal to take action in the first instance, the court concluded that, in this case, NHTSA’s discretion to rescind the passive restraint requirement had been restricted by various forms of congressional “reaction” to the passive restraint issue. It then `*40` proceeded to find that the rescission of Standard 208 was arbitrary and capricious for three reasons. First, the court found insufficient as a basis for rescission NHTSA’s conclusion that it could not reliably predict an increase in belt usage under the Standard. The court held that there was insufficient evidence in the record to sustain NHTSA’s position on this issue, and that, “only a well justified refusal to seek more evidence could render rescission non-arbitrary.” *Id.,* at 196, 680 F. 2d, at 232. Second, a majority of the panel[^8] concluded that NHTSA inadequately considered the possibility of requiring manufacturers to install nondetachable rather than detachable passive belts. Third, the majority found that the agency acted arbitrarily and capriciously by failing to give any consideration whatever to requiring compliance with Modified Standard 208 by the installation of airbags.
+State Farm Mutual Automobile Insurance Co. and the National Association of Independent Insurers filed petitions for review of NHTSA’s rescission of the passive restraint Standard. The United States Court of Appeals for the District of Columbia Circuit held that the agency’s rescission of the passive restraint requirement was arbitrary and capricious. 220 U. S. App. D. C. 170, [680 F. 2d 206](https://www.courtlistener.com/c/F.%202d/680/206/) (1982). While observing that rescission is not unrelated to an agency’s refusal to take action in the first instance, the court concluded that, in this case, NHTSA’s discretion to rescind the passive restraint requirement had been restricted by various forms of congressional “reaction” to the passive restraint issue. It then `*40` proceeded to find that the rescission of Standard 208 was arbitrary and capricious for three reasons. First, the court found insufficient as a basis for rescission NHTSA’s conclusion that it could not reliably predict an increase in belt usage under the Standard. The court held that there was insufficient evidence in the record to sustain NHTSA’s position on this issue, and that, “only a well justified refusal to seek more evidence could render rescission non-arbitrary.” *Id.,* at 196, 680 F. 2d, at 232. Second, a majority of the panel[^8] concluded that NHTSA inadequately considered the possibility of requiring manufacturers to install nondetachable rather than detachable passive belts. \usebox\qlA\kern-.3pt \quoteA{Third, the majority found that the agency acted arbitrarily and capriciously by failing to give any consideration whatever to requiring compliance with Modified Standard 208 by the installation of airbags}\kern-.3pt\quotecount{\qrA}{2}{3}.
 
 The court allowed NHTSA 30 days in which to submit a schedule for “resolving the questions raised in th[e] opinion.” *Id.,* at 206, 680 F. 2d, at 242. Subsequently, the agency filed a Notice of Proposed Supplemental Rulemaking setting forth a schedule for complying with the court’s mandate. On August 4, 1982, the Court of Appeals issued an order staying the compliance date for the passive restraint requirement until September 1, 1983, and requested NHTSA to inform the court whether that compliance date was achievable. NHTSA informed the court on October 1,1982, that based on representations by manufacturers, it did not appear that practicable compliance could be achieved before September 1985. On November 8, 1982, we granted certiorari, [459 U. S. 987](https://www.courtlistener.com/c/U.%20S./459/987/), and on November 18, the Court of Appeals entered an order recalling its mandate.
 
 ### III
 
-Unlike the Court of Appeals, we do not find the appropriate scope of judicial review to be the “most troublesome `*41` question” in these cases. Both the Act and the 1974 Amendments concerning occupant crash protection standards indicate that motor vehicle safety standards are to be promulgated under the informal rulemaking procedures of the Administrative Procedure Act. [[5-usc-553|==[[5-usc-553|5 U. S. C. § 553]]== ==**amd** 2023==]]. The agency’s action in promulgating such standards therefore may be set aside if found to be “arbitrary, capricious, an abuse of discretion, or otherwise not in accordance with law.” [[5-usc-706|[[5-usc-706|5 U. S. C. § 706]]]](2)(A); *Citizens to Preserve Overton Park* v. *Volpe,* [[401-us-402-volpe|401 U. S. 402, 414]] (1971); *Bowman Transportation, Inc.* v. *Arkansas-Best Freight System, Inc.,* [[419-us-281-bowman-transp|419 U. S. 281]] (1974). We believe that the rescission or modification of an occupant-protection standard is subject to the same test. Section 103(b) of the Act, ==~~15 U. S. C. § 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==(b), states that the procedural and judicial review provisions of the Administrative Procedure Act “shall apply to all orders establishing, amending, or revoking a Federal motor vehicle safety standard,” and suggests no difference in the scope of judicial review depending upon the nature of the agency’s action.
+Unlike the Court of Appeals, we do not find the appropriate scope of judicial review to be the “most troublesome `*41` question” in these cases. \usebox\qlA\kern-.3pt \quoteA{Both the Act and the 1974 Amendments concerning occupant crash protection standards indicate that motor vehicle safety standards are to be promulgated under the informal rulemaking procedures of the Administrative Procedure Act.}\kern-.3pt\quotecount{\qrA}{4}{4} [[5-usc-553|==[[5-usc-553|5 U. S. C. § 553]]== ==**amd** 2023==]]. \usebox\qlB\kern-.3pt \quoteB{The agency’s action in promulgating such standards therefore may be set aside if found to be “arbitrary, capricious, an abuse of discretion, or otherwise not in accordance with law.”} [[5-usc-706|[[5-usc-706|5 U. S. C. § 706]]]]\quoteB{(2)(A);} *\quoteB{Citizens to Preserve Overton Park}* \quoteB{v.} *\quoteB{Volpe,}* [[401-us-402-volpe|401 U. S. 402, 414]] \quoteB{(1971);} *\quoteB{Bowman Transportation, Inc.}* \quoteB{v.} *\quoteB{Arkansas-Best Freight System, Inc.,}* [[419-us-281-bowman-transp|419 U. S. 281]] \quoteB{(1974}\kern-.3pt\quotecount{\qrB}{10}{5}). We believe that the rescission or modification of an occupant-protection standard is subject to the same test. Section 103(b) of the Act, ==~~15 U. S. C. § 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==(b), states that the procedural and judicial review provisions of the Administrative Procedure Act “shall apply to all orders establishing, amending, or revoking a Federal motor vehicle safety standard,” and suggests no difference in the scope of judicial review depending upon the nature of the agency’s action.
 
-Petitioner Motor Vehicle Manufacturers Association (MVMA) disagrees, contending that the rescission of an agency rule should be judged by the same standard a court would use to judge an agency’s refusal to promulgate a rule in the first place — a standard petitioner believes considerably narrower than the traditional arbitrary-and-capricious test. We reject this view. The Act expressly equates orders “revoking” and “establishing” safety standards; neither that Act nor the APA suggests that revocations are to be treated as refusals to promulgate standards. Petitioner’s view would render meaningless Congress’ authorization for judicial review of orders revoking safety rules. Moreover, the revocation of an extant regulation is substantially different than a failure to act. Revocation constitutes a reversal of the agency’s former views as to the proper course. A “settled course of behavior embodies the agency’s informed judgment that, by pursuing that course, it will carry out the policies `*42` committed to it by Congress. There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to.” *Atchison, T. & S. F. R. Co.* v. *Wichita Bd. of Trade,* [[412-us-800-atchison-co|412 U. S. 800, 807-808]] (1973). Accordingly, an agency changing its course by rescinding a rule is obligated to supply a reasoned analysis for the change beyond that which may be required when an agency does not act in the first instance.
+Petitioner Motor Vehicle Manufacturers Association (MVMA) disagrees, contending that the rescission of an agency rule should be judged by the same standard a court would use to judge an agency’s refusal to promulgate a rule in the first place — a standard petitioner believes considerably narrower than the traditional arbitrary-and-capricious test. We reject this view. The Act expressly equates orders “revoking” and “establishing” safety standards; neither that Act nor the APA suggests that revocations are to be treated as refusals to promulgate standards. Petitioner’s view would render meaningless Congress’ authorization for judicial review of orders revoking safety rules. Moreover, the revocation of an extant regulation is substantially different than a failure to act. Revocation constitutes a reversal of the agency’s former views as to the proper course. \usebox\qlA\kern-.3pt \quoteA{A “settled course of behavior embodies the agency’s informed judgment that, by pursuing that course, it will carry out the policies} `*42` \quoteA{committed to it by Congress}\kern-.3pt\quotecount{\qrA}{6}{6}. \usebox\qlA\kern-.3pt \quoteA{There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to}\kern-.3pt\quotecount{\qrA}{3}{7}.” *Atchison, T. & S. F. R. Co.* v. *Wichita Bd. of Trade,* [[412-us-800-atchison-co|412 U. S. 800, 807-808]] (1973). \usebox\qlB\kern-.3pt \quoteB{Accordingly, an agency changing its course by rescinding a rule is obligated to supply a reasoned analysis for the change beyond that which may be required when an agency does not act in the first instance}\kern-.3pt\quotecount{\qrB}{37}{8}.
 
-In so holding, we fully recognize that “[rjegulatory agencies do not establish rules of conduct to last forever,” *American Trucking Assns., Inc.* v. *Atchison, T. & S. F. R. Co.,* [[387-us-397-american-trucking|387 U. S. 397, 416]] (1967), and that an agency must be given ample latitude to “adapt their rules and policies to the demands of changing circumstances.” *Permian Basin Area Rate Cases,* [[390-us-747-permian-basin-area-rate-cases|390 U. S. 747, 784]] (1968). But the forces of change do not always or necessarily point in the direction of deregulation. In the abstract, there is no more reason to presume that changing circumstances require the rescission of prior action, instead of a revision in or even the extension of current regulation. If Congress established a presumption from which judicial review should start, that presumption — contrary to petitioners’ views — is not *against* safety regulation, but *against* changes in current policy that are not justified by the rulemaking record. While the removal of a regulation may not entail the monetary expenditures and other costs of enacting a new standard, and, accordingly, it may be easier for an agency to justify a deregulatory action, the direction in which an agency chooses to move does not alter the standard of judicial review established by law.
+\usebox\qlB\kern-.3pt \quoteB{In so holding, we fully recognize that “[rjegulatory agencies do not establish rules of conduct to last forever,”} *\quoteB{American Trucking Assns., Inc.}* \quoteB{v.} *\quoteB{Atchison, T. & S. F. R. Co.,}* [[387-us-397-american-trucking|387 U. S. 397, 416]] \quoteB{(1967), and that an agency must be given ample latitude to “adapt their rules and policies to the demands of changing circumstances}\kern-.3pt\quotecount{\qrB}{12}{9}.” *Permian Basin Area Rate Cases,* [[390-us-747-permian-basin-area-rate-cases|390 U. S. 747, 784]] (1968). But the forces of change do not always or necessarily point in the direction of deregulation. \usebox\qlA\kern-.3pt \quoteA{In the abstract, there is no more reason to presume that changing circumstances require the rescission of prior action, instead of a revision in or even the extension of current regulation}\kern-.3pt\quotecount{\qrA}{3}{10}. \usebox\qlA\kern-.3pt \quoteA{If Congress established a presumption from which judicial review should start, that presumption — contrary to petitioners’ views — is not} *\quoteA{against}* \quoteA{safety regulation, but} *\quoteA{against}* \quoteA{changes in current policy that are not justified by the rulemaking record}\kern-.3pt\quotecount{\qrA}{3}{11}. While the removal of a regulation may not entail the monetary expenditures and other costs of enacting a new standard, and, accordingly, it may be easier for an agency to justify a deregulatory action, the direction in which an agency chooses to move does not alter the standard of judicial review established by law.
 
-The Department of Transportation accepts the applicability of the “arbitrary and capricious” standard. It argues that under this standard, a reviewing court may not set aside an agency rule that is rational, based on consideration of the relevant factors, and within the scope of the authority delegated to the agency by the statute. We do not disagree with `*43` this formulation.[^9] The scope of review under the “arbitrary and capricious” standard is narrow and a court is not to substitute its judgment for that of the agency. Nevertheless, the agency must examine the relevant data and articulate a satisfactory explanation for its action including a “rational connection between the facts found and the choice made.” *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S. 156, 168]] (1962). In reviewing that explanation, we must “consider whether the decision was based on a consideration of the relevant factors and whether there has been a clear error of judgment.” *Bowman Transportation, Inc.* v. *Arkansas-Best Freight System, Inc., supra,* at 285; *Citizens to Preserve Overton Park* v. [[401-us-402-volpe|*Volpe, supra,* at 416]]. Normally, an agency rule would be arbitrary and capricious if the agency has relied on factors which Congress has not intended it to consider, entirely failed to consider an important aspect of the problem, offered an explanation for its decision that runs counter to the evidence before the agency, or is so implausible that it could not be ascribed to a difference in view or the product of agency expertise. The reviewing court should not attempt itself to make up for such deficiencies; we may not supply a reasoned basis for the agency’s action that the agency itself has not given. *SEC* v. *Chenery Corp.,* [[332-us-194-securities-exchange-commission|332 U. S. 194, 196]] (1947). We will, however, “uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned.” *Bowman Transportation, Inc.* v. *Arkansas-Best Freight System, Inc., supra,* at 286. See also *Camp* v. *Pitts,* [[411-us-138-camp|411 U. S. 138, 142-143]] (1973) *(per curiam).* For purposes of these cases, it is also relevant that Congress required a record of the rulemaking proceedings to be compiled `*44` and submitted to a reviewing court, ==~~15 U. S. C. § 1394~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30161|49 U.S.C. § 30161]]==, and intended that agency findings under the Act would be supported by “substantial evidence on the record considered as a whole.” S. Rep. No. 1301, 89th Cong., 2d Sess., 8 (1966); H. R. Rep. No. 1776, 89th Cong., 2d Sess., 21 (1966).
+The Department of Transportation accepts the applicability of the “arbitrary and capricious” standard. \usebox\qlB\kern-.3pt \quoteB{It argues that under this standard, a reviewing court may not set aside an agency rule that is rational, based on consideration of the relevant factors, and within the scope of the authority delegated to the agency by the statute}\kern-.3pt\quotecount{\qrB}{10}{12}. We do not disagree with `*43` this formulation.[^9] \usebox\qlC\kern-.3pt \quoteC{The scope of review under the “arbitrary and capricious” standard is narrow and a court is not to substitute its judgment for that of the agency}\kern-.3pt\quotecount{\qrC}{96}{13}. \usebox\qlC\kern-.3pt \quoteC{Nevertheless, the agency must examine the relevant data and articulate a satisfactory explanation for its action including a “rational connection between the facts found and the choice made}\kern-.3pt\quotecount{\qrC}{135}{14}.” *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S. 156, 168]] (1962). \usebox\qlB\kern-.3pt \quoteB{In reviewing that explanation, we must “consider whether the decision was based on a consideration of the relevant factors and whether there has been a clear error of judgment}\kern-.3pt\quotecount{\qrB}{11}{15}.” *Bowman Transportation, Inc.* v. *Arkansas-Best Freight System, Inc., supra,* at 285; *Citizens to Preserve Overton Park* v. [[401-us-402-volpe|*Volpe, supra,* at 416]]. \usebox\qlC\kern-.3pt \quoteC{Normally, an agency rule would be arbitrary and capricious if the agency has relied on factors which Congress has not intended it to consider, entirely failed to consider an important aspect of the problem, offered an explanation for its decision that runs counter to the evidence before the agency, or is so implausible that it could not be ascribed to a difference in view or the product of agency expertise}\kern-.3pt\quotecount{\qrC}{151}{16}. \usebox\qlB\kern-.3pt \quoteB{The reviewing court should not attempt itself to make up for such deficiencies; we may not supply a reasoned basis for the agency’s action that the agency itself has not given}\kern-.3pt\quotecount{\qrB}{40}{17}. *SEC* v. *Chenery Corp.,* [[332-us-194-securities-exchange-commission|332 U. S. 194, 196]] (1947). \usebox\qlB\kern-.3pt \quoteB{We will, however, “uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned}\kern-.3pt\quotecount{\qrB}{35}{18}.” *Bowman Transportation, Inc.* v. *Arkansas-Best Freight System, Inc., supra,* at 286. See also *Camp* v. *Pitts,* [[411-us-138-camp|411 U. S. 138, 142-143]] (1973) *(per curiam).* For purposes of these cases, it is also relevant that Congress required a record of the rulemaking proceedings to be compiled `*44` and submitted to a reviewing court, ==~~15 U. S. C. § 1394~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30161|49 U.S.C. § 30161]]==, and intended that agency findings under the Act would be supported by “substantial evidence on the record considered as a whole.” S. Rep. No. 1301, 89th Cong., 2d Sess., 8 (1966); H. R. Rep. No. 1776, 89th Cong., 2d Sess., 21 (1966).
 
 ### IV
 
@@ -259,25 +294,25 @@ The agency has now determined that the detachable automatic belts will not attai
 
 > `*48` “The agency has no basis at this time for changing its earlier conclusions in 1976 and 1977 that basic air bag technology is sound and has been sufficiently demonstrated to be effective in those vehicles in current use . . . NHTSA Final Regulatory Impact Analysis (RIA) XI-4 (Oct. 1981), App. 264.
 
-Given the effectiveness ascribed to airbag technology by the agency, the mandate of the Act to achieve traffic safety would suggest that the logical response to the faults of detachable seatbelts would be to require the installation of airbags. At the very least this alternative way of achieving the objectives of the Act should have been addressed and adequate reasons given for its abandonment. But the agency not only did not require compliance through airbags, it also did not even consider the possibility in its 1981 rulemaking. Not one sentence of its rulemaking statement discusses the airbags-only option. Because, as the Court of Appeals stated, “NHTSA’s . . . analysis of airbags was nonexistent,” 220 U. S. App. D. C., at 200, 680 F. 2d, at 236, what we said in *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S., at 167]], is apropos here:
+Given the effectiveness ascribed to airbag technology by the agency, the mandate of the Act to achieve traffic safety would suggest that the logical response to the faults of detachable seatbelts would be to require the installation of airbags. \usebox\qlA\kern-.3pt \quoteA{At the very least this alternative way of achieving the objectives of the Act should have been addressed and adequate reasons given for its abandonment}\kern-.3pt\quotecount{\qrA}{5}{19}. But the agency not only did not require compliance through airbags, it also did not even consider the possibility in its 1981 rulemaking. Not one sentence of its rulemaking statement discusses the airbags-only option. Because, as the Court of Appeals stated, “NHTSA’s . . . analysis of airbags was nonexistent,” 220 U. S. App. D. C., at 200, 680 F. 2d, at 236, what we said in *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S., at 167]], is apropos here:
 
-> “There are no findings and no analysis here to justify the choice made, no indication of the basis on which the [agency] exercised its expert discretion. We are not prepared to and the Administrative Procedure Act will not permit us to accept such . . . practice. . . . Expert discretion is the lifeblood of the administrative process, but ‘unless we make the requirements for administrative action strict and demanding, *expertise,* the strength of modern government, can become a monster which rules with no practical limits on its discretion.’ *New York* v. *United States,* [[342-us-882-state-of-new-york-v-united-sta|342 U. S. 882, 884]] (dissenting opinion)” (footnote omitted).
+> “There are no findings and no analysis here to justify the choice made, no indication of the basis on which the [agency] exercised its expert discretion. We are not prepared to and the Administrative Procedure Act will not permit us to accept such . . . practice. . . . \usebox\qlA\kern-.3pt \quoteA{Expert discretion is the lifeblood of the administrative process, but ‘unless we make the requirements for administrative action strict and demanding,} *\quoteA{expertise,}* \quoteA{the strength of modern government, can become a monster which rules with no practical limits on its discretion}\kern-.3pt\quotecount{\qrA}{2}{20}.’ *New York* v. *United States,* [[342-us-882-state-of-new-york-v-united-sta|342 U. S. 882, 884]] (dissenting opinion)” (footnote omitted).
 
-We have frequently reiterated that an agency must cogently explain why it has exercised its discretion in a given manner, `*49` *Atchison, T. & S. F. R. Co.* v. *Wichita Bd. of Trade,* [[412-us-800-atchison-co|412 U. S., at 806]]; *FTC* v. *Sperry & Hutchinson Co.,* [[405-us-233-sperry-hutchinson|405 U. S. 233, 249]] (1972); *NLRB* v. *Metropolitan Life Ins. Co.,* [[380-us-438-labor-board|380 U. S. 438, 443]] (1965); and we reaffirm this principle again today.
+\usebox\qlB\kern-.3pt \quoteB{We have frequently reiterated that an agency must cogently explain why it has exercised its discretion in a given manner,} `*49` *\quoteB{Atchison, T. & S. F. R. Co.}* \quoteB{v.} *\quoteB{Wichita Bd. of Trade,}* [[412-us-800-atchison-co|412 U. S., at 806]]\quoteB{;} *\quoteB{FTC}* \quoteB{v.} *\quoteB{Sperry & Hutchinson Co.,}* [[405-us-233-sperry-hutchinson|405 U. S. 233, 249]] \quoteB{(1972);} *\quoteB{NLRB}* \quoteB{v.} *\quoteB{Metropolitan Life Ins. Co.,}* [[380-us-438-labor-board|380 U. S. 438, 443]] \quoteB{(1965); and we reaffirm this principle again today}\kern-.3pt\quotecount{\qrB}{31}{21}.
 
 The automobile industry has opted for the passive belt over the airbag, but surely it is not enough that the regulated industry has eschewed a given safety device. For nearly a decade, the automobile industry waged the regulatory equivalent of war against the airbag[^14] and lost — the inflatable restraint was proved sufficiently effective. Now the automobile industry has decided to employ a seatbelt system which will not meet the safety objectives of Standard 208. This hardly constitutes cause to revoke the Standard itself. Indeed, the Act was necessary because the industry was not sufficiently responsive to safety concerns. The Act intended that safety standards not depend on current technology and could be “technology-forcing” in the sense of inducing the development of superior safety design. See *Chrysler Corp.* v. *Department of Transportation,* [[472-f2d-659-chrysler-corp-v-department-of|472 F. 2d, at 672-673]]. If, under the statute, the agency should not defer to the industry’s failure to develop safer cars, which it surely should not do, *a fortiori* it may not revoke a safety standard which can be satisfied by current technology simply because the industry has opted for an ineffective seatbelt design.
 
-Although the agency did not address the mandatory airbag option and the Court of Appeals noted that “airbags seem to have none of the problems that NHTSA identified in passive seatbelts,” 220 U. S. App. D. C., at 201, 680 F. 2d, at 237, petitioners recite a number of difficulties that they `*50` believe would be posed by a mandatory airbag standard. These range from questions concerning the installation of airbags in small cars to that of adverse public reaction. But these are not the agency’s reasons for rejecting a mandatory airbag standard. Not having discussed the possibility, the agency submitted no reasons at all. The short — and sufficient — answer to petitioners’ submission is that the courts may not accept appellate counsel’s *post hoc* rationalizations for agency action. *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S., at 168]]. It is well established that an agency’s action must be upheld, if at all, on the basis articulated by the agency itself. *Ibid.; SEC* v. *Chenery Corp.,* [[332-us-194-securities-exchange-commission|332 U. S., at 196]]; *American Textile Mfrs. Institute, Inc.* v. *Donovan,* [[452-us-490-donovan|452 U. S. 490, 539]] (1981).[^15]
+Although the agency did not address the mandatory airbag option and the Court of Appeals noted that “airbags seem to have none of the problems that NHTSA identified in passive seatbelts,” 220 U. S. App. D. C., at 201, 680 F. 2d, at 237, petitioners recite a number of difficulties that they `*50` believe would be posed by a mandatory airbag standard. These range from questions concerning the installation of airbags in small cars to that of adverse public reaction. But these are not the agency’s reasons for rejecting a mandatory airbag standard. Not having discussed the possibility, the agency submitted no reasons at all. \usebox\qlB\kern-.3pt \quoteB{The short — and sufficient — answer to petitioners’ submission is that the courts may not accept appellate counsel’s} *\quoteB{post hoc}* \quoteB{rationalizations for agency action}\kern-.3pt\quotecount{\qrB}{46}{22}. *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S., at 168]]. \usebox\qlC\kern-.3pt \quoteC{It is well established that an agency’s action must be upheld, if at all, on the basis articulated by the agency itself}\kern-.3pt\quotecount{\qrC}{100}{23}. *Ibid.; SEC* v. *Chenery Corp.,* [[332-us-194-securities-exchange-commission|332 U. S., at 196]]; *American Textile Mfrs. Institute, Inc.* v. *Donovan,* [[452-us-490-donovan|452 U. S. 490, 539]] (1981).[^15]
 
-Petitioners also invoke our decision in *Vermont Yankee Nuclear Power Corp.* v. *Natural Resources Defense Council, Inc.,* [[435-us-519-vermont-yankee-nuclear-power-c|435 U. S. 519]] (1978), as though it were a talisman under which any agency decision is by definition unimpeachable. Specifically, it is submitted that to require an agency to consider an airbags-only alternative is, in essence, to dictate to the agency the procedures it is to follow. Petitioners both misread *Vermont Yankee* and misconstrue the nature of the remand that is in order. In *Vermont Yankee,* we held that a court may not impose additional procedural requirements upon an agency. We do not require today any specific proce `*51` dures which NHTSA must follow. Nor do we broadly require an agency to consider all policy alternatives in reaching decision. It is true that rulemaking “cannot be found wanting simply because the agency failed to include every alternative device and thought conceivable by the mind of man . . . regardless of how uncommon or unknown that alternative may have been . . . .” [[435-us-519-vermont-yankee-nuclear-power-c|*Id.,* at 551]]. But the airbag is more than a policy alternative to the passive restraint Standard; it is a technological alternative within the ambit of the existing Standard. We hold only that given the judgment made in 1977 that airbags are an effective and cost-beneficial lifesaving technology, the mandatory passive restraint rule may not be abandoned without any consideration whatsoever of an airbags-only requirement.
+Petitioners also invoke our decision in *Vermont Yankee Nuclear Power Corp.* v. *Natural Resources Defense Council, Inc.,* [[435-us-519-vermont-yankee-nuclear-power-c|435 U. S. 519]] (1978), as though it were a talisman under which any agency decision is by definition unimpeachable. Specifically, it is submitted that to require an agency to consider an airbags-only alternative is, in essence, to dictate to the agency the procedures it is to follow. Petitioners both misread *Vermont Yankee* and misconstrue the nature of the remand that is in order. In *Vermont Yankee,* we held that a court may not impose additional procedural requirements upon an agency. We do not require today any specific proce `*51` dures which NHTSA must follow. \usebox\qlA\kern-.3pt \quoteA{Nor do we broadly require an agency to consider all policy alternatives in reaching decision}\kern-.3pt\quotecount{\qrA}{6}{24}. It is true that rulemaking “cannot be found wanting simply because the agency failed to include every alternative device and thought conceivable by the mind of man . . . regardless of how uncommon or unknown that alternative may have been . . . .” [[435-us-519-vermont-yankee-nuclear-power-c|*Id.,* at 551]]. \usebox\qlA\kern-.3pt \quoteA{But the airbag is more than a policy alternative to the passive restraint Standard; it is a technological alternative within the ambit of the existing Standard}\kern-.3pt\quotecount{\qrA}{3}{25}. We hold only that given the judgment made in 1977 that airbags are an effective and cost-beneficial lifesaving technology, the mandatory passive restraint rule may not be abandoned without any consideration whatsoever of an airbags-only requirement.
 
 #### B
 
 Although the issue is closer, we also find that the agency was too quick to dismiss the safety benefits of automatic seatbelts. NHTSA’s critical finding was that, in light of the industry’s plans to install readily detachable passive belts, it could not reliably predict “even a 5 percentage point increase as the minimum level of expected usage increase.” 46 Fed. Reg. 53423 (1981). The Court of Appeals rejected this finding because there is “not one iota” of evidence that Modified Standard 208 will fail to increase nationwide seatbelt use by at least 13 percentage points, the level of increased usage necessary for the Standard to justify its cost. Given the lack of probative evidence, the court held that “only a well justified refusal to seek more evidence could render rescission non-arbitrary.” 220 U. S. App. D. C., at 196, 680 F. 2d, at 232.
 
-Petitioners object to this conclusion. In their view, “substantial uncertainty” that a regulation will accomplish its intended purpose is sufficient reason, without more, to rescind a regulation. We agree with petitioners that just as an agency reasonably may decline to issue a safety standard if it is uncertain about its efficacy, an agency may also revoke a `*52` standard on the basis of serious uncertainties if supported by the record and reasonably explained. Rescission of the passive restraint requirement would not be arbitrary and capricious simply because there was no evidence in direct support of the agency’s conclusion. It is not infrequent that the available data do not settle a regulatory issue, and the agency must then exercise its judgment in moving from the facts and probabilities on the record to a policy conclusion. Recognizing that policymaking in a complex society must account for uncertainty, however, does not imply that it is sufficient for an agency to merely recite the terms “substantial uncertainty” as a justification for its actions. As previously noted, the agency must explain the evidence which is available, and must offer a “rational connection between the facts found and the choice made.” *Burlington Truck Lines, Inc.* v. *United States, supra,* at 168. Generally, one aspect of that explanation would be a justification for rescinding the regulation before engaging in a search for further evidence.
+Petitioners object to this conclusion. In their view, “substantial uncertainty” that a regulation will accomplish its intended purpose is sufficient reason, without more, to rescind a regulation. \usebox\qlA\kern-.3pt \quoteA{We agree with petitioners that just as an agency reasonably may decline to issue a safety standard if it is uncertain about its efficacy, an agency may also revoke a} `*52` \quoteA{standard on the basis of serious uncertainties if supported by the record and reasonably explained}\kern-.3pt\quotecount{\qrA}{2}{26}. Rescission of the passive restraint requirement would not be arbitrary and capricious simply because there was no evidence in direct support of the agency’s conclusion. \usebox\qlA\kern-.3pt \quoteA{It is not infrequent that the available data do not settle a regulatory issue, and the agency must then exercise its judgment in moving from the facts and probabilities on the record to a policy conclusion}\kern-.3pt\quotecount{\qrA}{6}{27}. Recognizing that policymaking in a complex society must account for uncertainty, however, does not imply that it is sufficient for an agency to merely recite the terms “substantial uncertainty” as a justification for its actions. \usebox\qlC\kern-.3pt \quoteC{As previously noted, the agency must explain the evidence which is available, and must offer a “rational connection between the facts found and the choice made}\kern-.3pt\quotecount{\qrC}{65}{28}.” *Burlington Truck Lines, Inc.* v. *United States, supra,* at 168. Generally, one aspect of that explanation would be a justification for rescinding the regulation before engaging in a search for further evidence.
 
-In these cases, the agency’s explanation for rescission of the passive restraint requirement is *not* sufficient to enable us to conclude that the rescission was the product of reasoned decisionmaking. To reach this conclusion, we do not upset the agency’s view of the facts, but we do appreciate the limitations of this record in supporting the agency’s decision. We start with the accepted ground that if used, seatbelts unquestionably would save many thousands of lives and would prevent tens of thousands of crippling injuries. Unlike recent regulatory decisions we have reviewed, *Industrial Union Dept.* v. *American Petroleum Institute,* [[448-us-607-industrial-union|448 U. S. 607]] (1980); *American Textile Mfrs. Institute, Inc.* v. *Donovan,* [[452-us-490-donovan|452 U. S. 490]] (1981), the safety benefits of wearing seatbelts are not in doubt, and it is not challenged that were those benefits to accrue, the monetary costs of implementing the Standard would be easily justified. We move next to the fact that there is no direct evidence in support of the agency’s finding that detachable automatic belts cannot be predicted `*53` to yield a substantial increase in usage. The empirical evidence on the record, consisting of surveys of drivers of automobiles equipped with passive belts, reveals more than a doubling of the usage rate experienced with manual belts.[^16] Much of the agency’s rulemaking statement — and much of the controversy in these cases — centers on the conclusions that should be drawn from these studies. The agency maintained that the doubling of seatbelt usage in these studies could not be extrapolated to an across-the-board mandatory standard because the passive seatbelts were guarded by ignition interlocks and purchasers of the tested cars are somewhat atypical.[^17] Respondents insist these studies demonstrate that Modified Standard 208 will substantially increase seatbelt usage. We believe that it is within the agency’s discretion to pass upon the generalizability of these field studies. This is precisely the type of issue which rests within the expertise of NHTSA, and upon which a reviewing court must be most hesitant to intrude.
+\usebox\qlA\kern-.3pt \quoteA{In these cases, the agency’s explanation for rescission of the passive restraint requirement is} *\quoteA{not}* \quoteA{sufficient to enable us to conclude that the rescission was the product of reasoned decisionmaking}\kern-.3pt\quotecount{\qrA}{4}{29}. To reach this conclusion, we do not upset the agency’s view of the facts, but we do appreciate the limitations of this record in supporting the agency’s decision. \usebox\qlA\kern-.3pt \quoteA{We start with the accepted ground that if used, seatbelts unquestionably would save many thousands of lives and would prevent tens of thousands of crippling injuries}\kern-.3pt\quotecount{\qrA}{4}{30}. Unlike recent regulatory decisions we have reviewed, *Industrial Union Dept.* v. *American Petroleum Institute,* [[448-us-607-industrial-union|448 U. S. 607]] (1980); *American Textile Mfrs. Institute, Inc.* v. *Donovan,* [[452-us-490-donovan|452 U. S. 490]] (1981), the safety benefits of wearing seatbelts are not in doubt, and it is not challenged that were those benefits to accrue, the monetary costs of implementing the Standard would be easily justified. We move next to the fact that there is no direct evidence in support of the agency’s finding that detachable automatic belts cannot be predicted `*53` to yield a substantial increase in usage. The empirical evidence on the record, consisting of surveys of drivers of automobiles equipped with passive belts, reveals more than a doubling of the usage rate experienced with manual belts.[^16] \usebox\qlA\kern-.3pt \quoteA{Much of the agency’s rulemaking statement — and much of the controversy in these cases — centers on the conclusions that should be drawn from these studies}\kern-.3pt\quotecount{\qrA}{3}{31}. The agency maintained that the doubling of seatbelt usage in these studies could not be extrapolated to an across-the-board mandatory standard because the passive seatbelts were guarded by ignition interlocks and purchasers of the tested cars are somewhat atypical.[^17] Respondents insist these studies demonstrate that Modified Standard 208 will substantially increase seatbelt usage. We believe that it is within the agency’s discretion to pass upon the generalizability of these field studies. This is precisely the type of issue which rests within the expertise of NHTSA, and upon which a reviewing court must be most hesitant to intrude.
 
 But accepting the agency’s view of the field tests on passive restraints indicates only that there is no reliable real-world experience that usage rates will substantially increase. To be sure, NHTSA opines that “it cannot reliably predict even a 5 percentage point increase as the minimum level of `*54` expected increased usage.” Notice 25, 46 Fed. Reg. 53423 (1981). But this and other statements that passive belts will not yield substantial increases in seatbelt usage apparently take no account of the critical difference between detachable automatic belts and current manual belts. A detached passive belt does require an affirmative act to reconnect it, but— unlike a manual seatbelt — the passive belt, once reattached, will continue to function automatically unless again disconnected. Thus, inertia — a factor which the agency’s own studies have found significant in explaining the current low usage rates for seatbelts[^18] — works in *favor* of, not *against,* use of the protective device. Since 20% to 50% of motorists currently wear seatbelts on some occasions,[^19] there would seem to be grounds to believe that seatbelt use by occasional users will be substantially increased by the detachable passive belts. Whether this is in fact the case is a matter for the agency to decide, but it must bring its expertise to bear on the question.
 
@@ -291,15 +326,15 @@ The agency is correct to look at the costs as well as the benefits of Standard 2
 
 The agency also failed to articulate a basis for not requiring nondetachable belts under Standard 208. It is argued that the concern of the agency with the easy detachability of the currently favored design would be readily solved by a continuous passive belt, which allows the occupant to “spool out” the belt and create the necessary slack for easy extrication from the vehicle. The agency did not separately consider the continuous belt option, but treated it together with the ignition interlock device in a category it titled “Option of Adopting Use-Compelling Features.” 46 Fed. Reg. 53424 `*56` (1981). The agency was concerned that use-compelling devices would “complicate the extrication of [an] occupant from his or her car.” *Ibid.* “[T]o require that passive belts contain use-compelling features,” the agency observed, “could be counterproductive [, given]. . . widespread, latent and irrational fear in many members of the public that they could be trapped by the seat belt after a crash.” *Ibid.* In addition, based on the experience with the ignition interlock, the agency feared that use-compelling features might trigger adverse public reaction.
 
-By failing to analyze the continuous seatbelts option in its own right, the agency has failed to offer the rational connection between facts and judgment required to pass muster under the arbitrary-and-capricious standard. We agree with the Court of Appeals that NHTSA did not suggest that the emergency release mechanisms used in nondetachable belts are any less effective for emergency egress than the buckle release system used in detachable belts. In 1978, when General Motors obtained the agency’s approval to install a continuous passive belt, it assured the agency that nondetachable belts with spool releases were as safe as detachable belts with buckle releases. 43 Fed. Reg. 21912, 21913-21914 (1978). NHTSA was satisfied that this belt design assured easy extricability: “[t]he agency does not believe that the use of [such] release mechanisms will cause serious occupant egress problems . . . .” *Id.,* at 52493, 52494. While the agency is entitled to change its view on the acceptability of continuous passive belts, it is obligated to explain its reasons for doing so.
+\usebox\qlA\kern-.3pt \quoteA{By failing to analyze the continuous seatbelts option in its own right, the agency has failed to offer the rational connection between facts and judgment required to pass muster under the arbitrary-and-capricious standard}\kern-.3pt\quotecount{\qrA}{2}{32}. We agree with the Court of Appeals that NHTSA did not suggest that the emergency release mechanisms used in nondetachable belts are any less effective for emergency egress than the buckle release system used in detachable belts. In 1978, when General Motors obtained the agency’s approval to install a continuous passive belt, it assured the agency that nondetachable belts with spool releases were as safe as detachable belts with buckle releases. 43 Fed. Reg. 21912, 21913-21914 (1978). NHTSA was satisfied that this belt design assured easy extricability: “[t]he agency does not believe that the use of [such] release mechanisms will cause serious occupant egress problems . . . .” *Id.,* at 52493, 52494. \usebox\qlA\kern-.3pt \quoteA{While the agency is entitled to change its view on the acceptability of continuous passive belts, it is obligated to explain its reasons for doing so}\kern-.3pt\quotecount{\qrA}{2}{33}.
 
 The agency also failed to offer any explanation why a continuous passive belt would engender the same adverse public reaction as the ignition interlock, and, as the Court of Appeals concluded, “every indication in the record points the other way.” 220 U. S. App. D. C., at 198, 680 F. 2d, at 234.[^20]
 
-`*57` We see no basis for equating the two devices: the continous belt, unlike the ignition interlock, does not interfere with the operation of the vehicle. More importantly, it is the agency’s responsibility, not this Court’s, to explain its decision.
+`*57` We see no basis for equating the two devices: the continous belt, unlike the ignition interlock, does not interfere with the operation of the vehicle. \usebox\qlA\kern-.3pt \quoteA{More importantly, it is the agency’s responsibility, not this Court’s, to explain its decision}\kern-.3pt\quotecount{\qrA}{2}{34}.
 
 ### VI
 
-“An agency’s view of what is in the public interest may change, either with or without a change in circumstances. But an agency changing its course must supply a reasoned analysis . ...” *Greater Boston Television Corp.* v. *FCC,* 143 U. S. App. D. C. 383, 394, [[444-f2d-841-greater-boston-television-corp|444 F. 2d 841, 852]] (1970) (footnote omitted), cert. denied, [403 U. S. 923](https://www.courtlistener.com/c/U.%20S./403/923/) (1971). We do not accept all of the reasoning of the Court of Appeals but we do conclude that the agency has failed to supply the requisite “reasoned analysis” in this case. Accordingly, we vacate the judgment of the Court of Appeals and remand the cases to that court with directions to remand the matter to the NHTSA for further consideration consistent with this opinion.[^21]
+“\usebox\qlB\kern-.3pt \quoteB{An agency’s view of what is in the public interest may change, either with or without a change in circumstances}\kern-.3pt\quotecount{\qrB}{14}{35}. \usebox\qlB\kern-.3pt \quoteB{But an agency changing its course must supply a reasoned analysis}\kern-.3pt\quotecount{\qrB}{23}{36} . ...” *Greater Boston Television Corp.* v. *FCC,* 143 U. S. App. D. C. 383, 394, [[444-f2d-841-greater-boston-television-corp|444 F. 2d 841, 852]] (1970) (footnote omitted), cert. denied, [403 U. S. 923](https://www.courtlistener.com/c/U.%20S./403/923/) (1971). \usebox\qlA\kern-.3pt \quoteA{We do not accept all of the reasoning of the Court of Appeals but we do conclude that the agency has failed to supply the requisite “reasoned analysis” in this case}\kern-.3pt\quotecount{\qrA}{3}{37}. Accordingly, we vacate the judgment of the Court of Appeals and remand the cases to that court with directions to remand the matter to the NHTSA for further consideration consistent with this opinion.[^21]
 
 *So ordered.*
 
@@ -311,13 +346,13 @@ I join Parts I, II, III, IV, and V-A of the Court’s opinion. In particular, I 
 
 I do not believe, however, that NHTSA’s view of detachable automatic seatbelts was arbitrary and capricious. The agency adequately explained its decision to rescind the Standard insofar as it was satisfied by detachable belts.
 
-The statute that requires the Secretary of Transportation to issue motor vehicle safety standards also requires that “[e]ach such . . . standard shall be practicable [and] shall meet the need for motor vehicle safety.” ==~~15 U. S. C. § 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==(a) (1976 ed., Supp. V). The Court rejects the agency’s explanation for its conclusion that there is substantial uncertainty whether requiring installation of detachable automatic belts would substantially increase seatbelt usage. The agency chose not to rely on a study showing a substantial increase in seatbelt usage in cars equipped with automatic seatbelts *and* an ignition interlock to prevent the car from being operated when the belts were not in place *and* which were voluntarily purchased with this equipment by consumers. See *ante,* at 53, n. 16. It is reasonable for the agency to decide that this study does not support any conclusion concerning the effect of automatic seatbelts that are installed in all cars whether the consumer wants them or not and are not linked to an ignition interlock system.
+\usebox\qlA\kern-.3pt \quoteA{The statute that requires the Secretary of Transportation to issue motor vehicle safety standards also requires that “[e]ach such . . . standard shall be practicable [and] shall meet the need for motor vehicle safety.”} ==~~15 U. S. C. § 1392~~== ==**mv** [[49-usc-30103|49 U.S.C. § 30103]], [[49-usc-30111|49 U.S.C. § 30111]], [[49-usc-30125|49 U.S.C. § 30125]]==\quoteA{(a) (1976 ed., Supp. V). The Court rejects the agency’s explanation for its conclusion that there is substantial uncertainty whether requiring installation of detachable automatic belts would substantially increase seatbelt usage}\kern-.3pt\quotecount{\qrA}{2}{40}. The agency chose not to rely on a study showing a substantial increase in seatbelt usage in cars equipped with automatic seatbelts *and* an ignition interlock to prevent the car from being operated when the belts were not in place *and* which were voluntarily purchased with this equipment by consumers. See *ante,* at 53, n. 16. It is reasonable for the agency to decide that this study does not support any conclusion concerning the effect of automatic seatbelts that are installed in all cars whether the consumer wants them or not and are not linked to an ignition interlock system.
 
-The Court rejects this explanation because “there would seem to be grounds to believe that seatbelt use by occasional users will be substantially increased by the detachable passive belts,” *ante,* at 54, and the agency did not adequately explain its rejection of these grounds. It seems to me that the agency’s explanation, while by no means a model, is adequate. The agency acknowledged that there would probably be some increase in belt usage, but concluded that the increase would be small and not worth the cost of manda `*59` tory detachable automatic belts. 46 Fed. Reg. 53421-53423 (1981). The agency’s obligation is to articulate a “‘rational connection between the facts found and the choice made.’” *Ante,* at 42, 52, quoting *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S. 156, 168]] (1962). I believe it has met this standard.
+The Court rejects this explanation because “there would seem to be grounds to believe that seatbelt use by occasional users will be substantially increased by the detachable passive belts,” *ante,* at 54, and the agency did not adequately explain its rejection of these grounds. It seems to me that the agency’s explanation, while by no means a model, is adequate. The agency acknowledged that there would probably be some increase in belt usage, but concluded that the increase would be small and not worth the cost of manda `*59` tory detachable automatic belts. 46 Fed. Reg. 53421-53423 (1981). \usebox\qlA\kern-.3pt \quoteA{The agency’s obligation is to articulate a “‘rational connection between the facts found and the choice made}\kern-.3pt\quotecount{\qrA}{2}{41}.’” *Ante,* at 42, 52, quoting *Burlington Truck Lines, Inc.* v. *United States,* [[371-us-156-burlington-truck-lines-inc-v-u|371 U. S. 156, 168]] (1962). I believe it has met this standard.
 
 The agency explicitly stated that it will increase its educational efforts in an attempt to promote public understanding, acceptance, and use of passenger restraint systems. 46 Fed. Reg. 53425 (1981). It also stated that it will “initiate efforts with automobile manufacturers to ensure that the public will have [automatic crash protection] technology available. If this does not succeed, the agency will consider regulatory action to assure that the last decade’s enormous advances in crash protection technology will not be lost.” *Id.,* at 53426.
 
-The agency’s changed view of the standard seems to be related to the election of a new President of a different political party. It is readily apparent that the responsible members of one administration may consider public resistance and uncertainties to be more important than do their counterparts in a previous administration. A change in administration brought about by the people casting their votes is a perfectly reasonable basis for an executive agency’s reappraisal of the costs and benefits of its programs and regulations. As long as the agency remains within the bounds established by Congress,[^2-star] it is entitled to assess administrative records and evaluate priorities in light of the philosophy of the administration.
+The agency’s changed view of the standard seems to be related to the election of a new President of a different political party. It is readily apparent that the responsible members of one administration may consider public resistance and uncertainties to be more important than do their counterparts in a previous administration. \usebox\qlA\kern-.3pt \quoteA{A change in administration brought about by the people casting their votes is a perfectly reasonable basis for an executive agency’s reappraisal of the costs and benefits of its programs and regulations}\kern-.3pt\quotecount{\qrA}{2}{42}. As long as the agency remains within the bounds established by Congress,[^2-star] it is entitled to assess administrative records and evaluate priorities in light of the philosophy of the administration.
 
 ## The law cited
 
@@ -328,27 +363,514 @@ The agency’s changed view of the standard seems to be related to the election 
 - 15 U.S.C. § 1394
 - 15 U.S.C. § 1410b
 
+## Quote lineage
+
+*What later opinions cite this case for, sentence by sentence: their parentheticals ("holding that …") matched to the sentence they restate (5+ consecutive shared words); ×N = how many. Other courts' words: quote the opinion.*
+
+### ×2 · White, J., intro, \*34
+
+> Briefly summarized, we hold that the agency failed to present an adequate basis and explanation for rescinding the passive restraint requirement and that the agency must either consider the matter further or adhere to or amend Standard 208 along lines which its analysis supports. •
+
+- **When:** 2014–2014 (2010s 2)
+- **Where:** Other (state, bankruptcy, specialty) 2; most: N.M. Ct. App. 2
+- **How:** (holding that a federal agency’s rescission of part of a federal regulation was arbitrary and capricious where the agency failed to present an adequate basis and explanation for the rescission) ×2 — *Southwest Research & Information Center v. New Mexico Environment Department, N.M. Ct. App. 2014*
+
+### ×3 · White, J., Part I, \*36
+
+> In preparing for the upcoming model year, most car makers chose the “ignition interlock” option, a decision which was highly unpopular, and led Congress to amend the Act to prohibit a motor vehicle safety standard from requiring or permitting compliance by means of an ignition interlock or a continuous buzzer designed to indicate that safety belts were not in use.
+
+- **When:** 1987–1992 (1980s 2, 1990s 1)
+- **Where:** Federal courts of appeals 2, Federal district courts 1; most: D.C. Cir. 2, E.D. Mo. 1
+- **How:** (holding that the National Highway Traffic Safety Commission acted arbitrarily and capriciously in revoking a motor vehicle safety standard without supplying a reasoned analysis) — *Sullivan, E.D. Mo. 1992*
+- **How:** (holding that the arbitrary and capricious standard performs its usual role of assuring factual support in a case involving a NHTSA decision to rescind a motor vehicle safety standard) — *Center for Auto Safety v. Elizabeth H. Dole, Secretary, Department of Transportation, D.C. Cir. 1987*
+- **How:** (holding that the arbitrary and capricious standard performs its usual role of assuring factual support in a case involving a NHTSA decision to rescind a motor «vehicle safety standard) — *Center for Auto Safety v. Elizabeth H. Dole, Secretary, Department of Transportation, D.C. Cir. 1987*
+
+### ×2 · White, J., Part II, \*40
+
+> Third, the majority found that the agency acted arbitrarily and capriciously by failing to give any consideration whatever to requiring compliance with Modified Standard 208 by the installation of airbags.
+
+- **When:** 2020–2020 (2020s 2)
+- **Where:** Federal district courts 2; most: D. Mont. 2
+- **How:** (holding that agency acted arbitrarily and capriciously when it failed to consider all appropriate factors before revoking seatbelt requirement from vehicle safety standard) ×2 — *Upper Missouri Waterkeeper v. United States Environmental Protection Agency, D. Mont. 2020*
+
+### ×4 · White, J., Part III, \*41
+
+> Both the Act and the 1974 Amendments concerning occupant crash protection standards indicate that motor vehicle safety standards are to be promulgated under the informal rulemaking procedures of the Administrative Procedure Act. 5 U. S. C. § 553.
+
+- **When:** 1999–2017 (1990s 1, 2010s 3)
+- **Where:** Federal courts of appeals 2, Federal district courts 1, Other (state, bankruptcy, specialty) 1; most: Fed. Cir. 2, Ct. Intl. Trade 1, E.D. Pa. 1
+- **How:** (finding that the agency’s decision to revoke an existing regulation promulgated under the rule-making procedures of the Administrative Procedure Act, is void as arbitrary and capricious in the absence of a reasoned explanation for the revocation) — *Asociacion Colombiana De Exportadores De Flores v. United States, Ct. Intl. Trade 1999*
+- **How:** (agency standards promulgated under the informal rulemaking procedures of § 553 of the APA governed by § 706(2)(A)) — *Sebelius, E.D. Pa. 2013*
+- **How:** ("[I]nextricably intertwined with ... 5 U.S.C. § 553(c) is the agency's need to respond, in a reasoned manner, to any comments received by the agency that raise significant issues with respect to a proposed rule.”) — *Mid Continent Nail Corporation v. United States, Fed. Cir. 2017*
+
+### ×10 · White, J., Part III, \*41
+
+> The agency’s action in promulgating such standards therefore may be set aside if found to be “arbitrary, capricious, an abuse of discretion, or otherwise not in accordance with law.” 5 U. S. C. § 706(2)(A); Citizens to Preserve Overton Park v. Volpe, 401 U. S. 402, 414 (1971); Bowman Transportation, Inc. v. Arkansas-Best Freight System, Inc., 419 U. S. 281 (1974).
+
+- **When:** 1995–2023 (1990s 1, 2000s 3, 2010s 5, 2020s 1)
+- **Where:** Federal courts of appeals 8, Federal district courts 2; most: D.C. Cir. 4, 3rd Cir. 2, D. Alaska 1, D. Kan. 1
+- **How:** (explaining the “arbitrary and capricious” standard of review under 5 U.S.C. § 706(2)(A) of the Administrative Procedure Act) ×2 — *National Ass'n of Securities Dealers, Inc. v. Securities & Exchange Commission, D.C. Cir. 2005*
+- **How:** (“We will . . . ‘uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned.’” (quoting Bowman Transp. Inc. v. Arkansas-Best Freight Sys., Inc., 419 U.S. 281, 286 (1974))) — *Haaland, D. Alaska 2019*
+- **How:** (“We will . . . uphold a decision of less than ideal clarity if the agency’s path may reasonably be 26 discerned.” (quoting Bowman Transp., Inc. v. Arkansas-Best Freight Sys., Inc., 419 U.S. 281, 286 (1974))) — *Delaware Riverkeeper Network v. Sec Pa Dept Environmental Prot, 3rd Cir. 2017*
+
+### ×6 · White, J., Part III, \*41
+
+> A “settled course of behavior embodies the agency’s informed judgment that, by pursuing that course, it will carry out the policies committed to it by Congress.
+
+- **When:** 1984–2018 (1980s 2, 1990s 1, 2000s 1, 2010s 2)
+- **Where:** Supreme Court 1, Federal courts of appeals 2, Federal district courts 2, Other (state, bankruptcy, specialty) 1; most: D.C. Cir. 2, M.D. Fla. 1, Fed. Cl. 1, E.D.N.Y 1
+- **How:** (holding that "[a] settled course of behavior embodies the agency’s informed judgment that, by pursuing that course, it will carry out the policies committed to it by Congress”) — *United States v. Franck's Lab, Inc., M.D. Fla. 2011*
+- **How:** (“A 'settled course of behavior embodies the agency’s informed judgment that, by pursuing that course, it will carry out the policies committed to it by Congress. There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to.’”) — *New York State Commission on Cable Television v. Federal Communications Commission, D.C. Cir. 1984*
+- **How:** ("A 'settled course of behavior embodies the agency's informed judgment that, by pursuing that course, it will carry out the policies committed to it by Congress. There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to.' ") — *New York State Commission On Cable Television v. Federal Communications Commission, D.C. Cir. 1984*
+
+### ×3 · White, J., Part III, \*42
+
+> There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to.”
+
+- **When:** 1984–2018 (1980s 2, 2010s 1)
+- **Where:** Federal courts of appeals 2, Other (state, bankruptcy, specialty) 1; most: D.C. Cir. 2, Fed. Cl. 1
+- **How:** (“A 'settled course of behavior embodies the agency’s informed judgment that, by pursuing that course, it will carry out the policies committed to it by Congress. There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to.’”) — *New York State Commission on Cable Television v. Federal Communications Commission, D.C. Cir. 1984*
+- **How:** ("A 'settled course of behavior embodies the agency's informed judgment that, by pursuing that course, it will carry out the policies committed to it by Congress. There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to.' ") — *New York State Commission On Cable Television v. Federal Communications Commission, D.C. Cir. 1984*
+- **How:** (“A settled course of behavior embodies the agency's informed judgment that, by pursuing that course, it will carry out the policies committed to it by Congress. There is, then, at least a presumption that those policies will be carried out best if the settled rule is adhered to.”) — *Dzsp 21, LLC v. United States, Fed. Cl. 2018*
+
+### ×37 · White, J., Part III, \*42
+
+> Accordingly, an agency changing its course by rescinding a rule is obligated to supply a reasoned analysis for the change beyond that which may be required when an agency does not act in the first instance.
+
+- **When:** 1983–2025 (1980s 13, 1990s 5, 2000s 11, 2010s 5, 2020s 3)
+- **Where:** Federal courts of appeals 26, Federal district courts 10, Other (state, bankruptcy, specialty) 1; most: D.C. Cir. 12, 2d Cir. 5, D.D.C. 4, 9th Cir. 3
+- **How:** (“[A]n agency changing its course by rescinding a rule is obligated to supply a reasoned analysis for the change beyond that which may be required when an agency does not act in the first instance.”) ×5 — *Wyoming Lodging & Restaurant Ass'n v. United States Department of the Interior, D. Wyo. 2005*
+- **How:** (“an agency changing its course by rescinding a rule is obligated to supply a reasoned analysis for the change”) ×3 — *Sam MAZZA, Appellant, v. SECRETARY OF DEPARTMENT OF HEALTH AND HUMAN SERVICES of the United States, Appellee, 3rd Cir. 1990*
+- **How:** (“an agency changing its course by rescinding a rule is obligated to supply a reasoned analysis for the change beyond that which may be required when an agency does not act in the first instance.”) ×2 — *Exelon, 7th Cir. 2012*
+
+### ×12 · White, J., Part III, \*42
+
+> In so holding, we fully recognize that “[rjegulatory agencies do not establish rules of conduct to last forever,” American Trucking Assns., Inc. v. Atchison, T. & S. F. R. Co., 387 U. S. 397, 416 (1967), and that an agency must be given ample latitude to “adapt their rules and policies to the demands of changing circumstances.”
+
+- **When:** 1987–2025 (1980s 2, 2000s 5, 2010s 4, 2020s 1)
+- **Where:** Federal courts of appeals 7, Federal district courts 2, Other (state, bankruptcy, specialty) 3; most: 11th Cir. 4, D.C. Cir. 3, N.J. 2, D. Kan. 1
+- **How:** (“[A]n agency must be given ample latitude to adapt their rules and policies to the demands of changing circumstances.” (internal quotation marks omitted)) ×2 — *BMI Salvage Corporation v. Federal Aviation Administration, 11th Cir. 2012*
+- **How:** (noting that agencies have latitude to “adapt their rules and policies to the demands of changing-circumstances”) — *Gonzalez Ex Rel. Gonzalez v. Reno, 11th Cir. 2000*
+- **How:** (explaining that “an agency must be given ample latitude to adapt their rules and policies to the demands of changing circumstances” (internal quotation and citation omitted)) — *Perdue, D. Kan. 2019*
+
+### ×3 · White, J., Part III, \*42
+
+> In the abstract, there is no more reason to presume that changing circumstances require the rescission of prior action, instead of a revision in or even the extension of current regulation.
+
+- **When:** 1993–2009 (1990s 1, 2000s 2)
+- **Where:** Federal district courts 2, Other (state, bankruptcy, specialty) 1; most: D.D.C. 2, Del. Super. Ct. 1
+- **How:** (“[T]here is no more reason to presume that changing circumstances require the rescission of prior action, instead of a revision in or even the extension of current regulation”) ×2 — *Sebelius, D.D.C. 2009*
+- **How:** (“But the forces of change do not always point in the direction of deregulation ... there is no more reason to presume that changing circumstances require the rescission of prior action, instead of a revision in or even the extension of current regulation”) — *Eastern Shore Natural Gas Co. v. Delaware Public Service Commission, Del. Super. Ct. 1993*
+
+### ×3 · White, J., Part III, \*42
+
+> If Congress established a presumption from which judicial review should start, that presumption — contrary to petitioners’ views — is not against safety regulation, but against changes in current policy that are not justified by the rulemaking record.
+
+- **When:** 1992–2017 (1990s 1, 2000s 1, 2010s 1)
+- **Where:** Federal courts of appeals 2, Federal district courts 1; most: D.C. Cir. 1, 1st Cir. 1, D.D.C. 1
+- **How:** (agency rules must be “justified by the rulemaking record”) — *American Petroleum Institute v. Environmental Protection Agency, D.C. Cir. 2017*
+- **How:** (“If Congress established a presumption from which judicial review should start, that presumption ... is ... against changes in current policy that are not justified by the rulemaking record.”) — *Citizens Awareness Network, Inc. v. United States, 1st Cir. 2004*
+- **How:** (“If Congress [has] established a presumption from which judicial review should start, that presumption ... [is] against changes in current policy that are not justified by the rulemaking record.”) — *Stellacom, Inc. v. United States, D.D.C. 1992*
+
+### ×10 · White, J., Part III, \*42
+
+> It argues that under this standard, a reviewing court may not set aside an agency rule that is rational, based on consideration of the relevant factors, and within the scope of the authority delegated to the agency by the statute.
+
+- **When:** 1991–2025 (1990s 2, 2000s 4, 2010s 1, 2020s 3)
+- **Where:** Federal courts of appeals 5, Federal district courts 4, Other (state, bankruptcy, specialty) 1; most: 6th Cir. 3, D.D.C. 3, 2d Cir. 2, D.P.R. 1
+- **How:** (stating that a reviewing court “may not supply a reasoned basis for the agency’s action that the agency itself has not given”) ×2 — *Kentucky Waterways Alliance v. Johnson, 6th Cir. 2008*
+- **How:** (“[A] reviewing court may not set aside an agency [decision] that is rational, based on consideration of the relevant factors and within the scope of the authority delegated to the agency by the statute.”) ×2 — *McKinney, D.D.C. 2020*
+- **How:** (stating that a reviewing court "may not supply a reasoned basis for the agency's action that the agency itself has not given") — *Kentucky Waterways Alliance v. Johnson, 6th Cir. 2008*
+
+### ×96 · White, J., Part III, \*43
+
+> The scope of review under the “arbitrary and capricious” standard is narrow and a court is not to substitute its judgment for that of the agency.
+
+- **When:** 1985–2026 (1980s 7, 1990s 8, 2000s 16, 2010s 31, 2020s 34)
+- **Where:** Federal courts of appeals 29, Federal district courts 30, Other (state, bankruptcy, specialty) 37; most: Fed. Cl. 36, D.D.C. 20, D.C. Cir. 13, 9th Cir. 4
+- **How:** (“The scope of review under the ‘arbitrary and capricious’ standard is narrow and a court is not to substitute its judgment for that of the agency.”) ×35 — *Ferc, D.C. Cir. 2007*
+- **How:** (“[A] court is not to substitute its judgment for that of the agency.”) ×6 — *Evans, S.D.N.Y. 2003*
+- **How:** (“The scope of review under the arbitrary and capricious standard is narrow and a court is not to substitute its judgment for that of the agency.”) ×5 — *Bannum, Inc. v. United States, Fed. Cl. 2009*
+- **Wording from:** New York Ex Rel. New York & Queens Gas Co. v. McCall, SCOTUS 1917 (7 words) → State Public Utilities Commission ex rel. City of Springfield v. Springfield Gas & Electric Co., Ill. 1919 (8 words) → State ex rel. Southwestern Bell Telephone Co. v. Public Service Commission of Missouri, SCOTUS 1923 (8 words) → St. Joseph Stock Yards Co. v. United States, SCOTUS 1936 (8 words) → Western Addition Community Organization v. Weaver, N.D. Cal. 1968 (8 words) → Citizens to Preserve Overton Park, Inc. v. Volpe, SCOTUS 1971 (9 words) → Chrysler Corp. v. Department of Transportation, 6th Cir. 1972 (8 words) → Bowman Transportation, Inc. v. Arkansas-Best Freight System, Inc., SCOTUS 1975 (9 words) → Kleppe v. Sierra Club, SCOTUS 1976 (8 words) → Vermont Yankee Nuclear Power Corp. v. Natural Resources Defense Council, Inc., SCOTUS 1978 (8 words) → this case
+
+### ×135 · White, J., Part III, \*43
+
+> Nevertheless, the agency must examine the relevant data and articulate a satisfactory explanation for its action including a “rational connection between the facts found and the choice made.”
+
+- **When:** 1985–2026 (1980s 4, 1990s 13, 2000s 18, 2010s 48, 2020s 52)
+- **Where:** Supreme Court 2, Federal courts of appeals 49, Federal district courts 41, Other (state, bankruptcy, specialty) 43; most: Fed. Cl. 26, D.D.C. 20, D.C. Cir. 19, Ct. Intl. Trade 11
+- **How:** (court should review agency action to determine if the agency has “examine[d] the relevant data and articulate[d] a satisfactory explanation for its action”) ×7 — *It Enterprise Solutions Jv, LLC v. United States, Fed. Cl. 2017*
+- **How:** (noting that a court should review agency action to determine if the agency has “examine[d] the relevant data and articulate[d] a satisfactory explanation for its action”) ×7 — *Urs Federal Services, Inc. v. United States, Fed. Cl. 2019*
+- **How:** (“[T]he agency must examine the relevant data and articulate a satisfactory explanation for its action including a rational connection between the facts found and the choice made.”) ×4 — *Natural Resources Defense Council, Inc. v. United States Food & Drug Administration, S.D.N.Y. 2012*
+- **Wording from:** Burlington Truck Lines, Inc. v. United States, SCOTUS 1962 (10 words) → Federal Power Commission v. United Gas Pipe Line Co., SCOTUS 1968 (10 words) → Federal Trade Commission v. Sperry & Hutchinson Co., SCOTUS 1972 (10 words) → Bowman Transportation, Inc. v. Arkansas-Best Freight System, Inc., SCOTUS 1975 (11 words) → this case
+
+### ×11 · White, J., Part III, \*43
+
+> In reviewing that explanation, we must “consider whether the decision was based on a consideration of the relevant factors and whether there has been a clear error of judgment.”
+
+- **When:** 1984–2026 (1980s 2, 1990s 1, 2000s 1, 2020s 7)
+- **Where:** Federal courts of appeals 5, Federal district courts 4, Other (state, bankruptcy, specialty) 2; most: D.C. Cir. 3, M.D. Ala. 1, D.D.C. 1, N.D. Cal. 1
+- **How:** (limiting review to “whether the decision was based on a consideration of the relevant factors and whether there has been a clear error of judgment”) — *Shalala, M.D. Ala. 2000*
+- **How:** (“In reviewing [an agency’s] explanation, we must ‘consider whether the decision was based on a consideration of the relevant factors and whether there has been a clear error of judgment’ ”) — *Davis, D.D.C. 1999*
+- **How:** (“[A] reviewing court must 20 determine whether an agency’s decision was based on a consideration of the relevant factors and 21 whether there has been a clear error of judgment.”) — *Drishticon, Inc. v. United States Citizenship and Immigration Service, N.D. Cal. 2025*
+
+### ×151 · White, J., Part III, \*43
+
+> Normally, an agency rule would be arbitrary and capricious if the agency has relied on factors which Congress has not intended it to consider, entirely failed to consider an important aspect of the problem, offered an explanation for its decision that runs counter to the evidence before the agency, or is so implausible that it could not be ascribed to a difference in view or the product of agency expertise.
+
+- **When:** 1983–2026 (1980s 9, 1990s 17, 2000s 26, 2010s 47, 2020s 52)
+- **Where:** Supreme Court 2, Federal courts of appeals 75, Federal district courts 43, Other (state, bankruptcy, specialty) 31; most: D.C. Cir. 22, 9th Cir. 18, D.D.C. 18, Fed. Cl. 15
+- **How:** (a decision is arbitrary and capricious only if it is “so implausible that it could not be ascribed to a difference in view”) ×3 — *Mohamad, Fed. Cl. 2024*
+- **How:** (agency may not "entirely fail[] to consider an important aspect of the problem") ×2 — *Puerto Rico Sun Oil v. EPA, 1st Cir. 1993*
+- **How:** (stating that an administrative determination is arbitrary and capricious if the agency has “entirely failed to consider an important aspect of the problem”) ×2 — *Chao, Ct. Intl. Trade 2002*
+
+### ×40 · White, J., Part III, \*43
+
+> The reviewing court should not attempt itself to make up for such deficiencies; we may not supply a reasoned basis for the agency’s action that the agency itself has not given.
+
+- **When:** 1988–2026 (1980s 1, 1990s 4, 2000s 11, 2010s 11, 2020s 13)
+- **Where:** Supreme Court 2, Federal courts of appeals 23, Federal district courts 10, Other (state, bankruptcy, specialty) 5; most: 9th Cir. 11, D.D.C. 7, 6th Cir. 3, 10th Cir. 3
+- **How:** (stating that a reviewing court “may not supply a reasoned basis for the agency’s action that the agency itself has not given”) ×2 — *Kentucky Waterways Alliance v. Johnson, 6th Cir. 2008*
+- **How:** (“We may not supply a reasoned basis for the agency’s action that the agency itself has not given.” (quoting SEC v. Chenery Corp., 332 U.S. 194, 196 (1947))) ×2 — *National Family Farm Coalition v. Usepa, 9th Cir. 2020*
+- **How:** (“We may not supply a reasoned basis for the agency’s action that the agency itself has not given. We will, however, uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned.” (citations and quotation marks omitted)) ×2 — *Faa, 9th Cir. 2021*
+- **Wording from:** Bowman Transportation, Inc. v. Arkansas-Best Freight System, Inc., SCOTUS 1975 (14 words) → this case
+
+### ×35 · White, J., Part III, \*43
+
+> We will, however, “uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned.”
+
+- **When:** 1991–2024 (1990s 9, 2000s 3, 2010s 13, 2020s 10)
+- **Where:** Federal courts of appeals 21, Federal district courts 12, Other (state, bankruptcy, specialty) 2; most: D.C. Cir. 9, 9th Cir. 5, D.D.C. 5, Ct. Intl. Trade 2
+- **How:** (holding that even “a decision of less than ideal clarity” should be upheld in such circumstances) ×2 — *San Luis & Delta-Mendota Water v. Natural Resources Defense Coun, 9th Cir. 2014*
+- **How:** (“We will ... uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned.”) ×2 — *Sebelius, D.D.C. 2010*
+- **How:** (“We may not supply a reasoned basis for the agency’s action that the agency itself has not given. We will, however, uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned.” (citations and quotation marks omitted)) ×2 — *Faa, 9th Cir. 2021*
+- **Wording from:** Greater Boston Television Corp. v. Federal Communications Commission, D.C. Cir. 1970 (14 words) → Bowman Transportation, Inc. v. Arkansas-Best Freight System, Inc., SCOTUS 1975 (17 words) → this case
+
+### ×5 · White, J., Part V-A, \*48
+
+> At the very least this alternative way of achieving the objectives of the Act should have been addressed and adequate reasons given for its abandonment.
+
+- **When:** 1990–2020 (1990s 4, 2020s 1)
+- **Where:** Federal courts of appeals 4, Federal district courts 1; most: 6th Cir. 2, 9th Cir. 2, D. Colo. 1
+- **How:** (holding that an “alternative way of achieving the [stated] objectives ... should have been addressed and adequate reasons given for its abandonment”) — *Cincinnati Bell Telephone Co. v. Federal Communications Commission, 6th Cir. 1995*
+- **How:** (noting that "[a]t the very least this alternative way [requiring installation of air bags] of achieving the objectives of the Act should have been addressed and adequate reasons given for its abandonment") — *Nos. 89-70061, 89-70308, 9th Cir. 1990*
+- **How:** (noting that "[a]t the very least this alternative way [requiring installation of air bags] of achieving the objectives of the Act should have been addressed and adequate reasons given for its abandonment”) — *Skinner, 9th Cir. 1990*
+
+### ×2 · White, J., Part V-A, \*48
+
+> Expert discretion is the lifeblood of the administrative process, but ‘unless we make the requirements for administrative action strict and demanding, expertise, the strength of modern government, can become a monster which rules with no practical limits on its discretion.’
+
+- **When:** 2020–2020 (2020s 2)
+- **Where:** Other (state, bankruptcy, specialty) 2; most: N.C. 2
+- **How:** (stating that “[e]xpert discretion is the lifeblood of the administrative process”) ×2 — *Stein, N.C. 2020*
+
+### ×31 · White, J., Part V-A, \*48
+
+> We have frequently reiterated that an agency must cogently explain why it has exercised its discretion in a given manner, Atchison, T. & S. F. R. Co. v. Wichita Bd. of Trade, 412 U. S., at 806; FTC v. Sperry & Hutchinson Co., 405 U. S. 233, 249 (1972); NLRB v. Metropolitan Life Ins. Co., 380 U. S. 438, 443 (1965); and we reaffirm this principle again today.
+
+- **When:** 1985–2026 (1980s 1, 1990s 3, 2000s 14, 2010s 7, 2020s 6)
+- **Where:** Supreme Court 2, Federal courts of appeals 14, Federal district courts 8, Other (state, bankruptcy, specialty) 7; most: Fed. Cir. 6, Ct. Intl. Trade 4, D.C. Cir. 3, N.D. Cal. 2
+- **How:** (“We have frequently reiterated that an agency must cogently explain why it has exercised its discretion in a given manner”) ×2 — *National Ass'n of Home Builders v. Defenders of Wildlife, SCOTUS 2007*
+- **How:** (stating that “an agency must cogently explain why it has exercised its discretion in a given manner”) ×2 — *Costa, D. Neb. 2006*
+- **How:** (explaining that “an agency must cogently explain why it has exercised its discretion in a given manner”) ×2 — *Apex Frozen Foods Private Ltd. v. United States, Ct. Intl. Trade 2016*
+
+### ×46 · White, J., Part V-A, \*50
+
+> The short — and sufficient — answer to petitioners’ submission is that the courts may not accept appellate counsel’s post hoc rationalizations for agency action.
+
+- **When:** 1983–2026 (1980s 7, 1990s 2, 2000s 5, 2010s 15, 2020s 17)
+- **Where:** Supreme Court 2, Federal courts of appeals 19, Federal district courts 19, Other (state, bankruptcy, specialty) 6; most: D.D.C. 9, 4th Cir. 6, D.C. Cir. 6, Ct. Intl. Trade 3
+- **How:** (“[C]ourts may not accept appellate counsel’s post hoc rationalizations for agency action”) ×4 — *FERC, D.C. Cir. 2007*
+- **How:** (“[C]ourts may not accept appellate counsel’s post hoc rationalizations for agency action.”) ×4 — *Mayor and City Council of Balt v. Alex Azar, II, 4th Cir. 2020*
+- **How:** (explaining the Court “may not accept appellate counsel’s post hoc rationalizations for agency action.”) ×2 — *Chestnut, D.S.C. 2022*
+- **Wording from:** Burlington Truck Lines, Inc. v. United States, SCOTUS 1962 (14 words) → National Labor Relations Board v. Metropolitan Life Insurance, SCOTUS 1965 (13 words) → this case
+
+### ×100 · White, J., Part V-A, \*50
+
+> It is well established that an agency’s action must be upheld, if at all, on the basis articulated by the agency itself.
+
+- **When:** 1983–2026 (1980s 14, 1990s 12, 2000s 21, 2010s 28, 2020s 25)
+- **Where:** Federal courts of appeals 50, Federal district courts 33, Other (state, bankruptcy, specialty) 17; most: D.C. Cir. 18, D.D.C. 14, Fed. Cir. 9, Ct. Intl. Trade 7
+- **How:** (“It is well-established that an agency’s action must be upheld, if at all, on the basis articulated by the agency itself.”) ×18 — *Texas v. United States Environmental Protection Agency, 5th Cir. 2016*
+- **How:** (“[A]n agency’s action must be upheld, if at all, on the basis articulated by the agency itself.”) ×7 — *Joseph F. Dugan v. Arch Ramsay, Director of the Office of Personnel Management, 1st Cir. 1984*
+- **How:** (“It is well established that an agency’s action must be upheld, if at all, on the basis articulated by the agency itself.”) ×7 — *Robert v. Serrao v. Merit Systems Protection Board, Fed. Cir. 1996*
+- **Wording from:** Burlington Truck Lines, Inc. v. United States, SCOTUS 1962 (7 words) → this case
+
+### ×6 · White, J., Part V-A, \*51
+
+> Nor do we broadly require an agency to consider all policy alternatives in reaching decision.
+
+- **When:** 1990–2024 (1990s 2, 2010s 2, 2020s 2)
+- **Where:** Federal courts of appeals 5, Federal district courts 1; most: 9th Cir. 3, 4th Cir. 2, E.D. Va. 1
+- **How:** (“[A]n agency [need not] consider all policy alternatives in reaching [a] decision.”) ×3 — *Bristol University v. Accrediting Council for Independent Colleges & Schools, 4th Cir. 2017*
+- **How:** ("Nor do we broadly require an agency to reconsider all policy alternatives in reaching decision.") — *Nos. 89-70061, 89-70308, 9th Cir. 1990*
+- **How:** ("Nor do we broadly require an agency to reconsider all policy alternatives in reaching decision.”) — *Skinner, 9th Cir. 1990*
+
+### ×3 · White, J., Part V-A, \*51
+
+> But the airbag is more than a policy alternative to the passive restraint Standard; it is a technological alternative within the ambit of the existing Standard.
+
+- **When:** 1993–2022 (1990s 1, 2010s 1, 2020s 1)
+- **Where:** Federal courts of appeals 1, Federal district courts 2; most: D.C. Cir. 1, W.D. Wash. 1, E.D. Tex. 1
+- **How:** (finding arbitrary and capricious agency’s failure to explain rejection of an alternative that was “within the ambit of the existing Standard” and shown to rely on sound technology and to be effective) — *Clinton Memorial Hospital v. Donna E. Shalala, Secretary, Department of Health and Human Services, D.C. Cir. 1993*
+- **How:** (acknowledging that an agency need not consider 11 and reject all policy alternatives when reaching a decision, but noting that where an alternative is 12 within the ambit of the existing standard or policy, “it may not be abandoned without any 13 14 consideration whatsoever”) — *State of Washington v. United States Department of State, W.D. Wash. 2019*
+- **How:** (requiring agencies to consider “alternative[s] within the ambit of the existing standard[s].”) — *Tice-Harouff, E.D. Tex. 2022*
+
+### ×2 · White, J., Part V-B, \*51
+
+> We agree with petitioners that just as an agency reasonably may decline to issue a safety standard if it is uncertain about its efficacy, an agency may also revoke a standard on the basis of serious uncertainties if supported by the record and reasonably explained.
+
+- **When:** 1992–2000 (1990s 1, 2000s 1)
+- **Where:** Federal courts of appeals 2; most: 2d Cir. 1, D.C. Cir. 1
+- **How:** (“[A]n agency reasonably may decline to issue a safety standard if it is uncertain about its efficacy”) — *Cellular Phone Taskforce v. Federal Communications Commission, 2d Cir. 2000*
+- **How:** (“[A]n agency reasonably may decline to issue a safety standard if it is uncertain about its efficacy\_”) — *Center for Auto Safety v. The Federal Highway Administration, D.C. Cir. 1992*
+
+### ×6 · White, J., Part V-B, \*52
+
+> It is not infrequent that the available data do not settle a regulatory issue, and the agency must then exercise its judgment in moving from the facts and probabilities on the record to a policy conclusion.
+
+- **When:** 2000–2020 (2000s 3, 2010s 2, 2020s 1)
+- **Where:** Federal courts of appeals 4, Federal district courts 1, Other (state, bankruptcy, specialty) 1; most: 4th Cir. 2, Ct. Intl. Trade 1, 9th Cir. 1, D.D.C. 1
+- **How:** (“It is not infrequent that the available data do not settle a regulatory issue and the agency must then exercise its judgment in moving from the facts and probabilities on the record to a policy conclusion.”) ×2 — *McAllister, 9th Cir. 2011*
+- **How:** (“It is not infrequent that the available data do not settle a regulatory issue, and the agency must then exercise its judgment in moving from the facts and probabilities on the record to a policy conclusion”) — *Petersburg Cellular Partnership, D/B/A 360o Communications Company, United States of America, Intervenor v. Board of Supervisors of Nottoway County, 4th Cir. 2000*
+- **How:** ("It is not infrequent that the available data do not settle a regulatory issue, and the agency must then exercise its judgment in moving from the facts and probabilities on the record to a policy conclusion") — *Petersburg Cellular Partnership, D/B/A 360o Communications Company, United States of America, Intervenor v. Board of Supervisors of Nottoway County, 4th Cir. 2000*
+
+### ×65 · White, J., Part V-B, \*52
+
+> As previously noted, the agency must explain the evidence which is available, and must offer a “rational connection between the facts found and the choice made.”
+
+- **When:** 1990–2026 (1990s 5, 2000s 10, 2010s 18, 2020s 32)
+- **Where:** Federal courts of appeals 23, Federal district courts 23, Other (state, bankruptcy, specialty) 19; most: D.D.C. 12, D.C. Cir. 10, Fed. Cl. 10, Ct. Intl. Trade 7
+- **How:** (“[T]he agency must examine the relevant data and articulate a satisfactory explanation for its action including a rational connection between the facts found and the choice made.”) ×4 — *Natural Resources Defense Council, Inc. v. United States Food & Drug Administration, S.D.N.Y. 2012*
+- **How:** (explaining that the agency must “articulate a satisfactory explanation for its action including a ‘rational connection between the facts found and the choice made’” (ci- tation omitted)) ×4 — *Cook County, Illinois v. Chad F. Wolf, 7th Cir. 2020*
+- **How:** (“[T]he agency must examine the relevant data and articulate a satisfactory explanation for its action including a ‘rational connection between the facts found and the choice made.’”) ×3 — *Center for Biological Diversity v. U.S. Fish and Wildlife Service, S.D. Fla. 2020*
+- **Wording from:** Burlington Truck Lines, Inc. v. United States, SCOTUS 1962 (10 words) → Federal Power Commission v. United Gas Pipe Line Co., SCOTUS 1968 (10 words) → Federal Trade Commission v. Sperry & Hutchinson Co., SCOTUS 1972 (10 words) → Bowman Transportation, Inc. v. Arkansas-Best Freight System, Inc., SCOTUS 1975 (11 words) → this case
+
+### ×4 · White, J., Part V-B, \*52
+
+> In these cases, the agency’s explanation for rescission of the passive restraint requirement is not sufficient to enable us to conclude that the rescission was the product of reasoned decisionmaking.
+
+- **When:** 1983–2020 (1980s 3, 2020s 1)
+- **Where:** Federal courts of appeals 3, Other (state, bankruptcy, specialty) 1; most: D.C. Cir. 2, 9th Cir. 1
+- **How:** (indicating that agency’s explanation “is not sufficient to enable us to conclude that the rescission was the product of reasoned decisionmaking”) — *International Ladies' Garment Workers' Union v. Raymond J. Donovan, D.C. Cir. 1983*
+- **How:** (considering rule rescission to determine whether it was “the product of reasoned decisionmaking”) — *American Horse Protection Association, Inc. v. Richard E. Lyng, Secretary, U.S. Department of Agriculture, D.C. Cir. 1987*
+- **How:** (ordering a remand for further consideration holding that the agency’s explanation for rescission of the passive restraint system was arbitrary and capricious) — *Gingold, pactcomplphilad 1988*
+
+### ×4 · White, J., Part V-B, \*52
+
+> We start with the accepted ground that if used, seatbelts unquestionably would save many thousands of lives and would prevent tens of thousands of crippling injuries.
+
+- **When:** 1988–2000 (1980s 2, 2000s 2)
+- **Where:** Supreme Court 2, Other (state, bankruptcy, specialty) 2; most: SCOTUS 2, Ariz. 2
+- **How:** (“We start with the accepted ground that if used, seatbelts unquestionably would save many thousands of lives and would prevent tens of thousands of crippling injuries”) — *Geier, SCOTUS 2000*
+- **How:** (“We start with the accepted ground ground that if used, seat belts unquestionably would save many thousands of lives and would prevent tens of thousands of crippling injuries.") — *Law, Ariz. 1988*
+- **How:** ("We start with the accepted ground ground that if used, seat belts unquestionably would save many thousands of lives and would prevent tens of thousands of crippling injuries.") — *Law, Ariz. 1988*
+
+### ×3 · White, J., Part V-B, \*53
+
+> Much of the agency’s rulemaking statement — and much of the controversy in these cases — centers on the conclusions that should be drawn from these studies.
+
+- **When:** 2002–2002 (2000s 3)
+- **Where:** Federal courts of appeals 3; most: 4th Cir. 3
+- **How:** (noting Congress' express requirement of a record of the agency's rulemaking proceedings as relevant to the conclusion that the agency had not articulated a sufficient explanation for its action) ×2 — *Earl C. McDaniels v. United States of America, Randolph F. Lovett v. United States of America, Alton E. Brown, Jr. v. United States, 4th Cir. 2002*
+- **How:** (noting Congress’ express requirement of a record of the agency’s rulemaking proceedings as rele- vant to the conclusion that the agency had not articulated a sufficient explanation for its action) — *McDaniels, 4th Cir. 2002*
+
+### ×2 · White, J., Part V-B, \*56
+
+> By failing to analyze the continuous seatbelts option in its own right, the agency has failed to offer the rational connection between facts and judgment required to pass muster under the arbitrary-and-capricious standard.
+
+- **When:** 1992–2026 (1990s 1, 2020s 1)
+- **Where:** Federal courts of appeals 1, Other (state, bankruptcy, specialty) 1; most: D.C. Cir. 1, Fed. Cl. 1
+- **How:** (agency must “offer [a] rational connection between facts and judgment [in order] to pass muster under the arbitrary- and-capricious standard”) — *Solite Corporation v. U.S. Environmental Protection Agency, and William K. Reilly, Administrator, Epa, the Aluminum Association, Intervenors, D.C. Cir. 1992*
+- **How:** (requiring an agency “to offer [a] rational connection between facts and judgment”) — *Eleit Technology, Inc. v. United States, Fed. Cl. 2026*
+
+### ×2 · White, J., Part V-B, \*56
+
+> While the agency is entitled to change its view on the acceptability of continuous passive belts, it is obligated to explain its reasons for doing so.
+
+- **When:** 2023–2023 (2020s 2)
+- **Where:** Federal courts of appeals 1, Federal district courts 1; most: E.D. Va. 1, 5th Cir. 1
+- **How:** (“While the agency is entitled to change its views on the acceptability of [a prior policy], it is obligated to explain its reasoning for doing so.”) — *Roberts, E.D. Va. 2023*
+- **How:** (“While [an] agency is entitled to change its view . . . it is obligated to explain its reasons for doing so.”) — *FDA, 5th Cir. 2023*
+
+### ×2 · White, J., Part V-B, \*57
+
+> More importantly, it is the agency’s responsibility, not this Court’s, to explain its decision.
+
+- **When:** 1983–2014 (1980s 1, 2010s 1)
+- **Where:** Federal courts of appeals 1, Federal district courts 1; most: S.D.N.Y. 1, D.C. Cir. 1
+- **How:** (noting that “it is the agency’s responsibility, not [a court’s], to explain its decision,” and rejecting an agency interpretation where “the agency ha[d] failed to supply the requisite ‘reasoned analysis’ ”) — *Catskill Mountains Chapter of Trout Unlimited, Inc. v. United States Environmental Protection Agency, S.D.N.Y. 2014*
+- **How:** (“[I]t is the agency’s responsibility, not this Court’s, to explain its decision.”) — *International Ladies' Garment Workers' Union v. Raymond J. Donovan, D.C. Cir. 1983*
+
+### ×14 · White, J., Part VI, \*57
+
+> “An agency’s view of what is in the public interest may change, either with or without a change in circumstances.
+
+- **When:** 1996–2018 (1990s 6, 2000s 4, 2010s 4)
+- **Where:** Federal courts of appeals 12, Federal district courts 2; most: D.C. Cir. 9, 9th Cir. 2, M.D. Fla. 1, D. Utah 1
+- **How:** (“An agency’s view of what is in the public interest may change, either with or without a change in circumstances. But an agency changing its course must supply a reasoned analysis”) ×2 — *Louisiana Public Service Commission v. Federal Energy Regulatory Commission, D.C. Cir. 1999*
+- **How:** ("An agency's view of what is in the public interest may change, either with or without a change in circumstances. But an agency changing its course must supply a reasoned analysis") ×2 — *FERC, D.C. Cir. 1999*
+- **How:** ("An agency's view of what is in the public interest may change, either with or without a change in circumstances.") — *Soundboard Ass'n v. Fed. Trade Comm'n, D.C. Cir. 2018*
+- **Wording from:** Greater Boston Television Corp. v. Federal Communications Commission, D.C. Cir. 1970 (13 words) → this case
+
+### ×23 · White, J., Part VI, \*57
+
+> But an agency changing its course must supply a reasoned analysis . ...”
+
+- **When:** 1984–2014 (1980s 2, 1990s 8, 2000s 10, 2010s 3)
+- **Where:** Federal courts of appeals 18, Federal district courts 2, Other (state, bankruptcy, specialty) 3; most: D.C. Cir. 16, 9th Cir. 2, M.D. Fla. 1, Ct. Intl. Trade 1
+- **How:** (“An agency’s view of what is in the public interest may change, either with or without a change in circumstances. But an agency changing its course must supply a reasoned analysis”) ×2 — *Louisiana Public Service Commission v. Federal Energy Regulatory Commission, D.C. Cir. 1999*
+- **How:** (“an agency changing its course ... [must] supply a reasoned analysis”) ×2 — *Friends of Blackwater v. Kenneth Salazar, D.C. Cir. 2012*
+- **How:** (“[A]n agency changing its course must supply a reasoned analysis.”) ×2 — *Nuclear Energy Institute, Inc. v. Environmental Protection Agency, D.C. Cir. 2004*
+- **Wording from:** Greater Boston Television Corp. v. Federal Communications Commission, D.C. Cir. 1970 (11 words) → this case
+
+### ×3 · White, J., Part VI, \*57
+
+> We do not accept all of the reasoning of the Court of Appeals but we do conclude that the agency has failed to supply the requisite “reasoned analysis” in this case.
+
+- **When:** 2008–2016 (2000s 1, 2010s 2)
+- **Where:** Federal courts of appeals 2, Federal district courts 1; most: S.D.N.Y. 1, 9th Cir. 1, 5th Cir. 1
+- **How:** (noting that “it is the agency’s responsibility, not [a court’s], to explain its decision,” and rejecting an agency interpretation where “the agency ha[d] failed to supply the requisite ‘reasoned analysis’ ”) — *Catskill Mountains Chapter of Trout Unlimited, Inc. v. United States Environmental Protection Agency, S.D.N.Y. 2014*
+- **How:** (remanding where the agency failed to supply the requisite “reasoned analysis”) — *Northwest Coalition v. Epa, 9th Cir. 2008*
+- **How:** (explaining that “the courts may not accept appellate counsel’s post hoc rationalizations for agency action” and remanding where an agency “failed to supply the requisite ‘reasoned analysis’”) — *FERC, 5th Cir. 2016*
+
+### ×7 · White, J., n. 9, \*57
+
+> The Department of Transportation suggests that the arbitrary-and-capricious standard requires no more than the minimum rationality a statute must bear in order to withstand analysis under the Due Process Clause.
+
+- **When:** 2018–2025 (2010s 2, 2020s 5)
+- **Where:** Federal courts of appeals 2, Federal district courts 5; most: D.D.C. 5, D.C. Cir. 2
+- **How:** (“The APA’s arbitrary-and-capricious standard requires that agency rules be reasonable and reasonably explained.”) ×4 — *Native Village of Eklutna v. United States Department of the Interior, D.D.C. 2021*
+- **How:** ("The APA's arbitrary-and-capricious standard requires that agency rules be reasonable and reasonably explained.") ×2 — *Porzecanski, D.C. Cir. 2018*
+- **How:** (“The APA’s arbitrary- and-capricious standard requires that agency rules be reasonable and reasonably explained.”) — *Mae Capital, LLC v. Small Business Administration, D.D.C. 2025*
+
+### ×2 · White, J., n. 15, \*57
+
+> We think that it would have been permissible for the agency to temporarily suspend the passive restraint requirement or to delay its implementation date while an airbag mandate was studied.
+
+- **When:** 2009–2009 (2000s 2)
+- **Where:** Federal district courts 2; most: M.D.N.C. 2
+- **How:** (“We think that it would have been permissible for the agency to temporarily suspend the passive restraint requirement ....”) — *Solis, M.D.N.C. 2009*
+- **How:** ("We think that it would have been permissible for the agency to temporarily suspend the passive restraint requirement . . . .") — *Solis, M.D.N.C. 2009*
+
+### ×2 · Rehnquist, J., intro, \*58
+
+> The statute that requires the Secretary of Transportation to issue motor vehicle safety standards also requires that “[e]ach such . . . standard shall be practicable [and] shall meet the need for motor vehicle safety.” 15 U. S. C. § 1392(a) (1976 ed., Supp. V). The Court rejects the agency’s explanation for its conclusion that there is substantial uncertainty whether requiring installation of detachable automatic belts would substantially increase seatbelt usage.
+
+- **When:** 2004–2021 (2000s 1, 2020s 1)
+- **Where:** Federal district courts 1, Other (state, bankruptcy, specialty) 1; most: Fed. Cl. 1, N.D. Tex. 1
+- **How:** (explaining that an agency’s decision is arbitrary and capricious if the agency’s explanation for its decision runs counter to the evidence before the agency) — *Mark Dunning Industries, Inc. v. United States, Fed. Cl. 2004*
+- **How:** (holding that in reviewing an agency’s explanation for its rule the court considers, “whether the decision was based on a consideration of the relevant factors and whether there has been a clear error of judgment.”) — *Becerra, N.D. Tex. 2021*
+
+### ×2 · Rehnquist, J., intro, \*59
+
+> The agency’s obligation is to articulate a “‘rational connection between the facts found and the choice made.’”
+
+- **When:** 2006–2024 (2000s 1, 2020s 1)
+- **Where:** Federal courts of appeals 2; most: D.C. Cir. 1, 5th Cir. 1
+- **How:** (An agency must “examine the relevant data and articulate ... a rational connection between the facts found and the choice made.” (internal quotation marks and citation omitted)) — *FERC, D.C. Cir. 2006*
+- **How:** (requiring agencies to “articulate” a “rational connection between 17 Case: 22-51069 Document: 134-1 Page: 18 Date Filed: 06/26/2024 No. 22-51069 the facts found and the choice made” (citation omitted)) — *NA of Mftr v. SEC, 5th Cir. 2024*
+
+### ×2 · Rehnquist, J., intro, \*59
+
+> A change in administration brought about by the people casting their votes is a perfectly reasonable basis for an executive agency’s reappraisal of the costs and benefits of its programs and regulations.
+
+- **When:** 1992–2009 (1990s 1, 2000s 1)
+- **Where:** Supreme Court 1, Federal courts of appeals 1; most: D.C. Cir. 1, SCOTUS 1
+- **How:** ("A change in administration brought about by the people casting their votes is a perfectly reasonable basis for an executive agency's reappraisal of the costs and benefits of its programs and regulations.") — *National Coal Association and American Mining Congress v. Manuel Lujan, Jr., Secretary of the Interior, D.C. Cir. 1992*
+- **How:** (addressing the costs and benefits of mandatory passive restraints for automobiles) — *FCC v. Fox, SCOTUS 2009*
+
 ## Cites
 
 - [[472-f2d-659-chrysler-corp-v-department-of|Chrysler Corp. v. Department of Transportation, 472 F.2d 659 (1972)]] ×5
+    - *How later courts describe it:*
+        - (Automobile Safety Act of 1966) ×2
+        - (Traffic and Motor Vehicle Safety Act)
+        - (“the Agency is empowered to issue safety standards which require improvements in existing technology or which require the development of new technology, and it is not limited to issuing standards based solely on devices already fully developed”)
 - [[371-us-156-burlington-truck-lines-inc-v-u|Burlington Truck Lines, Inc. v. United States, 371 U.S. 156 (1962)]] ×4
+    - *How later courts describe it:*
+        - (holding that post hoc rationalizations offered by counsel may not be used to justify agency decisions) ×119
+        - (holding that the agency must articulate a “rational connection between the facts found and the choice made”) ×22
+        - ("[A] reviewing court . . . must judge the propriety of [agency] action solely by the grounds invoked by the agency.") ×4
 - [[435-us-519-vermont-yankee-nuclear-power-c|Vermont Yankee Nuclear Power Corp. v. Natural Resources Defense Council, Inc., 435 U.S. 519 (1978)]] ×3
+    - *How later courts describe it:*
+        - (administrative agencies should be free to pursue methods of inquiry permitting them to discharge their multitudinous duties) ×25
+        - (holding that "absent constitutional constraints or extremely compelling circumstances the administrative agencies should be free to fashion their own rules of procedure") ×25
+        - (stating that the NEPA’s mandate is “essentially procedural ... to insure a fully informed and well-considered decision”) ×18
 - [[332-us-194-securities-exchange-commission|Securities & Exchange Commission v. Chenery Corp., 332 U.S. 194 (1947)]] ×2
+    - *How later courts describe it:*
+        - (holding that a reviewing court “must judge the propriety of [an agency’s judgment] solely by the grounds invoked by the agency”) ×218
+        - (observing that “the choice made between proceeding by general rule or by individual, ad hoc litigation is one that lies primarily in the informed discretion of the administrative agency”) ×24
+        - (stating that “[i]t will not do for a court to be compelled to guess at the theory underlying the agency’s action”) ×18
 - [[401-us-402-volpe|Volpe, 401 U.S. 402 (1971)]] ×2
+    - *How later courts describe it:*
+        - (holding that the court must follow a “presumption of regularity” and uphold the agency’s action “as long as a rational basis is articulated and relevant factors are considered”) ×60
+        - (holding that review is generally limited to the "record that was before the [agency] at the time [it] made [its] decision”) ×48
+        - (abrogated on other grounds by Califano v. Sanders, 430 U.S. 99, 105, 97 S.Ct. 980, 51 L.Ed.2d 192 (1977)) ×23
 - [[412-us-800-atchison-co|Atchison Co, 412 U.S. 800 (1973)]] ×2
+    - *How later courts describe it:*
+        - (noting that “the agency must set forth clearly the grounds on which it acted”) ×24
+        - (holding that an agency may depart from prior norms because “although the rule in general serves useful purposes, peculiarities of the case before it suggest that the rule not be applied in that case”) ×14
+        - ("[A]n administrative agency is not allowed to change direction without some explanation of what it is doing and why.") ×7
 - [[452-us-490-donovan|Donovan, 452 U.S. 490 (1981)]] ×2
+    - *How later courts describe it:*
+        - ("When Congress has intended that an agency engage in cost-benefit analysis, it has clearly indicated such intent on the face of the statute.") ×11
+        - (“the possibility of drawing two inconsistent conclusions from the evidence does not prevent an administrative agency’s finding from being supported by substantial evidence”) ×10
+        - (stating that “the post-hoc rationalizations of the agency or the parties to this litigation cannot serve as a sufficient predicate for agency action.”) ×10
 - [[342-us-882-state-of-new-york-v-united-sta|State of New York v. United States, 342 U.S. 882 (1951)]]
 - [[380-us-438-labor-board|Labor Board, 380 U.S. 438 (1965)]]
+    - *How later courts describe it:*
+        - ("Section 9(c)(5) [does not] prohibit the Board from considering the extent of organization as one factor, though not the controlling factor, in its unit determination.") ×4
+        - (NLRB orders which change prior positions must be accompanied with adequate explanation for the change) ×2
+        - (case remanded where Board's action could not properly be reviewed because Board failed to articulate reasons for its decision) ×2
 - [[387-us-397-american-trucking|American Trucking, 387 U.S. 397 (1967)]]
+    - *How later courts describe it:*
+        - (administrative agencies are not required to, nor should they, regulate the present and future within the inflexible limits of yesterday) ×6
+        - (declaring that an agency, “in light of reconsideration of the relevant facts and its mandate, may alter its past interpretation and overturn past administrative rulings”) ×6
+        - ("Regulatory agencies do not establish rules of conduct to last forever; they are supposed, within the limits of the law and of fair and prudent administration, to adapt their rules and practices to the Nation's needs in a volatile, changing economy.") ×3
 - [[390-us-747-permian-basin-area-rate-cases|Permian Basin Area Rate Cases, 390 U.S. 747 (1968)]]
+    - *How later courts describe it:*
+        - (“[T]he breadth and complexity of the Commission’s responsibilities demand that it be given every reasonable opportunity to formulate methods of regulation appropriate for the solution of its intensely practical difficulties.”) ×7
+        - (“[Administrative authorities must be permitted, consistently with the obligations of due process, to adapt their rules and policies to the demands of changing circumstances”) ×6
+        - (Supreme Court "does not decide important questions of law by cursory dicta inserted in unrelated cases") ×6
 - [[405-us-233-sperry-hutchinson|Sperry & Hutchinson, 405 U.S. 233 (1972)]]
+    - *How later courts describe it:*
+        - (explaining that “a practice that is neither in violation of the antitrust laws nor deceptive [can] nonetheless [be] unfair” if it is “immoral, unethical, oppressive, or unscrupulous”) ×3
+        - (comparing the FTC to a “court of equity”) ×2
+        - (“[T]he prefera- ble course would have been to remand the case to the Commission for further proceedings.”) ×2
 - [[411-us-138-camp|Camp, 411 U.S. 138 (1973)]]
+    - *How later courts describe it:*
+        - (holding that the "focal point for judicial review should be the administrative record already in existence, not some new record made initially in the reviewing court") ×157
+        - (suggesting that additional explanation may prove necessary when the failure to explain administrative action has frustrated judicial review) ×21
+        - (stating that if the contemporaneous explanation of the agency is based on a finding that is not sustainable on the administrative record, the matter must be remanded for further consideration) ×18
 - [[419-us-281-bowman-transp|Bowman Transp, 419 U.S. 281 (1975)]]
+    - *How later courts describe it:*
+        - (holding that courts may “uphold a decision of less than ideal clarity if the agency’s path may reasonably be discerned”) ×124
+        - (“The agency must articulate a ‘rational connection between the facts found and the choice made’ ”) ×16
+        - (noting that "though an agency's finding may be supported by substantial evidence ... it may nonetheless reflect arbitrary and capricious action") ×10
 - [[444-f2d-841-greater-boston-television-corp|Greater Boston Television Corp. v. Federal Communications Commission, 444 F.2d 841 (1970)]]
+    - *How later courts describe it:*
+        - (stating that agencies may depart from their own precedent but in doing so must “supply a reasoned analysis” justifying the change) ×7
+        - (holding that under the arbitrary and capricious standard, a court cannot “upset a decision because of errors that are not material”) ×3
+        - (“[I]f an agency glosses over or swerves from prior precedents without discussion it may cross the line from the tolerably terse to the intolerably mute.”) ×2
 - [[448-us-607-industrial-union|Industrial Union, 448 U.S. 607 (1980)]]
+    - *How later courts describe it:*
+        - (announcing the rule that "[a] construction of [a] statute that avoids [an] open-ended grant [of delegated power] should certainly be favored.") ×6
+        - ("There are many activities that we engage in every day--such as driving a car or even breathing city air--that entail some risk of accident or material health impairment; nevertheless, few people would consider those activities 'unsafe.' ") ×3
+        - (plurality opinion of Stevens, J.) ×2
 - [[453-us-280-haig|Haig, 453 U.S. 280 (1981)]]
+    - *How later courts describe it:*
+        - (recognizing that “[m]atters intimately related to foreign policy and national security are rarely proper subjects for judicial intervention”) ×34
+        - (noting that "no governmental interest is more compelling than the security of the Nation") ×22
+        - ("the freedom to travel outside the United States must be distinguished from the right to travel within the United States") ×8
 - [[461-us-574-bob-jones-university-v-united|Bob Jones University v. United States, 461 U.S. 574 (1983)]]
+    - *How later courts describe it:*
+        - (court should go beyond the literal language of statute if reliance on language would defeat plain purpose of statute) ×32
+        - (noting that compelling interest in eradicating race discrimination in schools “substantially outweighs whatever burden denial of tax benefits places on petitioner’s exercise of their religious beliefs”) ×10
+        - (observing that precedent “firmly establish[es] that discrimination on the basis of racial affiliation and association is a form of racial discrimination”) ×10
 - [[193-us-app-dc-184-pacific-legal-foundation-v-dep|Pacific Legal Foundation v. Department of Transportation, 593 F.2d 1338 (1979)]]
+    - *How later courts describe it:*
+        - (suggesting that the difference between the “arbitrary and capricious” and the “substantial evidence” standards of review is “largely semantic.”)
 
 ## Statutes cited
 
@@ -593,6 +1115,41 @@ Cites summed over all of a case's opinions (majority, concurrence, dissent).
 - ×42 [Permian Basin Petroleum Ass'n v. Department of the Interior](https://www.courtlistener.com/opinion/7315422/permian-basin-petroleum-assn-v-department-of-the-interior/) (W.D. Tex. 2015)
 - ×41 [Federal Communications Commission v. Fox Television Stations, Inc.](https://www.courtlistener.com/opinion/145882/federal-communications-commission-v-fox-television-stations-inc/) (SCOTUS 2009)
 - ×41 [Department of Homeland Security v. Regents of Univ. of Cal.](https://www.courtlistener.com/opinion/4761897/department-of-homeland-security-v-regents-of-univ-of-cal/) (SCOTUS 2020)
+## Cites not resolved
+
+*Every cite the PDF tints red or orange, once each, with its reason (×n: how many times).*
+
+### Likely miscites, or not fetched yet (29)
+
+- 32 Fed. Reg. 2415 — *CourtListener found no case for this citation*
+- 34 Fed. Reg. 11148 — *CourtListener found no case for this citation* ×2
+- 35 Fed. Reg. 16927 — *CourtListener found no case for this citation* ×2
+- 36 Fed. Reg. 12859 — *CourtListener found no case for this citation* ×2
+- 36 Fed. Reg. 12866 — *CourtListener found no case for this citation*
+- 36 Fed. Reg. 8296 — *CourtListener found no case for this citation*
+- 37 Fed. Reg. 3911 — *CourtListener found no case for this citation*
+- 39 Fed. Reg. 14593 — *CourtListener found no case for this citation*
+- 39 Fed. Reg. 42692 — *CourtListener found no case for this citation*
+- 40 Fed. Reg. 16217 — *CourtListener found no case for this citation*
+- 41 Fed. Reg. 24070 — *CourtListener found no case for this citation*
+- 42 Fed. Reg. 34289 — *CourtListener found no case for this citation*
+- 42 Fed. Reg. 34290 — *CourtListener found no case for this citation*
+- 42 Fed. Reg. 34298 — *CourtListener found no case for this citation*
+- 43 Fed. Reg. 21912 — *CourtListener found no case for this citation*
+- 46 Fed. Reg. 12033 — *CourtListener found no case for this citation*
+- 46 Fed. Reg. 53421 — *CourtListener found no case for this citation*
+- 46 Fed. Reg. 53422 — *CourtListener found no case for this citation*
+- 46 Fed. Reg. 53423 — *CourtListener found no case for this citation* ×2
+- 46 Fed. Reg. 53424 — *CourtListener found no case for this citation*
+- 46 Fed. Reg. 53425 — *CourtListener found no case for this citation*
+- 49 CFR § 1.50 — *CourtListener found no case for this citation*
+- 49 CFR § 571.208 — *CourtListener found no case for this citation*
+- 680 F. 2 — *no case found for this citation in the local database* ×8
+- 80 Stat. 718 — *CourtListener found no case for this citation*
+- 88 Stat. 1482 — *CourtListener found no case for this citation*
+- Ibid. — *CourtListener found no case for this citation* ×2
+- Id., at 53426 — *CourtListener found no case for this citation*
+- Pub. L. 93-492, §109 — *CourtListener found no case for this citation*
 
 [^1]: National Safety Council, 1982 Motor Vehicle Deaths By States (May 16, 1983).
 [^2]: The Senate Committee on Commerce reported:
@@ -604,13 +1161,13 @@ Cites summed over all of a case's opinions (majority, concurrence, dissent).
 [^6]: Because such a passive restraint standard was not technically in effect at this time due to the Sixth Circuit’s invalidation of the testing requirements, see n. 5, *supra,* the issue was not submitted to Congress until a passive restraint requirement was reimposed by Secretary Adams in 1977. To comply with the Amendments, NHTSA proposed new warning systems to replace the prohibited continuous buzzers. 39 Fed. Reg. 42692 (1974). More significantly, NHTSA was forced to rethink an earlier decision which contemplated use of the interlocks in tandem with detachable belts. See n. 13, *infra.*
 [^7]: No action was taken by the full House of Representatives. The Senate Committee with jurisdiction over NHTSA affirmatively endorsed the Standard, S. Rep. No. 95-481 (1977), and a resolution of disapproval was tabled by the Senate. 123 Cong. Rec. 33332 (1977).
 [^8]: Judge Edwards did not join the majority’s reasoning on these points.
-[^9]: The Department of Transportation suggests that the arbitrary-and-capricious standard requires no more than the minimum rationality a statute must bear in order to withstand analysis under the Due Process Clause. We do not view as equivalent the presumption of constitutionality afforded legislation drafted by Congress and the presumption of regularity afforded an agency in fulfilling its statutory mandate.
+[^9]: \usebox\qlA\kern-.3pt \quoteA{The Department of Transportation suggests that the arbitrary-and-capricious standard requires no more than the minimum rationality a statute must bear in order to withstand analysis under the Due Process Clause}\kern-.3pt\quotecount{\qrA}{7}{38}. We do not view as equivalent the presumption of constitutionality afforded legislation drafted by Congress and the presumption of regularity afforded an agency in fulfilling its statutory mandate.
 [^10]: For example, an overwhelming majority of the Members of the House of Representatives voted in favor of a proposal to bar NHTSA from spending funds to administer an occupant restraint standard unless the standard permitted the purchaser of the vehicle to select manual rather than passive restraints. 125 Cong. Rec. 36926 (1979).
 [^11]: While NHTSA’s 1970 passive restraint requirement permitted compliance by means other than the airbag, 35 Fed. Reg. 16927, “[t]his rule was a de facto air bag mandate since no other technologies were available to comply with the standard.” Graham & Gorham, NHTSA and Passive Restraints: A Case of Arbitrary and Capricious Deregulation, 35 Ad. L. Rev. 193, 197 (1983). See n. 4, *supra.*
 [^12]: Although the agency suggested that passive restraint systems contain an emergency release mechanism to allow easy extrication of passengers in the event of an accident, the agency cautioned that “[i]n the case of passive safety belts, it would be required that the release not cause belt separation, and that the system be self-restoring after operation of the release.” 36 Fed. Reg. 12866 (1971).
 [^13]: In April 1974, NHTSA adopted the suggestion of an automobile manufacturer that emergency release of passive belts be accomplished by a conventional latch — provided the restraint system was guarded by an ignition interlock and warning buzzer to encourage reattachment of the passive belt. 39 Fed. Reg. 14593. When the 1974 Amendments prohibited these devices, the agency simply eliminated the interlock and buzzer requirements, but continued to allow compliance by a detachable passive belt.
 [^14]: See, *e. g.,* Comments of Chrysler Corp., Docket No. 69-07, Notice 11 (Aug. 5, 1971) (App. 2491); Chrysler Corp. Memorandum on Proposed Alternative Changes to FMVSS 208, Docket No. 44, Notice 76-8 (1976) (App. 2241); General Motors Corp. Response to the Dept. of Transportation Proposal on Occupant Crash Protection, Docket No. 74-14, Notice 08 (May 27, 1977) (App. 1745). See also *Chrysler Corp.* v. *Department of Transportation,* [[472-f2d-659-chrysler-corp-v-department-of|472 F. 2d 659]] (CA6 1972).
-[^15]: The Department of Transportation expresses concern that adoption of an airbags-only requirement would have required a new notice of proposed rulemaking. Even if this were so, and we need not decide the question, it would not constitute sufficient cause to rescind the passive restraint requirement. The Department also asserts that it was reasonable to withdraw the requirement as written to avoid forcing manufacturers to spend resources to comply with an ineffective safety initiative. We think that it would have been permissible for the agency to temporarily suspend the passive restraint requirement or to delay its implementation date while an airbag mandate was studied. But, as we explain in text, that option had to be considered before the passive restraint requirement could be revoked.
+[^15]: The Department of Transportation expresses concern that adoption of an airbags-only requirement would have required a new notice of proposed rulemaking. Even if this were so, and we need not decide the question, it would not constitute sufficient cause to rescind the passive restraint requirement. The Department also asserts that it was reasonable to withdraw the requirement as written to avoid forcing manufacturers to spend resources to comply with an ineffective safety initiative. \usebox\qlA\kern-.3pt \quoteA{We think that it would have been permissible for the agency to temporarily suspend the passive restraint requirement or to delay its implementation date while an airbag mandate was studied}\kern-.3pt\quotecount{\qrA}{2}{39}. But, as we explain in text, that option had to be considered before the passive restraint requirement could be revoked.
 [^16]: Between 1975 and 1980, Volkswagen sold approximately 350,000 Rabbits equipped with detachable passive seatbelts that were guarded by an ignition interlock. General Motors sold 8,000 1978 and 1979 Chevettes with a similar system, but eliminated the ignition interlock on the 13,000 Chevettes sold in 1980. NHTSA found that belt usage in the Rabbits averaged 34% for manual belts and 84% for passive belts. RIA, at IV-52, App. 108. For the 1978-1979 Chevettes, NHTSA calculated 34% usage for manual belts and 72% for passive belts. On 1980 Chevettes, the agency found these figures to be 31% for manual belts and 70% for passive belts. *[[472-f2d-659-chrysler-corp-v-department-of|Ibid.]]*
 [^17]: “NHTSA believes that the usage of automatic belts in Rabbits and Chevettes would have been substantially lower if the automatic belts in those cars were not equipped with a use-inducing device inhibiting detachment.” Notice 25, 46 Fed. Reg. 53422 (1981).
 [^18]: NHTSA commissioned a number of surveys of public attitudes in an effort to better understand why people were not using manual belts and to determine how they would react to passive restraints. The surveys reveal that while 20% to 40% of the public is opposed to wearing manual belts, the larger proportion of the population does not wear belts because they forgot or found manual belts inconvenient or bothersome. RIA, at IV-25, App. 81. In another survey, 38% of the surveyed group responded that they would welcome automatic belts, and 25% would “tolerate” them. See RIA, at IV-37, App. 93. NHTSA did not comment upon these attitude surveys in its explanation accompanying the rescission of the passive restraint requirement.

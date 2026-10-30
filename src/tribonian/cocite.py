@@ -1305,7 +1305,7 @@ def case_label(con, ref):
             (r[1] if r else None) or "", (r[2] if r else None) or "")
 
 
-def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP, opinions=()):
+def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP, opinions=(), refs=None):
     """Cases sharing the most references with this one, rare references weighted up: for each
     reference R cited by df(R) <= max_df decisions, every other decision citing R scores
     log(N / df(R)), N = decisions citing anything. Decisions and references are cases (clusters),
@@ -1314,7 +1314,8 @@ def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP, opinions=()):
     if not (CACHE / "cited_sorted.npy").exists():
         sys.exit("No citation cache at %s: run tribonian cocite prep" % CACHE)
     stale = (CACHE / "stamp.txt").read_text() != source_stamp(con)
-    refs = cited_refs(con, ref, opinions)
+    # refs: the cited cases to couple on (a Supreme Court docket's side: scotus.coupling_parts), else this case's own
+    refs = sorted(set(refs)) if refs is not None else cited_refs(con, ref, opinions)
     # citing.npy whole (about 290 MB, one sequential read): thousands of scattered reads into a
     # memory map are far slower on the hard disk than reading it once
     ci = np.load(CACHE / "citing.npy")

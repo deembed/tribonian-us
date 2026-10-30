@@ -572,6 +572,7 @@ def inline(node, mode, ctx, marks):
     mark_usc(node)
     if mode != "md":
         mark_cases(node)
+        mark_quotes(node, ctx)
     out = []
     for k in node.kids:
         if isinstance(k, str):
@@ -599,10 +600,13 @@ def inline(node, mode, ctx, marks):
             out.append(wrap(inline(k, mode, ctx, marks), *(("**", "**") if mode == "md" else ("\\textbf{", "}"))))
         elif k.tag == "a" and mode != "md" and re.match(r"/opinion/\d+/", k.attrs.get("href", "")):
             out.append(citemarks.mark("ok", inline(k, mode, ctx, marks)))    # CourtListener linked it: the case is there
+        elif k.tag == "quoted":                              # wording later opinions reuse (mark_quotes)
+            out.append(quote_tex(inline(k, mode, ctx, marks), k.attrs, ctx))
         elif k.tag == "case" and mode != "md":            # a reporter cite found in the text (mark_cases)
             inner = inline(k, mode, ctx, marks)
             out.append(citemarks.mark("ok", inner) if k.attrs.get("ok") else
-                       citemarks.mark("red", inner, k.text(), "no case found for this citation in the local database"))
+                       citemarks.mark(k.attrs.get("tint") or "red", inner, k.text(),
+                                      k.attrs.get("why") or "no case found for this citation in the local database"))
         elif (k.tag == "span" and mode != "md" and "no-link" in cls and "citation" in cls
               and not any(k.find(t) is not None for t in ("law", "usc", "a"))):
             out.append(citemarks.mark("red", inline(k, mode, ctx, marks), k.text(), "CourtListener found no case for this citation"))
@@ -639,6 +643,114 @@ def inline(node, mode, ctx, marks):
     return "".join(out)
 
 
+# ---------------------------------------------------------------- quote marks: where later opinions reuse the wording
+# The sentences 2+ later parentheticals restate (quotelineage.py) are hatched in the case's PDF like a highlighter,
+# rounded where the sentence starts and ends, darker with more, with "×N" at the end linking to the sentence's entry in
+# Quote lineage. Cites inside the sentence keep their own tint (ulem marks do not nest), so a sentence can be marked in
+# pieces. QUOTE_MARKS=0 turns it off; QUOTED_MIN sets the threshold.
+QUOTE_MARKS = os.environ.get("QUOTE_MARKS", "1") != "0"
+QUOTED_MIN = int(os.environ.get("QUOTED_MIN", "2"))
+NOQUOTE = ("a", "case", "law", "usc", "quoted")          # never split: cites keep their tint
+
+
+def _compact(t):
+    return re.sub(r"[^a-z0-9]", "", t.lower())
+
+
+def mark_quotes(node, ctx):
+    """Wrap the reused sentences in node's text in <quoted n first last> elements (block by block: once per node,
+    and its descendants are left alone after)."""
+    quotes = getattr(ctx, "quotes", None)
+    if not quotes or getattr(node, "quotes_done", False) or node.tag in NOQUOTE + ("page-number", "footnotemark"):
+        return
+    leaves = []                                          # [parent, index, text, markable]
+
+    def walk(n, ok):
+        n.quotes_done = True
+        for i, k in enumerate(n.kids):
+            if isinstance(k, str):
+                leaves.append([n, i, k, ok])
+            elif k.tag not in ("page-number", "footnotemark"):
+                walk(k, ok and k.tag not in NOQUOTE and not (k.tag == "span" and "citation" in k.attrs.get("class", "")))
+    walk(node, True)
+    full = "".join(l[2] for l in leaves)
+    comp, at = [], []                                    # compact text and each compact char's place in full
+    for i, ch in enumerate(full.lower()):
+        if ch.isalnum() and ch.isascii():
+            comp.append(ch)
+            at.append(i)
+    comp = "".join(comp)
+    spans = []
+    for n, sent, qk in quotes:
+        head, tail = sent[:40], sent[-40:]
+        a = comp.find(head)
+        if a < 0:
+            continue
+        z = comp.find(tail, a + len(head) - 40)
+        if z < 0 or z + len(tail) - a > len(sent) * 1.3 + 40:
+            continue
+        lo, hi = at[a], at[z + len(tail) - 1] + 1
+        if not any(lo < h and l < hi for l, h, _, _ in spans):
+            spans.append((lo, hi, n, qk))
+    if not spans:
+        return
+    spans.sort()
+    pieces, pos = {}, 0                                  # (parent id, index) -> new kids; span -> its elements
+    made = {}
+    for parent, i, text, ok in leaves:
+        lo_leaf, hi_leaf = pos, pos + len(text)
+        pos = hi_leaf
+        if not ok:
+            continue
+        cuts = [(max(l, lo_leaf), min(h, hi_leaf), j) for j, (l, h, _, _) in enumerate(spans) if l < hi_leaf and lo_leaf < h]
+        if not cuts:
+            continue
+        new, cur = [], lo_leaf
+        for l, h, j in cuts:
+            if l > cur:
+                new.append(text[cur - lo_leaf:l - lo_leaf])
+            e = El("quoted", {"n": str(spans[j][2]), "k": str(spans[j][3])})
+            e.kids.append(text[l - lo_leaf:h - lo_leaf])
+            e.quotes_done = True
+            new.append(e)
+            made.setdefault(j, []).append(e)
+            cur = h
+        if cur < hi_leaf:
+            new.append(text[cur - lo_leaf:])
+        pieces[(id(parent), i)] = (parent, new)
+    for j, els in made.items():                          # caps where the marked text starts and ends
+        els = [e for e in els if e.kids[0].strip()]
+        if els:
+            els[0].attrs["first"] = "1"
+            els[-1].attrs["last"] = "1"
+    for (_, i), (parent, new) in sorted(pieces.items(), key=lambda kv: -kv[0][1]):
+        parent.kids[i:i + 1] = [k for k in new if k != ""]
+
+
+def quote_tex(inner, attrs, ctx=None):
+    """A marked piece: hatched, darker with more reuse; a rounded cap where the sentence starts (with the link target
+    Quote lineage points back to) and ends (with ×N, linking to the sentence's entry there)."""
+    from tribonian import citemarks
+    if not inner.strip() or any(u in inner for u in citemarks.UNSAFE):
+        return inner
+    n = int(attrs.get("n") or 0)
+    lvl = "A" if n < 10 else "B" if n < 50 else "C"
+    lead, body, trail = re.match(r"(\s*)(.*?)(\s*)$", inner, re.S).groups()
+    out = "\\quote%s{%s}" % (lvl, body)
+    k = attrs.get("k") or "0"
+    if attrs.get("first"):
+        seen = getattr(ctx, "quote_seen", None)
+        if seen is None and ctx is not None:
+            seen = ctx.quote_seen = set()
+        target = "" if seen is None or k in seen else "\\hypertarget{qs-%s}{}\\label{qs-%s}" % (k, k)
+        if seen is not None:
+            seen.add(k)
+        out = target + "\\usebox\\ql%s\\kern-.3pt " % lvl + out
+    if attrs.get("last"):
+        out += "\\kern-.3pt\\quotecount{\\qr%s}{%d}{%s}" % (lvl, n, k)
+    return lead + out + trail
+
+
 def mark_cases(node):
     """Reporter cites in node's own text ("500 U.S. 1", "123 F.3d 456") -> <case ok=...> elements, looked up in the
     local database (scotus.resolve), so the PDF can tint them. Text-layout documents (briefs, RECAP filings, slip
@@ -655,16 +767,35 @@ def mark_cases(node):
         return
     from tribonian import scotus
     out = []
-    for k in node.kids:
+    def flat(n):                                     # text without page markers or footnote marks
+        return n if isinstance(n, str) else "" if n.tag in ("page-number", "footnotemark") else "".join(flat(x) for x in n.kids)
+    for i, k in enumerate(node.kids):
         if not isinstance(k, str):
             out.append(k)
             continue
         at = 0
+        # the text on either side runs on past a page break ("(N.D. Cal. [*15] Mar. 23, 2009)")
+        prev = "".join(flat(x) for x in node.kids[:i])[-400:]
+        nxt = "".join(flat(x) for x in node.kids[i + 1:])[:160]
         for m in scotus.CITE_RE.finditer(k):
-            if m.group(3):                           # "at": a pin cite of a case named before
-                continue
-            cid = scotus.resolve(con, m.group(1), scotus.canon(m.group(2)), m.group(4), k[max(0, m.start() - 160):m.start()])
-            e = El("case", {"ok": "1"} if cid else {})
+            vol, rep, page = m.group(1), scotus.canon(m.group(2)), m.group(4)
+            before, after = (prev + k[:m.start()])[-400:], (k[m.end():] + nxt)[:160]
+            why = ""
+            if m.group(3):                           # "at": a pin cite; marked only when the name finds the case
+                cid = scotus.resolve_pin(con, vol, rep, page, before) or scotus.found_again(vol, rep, page, pin=True)
+                if not cid:
+                    continue
+            else:
+                cid = scotus.resolve(con, vol, rep, page, before) or scotus.found_again(vol, rep, page)
+                if not cid:                          # no such citation in the data: try the name, court and date
+                    cid, why = scotus.resolve_name(con, vol, rep, page, before, after)
+                    if not cid and not why:          # a RECAP docket by its number (Westlaw cites of district orders)
+                        d = scotus.resolve_docket(con, before, after)
+                        cid = ("docket", d[0]) if d else None
+                    if cid:
+                        scotus.FOUND[(vol, rep, page)] = cid
+            e = El("case", {"ok": "1"} if cid else {"why": why} if why else
+                   {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} if rep == "WL" else {})
             e.kids.append(m.group(0))
             out += [k[at:m.start()], e]
             at = m.end()
@@ -1414,6 +1545,26 @@ def editorial(cluster):
     return L
 
 
+def editorial_tex(meta):
+    """The reporter's summary and syllabus (editorial(), the note's callouts) as a front box in the PDF."""
+    import html as _html
+    cl = meta.get("editorial") or {}
+    parts = []
+    for field, title in (("summary", "Reporter's summary"), ("syllabus", "Syllabus")):
+        raw = cl.get(field) or ""
+        paras = [clean(_html.unescape(re.sub(r"<[^>]+>", " ", p))) for p in re.split(r"</p>|<br\s*/?>|\n\s*\n", raw)]
+        paras = [esc(p, "tex") for p in paras if p]
+        if paras:
+            parts.append("\\textbf{%s.} {\\footnotesize\\itshape (editorial, not part of the opinion)}\\par\\vspace{2pt}%s"
+                         % (title, "\\par\\vspace{2pt}".join(paras)))
+    if not parts:
+        return ""
+    return ("\\pdfbookmark[1]{Reporter's summary and syllabus}{editorial}\n"
+            "\\begin{tcolorbox}[enhanced, breakable, colback=gray!6, colframe=gray!40!black, boxrule=0.4pt, arc=1.5pt,\n"
+            "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n%s\n\\end{tcolorbox}\n"
+            % "\\par\\vspace{6pt}".join(parts))
+
+
 def cocite_md(meta):
     """'## Co-citation' from cocite.py's appellate view; nothing when it isn't built (or numpy is missing)."""
     if not meta or not meta.get("cluster"):
@@ -1636,6 +1787,15 @@ def coupling_md(meta):
     return L + [""]
 
 
+def coupling_items_tex(c):
+    """The coupled cases of one coupling result, as list items (coupling_tex, scotus.coupling_appendix_tex)."""
+    E = lambda t: esc(t or "", "tex")
+    return "".join("\\item[\\textbf{%d}] %s%s {\\footnotesize\\ score %.1f; shared: %s%s}\n" % (
+        x["shared"], E(x["name"]), " (%s)" % E(", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)) if x["cite"] or x["year"] else "",
+        x["score"], E("; ".join(r["name"] for r in x["refs"][:COUPLING_SHOW_REFS])), " \\dots" if len(x["refs"]) > COUPLING_SHOW_REFS else "")
+        for x in c["results"])
+
+
 def coupling_tex(meta):
     c = meta.get("coupling")
     if not c or not c.get("results"):
@@ -1691,12 +1851,16 @@ def render_md(meta, ops, tail="", cluster=None, head=None):
     return "\n".join(L) + "\n" + tail + ("\n" if tail else "") + "\n".join(notes) + "\n"
 
 
-def tail_sections(data, index):
+def tail_sections(data, index, sketches=False):
     """'## Cites' (from the links in this case's text) and '## Cited by' (written
-    by casemap.py citedby, if it has been run for this case)."""
+    by casemap.py citedby, if it has been run for this case). sketches (--cases): each cited case's sketch under it,
+    as in the PDF's The Cases Cited."""
     L = []
     cited = cited_clusters(data)
     if cited:
+        con = shared_db()
+        from tribonian import casesummary, scotus
+        named = scotus.case_names(con, [k for k in cited if str(k) not in index]) if con is not None else {}
         L += ["## Cites", ""]
         def key(kv):
             e = index.get(str(kv[0]), {})
@@ -1706,8 +1870,15 @@ def tail_sections(data, index):
             times = " ×%d" % n if n > 1 else ""
             if e:
                 L.append("- [[%s|%s, %s (%s)]]%s" % (e["slug"], esc(e["short"] or e["name"], "md"), e["cite"], e["year"], times))
+            elif named.get(cid) and not named[cid]["name"].startswith("cluster "):
+                v = named[cid]
+                L.append("- [%s](%s)%s%s" % (esc(v["name"], "md"), opinion_url(cid),
+                                            ", " + ", ".join(x for x in (v["cite"], " ".join(x for x in (v["court"], v["year"]) if x)) if x)
+                                            if v["cite"] or v["year"] else "", times))
             else:
                 L.append("- [cluster %d](%s)%s" % (cid, opinion_url(cid), times))
+            if sketches:
+                L += casesummary.sketch_md(con, cid, lambda t: esc(t, "md"))
         L.append("")
     elif not data.get("opinions"):
         L += ["## Cites", "", "*Unknown until the text is fetched.*", ""]
@@ -1840,6 +2011,42 @@ def toc_head(part, el):
     return part.label
 
 
+# ---------------------------------------------------------------- legend of marks (first page, after the headmatter)
+# Every mark the PDF uses, once, each drawn by its own macro: cite tints (citemarks.py), old US Code cites (usc_out),
+# quote hatching (mark_quotes). Only the marks found in this PDF's body are listed; none, no legend.
+LEGEND_SPOT = "%%MARK-LEGEND%%\n"
+LEGEND_ROWS = [   # (macro that shows it is used, sample, explanation)
+    ("\\citeok{", "\\citeok{463 U.S. 29}", "cite checked: the case is in CourtListener (found by citation, case name or "
+     "docket number), or the law's text is stored here"),
+    ("\\citebad{", "\\citebad{761 F. App'x 732}", "not found, or not fetched yet: a likely miscite, or law whose text "
+     "is not here; listed with the reason in Cites not resolved"),
+    ("\\citensrc{", "\\citensrc{2009 WL 773499}", "no source: it exists, but nothing here can read it (a "
+     "LexisNexis-only code, a Westlaw-only decision); listed in Cites not resolved"),
+    ("\\uscmark{", "\\uscmark{42 U.S.C. \\S\\ 1983}", "a US Code section changed since the decision, with a tag: "
+     "amd amended, rd redesignated"),
+    ("\\usclight{", "\\usclight{5 U.S.C. \\S\\ 552}", "its section was amended, but elsewhere than the part cited"),
+    ("\\uscstrike{", "\\uscstrike{15 U.S.C. \\S\\ 1394}", "the number moved or is gone (mv moved, rep repealed, om "
+     "omitted, nf not found), followed by the current number"),
+    ("\\quoteA{", "\\usebox\\qlA\\kern-.3pt\\quoteA{2--9}\\kern-.3pt\\usebox\\qrA\\,"
+     "\\usebox\\qlB\\kern-.3pt\\quoteB{10--49}\\kern-.3pt\\usebox\\qrB\\,"
+     "\\usebox\\qlC\\kern-.3pt\\quoteC{50+}\\kern-.3pt\\usebox\\qrC",
+     "what later opinions cite the case for: the sentence their parentheticals restate, darker with more of "
+     "them; the \\(\\times\\)N at its end goes to its entry in Quote lineage"),
+]
+
+
+def legend_tex(body):
+    """The 'Marks in this PDF' box for the marks body uses; '' when it uses none."""
+    rows = [(sample, text) for used, sample, text in LEGEND_ROWS
+            if used in body or (used == "\\quoteA{" and ("\\quoteB{" in body or "\\quoteC{" in body))]
+    if not rows:
+        return ""
+    lines = "".join("\\item[{%s}] %s\n" % r for r in rows)
+    return ("\\par\\vspace{8pt}\\noindent{\\bfseries Marks in this PDF}\\par\\vspace{2pt}\n"
+            "{\\footnotesize\\begin{list}{}{\\leftmargin=11.5em\\labelwidth=11em\\labelsep=.5em\\itemsep=3pt"
+            "\\parsep=0pt\\topsep=0pt\\renewcommand\\makelabel[1]{#1\\hfil}}\n%s\\end{list}}\\par\n" % lines)
+
+
 def render_tex(meta, ops, fontpkg, style):
     from tribonian.render import PREAMBLE, RULES
     toc = meta.get("toc", True)              # contents page: cases, dockets, scotus.py (US Code has its own render_tex)
@@ -1856,10 +2063,15 @@ def render_tex(meta, ops, fontpkg, style):
     head = headmatter_tex(meta)
     if toc and head:
         head = toc_entry("tocsec", "Headmatter") + head.replace("\\pdfbookmark[1]", "\\pdfbookmark[0]", 1)   # the yellow box: listed, no arrow
-    contents = "" if not toc or meta.get("pretex") else "\\contentspage\n" if head else "\\contentsbody\n"
-    body = [TOC_DEFS if toc else "", meta.get("pretex", ""), head, contents, sec(profile_tex(meta), "Case profile"),
+    # the legend of marks sits after the headmatter on the first page; the contents always start a fresh page
+    contents = "" if not toc or meta.get("pretex") else "\\contentspage\n"
+    pretex = meta.get("pretex", "")
+    if toc and "\\contentspage" in pretex:
+        pretex = pretex.replace("\\contentspage", LEGEND_SPOT + "\\contentspage", 1)
+    body = [TOC_DEFS if toc else "", pretex, head, LEGEND_SPOT if toc and not meta.get("pretex") else "", contents, sec(profile_tex(meta), "Case profile"),
             sec(cocite_tex(meta), "Co-citation"), sec(draws_tex(meta), "What it draws on"),
-            sec(coupling_tex(meta), "Coupled with"), sec(parens_tex(meta), "How later courts describe it")]
+            sec(coupling_tex(meta), "Coupled with"), sec(parens_tex(meta), "How later courts describe it"),
+            sec(editorial_tex(meta), "Reporter's summary and syllabus")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
     base = 1 if meta.get("stages") else 0    # outline level of a document: under its stage, else at the top
     for n, o in enumerate(ops):
@@ -1971,7 +2183,9 @@ def render_tex(meta, ops, fontpkg, style):
            .replace("__DOCHEAD__", esc(meta["name"], "tex"))
            .replace("__SRCLINE__", src))
     foot = "\\renewcommand{\\docfoot}{%s}\n" % esc(meta["foot"], "tex") if meta.get("foot") else ""
-    return pre + foot + "".join(body) + meta.get("posttex", "") + citemarks.section_tex(lambda t: esc(t, "tex")) + "\n\\end{document}\n"
+    tex = pre + foot + "".join(body) + meta.get("posttex", "") + citemarks.section_tex(lambda t: esc(t, "tex")) + "\n\\end{document}\n"
+    body_tex = tex[tex.find("\n\\begin{document}"):]       # the document itself: the preamble defines every macro
+    return tex.replace(LEGEND_SPOT, legend_tex(body_tex), 1).replace(LEGEND_SPOT, "")
 
 
 # ---------------------------------------------------------------- driver
@@ -2083,6 +2297,22 @@ def build(args):
         printed, intro="Not part of the opinion. Every statute, constitutional provision and regulation the opinions cite, "
         "with its text where it is stored locally: today's text, not the law as of %s; a cite of one in the opinion "
         "links here." % (meta.get("year") or "the decision"), editions=law_editions(ops))
+    if getattr(args, "cases", False):              # --cases: The Cases Cited before The Law Cited
+        from tribonian import casesummary
+        meta["posttex"] = casesummary.section_tex(shared_db(), casesummary.cited(shared_db(), ops), "opinion") + meta["posttex"]
+    qd = None                                           # quote marks and Quote lineage (quotelineage.py)
+    if QUOTE_MARKS and meta.get("cluster"):
+        from tribonian import quotelineage
+        qd = quotelineage.data(shared_db(), data, index, QUOTED_MIN, meta["cluster"])
+    meta["editorial"] = data.get("cluster") or {}       # the reporter's summary and syllabus, as in the note
+    frag = CASES / "citedby" / str(meta.get("cluster")) / "section.md"   # map citedby's Cited by, as in the note
+    if frag.exists():
+        from tribonian import mdtex
+        meta["posttex"] = mdtex.part_tex(frag.read_text(encoding="utf-8"), "Cited by", "citedby") + meta["posttex"]
+    if qd:
+        for o in ops:
+            o["ctx"].quotes = [(e["n"], e["compact"], e["k"]) for e in qd["entries"]]
+        meta["posttex"] = quotelineage.section_tex(qd, bulk_stamp(shared_db())) + meta["posttex"]
     # --no-goodlaw (the GUI's Quick build): everything but the slow good-law check
     quick = getattr(args, "quick_goodlaw", None)
     meta["profile"] = profile_data(meta["cluster"], scan=not (getattr(args, "no_goodlaw", False) or quick), quick=quick)
@@ -2093,10 +2323,14 @@ def build(args):
     (here / "build").mkdir(exist_ok=True)
     ndir = note_dir(meta["slug"], data.get("docket"))
     md_path = ndir / (meta["slug"] + ".md")
-    tail = tail_sections(data, index)
+    tail = tail_sections(data, index, sketches=getattr(args, "cases", False))
     law_md = "\n".join(lawappendix.md_lines(law, statute_notes()))
+    if qd:
+        from tribonian import quotelineage
+        tail = "\n".join(quotelineage.section_md(qd)) + "\n" + tail
+    tex = render_tex(meta, ops, args.font, args.style)     # first: it registers the cites not resolved
+    tail += "\n".join(citemarks.section_md(lambda t: esc(t, "md")))
     md_path.write_text(render_md(meta, ops, (law_md + "\n" + tail) if law_md else tail, data["cluster"]), encoding="utf-8")
-    tex = render_tex(meta, ops, args.font, args.style)
     tex_path = here / "build" / (meta["slug"] + ".tex")
     tex_path.write_text(tex, encoding="utf-8")
     print("wrote %s\nwrote build/%s" % (md_path.relative_to(here), tex_path.name))
@@ -3380,9 +3614,9 @@ def opinions_named(ids, con):
     if con is None:
         return None
     try:
-        rows = con.execute("SELECT DISTINCT o.cluster_id, c.case_name, c.date_filed, d.court_id FROM ops.opinions o "
+        rows = con.execute("SELECT DISTINCT o.cluster_id, c.case_name, c.date_filed, d.court_id FROM opmap o "
                            "JOIN clusters c ON c.id = o.cluster_id LEFT JOIN dockets d ON d.id = c.docket_id "
-                           "WHERE o.id IN (%s)" % ",".join("?" * len(ids)), list(ids)).fetchall()
+                           "WHERE o.id IN (%s)" % ",".join("?" * len(ids)), list(ids)).fetchall()   # opmap: main database
     except sqlite3.Error:
         return None
     out = []
@@ -3478,6 +3712,9 @@ def recap_build(args):
                 label = "%s, %s (%s %s)" % (esc(nm, "md"), ct, cc, yr) if ct else "%s (%s %s)" % (esc(nm, "md"), cc, yr)
                 tail.append("- [[%s|%s]]" % (links[cid], label) if cid in links else "- [%s](%s)%s (%s %s)" % (
                     esc(nm, "md"), opinion_url(cid, nm), ", " + ct if ct else "", cc, yr))
+                if getattr(args, "cases", False):         # --cases: the sketch, as in the PDF's The Cases Cited
+                    from tribonian import casesummary
+                    tail += casesummary.sketch_md(con, cid, lambda t: esc(t, "md"))
             tail.append("")
         elif named is None:
             tail += ["## Cites", "", "*%d opinions (CourtListener opinion ids %s); names need the local database (casedb.py).*"
@@ -3501,6 +3738,10 @@ def recap_build(args):
                     "a cite of one in the text links here." % ("s" if len(ops) > 1 else "", "" if len(ops) > 1 else "s",
                                                                  (ops[0]["api"].get("entry_date_filed") or "")[:4] or "filing"),
                     editions=law_editions(ops))}
+    if getattr(args, "cases", False):              # --cases: The Cases Cited before The Law Cited
+        from tribonian import casesummary
+        tex_meta["posttex"] = casesummary.section_tex(shared_db(), casesummary.cited(shared_db(), ops),
+                                                      "filing" + ("s" if len(ops) > 1 else "")) + tex_meta["posttex"]
     pdf_name = dslug + (("-ecf-" + "-".join(slugify(x) for x in sorted(want, key=lambda x: (len(x), x)))) if want else "")
     rel_pdf = (pdf_dir(ndir) / (pdf_name + ".pdf")).relative_to(ROOT)
 
@@ -3526,13 +3767,15 @@ def recap_build(args):
             L.append("- ECF No. %s (%s)%s — %s [↗](%s%s)" % (doc_key(r), r.get("entry_date_filed") or "?",
                                                            "" if r.get("is_available") else " *not purchased*",
                                                            esc(clean(r.get("description") or "")[:160], "md"), CL, r.get("absolute_url") or ""))
+    tex = render_tex(tex_meta, ops, args.font, args.style)  # first: it registers the cites not resolved
+    L += [""] + citemarks.section_md(lambda t: esc(t, "md"))
     (ndir / (dslug + ".md")).write_text("\n".join(L) + "\n", encoding="utf-8")
     for p in [ndir / (dslug + ".md")] + written:
         print("wrote %s" % p.relative_to(ROOT))
 
     (ROOT / "build").mkdir(exist_ok=True)
     tex_path = ROOT / "build" / (pdf_name + ".tex")
-    tex_path.write_text(render_tex(tex_meta, ops, args.font, args.style), encoding="utf-8")
+    tex_path.write_text(tex, encoding="utf-8")
     print("wrote %s" % tex_path.relative_to(ROOT))
     if not args.no_pdf:
         pdf = run_pdflatex(tex_path, pdf_dir(ndir))
@@ -3765,6 +4008,8 @@ def main():
     b.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                    "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     b.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
+    b.add_argument("--cases", action="store_true", help="end the PDF with The Cases Cited: each cited case once, with its "
+                   "reporter summary or syllabus, else how later courts describe it")
     b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                    help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     b.add_argument("--coupling", action="store_true",
@@ -3802,6 +4047,8 @@ def main():
     rb.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                     "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     rb.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
+    rb.add_argument("--cases", action="store_true", help="end the PDF with The Cases Cited: each cited case once, with its "
+                   "reporter summary or syllabus, else how later courts describe it")
     rb.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                     help="download and build the cited state law that is not local (each code's item: a title or chapter)")
     rb.set_defaults(func=recap_build)
