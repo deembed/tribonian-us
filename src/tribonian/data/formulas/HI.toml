@@ -25,6 +25,8 @@
 name    = "Hawaii Revised Statutes"
 doc     = "/us-hi/hrs"                        # /us-hi/hrs/ch707/s707-701/1/a (section numbers unique statewide)
 fetch   = "index"
+sparse_match = '(?P<c>\d+)(?P<cx>[A-Z]*)-(?P<s>\d+)(?:\.(?P<x>\d+))?'   # 489-3 -> HRS0489/HRS_0489-0003.htm; 1-4.5 -> HRS_0001-0004_0005
+sparse  = ['/HRS_{c:04d}{cx}-{s:04d}_{x:04d}\.htm$', '/HRS_{c:04d}{cx}-{s:04d}\.htm$']
 item    = "%04d"                              # chapter 1 -> 0001, 21G -> 0021G (folder HRS0021G)
 title_id = ['^0*(.+)$', 'ch\1']               # file 0707 -> /us-hi/hrs/ch707
 index_file = "HRS{item}.html"                 # the chapter folder's listing

@@ -17,6 +17,7 @@
 name    = "General Laws of Massachusetts"
 doc     = "/us-ma/gl"                         # /us-ma/gl/ch93A/s9/1 (one USLM file per chapter)
 fetch   = "index"
+sparse  = '/Chapter{ch}/Section{sec}$'
 item    = ""                                  # chapters as printed: 1, 7A, 93A, 6D
 index_file = "Chapter{item}.htm"
 # the chapter page's section list: <a href="/Laws/GeneralLaws/PartI/TitleI/Chapter1/Section7A"><span class="section">

@@ -371,6 +371,11 @@ def state_hint(key):
     if item is None:
         return "no item for %s (its [cite] table has no item rule)" % tb.label(vals)
     if path is not None:
+        from tribonian import statelaw
+        code = tb.fetch_code() or tb.code
+        if statelaw.is_partial(tb.st, code, item):
+            return "not fetched: only the cited sections of %s are local (--fetch-state-law gets it; " \
+                   "tribonian state fetch %s %s %s for the whole)" % (item, tb.st, code, item)
         return "not in %s (renumbered or repealed since, or a cite we misread)" % path.name
     return "tribonian state fetch %s %s %s" % (tb.st, tb.fetch_code() or tb.code, item)
 
@@ -486,6 +491,15 @@ def fetch_hint(key):
     if spec is None:
         if p[0] == "usc":
             if _usc_root(p[1]) is not None:
+                from tribonian import usc_status
+                tag, to, _ = usc_status.judge(usc_status.ukey(p[1], p[2]), 0) if len(p) > 2 else ("nf", [], None)
+                names = ", ".join(usc_status.label(k) for k in to[:4]) + (" and %d more" % (len(to) - 4) if len(to) > 4 else "")
+                if tag == "rep":
+                    return "repealed; today's Code has only the stub" + ("; see %s" % names if names else "")
+                if tag == "mv" and to:
+                    return "moved to %s" % names
+                if tag == "om":
+                    return "omitted from the Code"
                 return "not in the title %s XML (renumbered or repealed, or a cite we misread)" % p[1].upper()
             return "the US Code XML for title %s in xml/ (tribonian usc)" % p[1]
         return ""
@@ -496,8 +510,19 @@ def is_state_spec(spec):
     return spec is not None and spec[0] == "state" and spec[1] != "US"
 
 
-def run_fetch(spec):
-    """Fetch what spec names, in this process. -> (True, '') or (False, why). Never raises and never exits:
+def want_of(key):
+    """A state key's cite fields ({'title': '5', 'sec': '4602'}), for a sparse fetch of just that section; else None."""
+    if "-" not in key.split(":", 1)[0]:
+        return None
+    from tribonian import statecites
+    tb, vals = statecites.parse(key)
+    return dict(vals) if tb is not None and vals else None
+
+
+def run_fetch(spec, want=None):
+    """Fetch what spec names, in this process. With `want` (cite fields of the sections needed, want_of), a state
+    code whose formula has a `sparse` rule fetches only those sections' pages; without, the whole item.
+    -> (True, '') or (False, why). Never raises and never exits:
     the fetchers sys.exit on refusals (robots.txt, HTTP errors, no such title), which becomes the reason;
     a dropped connection or timeout mid-download likewise. A half-written file stays as *.part, never
     under the real name."""
@@ -511,7 +536,7 @@ def run_fetch(spec):
         else:
             from tribonian import statelaw
             if (spec[1], spec[2]) in statelaw.formulas():     # every state code: fetch the item, build its USLM
-                statelaw.fetch_and_build(spec[1], spec[2], spec[3])
+                statelaw.fetch_and_build(spec[1], spec[2], spec[3], want=want)
             else:
                 reader = statelaw.FETCHERS.get((spec[1], spec[2]))
                 if reader is None:

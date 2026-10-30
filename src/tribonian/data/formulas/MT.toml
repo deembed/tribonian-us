@@ -18,6 +18,9 @@
 name    = "Montana Code Annotated"
 doc     = "/us-mt/mca"                        # /us-mt/mca/t1/s1-1-101/1/a
 fetch   = "index"
+sparse_match = '(?P<t>\d+)-(?P<c>\d+)-(?P<p>\d*?)(?P<s>\d{2})'   # 20-7-1703: title 20, chapter 7, part 17, section 03
+sparse  = '/{t:03d}0-{c:03d}0-{p:03d}0-{s:03d}0\.html$'
+sparse_lists = ['/chapter_{c:03d}0/', '/part_{p:03d}0/']
 # items are title labels (1, 15, 90); "%03d0" turns 1 into the site folder 0010 (label x 10).
 item    = "%03d0"
 index_file = "title_{item}.html"

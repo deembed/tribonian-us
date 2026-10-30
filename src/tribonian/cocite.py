@@ -763,9 +763,8 @@ def fill_names(db, con):
     rows = []
     for cid in want:
         short, full, filed = info.get(cid, (None, None, None))
-        name = short or full or "cluster %d" % cid
-        if not short and full and len(full) > 60:
-            name = full[:57] + "..."
+        from tribonian.case2md import case_short
+        name = case_short(short, full) or "cluster %d" % cid
         rows.append((cid, name, cites.get(cid, (0, ""))[1], int(filed[:4]) if filed and filed[:4].isdigit() else None))
     db.executemany("INSERT OR REPLACE INTO names VALUES (?,?,?,?)", rows)
     db.commit()

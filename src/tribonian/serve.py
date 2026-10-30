@@ -53,7 +53,7 @@ def _law_fetch(req):
     spec = lawtext.fetch_spec(k)
     if spec is None:
         return {"key": k, "fetched": False, "why": lawtext.fetch_hint(k) or "nothing fetches this key"}
-    ok, why = lawtext.run_fetch(spec)
+    ok, why = lawtext.run_fetch(spec, want=[lawtext.want_of(k)] if lawtext.want_of(k) else None)
     return {"key": k, "fetched": ok, "why": why}
 
 

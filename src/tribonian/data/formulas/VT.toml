@@ -13,6 +13,7 @@
 name    = "Vermont Statutes Annotated"
 doc     = "/us-vt/vsa"                         # /us-vt/vsa/t1/ch1/sch2 ; sections /us-vt/vsa/t1/s51/a/1
 fetch   = "index"
+sparse_range = 'href="(?P<href>/statutes/chapter/[^"]+)">(?:(?!</li>).)*?Contains: §§? (?P<lo>[0-9A-Za-z.-]+)(?: - (?P<hi>[0-9A-Za-z.-]+))?'   # sparse: the chapters whose "Contains: §§ lo - hi" holds a cited section
 item    = "%02d"                               # title 1 -> "01"; "09A", "03APPENDIX" kept as written
 index_file = "title_{item}.html"
 # The title page (h2.statute-header "Title 1: General Provisions") links each chapter's section list,
@@ -38,7 +39,8 @@ catalog = [
 root     = "div#main-content"
 # <center> carries the bracketed version markers "[Subsection (d) effective until July 1, 2027; see also ...]"
 # that come before each of two versions of a paragraph (it sits outside the <p>, which the site leaves empty)
-blocks   = ["p", "center"]
+blocks   = ["p", "center", "h5"]                 # h5: a "Notes" heading over session-law findings (16 V.S.A. § 165)
+loose    = ["div"]                              # ... followed by bare text ("History Findings.") in its <div>
 # h3.statute-chapter "Chapter 001: Name"; the subchapter line is a bare <i> inside an <li> (an <i> inside a
 # <p> is not read as a heading: blocks nested in blocks count once, as part of the outer one)
 headings = ["h3.statute-chapter", "i"]

@@ -44,19 +44,65 @@ def fetch_missing(keys, federal=False, state=False, warnings=None):
     warnings = [] if warnings is None else warnings
     keys = list(dict.fromkeys(keys))
     todo = [k for k in keys if lawtext.text_of(k) is None]
-    specs = []
+    specs, wants = [], {}
     for k in todo:
         spec = lawtext.fetch_spec(k)
         if spec is None:
             continue
         if (lawtext.is_state_spec(spec) and state) or (not lawtext.is_state_spec(spec) and federal):
             specs.append(spec)
+            w = lawtext.want_of(k) if lawtext.is_state_spec(spec) else None
+            if w:                         # sparse: only the cited sections (a formula with no `sparse` rule
+                wants.setdefault(spec, []).append(w)    # fetches the whole item regardless)
+    # One worker process per source: each state's site (and eCFR) is fetched one item at a time, as before, so no
+    # publisher sees more than one request at a time from us; different states run side by side. Processes, not
+    # threads: the fetchers keep module state and stop with sys.exit.
+    groups = OrderedDict()
     for spec in dict.fromkeys(specs):
-        print("fetch: %s" % " ".join(x for x in (spec[1:] if spec[0] == "state" else spec) if x), flush=True)
-        ok, why = lawtext.run_fetch(spec)
-        if not ok:
-            warnings.append("could not fetch %s: %s" % (" ".join(x for x in spec[1:] if x), why))
+        groups.setdefault(spec[1] if spec[0] == "state" else spec[0], []).append((spec, wants.get(spec)))
+    left = list(groups.items())
+    if len(left) > 1:
+        # spawn: fresh, small workers (a forked copy of a big build, times eight, can run the machine out of
+        # memory). A worker that dies takes down the pool; its source and any not yet done run here, in turn.
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+        from concurrent.futures.process import BrokenProcessPool
+        done = set()
+        try:
+            with ProcessPoolExecutor(max_workers=min(FETCH_WORKERS, len(left)),
+                                     mp_context=multiprocessing.get_context("spawn")) as pool:
+                futs = {pool.submit(_fetch_group, g): src for src, g in left}
+                for f in futs:
+                    try:
+                        warnings.extend(f.result())
+                        done.add(futs[f])
+                    except BrokenProcessPool:
+                        print("fetch: a worker stopped (%s); fetching what is left one source at a time" % futs[f],
+                              flush=True)
+                        break
+        except BrokenProcessPool:
+            pass
+        lawtext._ROOTS.clear()                   # the workers wrote the files; read them fresh here
+        left = [(src, g) for src, g in left if src not in done]
+    for _, g in left:
+        warnings.extend(_fetch_group(g))
     return [(k, lawtext.fetch_hint(k)) for k in todo if lawtext.text_of(k) is None]
+
+
+FETCH_WORKERS = 4      # sources fetched at once (each one serially)
+
+
+def _fetch_group(specs):
+    """Fetch one source's items in order: [(spec, want or None)]. -> warnings. Runs in a worker process."""
+    from tribonian import lawtext
+    out = []
+    for spec, want in specs:
+        name = " ".join(x for x in (spec[1:] if spec[0] == "state" else spec) if x)
+        print("fetch: %s%s" % (name, " (%d cited sections)" % len(want) if want else ""), flush=True)
+        ok, why = lawtext.run_fetch(spec, want=want)
+        if not ok:
+            out.append("could not fetch %s: %s" % (" ".join(x for x in spec[1:] if x), why))
+    return out
 
 
 def grouped(keys):

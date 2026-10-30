@@ -41,6 +41,8 @@ tribonian-us isn't accepting support at this time.
 | US Code | A case: profile and good-law check | A co-citation sub-cluster |
 |---|---|---|
 | ![1 U.S.C. chapter 1](docs/img/usc-page.png) | ![State Farm case profile](docs/img/case-profile.png) | ![Sub-cluster 2020-24:2.3](docs/img/subcluster-page.png) |
+| **A deep US Code section and how courts cite it** | **A Supreme Court docket** | **The district court docket below it** |
+| ![8 U.S.C. § 1101: the definitions, then Cited with](docs/img/usc-1101-cited-with.png) | ![No. 25-417, Nielsen v. Watanabe: the petition's header box, cites tinted by whether they resolved](docs/img/scotus-25-417.png) | ![Watanabe v. Derr, D. Haw. 1:22-cv-00168: the docket's contents](docs/img/recap-watanabe.png) |
 
 Full sample PDFs and a sample note are in [`examples/`](examples/).
 
@@ -51,6 +53,8 @@ And a desktop browser over all of it (`gui/`, Rust):
 | ![Start screen](docs/img/gui-title-page.png) | ![Area: standing and judicial review of agency action](docs/img/gui-area.png) |
 | **A case page** | **Search what later courts said** |
 | ![State Farm case page](docs/img/gui-case.png) | ![Parenthetical search: arbitrary and capricious](docs/img/gui-search.png) |
+| **View Dockets: federal and state courts** | **A docket: its documents, what's in RECAP, what's on PACER** |
+| ![View Dockets › Federal](docs/img/gui-dockets.png) | ![A docket page](docs/img/gui-docket.png) |
 
 **Sub-Cluster Search from a draft:** CourtListener semantic search per five-year slice, re-ranked by semantic score and grouped by co-citation sub-cluster
 
@@ -360,16 +364,21 @@ After a run, failures are in `build/failures.txt`, and pdflatex logs for failed 
 
 ## `tribonian usc` (usc2md.py) — one US Code selection → notes + LaTeX
 
-`tribonian build` usually runs this for you.
+`tribonian build` runs this for every chapter. Run it yourself for one section or any selection:
 
 ```
 tribonian usc xml/usc05.xml --list-chapters
 tribonian usc xml/usc05.xml --list                           # section identifiers
-tribonian usc xml/usc05.xml --section /us/usc/t5/s552 --out out
-tribonian usc xml/usc05.xml --chapter /us/usc/t5/ptI/ch5 --out out
+tribonian usc xml/usc05.xml --section /us/usc/t5/s552        # -> md/t05/.../5-usc-552.md and pdf/5-usc-552.pdf
+tribonian usc xml/usc05.xml --chapter /us/usc/t5/ptI/ch5
+tribonian usc xml/usc08.xml --section /us/usc/t8/s1101 --credits
 ```
 
-Other flags: `--all`, `--name`, `--credits` (source credits under headings), `--notes` (editorial and statutory notes), `--style`, `--font`. It writes `.tex` and `.md` files; `tribonian build` runs pdflatex on them.
+Sections are named by their full identifier (`/us/usc/t8/s1101`, not `1101`); `--list` prints them.
+Other flags: `--all`, `--name`, `--credits` (source credits under headings), `--notes` (editorial and statutory notes), `--no-cocite`, `--style`, `--font`.
+Without `--out`, the notes go to `md/` and the PDF is compiled into `pdf/` (the `.tex` stays in `build/`). With `--out DIR`, it writes the `.md` tree and the `.tex` into DIR and stops; that is what `tribonian build` does before compiling.
+
+The PDF ends with the same derived sections as the note (Cited with, Cited by, Recent appellate cites, when built; see step 11), with the newest 10 recent cites instead of 20 and no links to other notes.
 
 ## `tribonian case` (case2md.py) — court opinions (CourtListener)
 
@@ -414,7 +423,8 @@ tribonian case recap build cases/recap/<court>/<docket>.json             # --doc
 tribonian case usage                              # API requests used; --days N for history
 ```
 
-- **The Law Cited:** the PDF ends with every statute, constitutional provision and regulation the opinions cite (federal and state), once each, with its text where it is stored locally; every cite in the opinion links to its entry, and the note lists them under "The law cited". The text is today's, not the law as of the decision; a cite's edition parenthetical ("(West 2019)") is shown beside it. State law that is not local is fetched with `--fetch-state-law` (the GUI's "Fetch state law" checkbox, on by default); a code with no usable source prints "source error" and why. See [State law cites](#state-law-cites).
+- **Cite tints:** every cite in the PDF has a faint tint: green when it resolved (the case is in CourtListener or the local database; the law's text is local), red when it did not (no such case or provision found, or not fetched yet), orange when the law has no source here. The PDF ends with *Cites not resolved*, the red and orange ones with their reasons and pages. `CITE_MARKS=0` turns the tints off.
+- **The Law Cited:** the PDF ends with every statute, constitutional provision and regulation the opinions cite (federal and state), once each, with its text where it is stored locally; every cite in the opinion links to its entry, and the note lists them under "The law cited". The text is today's, not the law as of the decision; a cite's edition parenthetical ("(West 2019)") is shown beside it. State law that is not local is fetched with `--fetch-state-law` (the GUI's "Fetch state law" checkbox, on by default); a code with no usable source prints "source error" and why. For a code whose site has a page per section (or per chapter), this fetch is sparse: only the cited sections' pages, so the local title is partial until `tribonian state fetch` gets the whole of it. Different states are fetched side by side, each one a request at a time. See [State law cites](#state-law-cites).
 - **Where notes go:** a note that already exists anywhere in `md-cases/` is rewritten in place, so moving a note (inside `md-cases/`, not in the vault) is how you file it. New notes follow the `FOLDERS` table in the script (for example, Freedom of Information Act and Privacy Act cases go to `FOIA/`).
 - **Old US Code cites:** every Code cite in the opinion text is checked against the current Code (`xml/`, plus `usc_map.json` from `tribonian cocite usc-map` when it exists), judged at the year the cite is as of: its edition parenthetical ("(1976 ed., Supp. V)" ≈ 1981), else the decision year. A changed one is highlighted yellow and tagged: **mv** renumbered (struck, current number given), **rep** repealed (struck; successor given when the stub names one), **om** omitted (struck), **pre** current section enacted after the cite, so the number meant something else (struck), **nf** not in the current Code (struck), **amd** same number, amended since (highlighted, not struck; year of the latest amendment). Section level only, and approximate: a tag means look closer. `USC_MARKS=0` turns it off. Check one cite: `tribonian usc-status "42 U.S.C. § 1973(b)" --year 1986`.
 - **API token:** `COURTLISTENER_TOKEN`, or the GNOME keyring (`secret-tool store --label courtlistener service courtlistener`).

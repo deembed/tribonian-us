@@ -17,6 +17,8 @@
 name    = "Arizona Revised Statutes"
 doc     = "/us-az/ars"                        # /us-az/ars/t36/s36-101/1
 fetch   = "index"
+sparse_match = '(?P<t>[0-9A-Z]+)-(?P<s>\d+)(?:\.(?P<x>\d+))?'   # 15-2401 -> 15/02401.htm
+sparse  = ['/ars/{t}/{s:05d}[-.]{x:02d}\.htm$', '/ars/{t}/{s:05d}\.htm$']   # 43-1011.01 is 01011.01.htm, 43-1072.01 01072-01.htm
 item    = ""                                  # title numbers as written: 1, 36 (no padding in the index url)
 index_file = "title-{item}.html"              # the arsDetail outline page
 # The outline links each section through the viewer (/viewdocument/?docName=<real url>); take the real url from

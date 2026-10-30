@@ -17,6 +17,8 @@ doc     = "/us-wa/rcw"                       # /us-wa/rcw/t9A/ch9A.04, /us-wa/rc
 # One item = one title. The title page (default.aspx?cite=9A) lists its chapters; each chapter is fetched
 # whole with &full=true (rewrite). One USLM file per title: law/wa/uslm/rcw/title-9A.xml
 fetch   = "index"
+sparse_match = '(?P<c>[0-9A-Z]+\.[0-9A-Z]+)\..+'                # 49.60.030: chapter 49.60 (pages are whole chapters)
+sparse  = 'cite={c}&full=true$'
 layers  = [{ name = "current", url = "https://app.leg.wa.gov/RCW/default.aspx?cite={item}" }]
 index_file = "title-{item}.htm"
 # Only the chapter-list table cells: the title page's notes also link other titles' chapters
@@ -42,7 +44,7 @@ catalog = [
 
 [WA.rcw.html]
 root     = "div.main-page-content"           # skips the site header, breadcrumbs, footer
-blocks   = ["h1", "h2", "h3", "div[style*=:]", "tr"]   # div[style*=:] = a div with a style: paragraphs (text-indent),
+blocks   = ["h1", "h2", "h3", "div[style*=:]", "tr", "span:matches(^\\(Formerly:)"]   # div[style*=:] = a div with a style: paragraphs (text-indent),
                                              # history (margin-top), notes (font-style); the plain wrapper divs
                                              # and the plain <div> inside the h2 chapter name are not blocks
 nested   = true                              # notes: div[style=margin-bottom] > div[style=font-style] -- the outer is a container
