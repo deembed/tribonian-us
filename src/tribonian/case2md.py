@@ -824,6 +824,19 @@ def resolve_case_cite(con, c, before, after, doc):
 CL_LINK_RE = re.compile(r"/opinion/(\d+)/")
 
 
+def unsplit(node):
+    """A cite cut by italics: "<em>Olmstead v. Zimring, 521</em> U.S. 581" -> the volume moves out of the italics, so
+    "521 U.S. 581" is one piece of text the finder can read. The case name stays italic."""
+    from tribonian import citefind
+    for i, k in enumerate(node.kids[:-1]):
+        nxt = node.kids[i + 1]
+        if isinstance(k, El) and k.tag in ("em", "i") and k.kids and isinstance(k.kids[-1], str) and isinstance(nxt, str):
+            m = re.search(r"(?<![\w.])(\d{1,4})\s*$", k.kids[-1])
+            if m and citefind.CITE_RE.match(m.group(1) + " " + nxt.lstrip()):
+                k.kids[-1] = k.kids[-1][:m.start()].rstrip() + " "
+                node.kids[i + 1] = m.group(1) + " " + nxt.lstrip()
+
+
 def unlinked_is_case(text):
     """Does an unlinked CourtListener citation span hold a case cite (not "90 Stat. 331" or "54 Mich. L. Rev. 1")?"""
     from tribonian import citefind
@@ -848,6 +861,7 @@ def mark_cases(node):
         return
     from tribonian import citefind
     doc = citefind.DOC                               # the cites before this point in the document (Id., supra)
+    unsplit(node)
     out = []
     def flat(n):                                     # text without page markers or footnote marks
         return n if isinstance(n, str) else "" if n.tag in ("page-number", "footnotemark") else "".join(flat(x) for x in n.kids)
@@ -1560,9 +1574,40 @@ class Part:
         self.blocks, self.children = [], []       # blocks: ("p"|"q", El)
 
 
+def html_footnotes(root):
+    """The other footnote form CourtListener serves (<a class="footnote" href="#fn1">1</a> in the text, the notes in
+    <div class="footnotes"><div class="footnote" label="1">) -> Harvard's (<footnotemark>, <footnote label>), which the
+    rest of the reader knows. Without it the marks print as a plain "1" and the notes as a closing paragraph."""
+    def walk(n):
+        out = []
+        for k in n.kids:
+            if isinstance(k, El) and k.tag == "a" and "footnote" in k.attrs.get("class", "") \
+                    and re.match(r"#fn\d+$", k.attrs.get("href", "")):
+                m = El("footnotemark")
+                m.kids = [k.text().strip()]
+                out.append(m)
+            elif isinstance(k, El) and k.tag == "div" and "footnotes" in k.attrs.get("class", "").split():
+                for f in k.kids:
+                    if isinstance(f, El) and f.tag == "div" and "footnote" in f.attrs.get("class", "").split():
+                        fn = El("footnote", {"label": f.attrs.get("label") or re.sub(r"\D", "", f.attrs.get("id", ""))})
+                        fn.kids = [x for x in f.kids if not (isinstance(x, El) and x.tag == "a")]   # the back link
+                        for x in fn.kids:                # "<p>. The program is …": the mark's leftover period
+                            if isinstance(x, El) and x.kids and isinstance(x.kids[0], str):
+                                x.kids[0] = re.sub(r"^\s*\.\s+", "", x.kids[0])
+                                break
+                        out.append(fn)
+            else:
+                if isinstance(k, El):
+                    walk(k)
+                out.append(k)
+        n.kids = out
+    walk(root)
+    return root
+
+
 def read_opinion(op, oi):
     """API opinion dict -> dict with byline pieces, a flat block list, footnotes."""
-    root = parse_html(op.get("html_with_citations") or op.get("xml_harvard") or "")
+    root = html_footnotes(parse_html(op.get("html_with_citations") or op.get("xml_harvard") or ""))
     body = root.find("opinion") or root
     o = {"oi": oi, "kind": body.attrs.get("type", ""), "author": "", "byline": [],
          "flat": [], "footnotes": {}, "api": op}
@@ -3386,20 +3431,34 @@ def with_statutes(el):
     'U.S. Const. amend. I') in <law key=...>, so inline() links it: to the US Code note in Markdown,
     to the provision's text in the PDF when the build prints it."""
     from tribonian import lawcites
-    kids = []
+    # The whole paragraph is read at once, so a short form ("§ 1396a(10)(A)(i)") finds the full cite before it even
+    # when that one sits in a CourtListener span or italics; only cites inside one run of plain text are wrapped.
+    def text_of(n):
+        if isinstance(n, str):
+            return n
+        if n.tag in ("page-number", "footnotemark"):
+            return " "
+        return "".join(text_of(x) for x in n.kids)
+    starts, pos = [], 0
     for k in el.kids:
-        if isinstance(k, str):
-            at = 0
-            for a, b, key in _whole_cites(lawcites.spans_in(k)):
-                if a < at:
-                    continue
-                span = El("law", {"key": key})
-                span.kids.append(k[a:b])
-                kids += [k[at:a], span]
-                at = b
-            kids.append(k[at:])
-        else:
+        starts.append(pos)
+        pos += len(text_of(k))
+    found = _whole_cites(lawcites.spans_in("".join(text_of(k) for k in el.kids)))
+    kids = []
+    for k, s0 in zip(el.kids, starts):
+        if not isinstance(k, str):
             kids.append(k)
+            continue
+        at = 0
+        for a, b, key in found:
+            a, b = a - s0, b - s0
+            if a < at or b > len(k) or a < 0:
+                continue                         # elsewhere, or across an element: left as it is
+            span = El("law", {"key": key})
+            span.kids.append(k[a:b])
+            kids += [k[at:a], span]
+            at = b
+        kids.append(k[at:])
     el.kids = [k for k in kids if k != ""]
     return el
 

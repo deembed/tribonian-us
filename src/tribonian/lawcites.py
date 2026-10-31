@@ -31,13 +31,18 @@ CLAUSES = {"free exercise": "amend-1", "establishment": "amend-1", "free speech"
 
 SUBS = r"(?:\s?\([A-Za-z0-9]{1,4}\))*"
 NUM = r"(?:\d+|[IVXL]+)"
-CONST_RE = re.compile(r"U\.\s?S\.\s?Const\.?,?\s*(?:(amend(?:ment)?s?\.?)\s*(" + NUM + r")|(art(?:icle)?\.?)\s*(" + NUM + r"))"
-                      r"(?:,?\s*§+\s*(\d+))?(?:,?\s*cl\.\s*\d+)?" + SUBS, re.I)
+# "U.S. Const. art. I, § 10, cl. 1", and the older long forms "Constitution of the United States, art. 1, sect. 10,
+# par. 1" / "United States Constitution, art. I, sec. 10"
+CONST_RE = re.compile(r"(?:U\.\s?S\.\s?Const\.?|Constitution of the United States|United States Constitution),?\s*"
+                      r"(?:(amend(?:ment)?s?\.?)\s*(" + NUM + r")|(art(?:icle)?\.?)\s*(" + NUM + r"))"
+                      r"(?:,?\s*(?:§+|sect?(?:ion)?s?\.?)\s*(\d+))?(?:,?\s*(?:cl|par|para|clause)\.?\s*\d+)?" + SUBS, re.I)
 NAMED_AMEND_RE = re.compile(r"\b(" + "|".join(ORD) + r")\s+Amendment\b")
 NAMED_CLAUSE_RE = re.compile(r"\b(Free Exercise|Establishment|Free Speech|Equal Protection|Supremacy|Spending|Commerce)\s+Clauses?\b", re.I)
 CFR_RE = re.compile(r"\b(\d{1,2})\s*C\.\s?F\.\s?R\.?\s*(?:(pts?\.|[Pp]arts?)\s*(\d+)|(§§?)?\s*(\d+)\.(\d+[a-z]?))" + SUBS)
 CRS_SECT = r"\d+(?:\.\d+)?-\d+(?:\.\d+)?-\d+(?:\.\d+)?"
 ETSEQ_RE = re.compile(r"\s*,?\s*et\s+seq\.")
+CFR_MORE = re.compile(r"\s*(?:,|and)\s*(?:and\s+)?((?:(\d+))?\.(\d+[a-z]?))" + SUBS)        # ", .220" / ", 440.225"
+BARE_MORE = re.compile(r"\s*(?:,|and|&)\s*(?:and\s+)?(\d[\w.:/-]*?[\w])(?![\w.:/-]*\w)" + SUBS)   # ", 1396d(a)(12)"
 BARE_RE = re.compile(r"(?<![\w.§])(?:§§?)\s*(\d[\w.:/-]*?[\w])(?![\w.:/-]*\w)" + SUBS)
 USC_SHORT = re.compile(r"\d+[A-Za-z]{0,3}(?:-\d+[A-Za-z]?)?")
 
@@ -88,6 +93,12 @@ def find(text, flat=True):
     for m in CFR_RE.finditer(t):
         key = "cfr:%s:pt-%s" % (m.group(1), m.group(3)) if m.group(2) else "cfr:%s:%s.%s" % (m.group(1), m.group(5), m.group(6))
         add(m.start(), m.end(), key)
+        if m.group(4) == "§§" and not m.group(2):        # "42 C.F.R. §§ 440.210, .220, 440.225": the list goes on
+            part, end = m.group(5), m.end()
+            for n in iter(lambda: CFR_MORE.match(t, end), None):
+                part = n.group(2) or part
+                add(n.start(1), n.end(), "cfr:%s:%s.%s" % (m.group(1), part, n.group(3)))
+                end = n.end()
     full_state = sorted(statecites.find_full(t, free), key=lambda h: (h[0], -(h[1] - h[0])))
     for a, b, key, tb, vals in full_state:
         if add(a, b, key):
@@ -129,8 +140,15 @@ def find(text, flat=True):
         if n0 is not None:
             fit = [key for a, b, key, kind in before if key.startswith("usc:") and any(abs(n0 - x) <= 100 for x in full_usc[key.split(":")[1]])]
             if fit:
-                placed = add(m.start(), m.end(), "usc:%s:%s" % (fit[-1].split(":")[1], s.lower()), "short")
+                title = fit[-1].split(":")[1]
+                placed = add(m.start(), m.end(), "usc:%s:%s" % (title, s.lower()), "short")
                 if placed:
+                    if m.group(0).lstrip().startswith("§§"):    # "§§ 1396a(a)(10), 1396d(a)(12)": every one listed
+                        end = m.end()
+                        for n in iter(lambda: BARE_MORE.match(t, end), None):
+                            if not USC_SHORT.fullmatch(n.group(1)) or not add(n.start(1), n.end(), "usc:%s:%s" % (title, n.group(1).lower()), "short"):
+                                break
+                            end = n.end()
                     continue
         for a, b, key, kind in reversed(before):
             if (a, b) in info:

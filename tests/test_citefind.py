@@ -150,6 +150,59 @@ class Marking(unittest.TestCase):
         self.assertEqual(dict(got), {1: 5, 2: 2})              # full, Id., Id., supra, pin; full, Id. (not the statute's)
 
 
+class LawLists(unittest.TestCase):
+    def test_lists(self):
+        from tribonian import lawcites
+        keys = lambda t: [k for a, b, k in lawcites.find(t)["spans"]]
+        self.assertEqual(keys("42 U.S.C. § 1396a. Title XIX. §§ 1396a(a)(10), 1396d(a)(12). Along"),
+                         ["usc:42:1396a", "usc:42:1396a", "usc:42:1396d"])
+        self.assertEqual(keys("42 C.F.R. §§ 440.210, .220. Mandatory"), ["cfr:42:440.210", "cfr:42:440.220"])
+
+    def test_short_form_after_an_element(self):
+        """The full cite sits in a CourtListener span; the short form after it is still read (paragraph context)."""
+        from tribonian import case2md as C
+        p = C.parse_html('<p><span class="citation no-link">42 U.S.C. § 1396</span>. The program. § 1396a(10)(A)(i); more.</p>')
+        C.mark_law(p)
+        laws, stack = [], [p]
+        while stack:
+            n = stack.pop()
+            if isinstance(n, C.El):
+                if n.tag == "law":
+                    laws.append((n.attrs["key"], n.text()))
+                stack += n.kids
+        self.assertIn(("usc:42:1396a", "§ 1396a(10)(A)(i)"), laws)
+
+
+class OpinionHtml(unittest.TestCase):
+    def test_footnote_form(self):
+        from tribonian import case2md as C
+        o = C.read_opinion({"html_with_citations": '<p>Text.<a class="footnote" href="#fn1" id="fn1_ref">1</a> More.</p>'
+                            '<div class="footnotes"><div class="footnote" id="fn1" label="1"><a class="footnote" href="#fn1_ref">1</a>'
+                            '<p>. The note.</p></div></div>'}, 0)
+        self.assertEqual(list(o["footnotes"]), ["1"])
+        self.assertEqual(" ".join(o["footnotes"]["1"].text().split()), "The note.")
+        self.assertIsNotNone(o["flat"][0][1].find("footnotemark"))
+
+    def test_italics_split(self):
+        from tribonian import case2md as C
+        em = C.El("em")
+        em.kids = ["Olmstead v. Zimring, 521"]
+        p = C.El("p")
+        p.kids = [em, " U.S. 581, 601."]
+        C.unsplit(p)
+        self.assertEqual((em.kids[0], p.kids[1]), ("Olmstead v. Zimring, ", "521 U.S. 581, 601."))
+
+
+class ConstitutionCites(unittest.TestCase):
+    def test_forms(self):
+        from tribonian import lawcites
+        for text, key in [("the Constitution of the United States, art. 1, sect. 10, par. 1, which", "const:art-1:10"),
+                          ("U.S. Const. art. I, sec. 10, cl. 1", "const:art-1:10"),
+                          ("United States Constitution, Article III, Section 2", "const:art-3:2")]:
+            self.assertEqual(list(lawcites.find(text)["cites"]), [key], text)
+        self.assertEqual(dict(lawcites.find("the Constitution, art. 1, sec. 10")["cites"]), {})   # whose? not read
+
+
 @unittest.skipUnless(__import__("importlib").util.find_spec("eyecite"), "eyecite not installed")
 class Eyecite(unittest.TestCase):
     def test_same_cites(self):
