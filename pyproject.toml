@@ -16,6 +16,7 @@ dependencies = ["lxml", "numpy", "scipy", "igraph", "tomli; python_version < '3.
 
 [project.optional-dependencies]
 test = ["pytest"]
+eyecite = ["eyecite"]          # cite_engine = "eyecite" or "both"
 
 [project.scripts]
 tribonian = "tribonian.cli:main"
@@ -24,4 +25,4 @@ tribonian = "tribonian.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-tribonian = ["data/*.json", "data/*.toml", "data/uslm/*", "data/formulas/*.toml"]
+tribonian = ["data/*.json", "data/*.toml", "data/*.txt", "data/uslm/*", "data/formulas/*.toml"]

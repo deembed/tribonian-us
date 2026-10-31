@@ -736,37 +736,22 @@ def below_from_appendix(fs, data, con, warn):
 # through the local database's citations table. "605 U.S. at 181" counts for the case cited in
 # full earlier in the same filing; a parallel citation next to its main one is the same mention.
 
-REPORTERS = ["U.S.", "S. Ct.", "L. Ed. 2d", "L. Ed.", "F.4th", "F.3d", "F.2d", "F.", "F. Supp. 3d", "F. Supp. 2d",
-             "F. Supp.", "F. App'x", "Fed. Cl.", "Ct. Cl.", "Cl. Ct.", "B.R.", "F.R.D.", "M.J.", "Vet. App.",
-             "P.3d", "P.2d", "P.", "A.3d", "A.2d", "A.", "N.E.3d", "N.E.2d", "N.E.", "N.W.2d", "N.W.", "S.E.2d", "S.E.",
-             "S.W.3d", "S.W.2d", "S.W.", "So. 3d", "So. 2d", "So.", "Cal. Rptr. 3d", "Cal. Rptr. 2d", "Cal. 5th",
-             "Cal. 4th", "N.Y.3d", "N.Y.2d", "Wash. 2d", "Haw.", "WL"]
-
-
-def _rep_rx(r):
-    r"""'F. Supp. 2d' -> F\.\s?Supp\.\s?2d: a space allowed after every period ("F. 4th" and "F.4th")."""
-    out, s = "", r.replace(" ", "")
-    for k, ch in enumerate(s):
-        out += {".": r"\.", "'": "['’]"}.get(ch, re.escape(ch))
-        if ch == "." and k + 1 < len(s):
-            out += r"\s?"
-    return out
-
-
-REP_RX = "|".join(_rep_rx(r) for r in sorted(REPORTERS, key=len, reverse=True))
-# "at6 2132": a stray mark the text layer glued onto "at" (Viramontes ECF 82, no footnote 6 there) is still a pin
-CITE_RE = re.compile(r"(?<![\d.])(\d{1,4})\s+(%s)\s+(at\d{0,2}\s+)?(\d{1,7})(?![\d])" % REP_RX)   # 7: Westlaw numbers
-CANON = {re.sub(r"[\s.'’]", "", r).lower(): r for r in REPORTERS}
+# The reporter list and the cite pattern live in citefind.py (made from reporters-db; cite_engine picks the engine).
+# CITE_RE keeps its groups: 1 volume, 2 reporter, 3 "at" (a pin cite), 4 page.
+from tribonian import citefind as _cf
+CITE_RE = _cf.CITE_RE
 
 
 def canon(rep):
-    return CANON.get(re.sub(r"[\s.'’]", "", rep).lower(), rep)
+    """A reporter spelling -> CourtListener's form ("U. S." -> "U.S.")."""
+    return _cf.editions(rep)[0]
 
 
 def find_cites(text):
-    """-> [(position, volume, reporter, page, short)] in order; short = an 'at' pin cite."""
+    """-> (text, [(position, volume, reporter, page, short)]) in order; short = a pin cite. Full and pin cites only
+    (an Id. is not counted as a mention here), by the configured cite engine."""
     t = " ".join(text.split())
-    return t, [(m.start(), m.group(1), canon(m.group(2)), m.group(4), bool(m.group(3))) for m in CITE_RE.finditer(t)]
+    return t, [(c.start, c.vol, c.rep, c.page, c.kind == "pin") for c in _cf.find(t) if c.kind in ("full", "pin")]
 
 
 _RESOLVED = {}
@@ -841,6 +826,9 @@ def name_words(before):
     last = None
     for m in re.finditer(r"([A-Z][\w.'&-]*(?:\s+(?:of|the|and|&|de|la|[A-Z][\w.'&-]*)){0,5})\s+v\.\s+([A-Z][^,;()]{1,80}?),", b):
         last = m
+    short = re.search(r"([A-Z][\w'-]{2,}),\s*$", b)
+    if last and short and re.search(r"[.;]\s+(?:See\s+|see\s+|Cf\.\s+|But\s+|Accord\s+|E\.g\.,\s+)?[A-Z(]", b[last.end():]):
+        last = None                                  # "Brown v. Bd., 347 U.S. 483 (1954). Smith, 494 U.S. at 890": Smith's
     if last and len(b) - last.end() <= (360 if history(b) else 80):   # room for a docket number or a parallel cite
         # a sentence ends inside the first party ("… in Carlson. Martinez v. …"): keep what follows it
         text = re.split(r"\b[A-Za-z]{4,}\.\s+", last.group(1))[-1] + " " + last.group(2)
@@ -1012,6 +1000,76 @@ def resolve_name(con, vol, rep, page, before, after):
         # orders on the docket, none with a U.S. cite yet): the most cited, when it dwarfs the rest
         _NAMED[key] = (ranked[0][0][0], "")
     return _NAMED[key]
+
+
+# ---------------------------------------------------------------- checks on a cite found by its citation
+# The citation table says which case a cite is; these say whether the text agrees: the name written before it, and a
+# pin page inside the case. A cite that fails one is a likely miscite (red, with the reason), not a match.
+NAMED_CITE_RE = re.compile(r"(?:([A-Z][\w.'’&-]*(?:\s+(?:of|the|and|for|&|de|la|ex|rel\.|[A-Z][\w.'’&-]*)){0,7})\s+v\.\s+([^,;()]{1,80})"
+                           r"|\b(?:In re|Ex parte|In the Matter of|Matter of)\s+([^,;()]{1,80})),\s*"
+                           r"(?:\d{1,4}\s+[^,;()]{1,25}?\s+\d{1,7}(?:,\s*\d{1,6}(?:[-–]\d+)?)?,\s*)?$")
+_NAMES, _STARTS = {}, {}
+
+
+def written_name(before):
+    """The case name written right before a cite ("Employment Div. v. Smith, " or with one parallel cite between),
+    as the words of each party: [[first party's], [second party's]] ("In re X": one); None when the cite has no name of
+    its own (a string cite, a parallel cite)."""
+    m = NAMED_CITE_RE.search(_ascii(" ".join(before.split()))[-260:])
+    if not m:
+        return None
+    sides = [m.group(3)] if m.group(3) else [re.split(r"\b[A-Za-z]{4,}\.\s+", m.group(1))[-1], m.group(2)]
+    words = [[w for w in re.findall(r"[a-z]{3,}", t.lower()) if w not in NAME_STOP] for t in sides]
+    words = [ws for ws in words if ws]
+    return words or None
+
+
+def name_mismatch(con, cid, vol, rep, page, before):
+    """'' when the written name fits the case the citation table gives (each party: one of its words in the case's names),
+    else the reason: '494 U.S. 872 is Employment Div. v. Smith'."""
+    words = written_name(before)
+    if not words or not isinstance(cid, int):
+        return ""
+    if cid not in _NAMES:
+        try:
+            r = con.execute("SELECT case_name, case_name_short, case_name_full FROM clusters WHERE id=?", (cid,)).fetchone()
+        except sqlite3.Error:                        # an older database: the case name alone
+            r = con.execute("SELECT case_name FROM clusters WHERE id=?", (cid,)).fetchone()
+        _NAMES[cid] = (r[0] or "", _ascii(" ".join(x or "" for x in r)).lower()) if r else ("", "")
+    name, names = _NAMES[cid]
+    if not names or all(any(w in names for w in side) for side in words):   # each party: one of its words
+        return ""
+    return "likely miscite: %s %s %s is %s" % (vol, rep, page, name)
+
+
+def _starts(con, vol, rep):
+    """Every case's first page in one volume of a reporter, sorted (cached)."""
+    k = (vol, rep)
+    if k not in _STARTS:
+        _STARTS[k] = sorted({int(p) for (p,) in con.execute("SELECT page FROM cites WHERE volume=? AND reporter=?", k)
+                             if (p or "").isdigit()})
+    return _STARTS[k]
+
+
+def pin_outside(con, cid, vol, rep, pin, start=None):
+    """'' when the pin page can be inside the case (from its first page to the next case's), else the reason.
+    start: the case's first page when the cite gave it; else read from the citation table."""
+    if not str(pin).isdigit() or not isinstance(cid, int):
+        return ""
+    pin = int(pin)
+    if start is None:
+        rows = [int(p) for (p,) in con.execute("SELECT page FROM cites WHERE cluster_id=? AND volume=? AND reporter=?",
+                                               (cid, vol, rep)) if (p or "").isdigit()]
+        if not rows:
+            return ""
+        start = max([p for p in rows if p <= pin] or rows)
+    start = int(start)
+    if pin < start:
+        return "likely miscite: page %d is before the case, which starts at %s %s %d" % (pin, vol, rep, start)
+    later = [p for p in _starts(con, vol, rep) if p > start]
+    if later and pin >= later[0]:
+        return "likely miscite: page %d is past the case (%s %s %d; the next case starts at %d)" % (pin, vol, rep, start, later[0])
+    return ""
 
 
 def resolve_pin(con, vol, rep, page, before):

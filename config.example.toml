@@ -33,6 +33,12 @@
 # tribonian --mode <mode> <command> overrides it for one command; the GUI has its own selector.
 # data_mode = "full"
 
+# How case citations are found in briefs, filings and slip opinions                 (CL_CITE_ENGINE)
+#   patterns  our own regular expressions over the reporter list from reporters-db (no dependency)
+#   eyecite   Free Law Project's eyecite, which makes CourtListener's own markup (pip install eyecite)
+#   both      patterns, plus whatever eyecite finds that patterns did not
+# cite_engine = "patterns"
+
 # CourtListener API limits per minute, hour, day; members raise them          (CL_LIMITS)
 # api_limits = "5,50,125"
 

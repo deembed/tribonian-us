@@ -30,6 +30,8 @@ sources and take no donations.
 | lxml | parses the US Code XML and opinion HTML | [lxml: support the project](https://lxml.de/#support-the-project) |
 | NumPy, SciPy | co-citation matrices and statistics | [NumFOCUS](https://numfocus.org/donate) (choose the project) |
 | igraph | co-citation clustering | [igraph on Open Collective](https://opencollective.com/igraph) |
+| reporters-db (Free Law Project) | the list of reporters and their spellings that case cites are found by (`data/reporters.json`, BSD-2-Clause; `tools/make_reporters.py` remakes it) | [Free Law Project](https://free.law/) |
+| eyecite (Free Law Project), optional | a second cite finder, `cite_engine = "eyecite"` or `"both"` | [Free Law Project](https://free.law/) |
 | Obsidian | the note vault | an optional [Catalyst license](https://obsidian.md/pricing) |
 
 ### tribonian-us

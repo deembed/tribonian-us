@@ -765,29 +765,60 @@ def mark_cases(node):
     con = shared_db()
     if con is None or not any(isinstance(k, str) for k in node.kids):
         return
-    from tribonian import scotus
+    from tribonian import scotus, citefind
+    doc = citefind.DOC                               # the cites before this point in the document (Id., supra)
     out = []
     def flat(n):                                     # text without page markers or footnote marks
         return n if isinstance(n, str) else "" if n.tag in ("page-number", "footnotemark") else "".join(flat(x) for x in n.kids)
     for i, k in enumerate(node.kids):
         if not isinstance(k, str):
+            if k.tag in ("law", "usc"):                  # a statute between: an Id. after it is the statute's
+                doc.law()
+            elif k.tag == "a" and re.match(r"/opinion/(\d+)/", k.attrs.get("href", "")):
+                doc.cite(int(re.match(r"/opinion/(\d+)/", k.attrs["href"]).group(1)))
             out.append(k)
             continue
         at = 0
         # the text on either side runs on past a page break ("(N.D. Cal. [*15] Mar. 23, 2009)")
         prev = "".join(flat(x) for x in node.kids[:i])[-400:]
         nxt = "".join(flat(x) for x in node.kids[i + 1:])[:160]
-        for m in scotus.CITE_RE.finditer(k):
-            vol, rep, page = m.group(1), scotus.canon(m.group(2)), m.group(4)
-            before, after = (prev + k[:m.start()])[-400:], (k[m.end():] + nxt)[:160]
+        for c in citefind.find(k):
+            before, after = (prev + k[:c.start])[-400:], (k[c.end:] + nxt)[:160]
             why = ""
-            if m.group(3):                           # "at": a pin cite; marked only when the name finds the case
-                cid = scotus.resolve_pin(con, vol, rep, page, before) or scotus.found_again(vol, rep, page, pin=True)
+            if c.kind == "id":                       # "Id., at 843": the cite just before it, when that one was found
+                cid = doc.id()
                 if not cid:
                     continue
+            elif c.kind == "supra":                  # "Smith, supra, at 890": the one earlier full cite of that name
+                cid = doc.supra(c.name)
+                doc.last = (cid, "")
+                if not cid:
+                    continue
+            elif c.kind == "pin":                    # "494 U.S. at 890": marked only when the name finds the case
+                rep = next((r for r in c.reps if scotus.resolve_pin(con, c.vol, r, c.page, before)), c.rep)
+                cid = scotus.resolve_pin(con, c.vol, rep, c.page, before) or scotus.found_again(c.vol, c.rep, c.page, pin=True)
+                start = None
+                if not cid and doc.in_volume(c.vol, c.rep):     # "Smith, 494 U.S. at 850": the case cited in full here
+                    cid, start = doc.in_volume(c.vol, c.rep)
+                doc.last = (cid, "")
+                if not cid:
+                    continue
+                why = scotus.pin_outside(con, cid, c.vol, rep, c.page, start=start)
+                if why:                              # the page is not inside that case: a likely miscite
+                    doc.last, cid = None, None
             else:
-                cid = scotus.resolve(con, vol, rep, page, before) or scotus.found_again(vol, rep, page)
-                if not cid:                          # no such citation in the data: try the name, court and date
+                vol, rep, page = c.vol, c.rep, c.page
+                rep = next((r for r in c.reps if scotus.resolve(con, vol, r, page, before)), rep)
+                cid = scotus.resolve(con, vol, rep, page, before)
+                if cid:                              # found by its citation: does the text agree?
+                    pin = re.match(r",\s*(\d{1,5})(?:[-–]\d+)?(?!\d)(?!\s+[A-Z])", after)   # "494 U.S. 872, 890", not ", 110 S. Ct."
+                    why = scotus.name_mismatch(con, cid, vol, rep, page, before) or \
+                        (scotus.pin_outside(con, cid, vol, rep, pin.group(1), start=page) if pin and page.isdigit() else "")
+                    if why:
+                        cid = None
+                if not cid and not why:
+                    cid = scotus.found_again(vol, rep, page)
+                if not cid and not why:              # no such citation in the data: try the name, court and date
                     cid, why = scotus.resolve_name(con, vol, rep, page, before, after)
                     if not cid and not why:          # a RECAP docket by its number (Westlaw cites of district orders)
                         d = scotus.resolve_docket(con, before, after)
@@ -796,11 +827,12 @@ def mark_cases(node):
                         cid = scotus.below_for(before)
                     if cid:
                         scotus.FOUND[(vol, rep, page)] = cid
+                doc.cite(cid, why, before, (vol, rep, page))
             e = El("case", {"ok": "1"} if cid else {"why": why} if why else
-                   {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} if rep == "WL" else {})
-            e.kids.append(m.group(0))
-            out += [k[at:m.start()], e]
-            at = m.end()
+                   {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} if c.rep == "WL" else {})
+            e.kids.append(k[c.start:c.end])
+            out += [k[at:c.start], e]
+            at = c.end
         out.append(k[at:])
     node.kids = mark_dockets([k for k in out if k != ""], con, flat)
 
@@ -2100,7 +2132,9 @@ def render_tex(meta, ops, fontpkg, style):
             sec(editorial_tex(meta), "Reporter's summary and syllabus")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
     base = 1 if meta.get("stages") else 0    # outline level of a document: under its stage, else at the top
+    from tribonian import citefind
     for n, o in enumerate(ops):
+        citefind.DOC.reset()                 # an Id. or supra never reaches back into the document before
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""
         parts = []                           # str = unboxed text, dict = one flat box
