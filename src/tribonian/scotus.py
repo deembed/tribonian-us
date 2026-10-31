@@ -912,6 +912,38 @@ def resolve_docket(con, before, after):
     return _DOCKETS[key]
 
 
+# A case cited by docket number alone, its parenthetical right after: "Miller v. Civil Rts. Dep't, No. 25-233 (petition
+# for cert. filed Aug. 26, 2025)", "Pennsylvania v. President, No. 25-2575 (3d Cir. appeal filed … 2025)", "Klein v.
+# Oregon Bureau of Lab. & Indus., No. A159899 (Or. Ct. App. argued Jan. 30, 2024)". A reporter or Westlaw cite after
+# the number is resolve_docket's (through the reporter cite), not this.
+ONLY_DOCKET_RE = re.compile(r"\bNo\.\s?((?:\d:)?\d{2}[-–][\w-]*\d|[A-Z]\d{4,8})(?=,?\s*\()")
+COURT_LEAD_RE = re.compile(r"^\s*\(((?:[A-Z0-9][\w.'&]*\.?\s?){1,6}?)(?=\s+[a-z]|\s*\d{4}\)|\s*(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)\b)")
+
+
+def docket_only(con, number, after, scotus_dir):
+    """-> (ok, why, tint) for a case cited by docket number alone. ok: a fetched Supreme Court docket, or a docket
+    in the local database. tint "orange" for a state court's docket (CourtListener has no state dockets)."""
+    paren = unpage(after)
+    head = paren[:paren.find(")") + 1] if ")" in paren else paren
+    if re.search(r"(?i)\bcert\.|certiorari|\bU\.\s?S\.|\bS\.\s?Ct\.|Supreme Court of the United States", head) \
+            and re.fullmatch(r"\d{2}[-–]\d{1,5}|\d{2}A\d{1,5}", number):
+        no = re.sub(r"[-–]0*", "-", number)
+        if (scotus_dir / ("%s.json" % no)).exists():
+            return True, "", ""
+        return False, "a Supreme Court docket not fetched (tribonian scotus fetch %s)" % no, ""
+    m = COURT_LEAD_RE.match(paren)
+    label = (m.group(1) if m else "").strip()
+    if not label:
+        return False, "", None                         # no court named: left unmarked
+    federal = re.search(r"\bCir\.|\bD\.\s?[A-Z]|Fed\.\s?Cl|Bankr|B\.A\.P|J\.P\.M\.L|Ct\.\s?Int", label)
+    if not federal:
+        return False, "a state court's docket: CourtListener has no state dockets", "orange"
+    d = resolve_docket(con, "No. %s" % number, "(%s %s)" % (label, (re.findall(r"(?:1[789]|20)\d\d", head) or ["2000"])[-1]))
+    if d:
+        return True, "", ""
+    return False, "no %s docket No. %s in the local database (newer than the bulk data, or not in RECAP)" % (label, number), ""
+
+
 def court_key(label):
     """A court abbreviation reduced for matching: spaces and periods out, state names to their Bluebook form
     (CourtListener writes 'M.D. Penn.' and 'D. Maryland' where a cite has 'M.D. Pa.' and 'D. Md.')."""

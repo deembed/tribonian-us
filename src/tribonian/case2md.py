@@ -800,7 +800,30 @@ def mark_cases(node):
             out += [k[at:m.start()], e]
             at = m.end()
         out.append(k[at:])
-    node.kids = [k for k in out if k != ""]
+    node.kids = mark_dockets([k for k in out if k != ""], con, flat)
+
+
+def mark_dockets(kids, con, flat):
+    """Cases cited by docket number alone ("No. 25-233 (petition for cert. filed …)") -> <case> elements, after the
+    reporter cites are marked (scotus.docket_only says how)."""
+    from tribonian import scotus
+    out = []
+    for i, k in enumerate(kids):
+        if not isinstance(k, str):
+            out.append(k)
+            continue
+        nxt = "".join(flat(x) for x in kids[i + 1:])[:200]
+        at = 0
+        for m in scotus.ONLY_DOCKET_RE.finditer(k):
+            ok, why, tint = scotus.docket_only(con, m.group(1), (k[m.end():] + nxt)[:200], ROOT / "cases" / "scotus")
+            if tint is None:
+                continue
+            e = El("case", {"ok": "1"} if ok else dict({"why": why}, **({"tint": tint} if tint else {})))
+            e.kids.append(m.group(0))
+            out += [k[at:m.start()], e]
+            at = m.end()
+        out.append(k[at:])
+    return [k for k in out if k != ""]
 
 
 def plain(el, words=7):
