@@ -609,7 +609,16 @@ def inline(node, mode, ctx, marks):
                                       k.attrs.get("why") or "no case found for this citation in the local database"))
         elif (k.tag == "span" and mode != "md" and "no-link" in cls and "citation" in cls
               and not any(k.find(t) is not None for t in ("law", "usc", "a"))):
-            out.append(citemarks.mark("red", inline(k, mode, ctx, marks), k.text(), "CourtListener found no case for this citation"))
+            inner = inline(k, mode, ctx, marks)          # CourtListener could not link it: mark_cases looked again
+            if k.attrs.get("cm_ok"):
+                out.append(citemarks.mark("ok", inner))
+            elif k.attrs.get("cm_done"):
+                out.append(citemarks.mark(k.attrs.get("cm_tint") or "red", inner, k.text(),
+                                          k.attrs.get("cm_why") or "no case found for this citation in the local database"))
+            elif k.attrs.get("cm_plain") or not unlinked_is_case(k.text()):
+                out.append(inner)                        # a statute, the Federal Register, a law review: not a case
+            else:
+                out.append(citemarks.mark("red", inner, k.text(), "CourtListener found no case for this citation"))
         elif k.tag == "a" and mode == "md" and k.attrs.get("href", "").startswith("/"):
             m = re.match(r"/opinion/(\d+)/", k.attrs["href"])
             if m and int(m.group(1)) in ctx.links:       # a case we have a note for
@@ -751,11 +760,95 @@ def quote_tex(inner, attrs, ctx=None):
     return lead + out + trail
 
 
+def resolve_case_cite(con, c, before, after, doc):
+    """One case cite (citefind.Cite) -> the attributes of its <case> mark: {"ok": "1"}, {"why": reason[, "tint": ...]},
+    {} (red, no reason found), or None (leave it unmarked: an Id. or pin cite whose case is unknown). before/after: the
+    text on either side, past page breaks. doc: the document's antecedents (Id., supra, pin), updated here."""
+    from tribonian import scotus
+    if c.kind == "id":                           # "Id., at 843": the cite just before it, when that one was found
+        return {"ok": "1"} if doc.id() else None
+    if c.kind == "supra":                        # "Smith, supra, at 890": the one earlier full cite of that name
+        cid = doc.supra(c.name)
+        doc.last = (cid, "")
+        return {"ok": "1"} if cid else None
+    if c.kind == "pin":                          # "494 U.S. at 890": marked only when the name finds the case
+        rep = next((r for r in c.reps if scotus.resolve_pin(con, c.vol, r, c.page, before)), c.rep)
+        cid = scotus.resolve_pin(con, c.vol, rep, c.page, before) or scotus.found_again(c.vol, c.rep, c.page, pin=True)
+        start = None
+        if not cid and doc.in_volume(c.vol, c.rep):     # "Smith, 494 U.S. at 850": the case cited in full here
+            cid, start = doc.in_volume(c.vol, c.rep)
+        doc.last = (cid, "")
+        if not cid:
+            return None
+        why = scotus.pin_outside(con, cid, c.vol, rep, c.page, start=start)
+        if why:                                  # the page is not inside that case: a likely miscite
+            doc.last = None
+            return {"why": why}
+        return {"ok": "1"}
+    vol, rep, page, why = c.vol, c.rep, c.page, ""
+    own = getattr(doc, "own", ())
+    if doc.own_id and any("%s %s %s" % (vol, r, page) in own for r in c.reps):   # the case citing itself
+        doc.cite(doc.own_id, "", before, (vol, rep, page))
+        return {"ok": "1"}
+    rep = next((r for r in c.reps if scotus.resolve(con, vol, r, page, before)), rep)
+    cid = scotus.resolve(con, vol, rep, page, before)
+    if cid:                                      # found by its citation: does the text agree?
+        pin = re.match(r",\s*(\d{1,5})(?:[-–]\d+)?(?!\d)(?!\s+[A-Z])", after)   # "494 U.S. 872, 890", not ", 110 S. Ct."
+        why = scotus.name_mismatch(con, cid, vol, rep, page, before)
+        if why:                                  # the name written is another case: say where that one is
+            why += scotus.named_instead(con, vol, rep, page, before, after, cid)
+        elif pin and page.isdigit():
+            why = scotus.pin_outside(con, cid, vol, rep, pin.group(1), start=page)
+        if why:
+            cid = None
+    if not cid and not why:
+        cid = scotus.found_again(vol, rep, page)
+    if not cid and not why:                      # no such citation in the data: try the name, court and date
+        cid, why = scotus.resolve_name(con, vol, rep, page, before, after)
+        if not cid and not why:                  # a RECAP docket by its number (Westlaw cites of district orders)
+            d = scotus.resolve_docket(con, before, after)
+            cid = ("docket", d[0]) if d else None
+        if not cid and not why:                  # "the Tenth Circuit's opinion is reported at …": the case below
+            cid = scotus.below_for(before)
+        if cid:
+            scotus.FOUND[(vol, rep, page)] = cid
+    doc.cite(cid, why, before, (vol, rep, page))
+    if cid:
+        return {"ok": "1"}
+    if why:
+        return {"why": why}
+    return {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} \
+        if c.rep == "WL" else {}
+
+
+CL_LINK_RE = re.compile(r"/opinion/(\d+)/")
+
+
+def unsplit(node):
+    """A cite cut by italics: "<em>Olmstead v. Zimring, 521</em> U.S. 581" -> the volume moves out of the italics, so
+    "521 U.S. 581" is one piece of text the finder can read. The case name stays italic."""
+    from tribonian import citefind
+    for i, k in enumerate(node.kids[:-1]):
+        nxt = node.kids[i + 1]
+        if isinstance(k, El) and k.tag in ("em", "i") and k.kids and isinstance(k.kids[-1], str) and isinstance(nxt, str):
+            m = re.search(r"(?<![\w.])(\d{1,4})\s*$", k.kids[-1])
+            if m and citefind.CITE_RE.match(m.group(1) + " " + nxt.lstrip()):
+                k.kids[-1] = k.kids[-1][:m.start()].rstrip() + " "
+                node.kids[i + 1] = m.group(1) + " " + nxt.lstrip()
+
+
+def unlinked_is_case(text):
+    """Does an unlinked CourtListener citation span hold a case cite (not "90 Stat. 331" or "54 Mich. L. Rev. 1")?"""
+    from tribonian import citefind
+    return any(c.kind in ("full", "pin") for c in citefind.find(text))
+
+
 def mark_cases(node):
-    """Reporter cites in node's own text ("500 U.S. 1", "123 F.3d 456") -> <case ok=...> elements, looked up in the
-    local database (scotus.resolve), so the PDF can tint them. Text-layout documents (briefs, RECAP filings, slip
-    opinions) have no CourtListener links except relink()'s; HTML opinions' cites are already in links and spans,
-    which are left alone. Pin cites ("500 U.S. at 12") are not marked. Once per element; nothing without the database."""
+    """Case cites in node's own text ("500 U.S. 1", "494 U.S. at 890", "Id.", "Smith, supra") -> <case ok=...>
+    elements, resolved through the local database (resolve_case_cite), so the PDF can tint them. In HTML opinions,
+    CourtListener's citation spans are read in the same pass: a linked one is the case for an Id. after it; an
+    unlinked one is resolved like a cite in a brief (an Id., a case CourtListener could not link, or no case at all:
+    a statute, the Federal Register, a law review, left untinted). Once per element; nothing without the database."""
     if getattr(node, "cases_done", False) or not citemarks.CITE_MARKS:
         return
     node.cases_done = True
@@ -763,44 +856,77 @@ def mark_cases(node):
             (node.tag == "span" and "citation" in node.attrs.get("class", "")):
         return
     con = shared_db()
-    if con is None or not any(isinstance(k, str) for k in node.kids):
+    if con is None or not any(isinstance(k, str) or (k.tag == "span" and "citation" in k.attrs.get("class", ""))
+                              for k in node.kids):
         return
-    from tribonian import scotus
+    from tribonian import citefind
+    doc = citefind.DOC                               # the cites before this point in the document (Id., supra)
+    unsplit(node)
     out = []
     def flat(n):                                     # text without page markers or footnote marks
         return n if isinstance(n, str) else "" if n.tag in ("page-number", "footnotemark") else "".join(flat(x) for x in n.kids)
     for i, k in enumerate(node.kids):
-        if not isinstance(k, str):
-            out.append(k)
-            continue
-        at = 0
         # the text on either side runs on past a page break ("(N.D. Cal. [*15] Mar. 23, 2009)")
         prev = "".join(flat(x) for x in node.kids[:i])[-400:]
         nxt = "".join(flat(x) for x in node.kids[i + 1:])[:160]
-        for m in scotus.CITE_RE.finditer(k):
-            vol, rep, page = m.group(1), scotus.canon(m.group(2)), m.group(4)
-            before, after = (prev + k[:m.start()])[-400:], (k[m.end():] + nxt)[:160]
-            why = ""
-            if m.group(3):                           # "at": a pin cite; marked only when the name finds the case
-                cid = scotus.resolve_pin(con, vol, rep, page, before) or scotus.found_again(vol, rep, page, pin=True)
-                if not cid:
-                    continue
-            else:
-                cid = scotus.resolve(con, vol, rep, page, before) or scotus.found_again(vol, rep, page)
-                if not cid:                          # no such citation in the data: try the name, court and date
-                    cid, why = scotus.resolve_name(con, vol, rep, page, before, after)
-                    if not cid and not why:          # a RECAP docket by its number (Westlaw cites of district orders)
-                        d = scotus.resolve_docket(con, before, after)
-                        cid = ("docket", d[0]) if d else None
-                    if cid:
-                        scotus.FOUND[(vol, rep, page)] = cid
-            e = El("case", {"ok": "1"} if cid else {"why": why} if why else
-                   {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} if rep == "WL" else {})
+        if not isinstance(k, str):
+            cls = k.attrs.get("class", "")
+            if k.tag in ("law", "usc"):                  # a statute between: an Id. after it is the statute's
+                doc.law()
+            elif k.tag == "a" and CL_LINK_RE.match(k.attrs.get("href", "")):
+                doc.cite(int(CL_LINK_RE.match(k.attrs["href"]).group(1)))
+            elif k.tag == "span" and "citation" in cls:
+                a = k.find("a")
+                if a is not None and CL_LINK_RE.match(a.attrs.get("href", "")):
+                    doc.cite(int(CL_LINK_RE.match(a.attrs["href"]).group(1)))   # CourtListener linked it
+                elif "no-link" in cls and k.find("law") is None and k.find("usc") is None:
+                    t = flat(k)
+                    cs = citefind.find(t)
+                    attrs = resolve_case_cite(con, cs[0], prev + t[:cs[0].start], t[cs[0].end:] + nxt, doc) if cs else None
+                    if not cs:
+                        doc.law()                        # a statute or regulation: an Id. after it is that law's
+                    if attrs is None:
+                        k.attrs["cm_plain"] = "1"        # not a case, or an Id. of an unknown case: no tint
+                    else:
+                        k.attrs.update({"cm_" + key: v for key, v in attrs.items()}, cm_done="1")
+                elif "no-link" in cls:
+                    doc.law()
+            out.append(k)
+            continue
+        at = 0
+        for c in citefind.find(k):
+            attrs = resolve_case_cite(con, c, (prev + k[:c.start])[-400:], (k[c.end:] + nxt)[:160], doc)
+            if attrs is None:
+                continue
+            e = El("case", attrs)
+            e.kids.append(k[c.start:c.end])
+            out += [k[at:c.start], e]
+            at = c.end
+        out.append(k[at:])
+    node.kids = mark_dockets([k for k in out if k != ""], con, flat)
+
+
+def mark_dockets(kids, con, flat):
+    """Cases cited by docket number alone ("No. 25-233 (petition for cert. filed …)") -> <case> elements, after the
+    reporter cites are marked (scotus.docket_only says how)."""
+    from tribonian import scotus
+    out = []
+    for i, k in enumerate(kids):
+        if not isinstance(k, str):
+            out.append(k)
+            continue
+        nxt = "".join(flat(x) for x in kids[i + 1:])[:200]
+        at = 0
+        for m in scotus.ONLY_DOCKET_RE.finditer(k):
+            ok, why, tint = scotus.docket_only(con, m.group(1), (k[m.end():] + nxt)[:200], ROOT / "cases" / "scotus")
+            if tint is None:
+                continue
+            e = El("case", {"ok": "1"} if ok else dict({"why": why}, **({"tint": tint} if tint else {})))
             e.kids.append(m.group(0))
             out += [k[at:m.start()], e]
             at = m.end()
         out.append(k[at:])
-    node.kids = [k for k in out if k != ""]
+    return [k for k in out if k != ""]
 
 
 def plain(el, words=7):
@@ -1433,6 +1559,8 @@ TYPE_NAMES = {"majority": "opinion of the Court", "plurality": "plurality opinio
 
 def short_author(author, fallback):
     a = clean(author).rstrip(",.:; ")
+    a = re.sub(r"(?i),\s*(?:with whom|concurring|dissenting)\b.*$", "", a)   # "Chief Justice ROBERTS, with whom …"
+    a = re.sub(r"(?i)\s+(?:delivered|announced)\b.*$", "", a)               # "Justice KENNEDY delivered the opinion …"
     m = re.match(r"(?i)^(m[re]\.? )?(chief )?justice (.+)$", a)      # "Me." = the scanner's misreading of "Mr."
     if m:
         return "%s, %s" % (m.group(3).title() if m.group(3).isupper() else m.group(3),
@@ -1448,9 +1576,92 @@ class Part:
         self.blocks, self.children = [], []       # blocks: ("p"|"q", El)
 
 
+def html_footnotes(root):
+    """The other footnote form CourtListener serves (<a class="footnote" href="#fn1">1</a> in the text, the notes in
+    <div class="footnotes"><div class="footnote" label="1">) -> Harvard's (<footnotemark>, <footnote label>), which the
+    rest of the reader knows. Without it the marks print as a plain "1" and the notes as a closing paragraph."""
+    def walk(n):
+        out = []
+        for k in n.kids:
+            if isinstance(k, El) and k.tag == "a" and "footnote" in k.attrs.get("class", "") \
+                    and re.match(r"#fn\d+$", k.attrs.get("href", "")):
+                m = El("footnotemark")
+                m.kids = [k.text().strip()]
+                out.append(m)
+            elif isinstance(k, El) and k.tag == "div" and "footnotes" in k.attrs.get("class", "").split():
+                for f in k.kids:
+                    if isinstance(f, El) and f.tag == "div" and "footnote" in f.attrs.get("class", "").split():
+                        fn = El("footnote", {"label": f.attrs.get("label") or re.sub(r"\D", "", f.attrs.get("id", ""))})
+                        fn.kids = [x for x in f.kids if not (isinstance(x, El) and x.tag == "a")]   # the back link
+                        for x in fn.kids:                # "<p>. The program is …": the mark's leftover period
+                            if isinstance(x, El) and x.kids and isinstance(x.kids[0], str):
+                                x.kids[0] = re.sub(r"^\s*\.\s+", "", x.kids[0])
+                                break
+                        out.append(fn)
+            else:
+                if isinstance(k, El):
+                    walk(k)
+                out.append(k)
+        n.kids = out
+    walk(root)
+    return root
+
+
+# A separate opinion that the source keeps inside the majority's text (one Harvard <opinion>, "combined"): its author
+# line is a paragraph of its own ("Chief Justice ROBERTS, with whom Justice SCALIA and Justice THOMAS join,
+# dissenting.", "BALDOCK, Circuit Judge, concurring."). Not "Justice Harlan's influential dissenting opinion".
+_JUDGE = (r"(?:(?:Mr\.\s+)?(?:Chief\s+)?Justice\s+[A-Z][A-Za-z'’\-]+|(?:MR\.\s+)?(?:CHIEF\s+)?JUSTICE\s+[A-Z'’\-]+"
+          r"|[A-Z][A-Za-z'’\-]+,\s+(?:Senior\s+|Chief\s+)?(?:Circuit|District)\s+Judge)")
+# the name, a comma, any joiners ("with whom Justice THOMAS joins, with whom Justice KAVANAUGH joins as to Parts I, II,
+# …"), no sentence break, and the kind at the end
+SEPARATE_RE = re.compile(r"^" + _JUDGE + r",\s+(?:(?:[^.]|\.(?=\S)|(?<=\b[A-Z])\.)*?,\s+)?"
+                         r"((?:concurring|dissenting)[^.]{0,120}?)\.?$")
+LEAD_RE = re.compile(r"^" + _JUDGE + r"\s+(?:announced|delivered)\b")      # "Justice KAGAN announced the judgment …"
+
+
+def split_separate(o):
+    """One opinion holding separate opinions after the majority -> one dict per opinion, each with its author line,
+    its kind (concurrence / dissent) and the footnotes marked in its own text."""
+    cuts = []
+    for i, b in enumerate(o["flat"]):
+        if b[0] == "p" and i > 0:
+            t = clean(b[1].text())
+            m = SEPARATE_RE.match(t) if len(t) < 300 else None
+            if m:
+                cuts.append((i, t, "dissent" if m.group(1).lower().startswith("dissent") or "dissenting" in m.group(1).lower()
+                             and not m.group(1).lower().startswith("concurring") else "concurrence"))
+    if not o["author"] and o["flat"] and o["flat"][0][0] == "p" and LEAD_RE.match(clean(o["flat"][0][1].text())):
+        o = dict(o, author=clean(o["flat"][0][1].text()), flat=o["flat"][1:])   # the first opinion's own author line
+        cuts = [(i - 1, t, k) for i, t, k in cuts]
+    if not cuts:
+        return [o]
+    marks = lambda flat: {m.text().strip() for b in flat if b[0] != "h" for m in iter_tag(b[1], "footnotemark")}
+    # each opinion numbers its notes from 1 again: the k-th note "1" belongs to the k-th opinion that marks a "1"
+    queue = {}
+    for lab, fn in o.get("fn_list") or o["footnotes"].items():
+        queue.setdefault(lab, []).append(fn)
+    out = []
+    pieces = [(0, None, None)] + cuts
+    for k, (i, line, kind) in enumerate(pieces):
+        end = pieces[k + 1][0] if k + 1 < len(pieces) else len(o["flat"])
+        part = dict(o, flat=o["flat"][i + (1 if line else 0):end])
+        if line:
+            name = re.search(r"(?:Justice|JUSTICE)\s+([A-Z][A-Za-z'’\-]+)|^([A-Z][A-Za-z'’\-]+),", line)
+            part.update(kind=kind, author=line, byline=[], api=dict(o["api"], author_str=(name.group(1) or name.group(2)).title() if name else ""))
+        # each opinion keeps the footnotes marked in its own text; a note marked nowhere stays with the first
+        own = marks(part["flat"])
+        part["footnotes"] = {lab: queue[lab].pop(0) for lab in sorted(own, key=lambda x: (len(x), x)) if queue.get(lab)}
+        out.append(part)
+    if out:
+        for lab, fns in queue.items():
+            if fns and lab not in marks(o["flat"]):
+                out[0]["footnotes"].setdefault(lab, fns[0])
+    return out
+
+
 def read_opinion(op, oi):
     """API opinion dict -> dict with byline pieces, a flat block list, footnotes."""
-    root = parse_html(op.get("html_with_citations") or op.get("xml_harvard") or "")
+    root = html_footnotes(parse_html(op.get("html_with_citations") or op.get("xml_harvard") or ""))
     body = root.find("opinion") or root
     o = {"oi": oi, "kind": body.attrs.get("type", ""), "author": "", "byline": [],
          "flat": [], "footnotes": {}, "api": op}
@@ -1467,6 +1678,7 @@ def read_opinion(op, oi):
             o["byline"].append(k)
         elif k.tag == "footnote":
             o["footnotes"][k.attrs.get("label", "").strip()] = k
+            o.setdefault("fn_list", []).append((k.attrs.get("label", "").strip(), k))   # in order: numbers can repeat
         elif k.tag == "blockquote":
             o["flat"].append(["q", k])
         elif k.tag == "p":
@@ -1597,6 +1809,7 @@ def cocite_tex(meta):
 DRAWS_COLOR = "orange!8"       # like the co-citation box: derived by counting, not the court's text
 COUPLING_COLOR = "orange!4"
 COUPLING_SHOW_REFS = 5         # shared references named per coupled case; the JSON has them all
+COUPLING_SHOW = 7              # coupled cases listed in the note and PDF; the JSON keeps cocite.COUPLING_TOP (30)
 DRAWS_TOP = 8                  # sub-clusters listed; the rest are summed as "other sub-clusters"
 
 
@@ -1666,13 +1879,18 @@ def coupling_cache(cid, con=None, max_df=None, top=None):
 
 
 def coupling_data(cid, compute=False):
-    """The cached coupled cases, or None. compute=True (build --coupling) computes them first."""
+    """The cached coupled cases, or None. compute=True (every build; --no-coupling turns it off) computes them when
+    there is no cache yet, or the cache was made from older bulk data; otherwise the cache is used as it is."""
     if cid is None:
         return None
     if compute:
         try:
-            return coupling_cache(cid)
-        except (ImportError, sqlite3.Error, SystemExit, OSError) as e:
+            con = shared_db()
+            old = json.loads(coupling_path(cid).read_text(encoding="utf-8")) if coupling_path(cid).exists() else None
+            if old and con is not None and old.get("stamp") == bulk_stamp(con):
+                return old                               # current: nothing to compute
+            return coupling_cache(cid, con)
+        except (ImportError, sqlite3.Error, SystemExit, OSError, ValueError) as e:
             print("  (coupling skipped: %s)" % e, file=sys.stderr)
     try:
         return json.loads(coupling_path(cid).read_text(encoding="utf-8"))
@@ -1778,7 +1996,7 @@ def coupling_md(meta):
         e = index.get(str(r))
         return "[[%s|%s]]" % (e["slug"], text.replace("|", "/")) if e else text
     L = ["## Coupled with", "", "*%s Not part of the record.*" % coupling_note(c), ""]
-    for i, x in enumerate(c["results"], 1):
+    for i, x in enumerate(c["results"][:COUPLING_SHOW], 1):
         where = ", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)
         refs = "; ".join(esc(r["name"], "md") for r in x["refs"][:COUPLING_SHOW_REFS])
         more = " …" if len(x["refs"]) > COUPLING_SHOW_REFS else ""
@@ -1793,7 +2011,7 @@ def coupling_items_tex(c):
     return "".join("\\item[\\textbf{%d}] %s%s {\\footnotesize\\ score %.1f; shared: %s%s}\n" % (
         x["shared"], E(x["name"]), " (%s)" % E(", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)) if x["cite"] or x["year"] else "",
         x["score"], E("; ".join(r["name"] for r in x["refs"][:COUPLING_SHOW_REFS])), " \\dots" if len(x["refs"]) > COUPLING_SHOW_REFS else "")
-        for x in c["results"])
+        for x in c["results"][:COUPLING_SHOW])
 
 
 def coupling_tex(meta):
@@ -1804,7 +2022,7 @@ def coupling_tex(meta):
     items = "".join("\\item[\\textbf{%d}] %s%s {\\footnotesize\\ score %.1f; shared: %s%s}\n" % (
         x["shared"], E(x["name"]), " (%s)" % E(", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)) if x["cite"] or x["year"] else "",
         x["score"], E("; ".join(r["name"] for r in x["refs"][:COUPLING_SHOW_REFS])), " \\dots" if len(x["refs"]) > COUPLING_SHOW_REFS else "")
-        for x in c["results"])
+        for x in c["results"][:COUPLING_SHOW])
     return ("\\pdfbookmark[1]{Coupled with}{coupling}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!50!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
@@ -2002,10 +2220,11 @@ def toc_entry(level, text):
     return "\\tocadd{%s}{%s}" % (level, esc(text, "tex"))
 
 
-def toc_head(part, el):
+def toc_head(part, el, n=10):
     """Contents text for a top heading: a word label ("Statement") stands alone; a numeral or
-    letter label ("II") takes the heading's first words."""
-    words = plain(el, 10) if el is not None else ""
+    letter label ("II") takes the heading's first n words (the outline keeps 10; the contents page takes 60,
+    so a brief's argument heading reads whole there)."""
+    words = plain(el, n) if el is not None else ""
     if re.fullmatch(r"[IVXLC]+|[A-Z]|\d+|[a-z]", part.label or "") and words:
         return "%s. %s" % (part.label, words)
     return part.label
@@ -2074,7 +2293,9 @@ def render_tex(meta, ops, fontpkg, style):
             sec(editorial_tex(meta), "Reporter's summary and syllabus")]
     stage = None                             # scotus.py: documents grouped under top-level outline entries
     base = 1 if meta.get("stages") else 0    # outline level of a document: under its stage, else at the top
+    from tribonian import citefind
     for n, o in enumerate(ops):
+        citefind.DOC.reset(meta.get("cites") or (), meta.get("cluster"))   # Id./supra never reach back past it
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""
         parts = []                           # str = unboxed text, dict = one flat box
@@ -2103,7 +2324,7 @@ def render_tex(meta, ops, fontpkg, style):
                     mark = "\\pdfbookmark[%d]{%s}{o%d-%s}" % (depth + 1 + base, esc(title, "tex"), ctx.oi, anchor(part.path))
                     lead = "\\recordpath{%s}" % ctx.path() + mark + "\\lab{%s.}" % esc(part.label, "tex")   # "I." not "I": a bare I reads as the pronoun
                     if toc and listed:
-                        lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el)) + lead
+                        lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el, 60)) + lead
                     if depth <= 0:               # unboxed top-level heading: not alone at a page's foot (boxed ones
                         lead = "\\headroom{5}" + lead      # already need 3 lines before tcolorbox breaks them)
                     if kind == "q" or kind is None:          # label on its own line
@@ -2239,7 +2460,9 @@ def prepare(data, index=None):
             reference += [clean(h) for h in re.findall(r"<h2[^>]*>(.*?)</h2>", o.get("html_with_citations") or "", re.S)]
     reference = [re.sub(r"<[^>]+>", "", h) for h in reference if clean(h).upper() != "NOTES"]
 
-    ops = [read_opinion(o, i) for i, o in enumerate(use)]
+    ops = [part for i, o in enumerate(use) for part in split_separate(read_opinion(o, i))]
+    for i, o in enumerate(ops):
+        o["oi"] = i                                  # numbered again after the split: footnote keys and anchors
     heads = [b for o in ops for b in o["flat"] if b[0] == "h"]
     raw = [b[1] for b in heads]
     fixed = repair_headings(raw, reference, warnings.append)
@@ -2318,7 +2541,7 @@ def build(args):
     meta["profile"] = profile_data(meta["cluster"], scan=not (getattr(args, "no_goodlaw", False) or quick), quick=quick)
     # bibliographic coupling: what it draws on (always, cheap); coupled cases only if cached or --coupling
     meta["draws"] = draws_data(meta["cluster"], data)
-    meta["coupling"] = coupling_data(meta["cluster"], compute=getattr(args, "coupling", False))
+    meta["coupling"] = coupling_data(meta["cluster"], compute=getattr(args, "coupling", True))
 
     (here / "build").mkdir(exist_ok=True)
     ndir = note_dir(meta["slug"], data.get("docket"))
@@ -2659,9 +2882,30 @@ STATUTE_RE = re.compile(r"\d+\s*U\.\s?S\.\s?C\.?\s*(?:A\.\s*)?§+\s*\d+[A-Za-z]*
 # a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3" -- not dot leaders ("....2")
 FNMARK = r"(?<!\.\.)(?<!\d[.,])(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
 # the same number set off by a space after punctuation, not the start of a citation ("7(E), 5 U.S.C.")
-# nor a reporter volume ("Madison, 1 Cranch 137", "F. Supp. 1 (D.D.C. 1991)": a word then a page, or a parenthetical)
+# nor a reporter volume ("Madison, 1 Cranch 137", "F. Supp. 1 (D.D.C. 1991)": a word then a page, or a parenthetical);
+# a citation signal after it is not a reporter ("IDEA. 3 See 20 U.S.C. …": the mark, then the cite)
 FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )(?<!Supp\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)" \
-    r"(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))(?!\s+[A-Z][A-Za-z.’']*(?:\s+[A-Za-z.’']+){0,2}\s+\d)(?!\s*\()"
+    r"(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))(?!\s+(?!(?:See|Cf|Accord|Compare|But|E\.g)\b)[A-Z][A-Za-z.’']*(?:\s+[A-Za-z.’']+){0,2}\s+\d)(?!\s*\()"
+
+# last resort, after both of those miss on the footnote's page: a mark set off by spaces mid-sentence, between two
+# words ("Members of Congress 2 who"). Not after a word a number belongs to ("Title 2 of", "the 2 cases"), nor
+# before one ("2 million", "2 years"): fn_mid_ok
+FNMARK_MID = r"(?<=[A-Za-z] )%s(?= [a-z]|[—–)])"               # "Medicine 3—was", "partners 2) with" too
+MID_BEFORE = set("""a an the of to at in on by for from with and or nor but than over under about around nearly
+    almost only just all some each every top first last next title titles section sections sec secs part parts chapter
+    chapters ch art article articles amend amendment clause cl rule rules step steps count counts page pages p pp
+    paragraph para no number vol volume footnote fn n note notes item items class group phase level tier stage table
+    fig figure exhibit ex app appendix id were was is are be been had has have nearly roughly approximately
+    least most exactly some""".split())
+MID_AFTER = set("""million billion thousand hundred percent times years year months month weeks week days day hours
+    hour minutes cases members states votes of to and or other more less fewer additional""".split())
+
+
+def fn_mid_ok(text, m):
+    """A mid-sentence spaced candidate is a footnote mark, not a number in the prose."""
+    before = re.findall(r"[A-Za-z]+", text[:m.start()])
+    after = re.match(r"\s*([A-Za-z]+)", text[m.end():])
+    return bool(before) and before[-1].lower() not in MID_BEFORE and not (after and after.group(1).lower() in MID_AFTER)
 
 
 class Ln:
@@ -2754,7 +2998,11 @@ def split_footnotes(raw, nxt, prev_open):
             if m and double and raw[j - 2].strip() and not (j + 1 < len(raw) and raw[j + 1].strip()):
                 if not re.search(r"[.:;)\]”’\"]\s*$", raw[j - 2]):    # one blank line, as the body's own
                     continue
-            if m and nxt <= int(m.group(2)) <= nxt + 1 and not raw[j - 1].strip() and any(x.strip() for x in raw[:j]) and \
+            # or, under the last page's note running on, right after its tail's full stop with no blank line (the
+            # tail sits below a gap of 2+ blank lines): "… JA293-294.\n  3 These schools provide …"
+            after_tail = prev_open and re.search(r"[.)\]”’\"]\s*$", raw[j - 1]) and \
+                any(not raw[i].strip() and not raw[i + 1].strip() for i in range(max(0, j - 14), j - 1))
+            if m and nxt <= int(m.group(2)) <= nxt + 1 and (not raw[j - 1].strip() or after_tail) and any(x.strip() for x in raw[:j]) and \
                     not m.group(3)[:1].isdigit() and not NOT_FNTEXT_RE.match(m.group(3)):
                 k, nxt, inline = j, int(m.group(2)), True
                 break
@@ -3070,7 +3318,16 @@ def recap_blocks(lines, labels):
                 add(q, l)
             cur = None
             continue
+        goes_on = run[0].gap is None and blocks and blocks[-1]["kind"] == "q"   # a quotation from the page before
+        qlines = set() if double else quote_stretches(run, min(b, min(l.ind for l in run)), goes_on)
         for i, l in enumerate(run):
+            if i in qlines:                     # single-spaced text: a quotation inside the run (no blank lines)
+                if i == 0:
+                    cur, q = None, blocks[-1]
+                elif i - 1 not in qlines:
+                    cur, q = None, new("q")
+                add(q, l)
+                continue
             if len(run) > 1 and l.ind >= 8 and valid_label(l.text.rstrip(".")) and abs(l.ind - (right[l.pi] - l.end)) <= 12:
                 cur = None                      # a centred "II" with no blank line around it
                 new("h", label=l.text.rstrip("."))
@@ -3091,6 +3348,37 @@ def recap_blocks(lines, labels):
         if not double:
             carry, cur = cur, None              # single-spaced text: a blank line ends the paragraph
     return split_leaders(blocks)
+
+
+# a list item's first line: a bullet (Word's private-use \uf0b7 too) or "(a)" / "1." / "iv)"; its hanging
+# indent is not a quotation
+BULLET_START = r"^[•\uf0b7\uf0a7▪●◦‣\-–*]|^\(?\w{1,3}[.)]\s"
+
+
+def quote_stretches(run, b, goes_on=False):
+    """Single-spaced briefs set a block quotation inside the run, with no blank line around it: 2+ lines in a row
+    indented 4-14 past the page's margin, after a line at the margin. Not a bulleted or numbered item's
+    continuation, a heading set in capitals or numbered, or a dot-leader entry."""
+    out, i = set(), 1
+    if goes_on:                                 # the run opens with the rest of the last page's quotation
+        m = min(l.ind for l in run)             # (its lines can skew the page's margin: measure from the run's own)
+        j = 0
+        while j < len(run) and m + 4 <= run[j].ind <= m + 14:
+            j += 1
+        out.update(range(j))
+        i = max(j, 1)
+    while i < len(run):
+        j = i
+        while j < len(run) and b + 4 <= run[j].ind <= b + 14:      # may run on to the next page
+            j += 1
+        prev = run[i - 1]
+        if j - i >= 2 and prev.ind < b + 4 and prev.pi == run[i].pi \
+                and not re.match(BULLET_START, prev.text) and not re.match(BULLET_START, run[i].text) \
+                and not any(is_caps(l.text) or NUMHEAD_RE.match(l.text) or ENUM_RE.match(l.text)
+                            or LEADER_RE.search(l.text) for l in run[i:j]):
+            out.update(range(i, j))
+        i = max(j, i + 1)
+    return out
 
 
 def split_leaders(blocks):
@@ -3139,7 +3427,7 @@ def place_marks(blocks, footnotes, warn, spaced=False):
     previous mark, no further than the page the footnote is printed on."""
     pos = [0, 0, 0]                             # block, piece, character
     for lab, pi, _ in footnotes:
-        for pat in (FNMARK, FNMARK_SPACED) if spaced else (FNMARK,):   # slip opinions: "7(E). 1" too
+        for pat in (FNMARK, FNMARK_SPACED, FNMARK_MID) if spaced else (FNMARK,):   # slip opinions: "7(E). 1" too
             rx = re.compile(pat % re.escape(lab))
             found, last = None, None
             bi, pj, ch = pos
@@ -3152,10 +3440,11 @@ def place_marks(blocks, footnotes, warn, spaced=False):
                             break
                         last = (bi, pj)
                         m = rx.search(p[0], ch)
-                        while m and m.end() == len(p[0]) and _continues_number(pieces, pj):
+                        while m and ((m.end() == len(p[0]) and _continues_number(pieces, pj))
+                                     or (pat is FNMARK_MID and not fn_mid_ok(p[0], m))):
                             m = rx.search(p[0], m.start() + 1)   # "Act, 4" + "2 U.S.C.": a split number, not a mark
                         if m:
-                            found = (bi, pj, m, pat is FNMARK_SPACED)
+                            found = (bi, pj, m, pat in (FNMARK_SPACED, FNMARK_MID))
                             break
                     pj, ch = pj + 1, 0
                 if found is None:
@@ -3190,12 +3479,13 @@ def _whole_cites(spans):
     """lawcites marks a list ("42 U.S.C. §§ 12112, 12102") as one span per section, all but the last only one
     character long. Wrapping those would cut the cite ("4" + "2 U.S.C. ..."), and the US Code status marks then
     read "2 U.S.C." (not found). One span per cite instead: the first one's start and key, the last one's end."""
-    out = []
+    out, open_ = [], False                      # open_: the last span so far ended on a one-character part
     for a, b, key in spans:
-        if out and out[-1][1] - out[-1][0] == 1 and key.split(":")[:2] == out[-1][2].split(":")[:2] and a > out[-1][0]:
-            out[-1] = (out[-1][0], b, out[-1][2])
+        if out and open_ and key.split(":")[:2] == out[-1][2].split(":")[:2] and a > out[-1][0]:
+            out[-1] = (out[-1][0], b, out[-1][2])   # "§§ 1400(d)(1)(A), 1411, 1412, 1419": every part, not two
         else:
             out.append((a, b, key))
+        open_ = b - a == 1
     return out
 
 
@@ -3204,20 +3494,34 @@ def with_statutes(el):
     'U.S. Const. amend. I') in <law key=...>, so inline() links it: to the US Code note in Markdown,
     to the provision's text in the PDF when the build prints it."""
     from tribonian import lawcites
-    kids = []
+    # The whole paragraph is read at once, so a short form ("§ 1396a(10)(A)(i)") finds the full cite before it even
+    # when that one sits in a CourtListener span or italics; only cites inside one run of plain text are wrapped.
+    def text_of(n):
+        if isinstance(n, str):
+            return n
+        if n.tag in ("page-number", "footnotemark"):
+            return " "
+        return "".join(text_of(x) for x in n.kids)
+    starts, pos = [], 0
     for k in el.kids:
-        if isinstance(k, str):
-            at = 0
-            for a, b, key in _whole_cites(lawcites.spans_in(k)):
-                if a < at:
-                    continue
-                span = El("law", {"key": key})
-                span.kids.append(k[a:b])
-                kids += [k[at:a], span]
-                at = b
-            kids.append(k[at:])
-        else:
+        starts.append(pos)
+        pos += len(text_of(k))
+    found = _whole_cites(lawcites.spans_in("".join(text_of(k) for k in el.kids)))
+    kids = []
+    for k, s0 in zip(el.kids, starts):
+        if not isinstance(k, str):
             kids.append(k)
+            continue
+        at = 0
+        for a, b, key in found:
+            a, b = a - s0, b - s0
+            if a < at or b > len(k) or a < 0:
+                continue                         # elsewhere, or across an element: left as it is
+            span = El("law", {"key": key})
+            span.kids.append(k[a:b])
+            kids += [k[at:a], span]
+            at = b
+        kids.append(k[at:])
     el.kids = [k for k in kids if k != ""]
     return el
 
@@ -4012,8 +4316,9 @@ def main():
                    "reporter summary or syllabus, else how later courts describe it")
     b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                    help="download and build the cited state law that is not local (each code's item: a title or chapter)")
-    b.add_argument("--coupling", action="store_true",
-                   help="compute the coupled cases first (casemap.py coupling); without it they show only when already cached")
+    b.add_argument("--coupling", action=argparse.BooleanOptionalAction, default=True,
+                   help="Coupled with: the cases citing the most of the same cases, computed when not cached (default; "
+                        "--no-coupling shows them only when already cached)")
     b.set_defaults(func=build)
     sa = sub.add_parser("api-search", help="search CourtListener for cases newer than the local database (1 request, cached)")
     sa.add_argument("words", nargs="+")

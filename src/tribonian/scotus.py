@@ -736,36 +736,25 @@ def below_from_appendix(fs, data, con, warn):
 # through the local database's citations table. "605 U.S. at 181" counts for the case cited in
 # full earlier in the same filing; a parallel citation next to its main one is the same mention.
 
-REPORTERS = ["U.S.", "S. Ct.", "L. Ed. 2d", "L. Ed.", "F.4th", "F.3d", "F.2d", "F.", "F. Supp. 3d", "F. Supp. 2d",
-             "F. Supp.", "F. App'x", "Fed. Cl.", "Ct. Cl.", "Cl. Ct.", "B.R.", "F.R.D.", "M.J.", "Vet. App.",
-             "P.3d", "P.2d", "P.", "A.3d", "A.2d", "A.", "N.E.3d", "N.E.2d", "N.E.", "N.W.2d", "N.W.", "S.E.2d", "S.E.",
-             "S.W.3d", "S.W.2d", "S.W.", "So. 3d", "So. 2d", "So.", "Cal. Rptr. 3d", "Cal. Rptr. 2d", "Cal. 5th",
-             "Cal. 4th", "N.Y.3d", "N.Y.2d", "Wash. 2d", "Haw.", "WL"]
-
-
-def _rep_rx(r):
-    r"""'F. Supp. 2d' -> F\.\s?Supp\.\s?2d: a space allowed after every period ("F. 4th" and "F.4th")."""
-    out, s = "", r.replace(" ", "")
-    for k, ch in enumerate(s):
-        out += {".": r"\.", "'": "['’]"}.get(ch, re.escape(ch))
-        if ch == "." and k + 1 < len(s):
-            out += r"\s?"
-    return out
-
-
-REP_RX = "|".join(_rep_rx(r) for r in sorted(REPORTERS, key=len, reverse=True))
-CITE_RE = re.compile(r"(?<![\d.])(\d{1,4})\s+(%s)\s+(at\s+)?(\d{1,7})(?![\d])" % REP_RX)   # 7: Westlaw numbers
-CANON = {re.sub(r"[\s.'’]", "", r).lower(): r for r in REPORTERS}
+# The reporter list and the cite pattern live in citefind.py (made from reporters-db; cite_engine picks the engine).
+# CITE_RE keeps its groups: 1 volume, 2 reporter, 3 "at" (a pin cite), 4 page.
+from tribonian import citefind as _cf
+CITE_RE = _cf.CITE_RE
 
 
 def canon(rep):
-    return CANON.get(re.sub(r"[\s.'’]", "", rep).lower(), rep)
+    """A reporter spelling -> CourtListener's form ("U. S." -> "U.S.")."""
+    return _cf.editions(rep)[0]
 
 
 def find_cites(text):
-    """-> [(position, volume, reporter, page, short)] in order; short = an 'at' pin cite."""
+    """-> (text, [Cite]) in order: full and pin cites, Id. and supra, by the configured cite engine (citefind.py)."""
     t = " ".join(text.split())
-    return t, [(m.start(), m.group(1), canon(m.group(2)), m.group(4), bool(m.group(3))) for m in CITE_RE.finditer(t)]
+    return t, _cf.find(t)
+
+
+# between a cite and an Id.: a statute or regulation cited, so the Id. is that law's, not the case's
+LAW_BETWEEN_RE = re.compile(r"U\.\s?S\.\s?C|§|C\.\s?F\.\s?R|\bStat\.|Fed\.\s?Reg|Const\.")
 
 
 _RESOLVED = {}
@@ -840,6 +829,9 @@ def name_words(before):
     last = None
     for m in re.finditer(r"([A-Z][\w.'&-]*(?:\s+(?:of|the|and|&|de|la|[A-Z][\w.'&-]*)){0,5})\s+v\.\s+([A-Z][^,;()]{1,80}?),", b):
         last = m
+    short = re.search(r"([A-Z][\w'-]{2,}),\s*$", b)
+    if last and short and re.search(r"[.;]\s+(?:See\s+|see\s+|Cf\.\s+|But\s+|Accord\s+|E\.g\.,\s+)?[A-Z(]", b[last.end():]):
+        last = None                                  # "Brown v. Bd., 347 U.S. 483 (1954). Smith, 494 U.S. at 890": Smith's
     if last and len(b) - last.end() <= (360 if history(b) else 80):   # room for a docket number or a parallel cite
         # a sentence ends inside the first party ("… in Carlson. Martinez v. …"): keep what follows it
         text = re.split(r"\b[A-Za-z]{4,}\.\s+", last.group(1))[-1] + " " + last.group(2)
@@ -911,6 +903,38 @@ def resolve_docket(con, before, after):
     return _DOCKETS[key]
 
 
+# A case cited by docket number alone, its parenthetical right after: "Miller v. Civil Rts. Dep't, No. 25-233 (petition
+# for cert. filed Aug. 26, 2025)", "Pennsylvania v. President, No. 25-2575 (3d Cir. appeal filed … 2025)", "Klein v.
+# Oregon Bureau of Lab. & Indus., No. A159899 (Or. Ct. App. argued Jan. 30, 2024)". A reporter or Westlaw cite after
+# the number is resolve_docket's (through the reporter cite), not this.
+ONLY_DOCKET_RE = re.compile(r"\bNo\.\s?((?:\d:)?\d{2}[-–][\w-]*\d|[A-Z]\d{4,8})(?=,?\s*\()")
+COURT_LEAD_RE = re.compile(r"^\s*\(((?:[A-Z0-9][\w.'&]*\.?\s?){1,6}?)(?=\s+[a-z]|\s*\d{4}\)|\s*(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)\b)")
+
+
+def docket_only(con, number, after, scotus_dir):
+    """-> (ok, why, tint) for a case cited by docket number alone. ok: a fetched Supreme Court docket, or a docket
+    in the local database. tint "orange" for a state court's docket (CourtListener has no state dockets)."""
+    paren = unpage(after)
+    head = paren[:paren.find(")") + 1] if ")" in paren else paren
+    if re.search(r"(?i)\bcert\.|certiorari|\bU\.\s?S\.|\bS\.\s?Ct\.|Supreme Court of the United States", head) \
+            and re.fullmatch(r"\d{2}[-–]\d{1,5}|\d{2}A\d{1,5}", number):
+        no = re.sub(r"[-–]0*", "-", number)
+        if (scotus_dir / ("%s.json" % no)).exists():
+            return True, "", ""
+        return False, "a Supreme Court docket not fetched (tribonian scotus fetch %s)" % no, ""
+    m = COURT_LEAD_RE.match(paren)
+    label = (m.group(1) if m else "").strip()
+    if not label:
+        return False, "", None                         # no court named: left unmarked
+    federal = re.search(r"\bCir\.|\bD\.\s?[A-Z]|Fed\.\s?Cl|Bankr|B\.A\.P|J\.P\.M\.L|Ct\.\s?Int", label)
+    if not federal:
+        return False, "a state court's docket: CourtListener has no state dockets", "orange"
+    d = resolve_docket(con, "No. %s" % number, "(%s %s)" % (label, (re.findall(r"(?:1[789]|20)\d\d", head) or ["2000"])[-1]))
+    if d:
+        return True, "", ""
+    return False, "no %s docket No. %s in the local database (newer than the bulk data, or not in RECAP)" % (label, number), ""
+
+
 def court_key(label):
     """A court abbreviation reduced for matching: spaces and periods out, state names to their Bluebook form
     (CourtListener writes 'M.D. Penn.' and 'D. Maryland' where a cite has 'M.D. Pa.' and 'D. Md.')."""
@@ -970,10 +994,97 @@ def resolve_name(con, vol, rep, page, before, after):
         r, there = wrong[0]
         _NAMED[key] = (None, "%s is at %s" % (r[1], "; ".join("%s %s %s" % (v, rep, p) for v, p in there)))
         return _NAMED[key]
-    names = {re.sub(r"[^a-z]", "", _ascii(r[1]).lower()) for r, _ in good}
+    names = {re.sub(r"[^a-z]", "", _ascii(r[1]).lower().replace("&", "and")) for r, _ in good}
+    ranked = sorted(good, key=lambda g: -(g[0][2] or 0))
     if good and (len(good) == 1 or len(names) == 1):
-        _NAMED[key] = (max(good, key=lambda g: g[0][2] or 0)[0][0], "")
+        _NAMED[key] = (ranked[0][0][0], "")
+    elif len(ranked) > 1 and (ranked[0][0][2] or 0) >= 20 and (ranked[0][0][2] or 0) >= 10 * max(ranked[1][0][2] or 0, 1):
+        # one case's merits decision among its own orders of the same year (Little Sisters, 2020: the opinion and four
+        # orders on the docket, none with a U.S. cite yet): the most cited, when it dwarfs the rest
+        _NAMED[key] = (ranked[0][0][0], "")
     return _NAMED[key]
+
+
+# ---------------------------------------------------------------- checks on a cite found by its citation
+# The citation table says which case a cite is; these say whether the text agrees: the name written before it, and a
+# pin page inside the case. A cite that fails one is a likely miscite (red, with the reason), not a match.
+NAMED_CITE_RE = re.compile(r"(?:([A-Z][\w.'’&-]*(?:\s+(?:of|the|and|for|&|de|la|ex|rel\.|[A-Z][\w.'’&-]*)){0,7})\s+v\.\s+([^,;()]{1,80})"
+                           r"|\b(?:In re|Ex parte|In the Matter of|Matter of)\s+([^,;()]{1,80})),\s*"
+                           r"(?:\d{1,4}\s+[^,;()]{1,25}?\s+\d{1,7}(?:,\s*\d{1,6}(?:[-–]\d+)?)?,\s*)?$")
+_NAMES, _STARTS = {}, {}
+
+
+def written_name(before):
+    """The case name written right before a cite ("Employment Div. v. Smith, " or with one parallel cite between),
+    as the words of each party: [[first party's], [second party's]] ("In re X": one); None when the cite has no name of
+    its own (a string cite, a parallel cite)."""
+    m = NAMED_CITE_RE.search(_ascii(" ".join(before.split()))[-260:])
+    if not m:
+        return None
+    sides = [m.group(3)] if m.group(3) else [re.split(r"\b[A-Za-z]{4,}\.\s+", m.group(1))[-1], m.group(2)]
+    words = [[w for w in re.findall(r"[a-z]{3,}", t.lower()) if w not in NAME_STOP] for t in sides]
+    words = [ws for ws in words if ws]
+    return words or None
+
+
+def name_mismatch(con, cid, vol, rep, page, before):
+    """'' when the written name fits the case the citation table gives (each party: one of its words in the case's names),
+    else the reason: '494 U.S. 872 is Employment Div. v. Smith'."""
+    words = written_name(before)
+    if not words or not isinstance(cid, int):
+        return ""
+    if cid not in _NAMES:
+        try:
+            r = con.execute("SELECT case_name, case_name_short, case_name_full FROM clusters WHERE id=?", (cid,)).fetchone()
+        except sqlite3.Error:                        # an older database: the case name alone
+            r = con.execute("SELECT case_name FROM clusters WHERE id=?", (cid,)).fetchone()
+        _NAMES[cid] = (r[0] or "", _ascii(" ".join(x or "" for x in r)).lower()) if r else ("", "")
+    name, names = _NAMES[cid]
+    if not names or all(any(w in names for w in side) for side in words):   # each party: one of its words
+        return ""
+    return "likely miscite: %s %s %s is %s" % (vol, rep, page, name)
+
+
+def named_instead(con, vol, rep, page, before, after, wrong):
+    """After a name mismatch: where the case the text names is, by its name, court and date (resolve_name) ->
+    '; Smith v. Jones is at 494 U.S. 900' / '; Smith v. Jones has no U.S. cite in CourtListener' / ''."""
+    cid, why = resolve_name(con, vol, rep, page, before, after)
+    if why:
+        return "; " + why
+    if cid and cid != wrong:
+        r = con.execute("SELECT case_name FROM clusters WHERE id=?", (cid,)).fetchone()
+        return "; %s has no %s cite in CourtListener" % (r[0] if r else "the case named", rep)
+    return ""
+
+
+def _starts(con, vol, rep):
+    """Every case's first page in one volume of a reporter, sorted (cached)."""
+    k = (vol, rep)
+    if k not in _STARTS:
+        _STARTS[k] = sorted({int(p) for (p,) in con.execute("SELECT page FROM cites WHERE volume=? AND reporter=?", k)
+                             if (p or "").isdigit()})
+    return _STARTS[k]
+
+
+def pin_outside(con, cid, vol, rep, pin, start=None):
+    """'' when the pin page can be inside the case (from its first page to the next case's), else the reason.
+    start: the case's first page when the cite gave it; else read from the citation table."""
+    if not str(pin).isdigit() or not isinstance(cid, int):
+        return ""
+    pin = int(pin)
+    if start is None:
+        rows = [int(p) for (p,) in con.execute("SELECT page FROM cites WHERE cluster_id=? AND volume=? AND reporter=?",
+                                               (cid, vol, rep)) if (p or "").isdigit()]
+        if not rows:
+            return ""
+        start = max([p for p in rows if p <= pin] or rows)
+    start = int(start)
+    if pin < start:
+        return "likely miscite: page %d is before the case, which starts at %s %s %d" % (pin, vol, rep, start)
+    later = [p for p in _starts(con, vol, rep) if p > start]
+    if later and pin >= later[0]:
+        return "likely miscite: page %d is past the case (%s %s %d; the next case starts at %d)" % (pin, vol, rep, start, later[0])
+    return ""
 
 
 def resolve_pin(con, vol, rep, page, before):
@@ -991,24 +1102,42 @@ def resolve_pin(con, vol, rep, page, before):
 
 
 def authorities(con, text):
-    """-> (Counter cluster id -> mentions, Counter unresolved 'vol rep page' -> mentions)."""
+    """-> (Counter cluster id -> mentions, Counter unresolved 'vol rep page' -> mentions). Every way a case is cited
+    counts: in full, a pin cite ("605 U.S. at 181"), "Id." (the case cited just before, unless a statute came between)
+    and "Name, supra" (the one earlier full cite of that name)."""
     t, found = find_cites(text)
     got, miss, by_vr, last = Counter(), Counter(), {}, (None, -999)
-    for pos, vol, rep, page, short in found:
-        if short:
+    ants = _cf.Antecedents()
+    for c in found:
+        pos, vol, rep, page = c.start, c.vol, c.rep, c.page
+        if c.kind == "id":
+            if last[0] and not LAW_BETWEEN_RE.search(t[last[1]:pos]):
+                got[last[0]] += 1
+                last = (last[0], pos)
+            continue
+        if c.kind == "supra":
+            cid = ants.supra(c.name)
+            if cid:
+                got[cid] += 1
+            last = (cid, pos)
+            continue
+        if c.kind == "pin":
             cid = by_vr.get((vol, rep))
             if cid:
                 got[cid] += 1
-                last = (cid, pos)
+            last = (cid, pos)
             continue
-        cid = resolve(con, vol, rep, page, t[max(0, pos - 160):pos]) if con is not None else None
+        cid = next((x for r in c.reps for x in [resolve(con, vol, r, page, t[max(0, pos - 160):pos])] if x), None) \
+            if con is not None else None
         if cid is None and con is not None:            # not in the citations table: the name, court and date
             end = CITE_RE.match(t, pos)
             cid = resolve_name(con, vol, rep, page, t[max(0, pos - 160):pos], t[end.end():end.end() + 160] if end else "")[0]
         if cid is None:
             miss["%s %s %s" % (vol, rep, page)] += 1
+            last = (None, pos)
             continue
         by_vr[(vol, rep)] = cid
+        ants.cite(cid, before=t[max(0, pos - 160):pos])
         if cid == last[0] and pos - last[1] < 90:       # "605 U.S. 168, 145 S. Ct. 1497": one mention
             last = (cid, pos)
             continue
@@ -1141,6 +1270,58 @@ def filings(data, con):
         f["title"] = TITLES.get(e["kind"], e["kind"].title())
         out.append(f)
     return out
+
+
+# The district courts under each circuit, to find the case an appeal came from by name (the bulk dockets table has no
+# originating-court field)
+CIRCUIT_DISTRICTS = {
+    "ca1": "med mad nhd prd rid", "ca2": "ctd nyed nynd nysd nywd vtd", "ca3": "ded njd paed pamd pawd vid",
+    "ca4": "mdd nced ncmd ncwd scd vaed vawd wvnd wvsd", "ca5": "laed lamd lawd msnd mssd txed txnd txsd txwd",
+    "ca6": "kyed kywd mied miwd ohnd ohsd tned tnmd tnwd", "ca7": "ilcd ilnd ilsd innd insd wied wiwd",
+    "ca8": "ared arwd iand iasd mnd moed mowd ned ndd sdd", "ca9": "akd azd cacd caed cand casd gud hid idd mtd nvd nmid ord waed wawd",
+    "ca10": "cod ksd nmd oked oknd okwd utd wyd", "ca11": "almd alnd alsd flmd flnd flsd gamd gand gasd", "cadc": "dcd"}
+
+# The case's own courts below, for cites the filings give with no name ("The Tenth Circuit's opinion is reported at
+# 154 F.4th 752"): {"circuit": (docket id, name), "district": (docket id, name)}. Set by build().
+BELOW = {}
+BELOW_RE = re.compile(r"(?:reported at|reprinted at|published at|available at)\s*$")
+
+
+def below_dockets(data, con):
+    """The court of appeals docket (by the feed's number) and the district court docket it came from (the one docket
+    in that circuit's district courts, filed before the appeal, whose name has every word of the appeal's)."""
+    if con is None or not has_index(con, "dockets_by_number"):
+        return {}
+    feed = data["feed"]
+    num = (feed.get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
+    m = re.search(r"for the (.+?) Circuit", feed.get("LowerCourt") or "", re.I)
+    court = CIRCUITS.get(m.group(1).lower()) if m else None
+    if not num or not court:
+        return {}
+    row = con.execute("SELECT id, case_name, date_filed FROM dockets WHERE court_id=? AND docket_number=?", (court, num)).fetchone()
+    if not row:
+        return {}
+    out = {"circuit": (row[0], row[1])}
+    words = [w for w in re.findall(r"[a-z]{3,}", _ascii(row[1] or "").lower()) if w not in NAME_STOP]
+    if words and court in CIRCUIT_DISTRICTS:
+        ds = CIRCUIT_DISTRICTS[court].split()
+        rows = con.execute("SELECT id, case_name FROM dockets WHERE court_id IN (%s) AND case_name LIKE ? AND (date_filed IS NULL OR date_filed <= ?)"
+                           % ",".join("?" * len(ds)), ds + ["%" + max(words, key=len) + "%", row[2] or "9999"]).fetchall()
+        rows = [r for r in rows if all(w in _ascii(r[1] or "").lower() for w in words)]
+        if len(rows) == 1:
+            out["district"] = rows[0]
+    return out
+
+
+def below_for(before):
+    """An unresolved cite right after "reported at", with the court named just before it -> ("docket", id) or None."""
+    b = " ".join(before.split())
+    if not BELOW or not BELOW_RE.search(b):
+        return None
+    near = b[-160:].lower()
+    i_d, i_c = near.rfind("district court"), max(near.rfind("circuit"), near.rfind("court of appeals"))
+    which = "district" if i_d > i_c else "circuit" if i_c >= 0 else None
+    return ("docket", BELOW[which][0]) if which in BELOW else None
 
 
 def below_cluster(data, con):
@@ -1508,7 +1689,7 @@ def coupling_appendix_md(parts, names, index):
          "the decision below, rare shared citations counting more; the number is the count of shared cited cases.*", ""]
     for title, res in parts:
         L += ["### %s" % title, ""]
-        for x in res["results"]:
+        for x in res["results"][:c.COUPLING_SHOW]:
             e = index.get(str(x["cluster"]))
             label = c.esc(x["name"], "md")
             L.append("- **%d** %s (%s) — score %.1f; shared: %s" % (
@@ -2332,6 +2513,8 @@ def build(args):
 
     # ---- the decision below
     below_ops, below_cites, below_meta = [], {}, None
+    BELOW.clear()
+    BELOW.update(below_dockets(data, con))
     cid = ensure_below(data, con, warnings)
     if cid:
         bdata = below_case(cid, con, index)
@@ -2423,7 +2606,7 @@ def build(args):
     for n, o in enumerate(ops):                  # unique ids for bookmarks and footnote keys across the documents
         o["oi"] = o["ctx"].oi = n
         o["ctx"].lawtargets = targets
-    cpl = coupling_parts(con, fs, cid) if getattr(args, "coupling", False) else []   # --coupling (appendix)
+    cpl = coupling_parts(con, fs, cid) if getattr(args, "coupling", True) else []   # the appendix (--no-coupling: none)
     qp = qp_paragraphs(data)
     feed = data["feed"]
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
@@ -2957,8 +3140,9 @@ def main():
     b.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                    "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     b.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
-    b.add_argument("--coupling", action="store_true", help="appendix: the decided cases that cite the most of the same "
-                   "cases as each side's filings and as the decision below (needs tribonian cocite prep)")
+    b.add_argument("--coupling", action=argparse.BooleanOptionalAction, default=True,
+                   help="appendix: the decided cases that cite the most of the same cases as each side's filings and as "
+                        "the decision below (default; needs tribonian cocite prep; --no-coupling leaves it out)")
     b.add_argument("--cases", action="store_true", help="end the PDF with The Cases Cited: each cited case once, with its "
                    "reporter summary or syllabus, else how later courts describe it")
     b.set_defaults(func=build_cmd)

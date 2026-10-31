@@ -19,6 +19,7 @@ See config.example.toml. Paths may start with ~; a relative path is relative to 
     courtlistener_token  COURTLISTENER_TOKEN    secret-tool lookup service courtlistener
     law_dir              TRIBONIAN_LAW          <work>/law   (downloaded C.F.R. and state law: cfr.py)
     data_mode            CL_DATA_MODE           "full"  (offline | full | complete | lite | api; `tribonian --mode X` per command)
+    cite_engine          CL_CITE_ENGINE         "patterns"  (patterns | eyecite | both: how case cites are found in text; citefind.py)
 
 Standard library only. Python 3.11+ reads the file with tomllib; on 3.10 a small reader handles the
 subset this file needs ([tables], key = "string" | 'string' | number | true/false, # comments).
@@ -33,7 +34,7 @@ REPO = PKG.parent.parent if (PKG.parent.parent / "pyproject.toml").is_file() els
 # key -> environment variable
 ENV = {"work_dir": "TRIBONIAN_WORK", "bulk_dir": "CL_BULK", "main_db": "CL_DB", "opinions_db": "CL_OPS_DB", "search_db": "CL_SEARCH_DB",
        "cocite_db": "CL_COCITE_DB", "api_limits": "CL_LIMITS", "courtlistener_token": "COURTLISTENER_TOKEN",
-       "law_dir": "TRIBONIAN_LAW", "data_mode": "CL_DATA_MODE"}
+       "law_dir": "TRIBONIAN_LAW", "data_mode": "CL_DATA_MODE", "cite_engine": "CL_CITE_ENGINE"}
 PATH_KEYS = {"work_dir", "bulk_dir", "main_db", "opinions_db", "search_db", "cocite_db", "law_dir"}
 
 

@@ -189,7 +189,7 @@ def cmd_sample(args):
 #   part   0 single section, 1 item of a list, 2 range start, 3 range end
 #   ref    b"42:1983" (title:section, section lower-case, subsections dropped); b":1983" = short form, title unknown
 # Popular names: p_row (index into the rows) and p_name (b"title vii|civil rights act"); their ref is b"".
-USC_VERSION = 2                                 # 2: I.R.C. cites, default titles (Tax Court, "references are to"), "Sec." short forms
+USC_VERSION = 3                                 # 2: I.R.C. cites, default titles (Tax Court, "references are to"), "Sec." short forms; 3: bare and lettered ranges (18 U.S.C. 3631-3635, § 501-530a)
 HOW = ["", "span", "regex", "short-resolved", "short-unresolved", "popular-paired", "popular-alone", "short-default"]
 HOW_CODE = {h: i for i, h in enumerate(HOW)}
 PART = ["single", "list", "range-start", "range-end"]
@@ -233,12 +233,16 @@ def expand_end(start, end):
 
 
 def split_hyphen(tok, plural, abbrev=True):
-    """'2000e-2' is a section; '1371-76' after §§ (or, in a full cite, with a shortened end) is a range
-    -> [(sect, part)]"""
+    """'2000e-2' is a section; '1371-76' after §§ (or, in a full cite, with a shortened end) is a range, and so
+    is '3631-3635' without §§ (an end as long as the start and past it: no U.S.C. section is numbered so), and
+    '501-530a' with a lettered end the same way -> [(sect, part)]"""
     if "-" in tok:
         a, b = tok.split("-", 1)
-        if a.isdigit() and b.isdigit() and (plural or (abbrev and len(b) < len(a))):
+        if a.isdigit() and b.isdigit() and (plural or (abbrev and (len(b) < len(a) or (len(b) == len(a) and int(b) > int(a))))):
             return [(a, 2), (expand_end(a, b), 3)]
+        lb = re.fullmatch(r"(\d+)[A-Za-z]{1,3}", b)
+        if a.isdigit() and lb and len(lb.group(1)) == len(a) and int(lb.group(1)) >= int(a):
+            return [(a, 2), (b, 3)]
     return [(tok, 0)]
 
 

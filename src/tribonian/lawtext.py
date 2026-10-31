@@ -250,7 +250,7 @@ def _same(a, b):
 def _article_of(sec):
     """The article (or level) number a constitution's section sits in: from its identifier (/a2/s1) or an ancestor."""
     from tribonian import statecites
-    m = re.search(r"/(?:a|ar|art|t)([^/]+)/s[^/]+$", sec.get("identifier", ""))
+    m = re.search(r"/(?:art|ar|a|t)([^/]+)/s[^/]+$", sec.get("identifier", ""))   # longest prefix first: /artI is I, not "rtI"
     if m:
         return statecites.arabic(m.group(1))
     p = sec.getparent()

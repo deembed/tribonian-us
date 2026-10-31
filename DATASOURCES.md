@@ -103,6 +103,10 @@ windowed pages joined; `zip` a bulk archive (`range`: only the needed members, b
   the section before (flagged).
 - **California, Wisconsin, Montana and others:** source quirks (duplicate headings, repealed gaps, compacts that
   restart numbering) are kept as found and flagged, not "fixed".
+- **Old constitutions and amendment dates:** only today's constitution of each state is stored. A cite to an
+  earlier one (the 1776–1790 founding-era constitutions, "N.Y. Const. art. XXXVIII (1777)", or any constitution
+  since replaced) is looked up in today's text, so it shows as not found, or worse, finds an unrelated provision
+  with the same number. When a provision was amended is not tracked either. Pre-1790 law in general is not handled.
 
 ## States we can't cover: Arkansas, Georgia, Mississippi, Tennessee
 

@@ -125,8 +125,18 @@ pub fn status(entries: &[Entry], granted: &str, argued: &str) -> String {
     }) {
         return format!("decided {d}");
     }
-    if let Some((_, d)) = find(&|t| t.starts_with("petition denied") || t.starts_with("petition dismissed")) {
+    // the Court's other endings: after argument the writ can be dismissed (DIG); a GVR grants, vacates and remands at once
+    if let Some((_, d)) = find(&|t| t.contains("dismissed as improvidently granted")) {
+        return format!("decided {d}; writ dismissed as improvidently granted");
+    }
+    if let Some((_, d)) = find(&|t| t.starts_with("petition granted") && t.contains("judgment vacated")) {
+        return format!("decided {d}; granted, vacated and remanded");
+    }
+    if let Some((_, d)) = find(&|t| t.starts_with("petition denied")) {
         return format!("petition denied {d}");
+    }
+    if let Some((_, d)) = find(&|t| t.starts_with("petition dismissed") || t.starts_with("case dismissed") || t.contains("dismissed under rule 46")) {
+        return format!("dismissed {d}");
     }
     if let Some((_, d)) = find(&|t| t.starts_with("argued")) {
         return format!("argued {d}; awaiting decision");
@@ -399,6 +409,11 @@ mod tests {
         assert_eq!(status(&[e("2026-10-07", "Argued. For petitioners: ...")], "2026-03-09", ""), "argued 2026-10-07; awaiting decision");
         assert_eq!(status(&[e("2027-03-01", "Judgment REVERSED and case REMANDED. Gorsuch, J., delivered the opinion of the Court.")], "x", ""),
                    "decided 2027-03-01");
+        assert_eq!(status(&[e("2026-10-07", "Argued. For petitioners: ..."), e("2026-11-02", "Writ of certiorari DISMISSED as improvidently granted.")], "2026-03-09", ""),
+                   "decided 2026-11-02; writ dismissed as improvidently granted");
+        assert_eq!(status(&[e("2026-06-30", "Petition GRANTED. Judgment VACATED, and case REMANDED to the United States Court of Appeals for the Fifth Circuit for further consideration in light of X v. Y.")], "", ""),
+                   "decided 2026-06-30; granted, vacated and remanded");
+        assert_eq!(status(&[e("2026-02-02", "Petition DISMISSED under Rule 46.")], "", ""), "dismissed 2026-02-02");
         assert_eq!(party("Department of the Air Force, et al., Petitioners"), "Department of the Air Force");
         assert_eq!(party("Prutehi Guahan, fka Prutehi Litekyan"), "Prutehi Guahan");
     }
