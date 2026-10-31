@@ -1003,9 +1003,14 @@ def resolve_name(con, vol, rep, page, before, after):
         r, there = wrong[0]
         _NAMED[key] = (None, "%s is at %s" % (r[1], "; ".join("%s %s %s" % (v, rep, p) for v, p in there)))
         return _NAMED[key]
-    names = {re.sub(r"[^a-z]", "", _ascii(r[1]).lower()) for r, _ in good}
+    names = {re.sub(r"[^a-z]", "", _ascii(r[1]).lower().replace("&", "and")) for r, _ in good}
+    ranked = sorted(good, key=lambda g: -(g[0][2] or 0))
     if good and (len(good) == 1 or len(names) == 1):
-        _NAMED[key] = (max(good, key=lambda g: g[0][2] or 0)[0][0], "")
+        _NAMED[key] = (ranked[0][0][0], "")
+    elif len(ranked) > 1 and (ranked[0][0][2] or 0) >= 20 and (ranked[0][0][2] or 0) >= 10 * max(ranked[1][0][2] or 0, 1):
+        # one case's merits decision among its own orders of the same year (Little Sisters, 2020: the opinion and four
+        # orders on the docket, none with a U.S. cite yet): the most cited, when it dwarfs the rest
+        _NAMED[key] = (ranked[0][0][0], "")
     return _NAMED[key]
 
 
