@@ -1689,7 +1689,7 @@ def coupling_appendix_md(parts, names, index):
          "the decision below, rare shared citations counting more; the number is the count of shared cited cases.*", ""]
     for title, res in parts:
         L += ["### %s" % title, ""]
-        for x in res["results"]:
+        for x in res["results"][:c.COUPLING_SHOW]:
             e = index.get(str(x["cluster"]))
             label = c.esc(x["name"], "md")
             L.append("- **%d** %s (%s) — score %.1f; shared: %s" % (
@@ -2606,7 +2606,7 @@ def build(args):
     for n, o in enumerate(ops):                  # unique ids for bookmarks and footnote keys across the documents
         o["oi"] = o["ctx"].oi = n
         o["ctx"].lawtargets = targets
-    cpl = coupling_parts(con, fs, cid) if getattr(args, "coupling", False) else []   # --coupling (appendix)
+    cpl = coupling_parts(con, fs, cid) if getattr(args, "coupling", True) else []   # the appendix (--no-coupling: none)
     qp = qp_paragraphs(data)
     feed = data["feed"]
     title = "%s v. %s, No. %s (U.S.)" % (party(feed.get("PetitionerTitle")), party(feed.get("RespondentTitle")), num)
@@ -3140,8 +3140,9 @@ def main():
     b.add_argument("--fetch", action="store_true", help="download the text of cited federal law that is not local "
                    "(C.F.R. titles, the U.S. Constitution); a refusal or a dropped connection is reported and the build goes on")
     b.add_argument("--no-law", dest="law", action="store_false", help="leave out The Law Cited (the cited provisions’ text at the end of the PDF) and fetch nothing; the note keeps its list")
-    b.add_argument("--coupling", action="store_true", help="appendix: the decided cases that cite the most of the same "
-                   "cases as each side's filings and as the decision below (needs tribonian cocite prep)")
+    b.add_argument("--coupling", action=argparse.BooleanOptionalAction, default=True,
+                   help="appendix: the decided cases that cite the most of the same cases as each side's filings and as "
+                        "the decision below (default; needs tribonian cocite prep; --no-coupling leaves it out)")
     b.add_argument("--cases", action="store_true", help="end the PDF with The Cases Cited: each cited case once, with its "
                    "reporter summary or syllabus, else how later courts describe it")
     b.set_defaults(func=build_cmd)

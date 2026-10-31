@@ -1754,6 +1754,7 @@ def cocite_tex(meta):
 DRAWS_COLOR = "orange!8"       # like the co-citation box: derived by counting, not the court's text
 COUPLING_COLOR = "orange!4"
 COUPLING_SHOW_REFS = 5         # shared references named per coupled case; the JSON has them all
+COUPLING_SHOW = 7              # coupled cases listed in the note and PDF; the JSON keeps cocite.COUPLING_TOP (30)
 DRAWS_TOP = 8                  # sub-clusters listed; the rest are summed as "other sub-clusters"
 
 
@@ -1823,13 +1824,18 @@ def coupling_cache(cid, con=None, max_df=None, top=None):
 
 
 def coupling_data(cid, compute=False):
-    """The cached coupled cases, or None. compute=True (build --coupling) computes them first."""
+    """The cached coupled cases, or None. compute=True (every build; --no-coupling turns it off) computes them when
+    there is no cache yet, or the cache was made from older bulk data; otherwise the cache is used as it is."""
     if cid is None:
         return None
     if compute:
         try:
-            return coupling_cache(cid)
-        except (ImportError, sqlite3.Error, SystemExit, OSError) as e:
+            con = shared_db()
+            old = json.loads(coupling_path(cid).read_text(encoding="utf-8")) if coupling_path(cid).exists() else None
+            if old and con is not None and old.get("stamp") == bulk_stamp(con):
+                return old                               # current: nothing to compute
+            return coupling_cache(cid, con)
+        except (ImportError, sqlite3.Error, SystemExit, OSError, ValueError) as e:
             print("  (coupling skipped: %s)" % e, file=sys.stderr)
     try:
         return json.loads(coupling_path(cid).read_text(encoding="utf-8"))
@@ -1935,7 +1941,7 @@ def coupling_md(meta):
         e = index.get(str(r))
         return "[[%s|%s]]" % (e["slug"], text.replace("|", "/")) if e else text
     L = ["## Coupled with", "", "*%s Not part of the record.*" % coupling_note(c), ""]
-    for i, x in enumerate(c["results"], 1):
+    for i, x in enumerate(c["results"][:COUPLING_SHOW], 1):
         where = ", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)
         refs = "; ".join(esc(r["name"], "md") for r in x["refs"][:COUPLING_SHOW_REFS])
         more = " …" if len(x["refs"]) > COUPLING_SHOW_REFS else ""
@@ -1950,7 +1956,7 @@ def coupling_items_tex(c):
     return "".join("\\item[\\textbf{%d}] %s%s {\\footnotesize\\ score %.1f; shared: %s%s}\n" % (
         x["shared"], E(x["name"]), " (%s)" % E(", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)) if x["cite"] or x["year"] else "",
         x["score"], E("; ".join(r["name"] for r in x["refs"][:COUPLING_SHOW_REFS])), " \\dots" if len(x["refs"]) > COUPLING_SHOW_REFS else "")
-        for x in c["results"])
+        for x in c["results"][:COUPLING_SHOW])
 
 
 def coupling_tex(meta):
@@ -1961,7 +1967,7 @@ def coupling_tex(meta):
     items = "".join("\\item[\\textbf{%d}] %s%s {\\footnotesize\\ score %.1f; shared: %s%s}\n" % (
         x["shared"], E(x["name"]), " (%s)" % E(", ".join(t for t in (x["cite"], x["court"], x["year"]) if t)) if x["cite"] or x["year"] else "",
         x["score"], E("; ".join(r["name"] for r in x["refs"][:COUPLING_SHOW_REFS])), " \\dots" if len(x["refs"]) > COUPLING_SHOW_REFS else "")
-        for x in c["results"])
+        for x in c["results"][:COUPLING_SHOW])
     return ("\\pdfbookmark[1]{Coupled with}{coupling}\n"
             "\\begin{tcolorbox}[enhanced, breakable, colback=%s, colframe=%s!50!black, boxrule=0.4pt, arc=1.5pt,\n"
             "  left=5pt, right=5pt, top=4pt, bottom=4pt, fontupper=\\small]\n"
@@ -2478,7 +2484,7 @@ def build(args):
     meta["profile"] = profile_data(meta["cluster"], scan=not (getattr(args, "no_goodlaw", False) or quick), quick=quick)
     # bibliographic coupling: what it draws on (always, cheap); coupled cases only if cached or --coupling
     meta["draws"] = draws_data(meta["cluster"], data)
-    meta["coupling"] = coupling_data(meta["cluster"], compute=getattr(args, "coupling", False))
+    meta["coupling"] = coupling_data(meta["cluster"], compute=getattr(args, "coupling", True))
 
     (here / "build").mkdir(exist_ok=True)
     ndir = note_dir(meta["slug"], data.get("docket"))
@@ -4253,8 +4259,9 @@ def main():
                    "reporter summary or syllabus, else how later courts describe it")
     b.add_argument("--fetch-state-law", dest="fetch_state_law", action="store_true",
                    help="download and build the cited state law that is not local (each code's item: a title or chapter)")
-    b.add_argument("--coupling", action="store_true",
-                   help="compute the coupled cases first (casemap.py coupling); without it they show only when already cached")
+    b.add_argument("--coupling", action=argparse.BooleanOptionalAction, default=True,
+                   help="Coupled with: the cases citing the most of the same cases, computed when not cached (default; "
+                        "--no-coupling shows them only when already cached)")
     b.set_defaults(func=build)
     sa = sub.add_parser("api-search", help="search CourtListener for cases newer than the local database (1 request, cached)")
     sa.add_argument("words", nargs="+")
