@@ -189,7 +189,7 @@ def cmd_sample(args):
 #   part   0 single section, 1 item of a list, 2 range start, 3 range end
 #   ref    b"42:1983" (title:section, section lower-case, subsections dropped); b":1983" = short form, title unknown
 # Popular names: p_row (index into the rows) and p_name (b"title vii|civil rights act"); their ref is b"".
-USC_VERSION = 2                                 # 2: I.R.C. cites, default titles (Tax Court, "references are to"), "Sec." short forms
+USC_VERSION = 3                                 # 2: I.R.C. cites, default titles (Tax Court, "references are to"), "Sec." short forms; 3: bare and lettered ranges (18 U.S.C. 3631-3635, § 501-530a)
 HOW = ["", "span", "regex", "short-resolved", "short-unresolved", "popular-paired", "popular-alone", "short-default"]
 HOW_CODE = {h: i for i, h in enumerate(HOW)}
 PART = ["single", "list", "range-start", "range-end"]
