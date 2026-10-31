@@ -233,11 +233,12 @@ def expand_end(start, end):
 
 
 def split_hyphen(tok, plural, abbrev=True):
-    """'2000e-2' is a section; '1371-76' after §§ (or, in a full cite, with a shortened end) is a range
+    """'2000e-2' is a section; '1371-76' after §§ (or, in a full cite, with a shortened end) is a range, and so
+    is '3631-3635' without §§ (an end as long as the start and past it: no U.S.C. section is numbered so)
     -> [(sect, part)]"""
     if "-" in tok:
         a, b = tok.split("-", 1)
-        if a.isdigit() and b.isdigit() and (plural or (abbrev and len(b) < len(a))):
+        if a.isdigit() and b.isdigit() and (plural or (abbrev and (len(b) < len(a) or (len(b) == len(a) and int(b) > int(a))))):
             return [(a, 2), (expand_end(a, b), 3)]
     return [(tok, 0)]
 
