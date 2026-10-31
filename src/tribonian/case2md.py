@@ -2683,14 +2683,15 @@ STATUTE_RE = re.compile(r"\d+\s*U\.\s?S\.\s?C\.?\s*(?:A\.\s*)?§+\s*\d+[A-Za-z]*
 # a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3" -- not dot leaders ("....2")
 FNMARK = r"(?<!\.\.)(?<!\d[.,])(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”\"’]|$)"
 # the same number set off by a space after punctuation, not the start of a citation ("7(E), 5 U.S.C.")
-# nor a reporter volume ("Madison, 1 Cranch 137", "F. Supp. 1 (D.D.C. 1991)": a word then a page, or a parenthetical)
+# nor a reporter volume ("Madison, 1 Cranch 137", "F. Supp. 1 (D.D.C. 1991)": a word then a page, or a parenthetical);
+# a citation signal after it is not a reporter ("IDEA. 3 See 20 U.S.C. …": the mark, then the cite)
 FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )(?<!Supp\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)" \
-    r"(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))(?!\s+[A-Z][A-Za-z.’']*(?:\s+[A-Za-z.’']+){0,2}\s+\d)(?!\s*\()"
+    r"(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))(?!\s+(?!(?:See|Cf|Accord|Compare|But|E\.g)\b)[A-Z][A-Za-z.’']*(?:\s+[A-Za-z.’']+){0,2}\s+\d)(?!\s*\()"
 
 # last resort, after both of those miss on the footnote's page: a mark set off by spaces mid-sentence, between two
 # words ("Members of Congress 2 who"). Not after a word a number belongs to ("Title 2 of", "the 2 cases"), nor
 # before one ("2 million", "2 years"): fn_mid_ok
-FNMARK_MID = r"(?<=[A-Za-z] )%s(?= [a-z]|[—–])"                # "Medicine 3—was" too
+FNMARK_MID = r"(?<=[A-Za-z] )%s(?= [a-z]|[—–)])"               # "Medicine 3—was", "partners 2) with" too
 MID_BEFORE = set("""a an the of to at in on by for from with and or nor but than over under about around nearly
     almost only just all some each every top first last next title titles section sections sec secs part parts chapter
     chapters ch art article articles amend amendment clause cl rule rules step steps count counts page pages p pp
@@ -2798,7 +2799,11 @@ def split_footnotes(raw, nxt, prev_open):
             if m and double and raw[j - 2].strip() and not (j + 1 < len(raw) and raw[j + 1].strip()):
                 if not re.search(r"[.:;)\]”’\"]\s*$", raw[j - 2]):    # one blank line, as the body's own
                     continue
-            if m and nxt <= int(m.group(2)) <= nxt + 1 and not raw[j - 1].strip() and any(x.strip() for x in raw[:j]) and \
+            # or, under the last page's note running on, right after its tail's full stop with no blank line (the
+            # tail sits below a gap of 2+ blank lines): "… JA293-294.\n  3 These schools provide …"
+            after_tail = prev_open and re.search(r"[.)\]”’\"]\s*$", raw[j - 1]) and \
+                any(not raw[i].strip() and not raw[i + 1].strip() for i in range(max(0, j - 14), j - 1))
+            if m and nxt <= int(m.group(2)) <= nxt + 1 and (not raw[j - 1].strip() or after_tail) and any(x.strip() for x in raw[:j]) and \
                     not m.group(3)[:1].isdigit() and not NOT_FNTEXT_RE.match(m.group(3)):
                 k, nxt, inline = j, int(m.group(2)), True
                 break
@@ -3275,12 +3280,13 @@ def _whole_cites(spans):
     """lawcites marks a list ("42 U.S.C. §§ 12112, 12102") as one span per section, all but the last only one
     character long. Wrapping those would cut the cite ("4" + "2 U.S.C. ..."), and the US Code status marks then
     read "2 U.S.C." (not found). One span per cite instead: the first one's start and key, the last one's end."""
-    out = []
+    out, open_ = [], False                      # open_: the last span so far ended on a one-character part
     for a, b, key in spans:
-        if out and out[-1][1] - out[-1][0] == 1 and key.split(":")[:2] == out[-1][2].split(":")[:2] and a > out[-1][0]:
-            out[-1] = (out[-1][0], b, out[-1][2])
+        if out and open_ and key.split(":")[:2] == out[-1][2].split(":")[:2] and a > out[-1][0]:
+            out[-1] = (out[-1][0], b, out[-1][2])   # "§§ 1400(d)(1)(A), 1411, 1412, 1419": every part, not two
         else:
             out.append((a, b, key))
+        open_ = b - a == 1
     return out
 
 
