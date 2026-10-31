@@ -193,6 +193,25 @@ class OpinionHtml(unittest.TestCase):
         self.assertEqual((em.kids[0], p.kids[1]), ("Olmstead v. Zimring, ", "521 U.S. 581, 601."))
 
 
+class SeparateOpinions(unittest.TestCase):
+    """Separate opinions kept inside the majority's text come apart, each with its own footnotes."""
+
+    def test_split(self):
+        from tribonian import case2md as C
+        html = ('<opinion type="majority"><p>Justice KAGAN delivered the opinion of the Court.</p>'
+                '<p>Majority text.<footnotemark>1</footnotemark></p>'
+                '<p>Justice GORSUCH, with whom Justice THOMAS joins, with whom Justice ALITO joins as to Parts I and II, '
+                'concurring in the judgment.</p><p>Concurring text.<footnotemark>1</footnotemark></p>'
+                '<p>Justice Thomas, in his dissent, argues otherwise.</p>'
+                '<p>Chief Justice ROBERTS, dissenting.</p><p>Dissent.</p>'
+                '<footnote label="1"><p>Majority note.</p></footnote><footnote label="1"><p>Gorsuch note.</p></footnote></opinion>')
+        parts = C.split_separate(C.read_opinion({"html_with_citations": html, "author_str": ""}, 0))
+        got = [(C.short_author(p["author"], p["api"].get("author_str")), p["kind"],
+                " ".join(p["footnotes"]["1"].text().split()) if "1" in p["footnotes"] else "") for p in parts]
+        self.assertEqual(got, [("Kagan, J.", "majority", "Majority note."), ("Gorsuch, J.", "concurrence", "Gorsuch note."),
+                               ("Roberts, C.J.", "dissent", "")])
+
+
 class ConstitutionCites(unittest.TestCase):
     def test_forms(self):
         from tribonian import lawcites

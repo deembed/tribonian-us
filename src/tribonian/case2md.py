@@ -1559,6 +1559,8 @@ TYPE_NAMES = {"majority": "opinion of the Court", "plurality": "plurality opinio
 
 def short_author(author, fallback):
     a = clean(author).rstrip(",.:; ")
+    a = re.sub(r"(?i),\s*(?:with whom|concurring|dissenting)\b.*$", "", a)   # "Chief Justice ROBERTS, with whom …"
+    a = re.sub(r"(?i)\s+(?:delivered|announced)\b.*$", "", a)               # "Justice KENNEDY delivered the opinion …"
     m = re.match(r"(?i)^(m[re]\.? )?(chief )?justice (.+)$", a)      # "Me." = the scanner's misreading of "Mr."
     if m:
         return "%s, %s" % (m.group(3).title() if m.group(3).isupper() else m.group(3),
@@ -1605,6 +1607,58 @@ def html_footnotes(root):
     return root
 
 
+# A separate opinion that the source keeps inside the majority's text (one Harvard <opinion>, "combined"): its author
+# line is a paragraph of its own ("Chief Justice ROBERTS, with whom Justice SCALIA and Justice THOMAS join,
+# dissenting.", "BALDOCK, Circuit Judge, concurring."). Not "Justice Harlan's influential dissenting opinion".
+_JUDGE = (r"(?:(?:Mr\.\s+)?(?:Chief\s+)?Justice\s+[A-Z][A-Za-z'’\-]+|(?:MR\.\s+)?(?:CHIEF\s+)?JUSTICE\s+[A-Z'’\-]+"
+          r"|[A-Z][A-Za-z'’\-]+,\s+(?:Senior\s+|Chief\s+)?(?:Circuit|District)\s+Judge)")
+# the name, a comma, any joiners ("with whom Justice THOMAS joins, with whom Justice KAVANAUGH joins as to Parts I, II,
+# …"), no sentence break, and the kind at the end
+SEPARATE_RE = re.compile(r"^" + _JUDGE + r",\s+(?:(?:[^.]|\.(?=\S)|(?<=\b[A-Z])\.)*?,\s+)?"
+                         r"((?:concurring|dissenting)[^.]{0,120}?)\.?$")
+LEAD_RE = re.compile(r"^" + _JUDGE + r"\s+(?:announced|delivered)\b")      # "Justice KAGAN announced the judgment …"
+
+
+def split_separate(o):
+    """One opinion holding separate opinions after the majority -> one dict per opinion, each with its author line,
+    its kind (concurrence / dissent) and the footnotes marked in its own text."""
+    cuts = []
+    for i, b in enumerate(o["flat"]):
+        if b[0] == "p" and i > 0:
+            t = clean(b[1].text())
+            m = SEPARATE_RE.match(t) if len(t) < 300 else None
+            if m:
+                cuts.append((i, t, "dissent" if m.group(1).lower().startswith("dissent") or "dissenting" in m.group(1).lower()
+                             and not m.group(1).lower().startswith("concurring") else "concurrence"))
+    if not o["author"] and o["flat"] and o["flat"][0][0] == "p" and LEAD_RE.match(clean(o["flat"][0][1].text())):
+        o = dict(o, author=clean(o["flat"][0][1].text()), flat=o["flat"][1:])   # the first opinion's own author line
+        cuts = [(i - 1, t, k) for i, t, k in cuts]
+    if not cuts:
+        return [o]
+    marks = lambda flat: {m.text().strip() for b in flat if b[0] != "h" for m in iter_tag(b[1], "footnotemark")}
+    # each opinion numbers its notes from 1 again: the k-th note "1" belongs to the k-th opinion that marks a "1"
+    queue = {}
+    for lab, fn in o.get("fn_list") or o["footnotes"].items():
+        queue.setdefault(lab, []).append(fn)
+    out = []
+    pieces = [(0, None, None)] + cuts
+    for k, (i, line, kind) in enumerate(pieces):
+        end = pieces[k + 1][0] if k + 1 < len(pieces) else len(o["flat"])
+        part = dict(o, flat=o["flat"][i + (1 if line else 0):end])
+        if line:
+            name = re.search(r"(?:Justice|JUSTICE)\s+([A-Z][A-Za-z'’\-]+)|^([A-Z][A-Za-z'’\-]+),", line)
+            part.update(kind=kind, author=line, byline=[], api=dict(o["api"], author_str=(name.group(1) or name.group(2)).title() if name else ""))
+        # each opinion keeps the footnotes marked in its own text; a note marked nowhere stays with the first
+        own = marks(part["flat"])
+        part["footnotes"] = {lab: queue[lab].pop(0) for lab in sorted(own, key=lambda x: (len(x), x)) if queue.get(lab)}
+        out.append(part)
+    if out:
+        for lab, fns in queue.items():
+            if fns and lab not in marks(o["flat"]):
+                out[0]["footnotes"].setdefault(lab, fns[0])
+    return out
+
+
 def read_opinion(op, oi):
     """API opinion dict -> dict with byline pieces, a flat block list, footnotes."""
     root = html_footnotes(parse_html(op.get("html_with_citations") or op.get("xml_harvard") or ""))
@@ -1624,6 +1678,7 @@ def read_opinion(op, oi):
             o["byline"].append(k)
         elif k.tag == "footnote":
             o["footnotes"][k.attrs.get("label", "").strip()] = k
+            o.setdefault("fn_list", []).append((k.attrs.get("label", "").strip(), k))   # in order: numbers can repeat
         elif k.tag == "blockquote":
             o["flat"].append(["q", k])
         elif k.tag == "p":
@@ -2405,7 +2460,9 @@ def prepare(data, index=None):
             reference += [clean(h) for h in re.findall(r"<h2[^>]*>(.*?)</h2>", o.get("html_with_citations") or "", re.S)]
     reference = [re.sub(r"<[^>]+>", "", h) for h in reference if clean(h).upper() != "NOTES"]
 
-    ops = [read_opinion(o, i) for i, o in enumerate(use)]
+    ops = [part for i, o in enumerate(use) for part in split_separate(read_opinion(o, i))]
+    for i, o in enumerate(ops):
+        o["oi"] = i                                  # numbered again after the split: footnote keys and anchors
     heads = [b for o in ops for b in o["flat"] if b[0] == "h"]
     raw = [b[1] for b in heads]
     fixed = repair_headings(raw, reference, warnings.append)
