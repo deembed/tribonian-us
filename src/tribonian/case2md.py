@@ -609,7 +609,16 @@ def inline(node, mode, ctx, marks):
                                       k.attrs.get("why") or "no case found for this citation in the local database"))
         elif (k.tag == "span" and mode != "md" and "no-link" in cls and "citation" in cls
               and not any(k.find(t) is not None for t in ("law", "usc", "a"))):
-            out.append(citemarks.mark("red", inline(k, mode, ctx, marks), k.text(), "CourtListener found no case for this citation"))
+            inner = inline(k, mode, ctx, marks)          # CourtListener could not link it: mark_cases looked again
+            if k.attrs.get("cm_ok"):
+                out.append(citemarks.mark("ok", inner))
+            elif k.attrs.get("cm_done"):
+                out.append(citemarks.mark(k.attrs.get("cm_tint") or "red", inner, k.text(),
+                                          k.attrs.get("cm_why") or "no case found for this citation in the local database"))
+            elif k.attrs.get("cm_plain") or not unlinked_is_case(k.text()):
+                out.append(inner)                        # a statute, the Federal Register, a law review: not a case
+            else:
+                out.append(citemarks.mark("red", inner, k.text(), "CourtListener found no case for this citation"))
         elif k.tag == "a" and mode == "md" and k.attrs.get("href", "").startswith("/"):
             m = re.match(r"/opinion/(\d+)/", k.attrs["href"])
             if m and int(m.group(1)) in ctx.links:       # a case we have a note for
@@ -751,11 +760,82 @@ def quote_tex(inner, attrs, ctx=None):
     return lead + out + trail
 
 
+def resolve_case_cite(con, c, before, after, doc):
+    """One case cite (citefind.Cite) -> the attributes of its <case> mark: {"ok": "1"}, {"why": reason[, "tint": ...]},
+    {} (red, no reason found), or None (leave it unmarked: an Id. or pin cite whose case is unknown). before/after: the
+    text on either side, past page breaks. doc: the document's antecedents (Id., supra, pin), updated here."""
+    from tribonian import scotus
+    if c.kind == "id":                           # "Id., at 843": the cite just before it, when that one was found
+        return {"ok": "1"} if doc.id() else None
+    if c.kind == "supra":                        # "Smith, supra, at 890": the one earlier full cite of that name
+        cid = doc.supra(c.name)
+        doc.last = (cid, "")
+        return {"ok": "1"} if cid else None
+    if c.kind == "pin":                          # "494 U.S. at 890": marked only when the name finds the case
+        rep = next((r for r in c.reps if scotus.resolve_pin(con, c.vol, r, c.page, before)), c.rep)
+        cid = scotus.resolve_pin(con, c.vol, rep, c.page, before) or scotus.found_again(c.vol, c.rep, c.page, pin=True)
+        start = None
+        if not cid and doc.in_volume(c.vol, c.rep):     # "Smith, 494 U.S. at 850": the case cited in full here
+            cid, start = doc.in_volume(c.vol, c.rep)
+        doc.last = (cid, "")
+        if not cid:
+            return None
+        why = scotus.pin_outside(con, cid, c.vol, rep, c.page, start=start)
+        if why:                                  # the page is not inside that case: a likely miscite
+            doc.last = None
+            return {"why": why}
+        return {"ok": "1"}
+    vol, rep, page, why = c.vol, c.rep, c.page, ""
+    own = getattr(doc, "own", ())
+    if doc.own_id and any("%s %s %s" % (vol, r, page) in own for r in c.reps):   # the case citing itself
+        doc.cite(doc.own_id, "", before, (vol, rep, page))
+        return {"ok": "1"}
+    rep = next((r for r in c.reps if scotus.resolve(con, vol, r, page, before)), rep)
+    cid = scotus.resolve(con, vol, rep, page, before)
+    if cid:                                      # found by its citation: does the text agree?
+        pin = re.match(r",\s*(\d{1,5})(?:[-–]\d+)?(?!\d)(?!\s+[A-Z])", after)   # "494 U.S. 872, 890", not ", 110 S. Ct."
+        why = scotus.name_mismatch(con, cid, vol, rep, page, before)
+        if why:                                  # the name written is another case: say where that one is
+            why += scotus.named_instead(con, vol, rep, page, before, after, cid)
+        elif pin and page.isdigit():
+            why = scotus.pin_outside(con, cid, vol, rep, pin.group(1), start=page)
+        if why:
+            cid = None
+    if not cid and not why:
+        cid = scotus.found_again(vol, rep, page)
+    if not cid and not why:                      # no such citation in the data: try the name, court and date
+        cid, why = scotus.resolve_name(con, vol, rep, page, before, after)
+        if not cid and not why:                  # a RECAP docket by its number (Westlaw cites of district orders)
+            d = scotus.resolve_docket(con, before, after)
+            cid = ("docket", d[0]) if d else None
+        if not cid and not why:                  # "the Tenth Circuit's opinion is reported at …": the case below
+            cid = scotus.below_for(before)
+        if cid:
+            scotus.FOUND[(vol, rep, page)] = cid
+    doc.cite(cid, why, before, (vol, rep, page))
+    if cid:
+        return {"ok": "1"}
+    if why:
+        return {"why": why}
+    return {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} \
+        if c.rep == "WL" else {}
+
+
+CL_LINK_RE = re.compile(r"/opinion/(\d+)/")
+
+
+def unlinked_is_case(text):
+    """Does an unlinked CourtListener citation span hold a case cite (not "90 Stat. 331" or "54 Mich. L. Rev. 1")?"""
+    from tribonian import citefind
+    return any(c.kind in ("full", "pin") for c in citefind.find(text))
+
+
 def mark_cases(node):
-    """Reporter cites in node's own text ("500 U.S. 1", "123 F.3d 456") -> <case ok=...> elements, looked up in the
-    local database (scotus.resolve), so the PDF can tint them. Text-layout documents (briefs, RECAP filings, slip
-    opinions) have no CourtListener links except relink()'s; HTML opinions' cites are already in links and spans,
-    which are left alone. Pin cites ("500 U.S. at 12") are not marked. Once per element; nothing without the database."""
+    """Case cites in node's own text ("500 U.S. 1", "494 U.S. at 890", "Id.", "Smith, supra") -> <case ok=...>
+    elements, resolved through the local database (resolve_case_cite), so the PDF can tint them. In HTML opinions,
+    CourtListener's citation spans are read in the same pass: a linked one is the case for an Id. after it; an
+    unlinked one is resolved like a cite in a brief (an Id., a case CourtListener could not link, or no case at all:
+    a statute, the Federal Register, a law review, left untinted). Once per element; nothing without the database."""
     if getattr(node, "cases_done", False) or not citemarks.CITE_MARKS:
         return
     node.cases_done = True
@@ -763,73 +843,48 @@ def mark_cases(node):
             (node.tag == "span" and "citation" in node.attrs.get("class", "")):
         return
     con = shared_db()
-    if con is None or not any(isinstance(k, str) for k in node.kids):
+    if con is None or not any(isinstance(k, str) or (k.tag == "span" and "citation" in k.attrs.get("class", ""))
+                              for k in node.kids):
         return
-    from tribonian import scotus, citefind
+    from tribonian import citefind
     doc = citefind.DOC                               # the cites before this point in the document (Id., supra)
     out = []
     def flat(n):                                     # text without page markers or footnote marks
         return n if isinstance(n, str) else "" if n.tag in ("page-number", "footnotemark") else "".join(flat(x) for x in n.kids)
     for i, k in enumerate(node.kids):
-        if not isinstance(k, str):
-            if k.tag in ("law", "usc"):                  # a statute between: an Id. after it is the statute's
-                doc.law()
-            elif k.tag == "a" and re.match(r"/opinion/(\d+)/", k.attrs.get("href", "")):
-                doc.cite(int(re.match(r"/opinion/(\d+)/", k.attrs["href"]).group(1)))
-            out.append(k)
-            continue
-        at = 0
         # the text on either side runs on past a page break ("(N.D. Cal. [*15] Mar. 23, 2009)")
         prev = "".join(flat(x) for x in node.kids[:i])[-400:]
         nxt = "".join(flat(x) for x in node.kids[i + 1:])[:160]
+        if not isinstance(k, str):
+            cls = k.attrs.get("class", "")
+            if k.tag in ("law", "usc"):                  # a statute between: an Id. after it is the statute's
+                doc.law()
+            elif k.tag == "a" and CL_LINK_RE.match(k.attrs.get("href", "")):
+                doc.cite(int(CL_LINK_RE.match(k.attrs["href"]).group(1)))
+            elif k.tag == "span" and "citation" in cls:
+                a = k.find("a")
+                if a is not None and CL_LINK_RE.match(a.attrs.get("href", "")):
+                    doc.cite(int(CL_LINK_RE.match(a.attrs["href"]).group(1)))   # CourtListener linked it
+                elif "no-link" in cls and k.find("law") is None and k.find("usc") is None:
+                    t = flat(k)
+                    cs = citefind.find(t)
+                    attrs = resolve_case_cite(con, cs[0], prev + t[:cs[0].start], t[cs[0].end:] + nxt, doc) if cs else None
+                    if not cs:
+                        doc.law()                        # a statute or regulation: an Id. after it is that law's
+                    if attrs is None:
+                        k.attrs["cm_plain"] = "1"        # not a case, or an Id. of an unknown case: no tint
+                    else:
+                        k.attrs.update({"cm_" + key: v for key, v in attrs.items()}, cm_done="1")
+                elif "no-link" in cls:
+                    doc.law()
+            out.append(k)
+            continue
+        at = 0
         for c in citefind.find(k):
-            before, after = (prev + k[:c.start])[-400:], (k[c.end:] + nxt)[:160]
-            why = ""
-            if c.kind == "id":                       # "Id., at 843": the cite just before it, when that one was found
-                cid = doc.id()
-                if not cid:
-                    continue
-            elif c.kind == "supra":                  # "Smith, supra, at 890": the one earlier full cite of that name
-                cid = doc.supra(c.name)
-                doc.last = (cid, "")
-                if not cid:
-                    continue
-            elif c.kind == "pin":                    # "494 U.S. at 890": marked only when the name finds the case
-                rep = next((r for r in c.reps if scotus.resolve_pin(con, c.vol, r, c.page, before)), c.rep)
-                cid = scotus.resolve_pin(con, c.vol, rep, c.page, before) or scotus.found_again(c.vol, c.rep, c.page, pin=True)
-                start = None
-                if not cid and doc.in_volume(c.vol, c.rep):     # "Smith, 494 U.S. at 850": the case cited in full here
-                    cid, start = doc.in_volume(c.vol, c.rep)
-                doc.last = (cid, "")
-                if not cid:
-                    continue
-                why = scotus.pin_outside(con, cid, c.vol, rep, c.page, start=start)
-                if why:                              # the page is not inside that case: a likely miscite
-                    doc.last, cid = None, None
-            else:
-                vol, rep, page = c.vol, c.rep, c.page
-                rep = next((r for r in c.reps if scotus.resolve(con, vol, r, page, before)), rep)
-                cid = scotus.resolve(con, vol, rep, page, before)
-                if cid:                              # found by its citation: does the text agree?
-                    pin = re.match(r",\s*(\d{1,5})(?:[-–]\d+)?(?!\d)(?!\s+[A-Z])", after)   # "494 U.S. 872, 890", not ", 110 S. Ct."
-                    why = scotus.name_mismatch(con, cid, vol, rep, page, before) or \
-                        (scotus.pin_outside(con, cid, vol, rep, pin.group(1), start=page) if pin and page.isdigit() else "")
-                    if why:
-                        cid = None
-                if not cid and not why:
-                    cid = scotus.found_again(vol, rep, page)
-                if not cid and not why:              # no such citation in the data: try the name, court and date
-                    cid, why = scotus.resolve_name(con, vol, rep, page, before, after)
-                    if not cid and not why:          # a RECAP docket by its number (Westlaw cites of district orders)
-                        d = scotus.resolve_docket(con, before, after)
-                        cid = ("docket", d[0]) if d else None
-                    if not cid and not why:          # "the Tenth Circuit's opinion is reported at …": the case below
-                        cid = scotus.below_for(before)
-                    if cid:
-                        scotus.FOUND[(vol, rep, page)] = cid
-                doc.cite(cid, why, before, (vol, rep, page))
-            e = El("case", {"ok": "1"} if cid else {"why": why} if why else
-                   {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} if c.rep == "WL" else {})
+            attrs = resolve_case_cite(con, c, (prev + k[:c.start])[-400:], (k[c.end:] + nxt)[:160], doc)
+            if attrs is None:
+                continue
+            e = El("case", attrs)
             e.kids.append(k[c.start:c.end])
             out += [k[at:c.start], e]
             at = c.end
@@ -2134,7 +2189,7 @@ def render_tex(meta, ops, fontpkg, style):
     base = 1 if meta.get("stages") else 0    # outline level of a document: under its stage, else at the top
     from tribonian import citefind
     for n, o in enumerate(ops):
-        citefind.DOC.reset()                 # an Id. or supra never reaches back into the document before
+        citefind.DOC.reset(meta.get("cites") or (), meta.get("cluster"))   # Id./supra never reach back past it
         ctx = o["ctx"]
         ctx.page, ctx.part = o["start"] or meta["page"], ""
         parts = []                           # str = unboxed text, dict = one flat box

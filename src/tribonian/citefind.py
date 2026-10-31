@@ -199,7 +199,10 @@ class Antecedents:
     def __init__(self):
         self.reset()
 
-    def reset(self):
+    def reset(self, own=(), own_id=None):
+        """A new document. own: its own citations ("603 U.S. 369"), own_id: its cluster, so it can cite itself."""
+        self.own = {" ".join(x.split()) for x in own}
+        self.own_id = own_id
         self.last = None                        # (target or None, why): the cite just before
         self.full = []                          # [(name words, target)]
         self.volume = {}                        # (volume, reporter) -> (target, first page): for a pin cite
@@ -207,7 +210,10 @@ class Antecedents:
     def cite(self, target, why="", before="", where=None):
         self.last = (target, why)
         if target:
-            self.full.append((name_words(before[-160:].split(";")[-1]), target))
+            # the name is in this cite's own sentence or clause: "(1990). Id. at 879. Brown v. Board, " is Brown's
+            # (split where a cite ends, after its page or parenthetical, never at "Div. v. Smith")
+            seg = re.split(r"(?<=[0-9)\]])[.;]\s+(?=[A-Z(])|;", before[-200:])[-1]
+            self.full.append((name_words(seg), target))
             if where:
                 self.volume[where[:2]] = (target, where[2])
 

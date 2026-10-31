@@ -90,6 +90,66 @@ class Checks(unittest.TestCase):
         self.assertIn("before the case", po("850", start="872"))
 
 
+def standin():
+    """A tiny database: Smith (494 U.S. 872), Smith v. Jones (494 U.S. 900), Doe v. Roe (no U.S. cite), Brown."""
+    con = sqlite3.connect(":memory:")
+    con.executescript("CREATE TABLE clusters(id, case_name, case_name_short, case_name_full, citation_count, docket_id, date_filed);"
+                      "CREATE TABLE dockets(id, court_id, docket_number, case_name, date_filed);"
+                      "CREATE TABLE cites(cluster_id, volume, reporter, page); CREATE TABLE courts(id, citation_string);"
+                      "CREATE INDEX clusters_by_date ON clusters(date_filed);")
+    con.executemany("INSERT INTO clusters VALUES(?,?,?,?,?,?,?)", [
+        (1, "Employment Div. v. Smith", "Smith", "", 5000, 1, "1990-04-17"), (4, "Smith v. Jones", "", "", 10, 4, "1990-05-01"),
+        (5, "Doe v. Roe", "", "", 3, 5, "1990-06-01"), (2, "Brown v. Board of Education", "Brown", "", 9000, 2, "1954-05-17")])
+    con.executemany("INSERT INTO dockets VALUES(?,?,?,?,?)", [(i, "scotus", "", "", "") for i in (1, 2, 4, 5)])
+    con.executemany("INSERT INTO cites VALUES(?,?,?,?)", [(1, "494", "U.S.", "872"), (4, "494", "U.S.", "900"),
+                                                          (1, "110", "S. Ct.", "1595"), (2, "347", "U.S.", "483")])
+    return con
+
+
+class Marking(unittest.TestCase):
+    """mark_cases on text and on CourtListener's citation spans, against the stand-in database."""
+
+    def setUp(self):
+        from tribonian import case2md, scotus
+        self.C = case2md
+        for cache in (scotus._NAMES, scotus._STARTS, scotus._NAMED, scotus._RESOLVED, scotus.FOUND):
+            cache.clear()
+        con = standin()
+        case2md.shared_db = lambda: con
+        F.DOC.reset(["347 U.S. 483"], 2)                          # the document is Brown itself
+
+    def marks(self, kids):
+        p = self.C.El("p")
+        p.kids = kids
+        self.C.mark_cases(p)
+        return [(k.tag, k.text(), {a: v for a, v in k.attrs.items() if a in ("ok", "why", "cm_ok", "cm_why", "cm_plain")})
+                for k in p.kids if not isinstance(k, str)]
+
+    def test_suggestion(self):
+        got = self.marks(["Smith v. Jones, 494 U.S. 872 (1990). Doe v. Roe, 494 U.S. 872 (1990)."])
+        self.assertIn("Smith v. Jones is at 494 U.S. 900", got[0][2]["why"])
+        self.assertIn("Doe v. Roe has no U.S. cite", got[1][2]["why"])
+
+    def test_self_cite(self):
+        self.assertEqual(self.marks(["Brown, 347 U. S. 483."])[0][2], {"ok": "1"})
+
+    def test_unlinked_spans(self):
+        def mk(t):
+            e = self.C.El("span", {"class": "citation no-link"})
+            e.kids.append(t)
+            return e
+        got = self.marks(["Employment Div. v. Smith, ", mk("494 U.S. 872"), " (1990). ", mk("Id., at 879"), ". See ",
+                          mk("90 Stat. 331"), ". ", mk("Id., at 2"), "."])
+        self.assertEqual([g[2] for g in got], [{"cm_ok": "1"}, {"cm_ok": "1"}, {"cm_plain": "1"}, {"cm_plain": "1"}])
+
+    def test_coupling_counts(self):
+        from tribonian import scotus
+        got, miss = scotus.authorities(standin(), "Employment Div. v. Smith, 494 U.S. 872, 110 S. Ct. 1595 (1990). Id. at 879. Id. "
+                                       "Brown v. Board of Education, 347 U.S. 483 (1954). Id. at 495. See 42 U.S.C. § 2000bb. Id. "
+                                       "Smith, supra, at 885. Smith, 494 U.S. at 890.")
+        self.assertEqual(dict(got), {1: 5, 2: 2})              # full, Id., Id., supra, pin; full, Id. (not the statute's)
+
+
 @unittest.skipUnless(__import__("importlib").util.find_spec("eyecite"), "eyecite not installed")
 class Eyecite(unittest.TestCase):
     def test_same_cites(self):

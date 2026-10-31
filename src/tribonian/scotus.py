@@ -748,10 +748,13 @@ def canon(rep):
 
 
 def find_cites(text):
-    """-> (text, [(position, volume, reporter, page, short)]) in order; short = a pin cite. Full and pin cites only
-    (an Id. is not counted as a mention here), by the configured cite engine."""
+    """-> (text, [Cite]) in order: full and pin cites, Id. and supra, by the configured cite engine (citefind.py)."""
     t = " ".join(text.split())
-    return t, [(c.start, c.vol, c.rep, c.page, c.kind == "pin") for c in _cf.find(t) if c.kind in ("full", "pin")]
+    return t, _cf.find(t)
+
+
+# between a cite and an Id.: a statute or regulation cited, so the Id. is that law's, not the case's
+LAW_BETWEEN_RE = re.compile(r"U\.\s?S\.\s?C|§|C\.\s?F\.\s?R|\bStat\.|Fed\.\s?Reg|Const\.")
 
 
 _RESOLVED = {}
@@ -1042,6 +1045,18 @@ def name_mismatch(con, cid, vol, rep, page, before):
     return "likely miscite: %s %s %s is %s" % (vol, rep, page, name)
 
 
+def named_instead(con, vol, rep, page, before, after, wrong):
+    """After a name mismatch: where the case the text names is, by its name, court and date (resolve_name) ->
+    '; Smith v. Jones is at 494 U.S. 900' / '; Smith v. Jones has no U.S. cite in CourtListener' / ''."""
+    cid, why = resolve_name(con, vol, rep, page, before, after)
+    if why:
+        return "; " + why
+    if cid and cid != wrong:
+        r = con.execute("SELECT case_name FROM clusters WHERE id=?", (cid,)).fetchone()
+        return "; %s has no %s cite in CourtListener" % (r[0] if r else "the case named", rep)
+    return ""
+
+
 def _starts(con, vol, rep):
     """Every case's first page in one volume of a reporter, sorted (cached)."""
     k = (vol, rep)
@@ -1087,24 +1102,42 @@ def resolve_pin(con, vol, rep, page, before):
 
 
 def authorities(con, text):
-    """-> (Counter cluster id -> mentions, Counter unresolved 'vol rep page' -> mentions)."""
+    """-> (Counter cluster id -> mentions, Counter unresolved 'vol rep page' -> mentions). Every way a case is cited
+    counts: in full, a pin cite ("605 U.S. at 181"), "Id." (the case cited just before, unless a statute came between)
+    and "Name, supra" (the one earlier full cite of that name)."""
     t, found = find_cites(text)
     got, miss, by_vr, last = Counter(), Counter(), {}, (None, -999)
-    for pos, vol, rep, page, short in found:
-        if short:
+    ants = _cf.Antecedents()
+    for c in found:
+        pos, vol, rep, page = c.start, c.vol, c.rep, c.page
+        if c.kind == "id":
+            if last[0] and not LAW_BETWEEN_RE.search(t[last[1]:pos]):
+                got[last[0]] += 1
+                last = (last[0], pos)
+            continue
+        if c.kind == "supra":
+            cid = ants.supra(c.name)
+            if cid:
+                got[cid] += 1
+            last = (cid, pos)
+            continue
+        if c.kind == "pin":
             cid = by_vr.get((vol, rep))
             if cid:
                 got[cid] += 1
-                last = (cid, pos)
+            last = (cid, pos)
             continue
-        cid = resolve(con, vol, rep, page, t[max(0, pos - 160):pos]) if con is not None else None
+        cid = next((x for r in c.reps for x in [resolve(con, vol, r, page, t[max(0, pos - 160):pos])] if x), None) \
+            if con is not None else None
         if cid is None and con is not None:            # not in the citations table: the name, court and date
             end = CITE_RE.match(t, pos)
             cid = resolve_name(con, vol, rep, page, t[max(0, pos - 160):pos], t[end.end():end.end() + 160] if end else "")[0]
         if cid is None:
             miss["%s %s %s" % (vol, rep, page)] += 1
+            last = (None, pos)
             continue
         by_vr[(vol, rep)] = cid
+        ants.cite(cid, before=t[max(0, pos - 160):pos])
         if cid == last[0] and pos - last[1] < 90:       # "605 U.S. 168, 145 S. Ct. 1497": one mention
             last = (cid, pos)
             continue
