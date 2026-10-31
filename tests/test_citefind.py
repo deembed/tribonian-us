@@ -212,6 +212,23 @@ class SeparateOpinions(unittest.TestCase):
                                ("Roberts, C.J.", "dissent", "")])
 
 
+class DocketCites(unittest.TestCase):
+    def test_shapes(self):
+        from pathlib import Path
+        from tribonian import scotus as S
+        orig, S.resolve_docket = S.resolve_docket, (lambda con, b, a: None)
+        try:
+            def tint(t):
+                m = S.ONLY_DOCKET_RE.search(t)
+                return S.docket_only(None, m.group(1), t[m.end():], Path("/nonexistent"))[2] if m else "unmarked"
+            self.assertEqual(tint("Catlett v. United States, Crim. No. 8617-FEL-84 etc. (Aug. 6, 2012), App."), "orange")
+            self.assertEqual(tint("Doe v. Roe, No. 2012-CF1-1234 (D.C. Super. Ct. 2013)"), "orange")    # local, not federal
+            self.assertEqual(tint("A v. B, No. 1:20-cv-1234 (D.D.C. 2021)"), "")                         # federal: looked up
+            self.assertEqual(tint("Rule No. 12 (as amended)"), "unmarked")
+        finally:
+            S.resolve_docket = orig
+
+
 class ConstitutionCites(unittest.TestCase):
     def test_forms(self):
         from tribonian import lawcites
