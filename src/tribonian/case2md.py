@@ -792,6 +792,8 @@ def mark_cases(node):
                     if not cid and not why:          # a RECAP docket by its number (Westlaw cites of district orders)
                         d = scotus.resolve_docket(con, before, after)
                         cid = ("docket", d[0]) if d else None
+                    if not cid and not why:          # "the Tenth Circuit's opinion is reported at …": the case below
+                        cid = scotus.below_for(before)
                     if cid:
                         scotus.FOUND[(vol, rep, page)] = cid
             e = El("case", {"ok": "1"} if cid else {"why": why} if why else

@@ -1181,6 +1181,58 @@ def filings(data, con):
     return out
 
 
+# The district courts under each circuit, to find the case an appeal came from by name (the bulk dockets table has no
+# originating-court field)
+CIRCUIT_DISTRICTS = {
+    "ca1": "med mad nhd prd rid", "ca2": "ctd nyed nynd nysd nywd vtd", "ca3": "ded njd paed pamd pawd vid",
+    "ca4": "mdd nced ncmd ncwd scd vaed vawd wvnd wvsd", "ca5": "laed lamd lawd msnd mssd txed txnd txsd txwd",
+    "ca6": "kyed kywd mied miwd ohnd ohsd tned tnmd tnwd", "ca7": "ilcd ilnd ilsd innd insd wied wiwd",
+    "ca8": "ared arwd iand iasd mnd moed mowd ned ndd sdd", "ca9": "akd azd cacd caed cand casd gud hid idd mtd nvd nmid ord waed wawd",
+    "ca10": "cod ksd nmd oked oknd okwd utd wyd", "ca11": "almd alnd alsd flmd flnd flsd gamd gand gasd", "cadc": "dcd"}
+
+# The case's own courts below, for cites the filings give with no name ("The Tenth Circuit's opinion is reported at
+# 154 F.4th 752"): {"circuit": (docket id, name), "district": (docket id, name)}. Set by build().
+BELOW = {}
+BELOW_RE = re.compile(r"(?:reported at|reprinted at|published at|available at)\s*$")
+
+
+def below_dockets(data, con):
+    """The court of appeals docket (by the feed's number) and the district court docket it came from (the one docket
+    in that circuit's district courts, filed before the appeal, whose name has every word of the appeal's)."""
+    if con is None or not has_index(con, "dockets_by_number"):
+        return {}
+    feed = data["feed"]
+    num = (feed.get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
+    m = re.search(r"for the (.+?) Circuit", feed.get("LowerCourt") or "", re.I)
+    court = CIRCUITS.get(m.group(1).lower()) if m else None
+    if not num or not court:
+        return {}
+    row = con.execute("SELECT id, case_name, date_filed FROM dockets WHERE court_id=? AND docket_number=?", (court, num)).fetchone()
+    if not row:
+        return {}
+    out = {"circuit": (row[0], row[1])}
+    words = [w for w in re.findall(r"[a-z]{3,}", _ascii(row[1] or "").lower()) if w not in NAME_STOP]
+    if words and court in CIRCUIT_DISTRICTS:
+        ds = CIRCUIT_DISTRICTS[court].split()
+        rows = con.execute("SELECT id, case_name FROM dockets WHERE court_id IN (%s) AND case_name LIKE ? AND (date_filed IS NULL OR date_filed <= ?)"
+                           % ",".join("?" * len(ds)), ds + ["%" + max(words, key=len) + "%", row[2] or "9999"]).fetchall()
+        rows = [r for r in rows if all(w in _ascii(r[1] or "").lower() for w in words)]
+        if len(rows) == 1:
+            out["district"] = rows[0]
+    return out
+
+
+def below_for(before):
+    """An unresolved cite right after "reported at", with the court named just before it -> ("docket", id) or None."""
+    b = " ".join(before.split())
+    if not BELOW or not BELOW_RE.search(b):
+        return None
+    near = b[-160:].lower()
+    i_d, i_c = near.rfind("district court"), max(near.rfind("circuit"), near.rfind("court of appeals"))
+    which = "district" if i_d > i_c else "circuit" if i_c >= 0 else None
+    return ("docket", BELOW[which][0]) if which in BELOW else None
+
+
 def below_cluster(data, con):
     """The decision under review: cached in the case file, else the local database by docket number and date."""
     if data.get("below_cluster"):
@@ -2370,6 +2422,8 @@ def build(args):
 
     # ---- the decision below
     below_ops, below_cites, below_meta = [], {}, None
+    BELOW.clear()
+    BELOW.update(below_dockets(data, con))
     cid = ensure_below(data, con, warnings)
     if cid:
         bdata = below_case(cid, con, index)
