@@ -754,7 +754,8 @@ def _rep_rx(r):
 
 
 REP_RX = "|".join(_rep_rx(r) for r in sorted(REPORTERS, key=len, reverse=True))
-CITE_RE = re.compile(r"(?<![\d.])(\d{1,4})\s+(%s)\s+(at\s+)?(\d{1,7})(?![\d])" % REP_RX)   # 7: Westlaw numbers
+# "at6 2132": a stray mark the text layer glued onto "at" (Viramontes ECF 82, no footnote 6 there) is still a pin
+CITE_RE = re.compile(r"(?<![\d.])(\d{1,4})\s+(%s)\s+(at\d{0,2}\s+)?(\d{1,7})(?![\d])" % REP_RX)   # 7: Westlaw numbers
 CANON = {re.sub(r"[\s.'’]", "", r).lower(): r for r in REPORTERS}
 
 

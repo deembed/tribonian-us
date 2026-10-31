@@ -2002,10 +2002,11 @@ def toc_entry(level, text):
     return "\\tocadd{%s}{%s}" % (level, esc(text, "tex"))
 
 
-def toc_head(part, el):
+def toc_head(part, el, n=10):
     """Contents text for a top heading: a word label ("Statement") stands alone; a numeral or
-    letter label ("II") takes the heading's first words."""
-    words = plain(el, 10) if el is not None else ""
+    letter label ("II") takes the heading's first n words (the outline keeps 10; the contents page takes 60,
+    so a brief's argument heading reads whole there)."""
+    words = plain(el, n) if el is not None else ""
     if re.fullmatch(r"[IVXLC]+|[A-Z]|\d+|[a-z]", part.label or "") and words:
         return "%s. %s" % (part.label, words)
     return part.label
@@ -2103,7 +2104,7 @@ def render_tex(meta, ops, fontpkg, style):
                     mark = "\\pdfbookmark[%d]{%s}{o%d-%s}" % (depth + 1 + base, esc(title, "tex"), ctx.oi, anchor(part.path))
                     lead = "\\recordpath{%s}" % ctx.path() + mark + "\\lab{%s.}" % esc(part.label, "tex")   # "I." not "I": a bare I reads as the pronoun
                     if toc and listed:
-                        lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el)) + lead
+                        lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el, 60)) + lead
                     if depth <= 0:               # unboxed top-level heading: not alone at a page's foot (boxed ones
                         lead = "\\headroom{5}" + lead      # already need 3 lines before tcolorbox breaks them)
                     if kind == "q" or kind is None:          # label on its own line
@@ -2663,6 +2664,26 @@ FNMARK = r"(?<!\.\.)(?<!\d[.,])(?<=[A-Za-z)\].,;:”\"’'!?])%s(?=[\s,;:.)\]”
 FNMARK_SPACED = r"(?<=[.,;:)\]”\"’] )(?<!\.\. )(?<!\. \. )(?<!No\. )(?<!Supp\. )%s(?=[\s,;:.)\]”\"’]|$)(?!,\s*\d)" \
     r"(?!\s*(?:U\.|F\.|S\.|Stat\.|C\.F\.R|Fed\.))(?!\s+[A-Z][A-Za-z.’']*(?:\s+[A-Za-z.’']+){0,2}\s+\d)(?!\s*\()"
 
+# last resort, after both of those miss on the footnote's page: a mark set off by spaces mid-sentence, between two
+# words ("Members of Congress 2 who"). Not after a word a number belongs to ("Title 2 of", "the 2 cases"), nor
+# before one ("2 million", "2 years"): fn_mid_ok
+FNMARK_MID = r"(?<=[A-Za-z] )%s(?= [a-z]|[—–])"                # "Medicine 3—was" too
+MID_BEFORE = set("""a an the of to at in on by for from with and or nor but than over under about around nearly
+    almost only just all some each every top first last next title titles section sections sec secs part parts chapter
+    chapters ch art article articles amend amendment clause cl rule rules step steps count counts page pages p pp
+    paragraph para no number vol volume footnote fn n note notes item items class group phase level tier stage table
+    fig figure exhibit ex app appendix id were was is are be been had has have nearly roughly approximately
+    least most exactly some""".split())
+MID_AFTER = set("""million billion thousand hundred percent times years year months month weeks week days day hours
+    hour minutes cases members states votes of to and or other more less fewer additional""".split())
+
+
+def fn_mid_ok(text, m):
+    """A mid-sentence spaced candidate is a footnote mark, not a number in the prose."""
+    before = re.findall(r"[A-Za-z]+", text[:m.start()])
+    after = re.match(r"\s*([A-Za-z]+)", text[m.end():])
+    return bool(before) and before[-1].lower() not in MID_BEFORE and not (after and after.group(1).lower() in MID_AFTER)
+
 
 class Ln:
     __slots__ = ("pi", "ind", "text", "end", "gap")
@@ -3070,7 +3091,16 @@ def recap_blocks(lines, labels):
                 add(q, l)
             cur = None
             continue
+        goes_on = run[0].gap is None and blocks and blocks[-1]["kind"] == "q"   # a quotation from the page before
+        qlines = set() if double else quote_stretches(run, min(b, min(l.ind for l in run)), goes_on)
         for i, l in enumerate(run):
+            if i in qlines:                     # single-spaced text: a quotation inside the run (no blank lines)
+                if i == 0:
+                    cur, q = None, blocks[-1]
+                elif i - 1 not in qlines:
+                    cur, q = None, new("q")
+                add(q, l)
+                continue
             if len(run) > 1 and l.ind >= 8 and valid_label(l.text.rstrip(".")) and abs(l.ind - (right[l.pi] - l.end)) <= 12:
                 cur = None                      # a centred "II" with no blank line around it
                 new("h", label=l.text.rstrip("."))
@@ -3091,6 +3121,37 @@ def recap_blocks(lines, labels):
         if not double:
             carry, cur = cur, None              # single-spaced text: a blank line ends the paragraph
     return split_leaders(blocks)
+
+
+# a list item's first line: a bullet (Word's private-use \uf0b7 too) or "(a)" / "1." / "iv)"; its hanging
+# indent is not a quotation
+BULLET_START = r"^[•\uf0b7\uf0a7▪●◦‣\-–*]|^\(?\w{1,3}[.)]\s"
+
+
+def quote_stretches(run, b, goes_on=False):
+    """Single-spaced briefs set a block quotation inside the run, with no blank line around it: 2+ lines in a row
+    indented 4-14 past the page's margin, after a line at the margin. Not a bulleted or numbered item's
+    continuation, a heading set in capitals or numbered, or a dot-leader entry."""
+    out, i = set(), 1
+    if goes_on:                                 # the run opens with the rest of the last page's quotation
+        m = min(l.ind for l in run)             # (its lines can skew the page's margin: measure from the run's own)
+        j = 0
+        while j < len(run) and m + 4 <= run[j].ind <= m + 14:
+            j += 1
+        out.update(range(j))
+        i = max(j, 1)
+    while i < len(run):
+        j = i
+        while j < len(run) and b + 4 <= run[j].ind <= b + 14:      # may run on to the next page
+            j += 1
+        prev = run[i - 1]
+        if j - i >= 2 and prev.ind < b + 4 and prev.pi == run[i].pi \
+                and not re.match(BULLET_START, prev.text) and not re.match(BULLET_START, run[i].text) \
+                and not any(is_caps(l.text) or NUMHEAD_RE.match(l.text) or ENUM_RE.match(l.text)
+                            or LEADER_RE.search(l.text) for l in run[i:j]):
+            out.update(range(i, j))
+        i = max(j, i + 1)
+    return out
 
 
 def split_leaders(blocks):
@@ -3139,7 +3200,7 @@ def place_marks(blocks, footnotes, warn, spaced=False):
     previous mark, no further than the page the footnote is printed on."""
     pos = [0, 0, 0]                             # block, piece, character
     for lab, pi, _ in footnotes:
-        for pat in (FNMARK, FNMARK_SPACED) if spaced else (FNMARK,):   # slip opinions: "7(E). 1" too
+        for pat in (FNMARK, FNMARK_SPACED, FNMARK_MID) if spaced else (FNMARK,):   # slip opinions: "7(E). 1" too
             rx = re.compile(pat % re.escape(lab))
             found, last = None, None
             bi, pj, ch = pos
@@ -3152,10 +3213,11 @@ def place_marks(blocks, footnotes, warn, spaced=False):
                             break
                         last = (bi, pj)
                         m = rx.search(p[0], ch)
-                        while m and m.end() == len(p[0]) and _continues_number(pieces, pj):
+                        while m and ((m.end() == len(p[0]) and _continues_number(pieces, pj))
+                                     or (pat is FNMARK_MID and not fn_mid_ok(p[0], m))):
                             m = rx.search(p[0], m.start() + 1)   # "Act, 4" + "2 U.S.C.": a split number, not a mark
                         if m:
-                            found = (bi, pj, m, pat is FNMARK_SPACED)
+                            found = (bi, pj, m, pat in (FNMARK_SPACED, FNMARK_MID))
                             break
                     pj, ch = pj + 1, 0
                 if found is None:
