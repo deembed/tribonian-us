@@ -181,6 +181,37 @@ class TwoRounds(unittest.TestCase):
         print("\n" + h.render(self.chain))
 
 
+class WeakMatches(unittest.TestCase):
+    def test_all_candidates_listed_when_no_number(self):
+        idd = dict(IDD, entries=IDD["entries"] + [{"date": "2024-01-02", "text": "MANDATE of USCA as to 29 Notice of Appeal"}])
+        chain = h.walk(("scotus", "21-454"), lambda c, n: idd if c == "idd" else SACKETT[(c, n)])
+        e = [e for e in chain["events"] if e["date"] == "2024-01-02"][0]
+        self.assertEqual({x["docket"][1] for x in e["sources"]}, {"08-35854", "19-35469"})
+        self.assertTrue(all(x["weak"] for x in e["sources"]))
+        arrows = [l for l in chain["links"] if l["date"] == "2024-01-02"]
+        self.assertEqual(len(arrows), 2)
+        self.assertIn("(?, one of 2)", h.render(chain))
+        self.assertIn("mandate from 9th Cir.", h.render(chain))
+
+    def test_number_in_text_is_firm(self):
+        idd = dict(IDD, entries=IDD["entries"] + [{"date": "2024-01-02", "text": "MANDATE of USCA 19-35469 as to Notice of Appeal"}])
+        chain = h.walk(("scotus", "21-454"), lambda c, n: idd if c == "idd" else SACKETT[(c, n)])
+        e = [e for e in chain["events"] if e["date"] == "2024-01-02"][0]
+        self.assertEqual(e["sources"], [{"docket": ["ca9", "19-35469"], "weak": False}])
+
+    def test_consolidated_remand(self):
+        us = dict(US, lower_numbers=["21-5166", "21-9999"], entries=[{"date": "2024-06-28", "text": "Judgment VACATED and case REMANDED."}])
+        got = lambda c, n: us if c == "scotus" else ALL.get((c, n)) or dict(CADC, number=n, entries=[], lower_numbers=[], appeal_from=None)
+        chain = h.walk(("scotus", "22-451"), got)
+        back = [l for l in chain["links"] if l["kind"] == "remand" and l["from"][0] == "scotus"]
+        self.assertEqual(len(back), 2)
+        self.assertTrue(all(l["weak"] for l in back))
+
+    def test_district_remand_marked(self):
+        e = {"kind": "remand", "docket": ["idd", "1"], "text": "ORDER remanding to state court"}
+        self.assertEqual(h.KIND_TEXT(e), "remanded (?)")
+
+
 class Render(unittest.TestCase):
     def test_graph(self):
         g = h.render(chain_from("cadc", "21-5166"), cites={"dcd": "D.D.C."})

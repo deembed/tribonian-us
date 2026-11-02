@@ -11,6 +11,8 @@ Start from any docket in the chain. The walk follows, in both directions:
   inferred  an old appeal that names no district court, reached through the Supreme Court number on the
           district docket (infer_round)
 Links are not guessed from names. In the graph, field links are solid, entry links dashed, inferred links dotted.
+A weak match is marked (?), with every candidate listed: a copied event with no number in its text, a remand with
+more than one docket below, anything inferred, and a district court's own remand, which may go to a state court.
 
 Federal only: a link to a state court or an agency is noted, not followed. A filing missing from RECAP is
 missing here too; district-court gaps in the entry numbers are counted and shown.
@@ -19,6 +21,7 @@ Downloads are kept in cases/history/_raw/ (--refresh reads them again); the chai
 cases/history/<court>-<number>.json.
 """
 import argparse, datetime, json, re, sys, urllib.parse
+from collections import Counter
 
 from tribonian import case2md as c
 from tribonian import scotus, tconfig
@@ -162,10 +165,10 @@ def read_docket(raw):
                     link(me, (SCOTUS, n), "mentions", e["date"], "entry")
         if kind in ("mandate", "remand") and not HIGH_COURT_RE.search(text):      # back down
             for r in below:
-                link(me, r, "mandate" if kind == "mandate" else "remand", e["date"], "entry")
+                link(me, r, "mandate" if kind == "mandate" else "remand", e["date"], "entry", weak=len(below) > 1)
         if kind == "remand" and raw["court"] == SCOTUS:
             for r in below:
-                link(me, r, "remand", e["date"], "entry")
+                link(me, r, "remand", e["date"], "entry", weak=len(below) > 1)
     filings = [e for e in events if e["kind"] not in ("filed", "terminated")]
     if filings and not any(e["key"] for e in filings if e["date"] == filings[-1]["date"]):   # where the docket stands now
         filings[-1].update(key=True, latest=True)
@@ -315,14 +318,47 @@ def infer_round(raws, links, events):
             if not before:
                 continue
             start, end = before[-1], min([x for x in noas if x > filed], default="9999")
-            out.append({"from": list(d), "to": list(a), "kind": "appeal", "date": start, "how": "inferred"})
+            out.append({"from": list(d), "to": list(a), "kind": "appeal", "date": start, "how": "inferred", "weak": True})
             for e in mine:
                 if not start < e["date"] < end:
                     continue
                 if e["kind"] == "mandate" and USCA_WORD_RE.search(e["text"]) and not USCA_RE.search(e["text"]):
-                    out.append({"from": list(a), "to": list(d), "kind": "mandate", "date": e["date"], "how": "inferred"})
+                    out.append({"from": list(a), "to": list(d), "kind": "mandate", "date": e["date"], "how": "inferred", "weak": True})
                 elif e["kind"] == "remand" and e.get("reports") == SCOTUS and e["date"] >= filed:
-                    out.append({"from": list(s), "to": list(a), "kind": "remand", "date": e["date"], "how": "inferred"})
+                    out.append({"from": list(s), "to": list(a), "kind": "remand", "date": e["date"], "how": "inferred", "weak": True})
+    return out
+
+
+def add_sources(raws, links, events, covered):
+    """Which docket a copied event came from. A number in its text settles it; otherwise every docket of the acting
+    court that was open by then is a candidate, marked weak. A copied mandate or remand whose acting court has no
+    entries of its own there also gets an arrow from each candidate. -> those arrows."""
+    first = {}
+    for l in links:
+        for k in (tuple(l["from"]), tuple(l["to"])):
+            first[k] = min(first.get(k, "9999"), l["date"] or "9999")
+    out = []
+    for e in events:
+        court = e.get("reports")
+        if not court:
+            continue
+        here = tuple(e["docket"])
+        same = [k for k in raws if k[0] == court]
+        named = [k for k in same if re.search(r"(?<![\d-])%s(?![\d-])" % re.escape(k[1]), e["text"])]
+        cands = named or [k for k in same if (raws[k].get("date_filed") or first.get(k, "")) <= e["date"]]
+        weak = not named
+        e["sources"] = [{"docket": list(k), "weak": weak} for k in cands]
+        if covered(court, e["date"]) or e["kind"] not in ("mandate", "remand"):
+            continue
+        for k in cands:
+            if e["kind"] == "mandate":
+                out.append({"from": list(k), "to": list(here), "kind": "mandate", "date": e["date"], "how": "entry" if named else "inferred", "weak": weak})
+                continue
+            below = lower_refs(raws[k])                        # the Supreme Court sends it back to the docket below
+            dest = [here] if here in below else below
+            for t in dest:
+                out.append({"from": list(k), "to": list(t), "kind": "remand", "date": e["date"], "how": "entry" if named else "inferred",
+                            "weak": weak or len(dest) > 1})
     return out
 
 
@@ -355,8 +391,9 @@ def walk(seed, get, max_dockets=12):
         return any(a <= date and grace <= b for a, b in reach.get(court, []))
     links = [l for l in links if not (l.get("copy") and covered(l["from"][0], l["date"]))]
     links += infer_round(raws, links, events)
+    links += add_sources(raws, links, events, covered)
     seen, unique = set(), []
-    for l in sorted(links, key=lambda l: (l["date"], l["how"] != "field")):
+    for l in sorted(links, key=lambda l: (l["date"], bool(l.get("weak")), l["how"] != "field")):
         up = l["kind"] in ("appeal", "cert")                   # one appeal per pair; each trip back down is its own
         k = (tuple(l["from"]), tuple(l["to"])) + (("up",) if up else (l["kind"], l["date"]))
         if k not in seen:
@@ -418,6 +455,7 @@ def render(chain, all_events=False, cites=None, width=110):
     idx = {k: i for i, k in enumerate(lanes)}
     cell = 3
     lines = []
+    weak_count = Counter((l["date"], l["kind"]) for l in chain["links"] if l.get("weak") and l["kind"] in KIND_LABEL)
     name = next((d["case_name"] for d in chain["dockets"] if d.get("case_name")), "")
     if name:
         lines += [name, ""]
@@ -446,7 +484,7 @@ def render(chain, all_events=False, cites=None, width=110):
         if typ == "event":
             at = idx[tuple(x["docket"])]
             g = "".join(("●" if i == at else bar(i, date)) + "  " for i in range(len(lanes)))
-            text = KIND_TEXT(x)
+            text = KIND_TEXT(x, cites)
         else:
             a, b = idx[tuple(x["from"])], idx[tuple(x["to"])]
             lo, hi = min(a, b), max(a, b)
@@ -463,12 +501,15 @@ def render(chain, all_events=False, cites=None, width=110):
                     g += bar(i, date)
                 g += (dash * (cell - 1)) if lo <= i < hi else " " * (cell - 1)
             text = "%s -> %s %s" % (KIND_LABEL[x["kind"]], court_label(x["to"][0], cites), x["to"][1])
+            if x.get("weak"):
+                n = weak_count[(x["date"], x["kind"])]
+                text += " (?, one of %d)" % n if n > 1 else " (?)"
             if x.get("recalled"):
                 text += " (recalled %s)" % x["recalled"]
         room = max(20, width - 12 - len(g))
         lines.append("%-10s  %s%s" % (date, g, text[:room]))
     lines.append("")
-    lines.append("─ from the docket's fields   ┄ from an entry's text   · inferred through the Supreme Court docket   ● filing")
+    lines.append("─ from the docket's fields   ┄ from an entry's text   · inferred   (?) weak match   ● filing")
     for n in chain["notes"]:
         lines.append("note: " + n)
     return "\n".join(lines)
@@ -480,7 +521,7 @@ SHORT = {"filed": "docket opened", "terminated": "docket terminated", "docketed"
          "argued": "argued", "abeyance": "held in abeyance", "dismissed": "dismissed"}
 
 
-def KIND_TEXT(e):
+def KIND_TEXT(e, cites=None):
     if e.get("latest"):
         return "latest: " + e["text"]
     if e.get("reopened"):
@@ -488,6 +529,11 @@ def KIND_TEXT(e):
     short = SHORT.get(e["kind"])
     if not short:
         return e["text"]
+    if e["kind"] == "remand" and e["docket"][0] in CIRCUIT_OF and not e.get("reports"):
+        short += " (?)"                                        # a district court's remand: often to a state court or agency
+    if e.get("sources") and e["kind"] != "docketed":
+        short += " from " + " or ".join("%s %s%s" % (court_label(x["docket"][0], cites), x["docket"][1], " (?)" if x["weak"] else "")
+                                        for x in e["sources"])
     return short + (" (later vacated or recalled)" if e.get("vacated") else "")
 
 
