@@ -49,7 +49,7 @@ pub struct Queued {
 }
 
 pub enum QueuedJob {
-    /// law: the law flags when it was queued (`App::law_args`: --no-law or --fetch-state-law, --cases)
+    /// law: the law flags when it was queued (`App::build_args`: --no-law or --fetch and --fetch-state-law, --cases, --no-coupling)
     Build { quick: bool, law: Vec<String> },
     /// arguments after the interpreter, e.g. casemap.py coupling --cluster N
     Script(Vec<String>),
@@ -104,6 +104,10 @@ pub struct App {
     /// "Fetch state law" (on by default): case and docket builds also download and build the state law they cite
     /// that is not local (--fetch-state-law), so its text is printed at the end of the PDF.
     pub fetch_state_law: bool,
+    /// "Fetch federal law" (on by default): the same for the C.F.R. titles and the U.S. Constitution (--fetch).
+    pub fetch_federal_law: bool,
+    /// "Find coupled cases" (on by default): case and Supreme Court builds compute them; off passes --no-coupling.
+    pub find_coupling: bool,
     /// "Print the law cited" (on by default): builds end with The Law Cited; off passes --no-law.
     pub print_law: bool,
     /// "Summarize the cases cited" (off by default): builds end with The Cases Cited (--cases).
@@ -200,6 +204,8 @@ impl App {
             search_history: recent::load(),
             show_history: false,
             fetch_state_law: true,
+            fetch_federal_law: true,
+            find_coupling: true,
             print_law: true,
             cases_cited: false,
             api_cache: HashMap::new(),
@@ -289,17 +295,30 @@ impl App {
     }
 
     /// The closing-section flags every build passes, from the checkboxes: --no-law when The Law Cited is off (then
-    /// nothing is fetched), else --fetch-state-law when "Fetch state law" is on; --cases for The Cases Cited.
+    /// nothing is fetched), else --fetch and --fetch-state-law as ticked; --cases for The Cases Cited.
     pub fn law_args(&self) -> Vec<String> {
-        let mut v: Vec<String> = if !self.print_law {
-            vec!["--no-law".into()]
-        } else if self.fetch_state_law {
-            vec!["--fetch-state-law".into()]
+        let mut v: Vec<String> = Vec::new();
+        if !self.print_law {
+            v.push("--no-law".into());
         } else {
-            vec![]
-        };
+            if self.fetch_federal_law {
+                v.push("--fetch".into());
+            }
+            if self.fetch_state_law {
+                v.push("--fetch-state-law".into());
+            }
+        }
         if self.cases_cited {
             v.push("--cases".into());
+        }
+        v
+    }
+
+    /// `law_args` plus --no-coupling, for case and Supreme Court builds (`recap build` has no such flag).
+    pub fn build_args(&self) -> Vec<String> {
+        let mut v = self.law_args();
+        if !self.find_coupling {
+            v.push("--no-coupling".into());
         }
         v
     }
@@ -312,7 +331,7 @@ impl App {
             .map(|w| {
                 let mut args = vec!["scotus".to_string(), w.to_string(), num.to_string()];
                 if *w == "build" {
-                    args.extend(self.law_args());
+                    args.extend(self.build_args());
                 }
                 (args, (*w == "build").then(|| "wrote pdf/".to_string()))
             })
@@ -344,7 +363,7 @@ impl App {
     /// Queue a Build of a case's note and PDF. A queue that has emptied starts a fresh run:
     /// counts and output begin again.
     pub fn enqueue_build(&mut self, r: i64, title: String, quick: bool) {
-        let law = self.law_args();
+        let law = self.build_args();
         self.enqueue(Queued { r#ref: r, title, job: QueuedJob::Build { quick, law } });
     }
 
@@ -355,7 +374,7 @@ impl App {
         let steps = vec![
             (vec!["map".into(), "recent".into(), "--cluster".into(), r.to_string()], None),
             (
-                [vec!["case".into(), "build".into()], self.law_args(), vec![format!("cases/{full}")]]
+                [vec!["case".into(), "build".into()], self.build_args(), vec![format!("cases/{full}")]]
                     .concat(),
                 Some("wrote ".to_string()),
             ),

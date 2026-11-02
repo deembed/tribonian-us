@@ -1804,8 +1804,8 @@ def cocite_tex(meta):
 # ---------------------------------------------------------------- what it draws on, coupled cases
 # Bibliographic coupling (cocite.draws_on / cocite.coupling): a case placed by what it cites, so it
 # works for cases the co-citation map never holds (cited too rarely, recent, unpublished). "What it
-# draws on" is cheap and in every build; "Coupled with" only when casemap.py coupling has cached it
-# (or build --coupling computes it first), because it reads the whole citation cache.
+# draws on" is cheap and in every build; "Coupled with" reads the whole citation cache, so its result is
+# cached: every build computes it when it isn't (--no-coupling only shows what casemap.py coupling cached).
 DRAWS_COLOR = "orange!8"       # like the co-citation box: derived by counting, not the court's text
 COUPLING_COLOR = "orange!4"
 COUPLING_SHOW_REFS = 5         # shared references named per coupled case; the JSON has them all

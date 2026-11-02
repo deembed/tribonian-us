@@ -361,7 +361,7 @@ pub struct CaseData {
     pub profile: Option<Profile>,
     /// Where the cases it cites sit (computed live, as cocite.draws_on does).
     pub draws: Option<DrawsOn>,
-    /// cases/citedby/<ref>/coupling.json, written by `casemap.py coupling` (explicit only).
+    /// cases/citedby/<ref>/coupling.json, written by `casemap.py coupling` or a build.
     pub coupling: Option<Coupling>,
 }
 

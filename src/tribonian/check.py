@@ -17,6 +17,7 @@ A table that loaded but lacks that case (a --limit sample load) is a warning, no
 Reads only: every database is opened read-only; nothing is written.
 """
 import argparse, glob, importlib, json, os, re, shutil, sqlite3, subprocess, sys, time, zlib
+import importlib.util
 from pathlib import Path
 
 from tribonian import casedb                      # paths only (tconfig: CL_* variable, config file, default); stdlib
@@ -140,6 +141,16 @@ def run_config():
         @check("cfg:" + key, "Configuration", label)
         def _(c, key=key, value=value):
             c.ok("%s  (%s)" % (value, where(key)))
+
+    @check("cfg:cite_engine", "Configuration", "Cite engine")
+    def _(c):
+        v = str(tconfig.get("cite_engine", "patterns") or "patterns").strip().lower()
+        if v not in ("patterns", "eyecite", "both"):
+            return c.fail("%r is not an engine" % v, 'set cite_engine to "patterns", "eyecite" or "both"')
+        if v != "patterns" and importlib.util.find_spec("eyecite") is None:
+            return c.fail("%s needs eyecite, which isn't installed: builds would stop at the first cite search" % v,
+                          'pip install eyecite, or set cite_engine = "patterns"')
+        c.ok("%s  (%s)" % (v, where("cite_engine")))
 
     @check("cfg:gui", "Configuration", "Old GUI config (gui/gui.toml)")
     def _(c):
