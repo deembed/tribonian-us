@@ -9,6 +9,7 @@ mod cocache;
 mod config;
 mod db;
 mod dockets;
+mod case_history;
 mod dockets_page;
 mod graph;
 mod jobs;
@@ -141,6 +142,7 @@ pub struct App {
     pub recap_error: Option<String>,
     pub courts: Result<Option<dockets::CourtTree>, String>,
     pub dockets_ui: dockets_page::DocketsUi,
+    pub history_ui: case_history::HistoryUi,
     /// Search Dockets results by (query, CourtListener pages read); cleared when the data mode changes
     pub docket_search: HashMap<(String, u32), Result<dockets::SearchResult, String>>,
     docket_search_pending: std::collections::HashSet<(String, u32)>,
@@ -234,6 +236,7 @@ impl App {
             recap_error: None,
             courts: Ok(None),
             dockets_ui: Default::default(),
+            history_ui: Default::default(),
             docket_search: HashMap::new(),
             docket_search_pending: Default::default(),
             court_opinions: HashMap::new(),
@@ -851,6 +854,7 @@ impl App {
                 .and_then(|t| t.court(id))
                 .map(|c| if c.cite.is_empty() { c.name.clone() } else { c.cite.clone() })
                 .unwrap_or_else(|| id.clone()),
+            Page::CaseHistory(k) => case_history::title(k),
             Page::DocketSearch(q) if q.is_empty() => "Search Dockets".into(),
             Page::DocketSearch(q) => format!("Dockets: {q}"),
             Page::RecapDocket(id) => match self.recap.iter().find(|d| d.id == *id) {
@@ -927,6 +931,11 @@ impl App {
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Dockets => {}
             Page::DocketSearch(_) => {}
+            Page::CaseHistory(k) => {
+                if !k.is_empty() {
+                    c.push(("Case History".into(), Some(Page::CaseHistory(String::new()))));
+                }
+            }
             Page::DocketsFederal | Page::DocketsState(None) => c.push(("View Dockets".into(), Some(Page::Dockets))),
             Page::DocketsState(Some(_)) => {
                 c.push(("View Dockets".into(), Some(Page::Dockets)));
@@ -1000,6 +1009,7 @@ impl App {
                     Page::CourtDockets(_) => "court",
                     Page::RecapDocket(_) => "docket",
                     Page::DocketSearch(_) => "docket search",
+                    Page::CaseHistory(_) => "case history",
                     Page::CoCited(_) => "cited together",
                 };
                 let t = self.title_of(p);

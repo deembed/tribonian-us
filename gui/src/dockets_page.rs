@@ -455,6 +455,9 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, id: i64) {
             if !d.note.is_empty() && ui.button("Open docket note").on_hover_text(&d.note).clicked() {
                 open_note(app, &d.note);
             }
+            if ui.button("Case history").on_hover_text("this case across its courts: its dockets, appeals and remands").clicked() {
+                app.goto = Some(crate::case_history::page_for(&d.court, d.number.as_str()));
+            }
             if ui
                 .add_enabled(!queued, egui::Button::new("Fetch updates"))
                 .on_hover_text(format!("queues tribonian case recap fetch --docket {id}: new entries, and the text of the court's orders and opinions"))
