@@ -60,6 +60,14 @@ And a desktop browser over all of it (`gui/`, Rust):
 | **View Dockets: federal and state courts** | **A docket: its documents, what's in RECAP, what's on PACER** |
 | ![View Dockets › Federal](docs/img/gui-dockets.png) | ![A docket page](docs/img/gui-docket.png) |
 
+**Case History:** one federal case across its courts, with appeals and remands as jumps between dockets (`tribonian history`)
+
+![Case History: Sackett v. EPA, two trips to the Supreme Court](docs/img/gui-complex-history.png)
+
+A case on the day it was argued:
+
+![Case History: Maxwell v. Dinis, No. 25-5930](docs/img/gui-docket-history-just-argued.png)
+
 **Sub-Cluster Search from a draft:** CourtListener semantic search per five-year slice, re-ranked by semantic score and grouped by co-citation sub-cluster
 
 ![Sub-Cluster Search: an agency that reverses a rule must explain why](docs/img/gui-semantic.png)

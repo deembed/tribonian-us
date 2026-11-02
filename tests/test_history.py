@@ -62,6 +62,32 @@ class Classify(unittest.TestCase):
 
     def test_judge_suffix(self):
         self.assertEqual(h.clean_number("1:20-cv-00466-EGS"), "1:20-cv-00466")
+        self.assertEqual(h.clean_number("1:22-CV-40"), "1:22-cv-00040")
+        self.assertEqual(h.clean_number("21-5166"), "21-5166")
+
+    def test_supreme_court_wording(self):
+        for text, kind in [("SUPREME COURT ORDER received granting petition for writ of certiorari filed by Appellant in 23-40699 on 06/01/2026.", "cert_granted"),
+                           ("SUPREME COURT NOTICE that petition for writ of certiorari [82] was filed by Appellant on 08/20/2025. Supreme Court Number: 25-5930.", "cert_petition"),
+                           ("Petition for a writ of certiorari filed. (Response due December 17, 2025)", "cert_petition"),
+                           ("Petition GRANTED.", "cert_granted"),
+                           ("Application (24A1) to extend the time to file a petition for a writ of certiorari granted by Justice Alito.", None),
+                           ("ORDER denying extension of time to file petition for certiorari", None)]:
+            self.assertEqual(h.classify(text)[0], kind, text)
+        self.assertEqual(h.SCOTUS_NO_RE.findall("was filed. Supreme Court Number: 25-5930."), ["25-5930"])
+
+    def test_fifth_circuit_copies_stay_in_the_supreme_courts_lane(self):
+        ca5 = {"court": "ca5", "number": "23-40699", "found": True, "date_filed": "2023-12-12", "lower_numbers": ["1:22-CV-40"], "appeal_from": "txed", "origin": "", "entries": [
+            {"date": "2025-10-24", "text": "SUPREME COURT NOTICE that petition for writ of certiorari [82] was filed on 08/20/2025. Supreme Court Number: 25-5930."},
+            {"date": "2026-06-02", "text": "SUPREME COURT ORDER received granting petition for writ of certiorari filed by Appellant in 23-40699 on 06/01/2026."}]}
+        us = {"court": "scotus", "number": "25-5930", "found": True, "date_filed": "2025-10-22", "lower_numbers": ["23-40699"], "appeal_from": "ca5", "origin": "", "entries": [
+            {"date": "2025-08-20", "text": "Petition for a writ of certiorari filed."},
+            {"date": "2026-06-01", "text": "Motion to proceed in forma pauperis GRANTED.  Petition for a writ of certiorari GRANTED limited to the following question"},
+            {"date": "2026-11-02", "text": "Argued. For petitioner: X"}]}
+        tx = {"court": "txed", "number": "1:22-cv-00040", "found": True, "date_filed": "2022-02-07", "lower_numbers": [], "appeal_from": None, "origin": "", "entries": []}
+        chain = h.walk(("scotus", "25-5930"), lambda c, n: {"ca5": ca5, "scotus": us, "txed": tx}[c])
+        self.assertIn("1:22-cv-00040", {d["number"] for d in chain["dockets"]})
+        self.assertTrue([e for e in chain["events"] if e["docket"][0] == "scotus" and e["kind"] == "cert_granted" and e.get("key")])
+        self.assertFalse([e for e in chain["events"] if e["docket"][0] == "ca5" and e["kind"].startswith("cert") and e.get("key")])
 
 
 class Walk(unittest.TestCase):

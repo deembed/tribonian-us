@@ -56,9 +56,11 @@ KINDS = [
     ("recalled", re.compile(r"^(?:clerk's )?order\b.*\brecall|^mandate recalled", re.I)),
     ("appeal", re.compile(r"^(?:amended )?notice of (?:interlocutory )?appeal\b(?! due)", re.I)),
     ("docketed", re.compile(r"^USCA (?:Case )?(?:Number|No\.?|#)\s*\d", re.I)),
-    ("cert_petition", re.compile(r"(?:petition for (?:a )?writ of certiorari|certiorari petition).*\b(?:filed|docketed)", re.I)),
-    ("cert_granted", re.compile(r"(?:certiorari\b.*\bgranted|^petition granted)", re.I)),
-    ("cert_denied", re.compile(r"(?:certiorari\b.*\bdenied|^petition denied)", re.I)),
+    # granted and denied first: "granting petition for writ of certiorari filed by ..." also says filed.
+    # An extension of time to file the petition is none of these.
+    ("cert_granted", re.compile(r"^(?!.*\bexten(?:d|sion)).*(?:certiorari\b.*\bgranted|\bgrant(?:ed|ing)\b.*\bcertiorari|^petition granted)", re.I)),
+    ("cert_denied", re.compile(r"^(?!.*\bexten(?:d|sion)).*(?:certiorari\b.*\bdenied|\bden(?:ied|ying)\b.*\bcertiorari|^petition denied)", re.I)),
+    ("cert_petition", re.compile(r"^(?!.*\bexten(?:d|sion)).*(?:petition for (?:a )?writ of certiorari|certiorari petition).*\b(?:filed|docketed)", re.I)),
     ("mandate", re.compile(r"^mandate|^usca mandate|^judgment issued", re.I)),
     ("remand", re.compile(r"\b(?:vacated|reversed|case|cause)\b.*\bremanded\b|^(?:order|opinion|judgment)\b.*\bremand(?:ed|ing)\b", re.I)),
     ("judgment", re.compile(r"^(?:final |amended |per curiam )?judgment\b", re.I)),
@@ -68,10 +70,11 @@ KINDS = [
     ("decision", re.compile(r"^Decision\b")),
     ("dismissed", re.compile(r"^(?:clerk's |per curiam )?order\b.{0,40}\bdismiss(?:ed|ing)\b|^(?:case |appeal )?dismissed\b", re.I)),
 ]
+CERT_RULING = re.compile(r"certiorari\s+(GRANTED|DENIED)\b", re.I)
 USCA_RE = re.compile(r"(?:USCA (?:Case )?(?:Number|No\.?|#)|CCA\s*#|Appellate Docket Number)\s*(\d{2}-\d+)", re.I)
-SCOTUS_NO_RE = re.compile(r"(?<!USCA )(?:\bNo\.\s*|Case number:\s*|certiorari\s*\()(\d{2}(?:-|A)\d+)", re.I)
+SCOTUS_NO_RE = re.compile(r"(?<!USCA )(?:\bNo\.\s*|Case number:\s*|Supreme Court Number:\s*|certiorari\s*\()(\d{2}(?:-|A)\d+)", re.I)
 HIGH_COURT_RE = re.compile(r"Supreme Court|certiorari", re.I)
-FROM_HIGH_COURT_RE = re.compile(r"Clerk of the Supreme Court|received from the Supreme Court|Supreme Court Case Info|"
+FROM_HIGH_COURT_RE = re.compile(r"^SUPREME COURT (?:NOTICE|ORDER|JUDGMENT|OPINION|MANDATE)\b|Clerk of the Supreme Court|received from the Supreme Court|Supreme Court Case Info|"
                                 r"Letter from (?:the )?(?:U\.S\. |United States )?Supreme Court", re.I)
 USCA_WORD_RE = re.compile(r"\b(?:USCA|CCA)\b|\b(?:from|of) (?:the )?\w+ Circuit\b")
 REOPENS = {"argued", "opinion", "judgment", "abeyance", "remand", "decision"}
@@ -83,6 +86,10 @@ def classify(text):
     only a notice of appeal is, since it's the jump."""
     later = bool(LATER.match(text or ""))
     t = LATER.sub("", text or "").strip()
+    # the Court often rules on a motion in the same line: "Motion to proceed in forma pauperis GRANTED. Petition ... GRANTED"
+    m = CERT_RULING.search(t)
+    if m and not re.search(r"\bexten(?:d|sion)", t, re.I):
+        return "cert_%s" % m.group(1).lower(), later
     if NOT_THE_COURT.match(t):
         return None, later
     for kind, rx in KINDS:
@@ -106,10 +113,11 @@ def court_label(court, cites=None):
 
 
 def clean_number(number):
-    """The court's own number without a judge suffix: 1:20-cv-00466-EGS -> 1:20-cv-00466."""
+    """A district number as CourtListener writes it, with no judge suffix: 1:20-cv-00466-EGS -> 1:20-cv-00466,
+    and as an appeals court may write it: 1:22-CV-40 -> 1:22-cv-00040."""
     number = (number or "").strip().strip("()").strip()
-    m = re.match(r"(\d+:\d{2}-[a-zA-Z]+-\d+)", number)
-    return m.group(1) if m else number
+    m = re.match(r"(\d+):(\d{2})-([a-zA-Z]+)-(\d+)", number)
+    return "%s:%s-%s-%05d" % (m.group(1), m.group(2), m.group(3).lower(), int(m.group(4))) if m else number
 
 
 def lower_refs(raw):
