@@ -282,12 +282,14 @@ fn chain_page(app: &mut App, ui: &mut Ui, court: &str, number: &str) {
     let total = view.lanes.len() + rows.len();
     let longest = rows.iter().map(|r| r.text.chars().count().min(MAX_TEXT)).max().unwrap_or(0).max(view.lanes.iter().map(|l| l.label.len() + 26).max().unwrap_or(0));
     let width = geo.text_x() + longest as f32 * 7.5 + 20.0;
+    // show_rows works out its rows from the spacing it inherits, so it has to be zero here, not only inside
+    let spacing = ui.spacing().item_spacing;
+    ui.spacing_mut().item_spacing = Vec2::ZERO;
     egui::ScrollArea::both()
         .id_salt("case-history")
         .auto_shrink([false, false])
         .max_height((ui.available_height() - detail).max(120.0))
         .show_rows(ui, geo.row_h, total, |ui, range| {
-            ui.spacing_mut().item_spacing = Vec2::ZERO;
             for k in range {
                 let w = width.max(ui.available_width());
                 let (rect, resp) = ui.allocate_exact_size(vec2(w, geo.row_h), Sense::click());
@@ -306,6 +308,7 @@ fn chain_page(app: &mut App, ui: &mut Ui, court: &str, number: &str) {
                 }
             }
         });
+    ui.spacing_mut().item_spacing = spacing;
     if let Some(c) = click {
         app.history_ui.picked = if picked == Some(c) { None } else { Some(c) };
     }
