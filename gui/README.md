@@ -41,6 +41,10 @@ No setup is needed: the app runs `.tribonian check --paths` at start and reads t
   such as `463 U.S. 29`, or Parentheticals (what later courts said a case stands for, ranked by how many
   parentheticals describe it). Uses `search.sqlite` and `courtlistener.sqlite` from `bulk_dir` unless
   `search_db` / `main_db` say otherwise. Tests: `cargo test` (query building, citation detection).
+  Above the results: a year range, an Excel-style court list (All, None, a box to narrow it), a citing range and a good-law list; click any column head to
+  sort, and again to reverse (Default order goes back to the ranking). The filters are always at the top. Filters and sort apply to every match read (up to 20,000) before the top 200 are chosen, without
+  searching again, and are kept per search. CourtListener's newer results are filtered too; it names courts by citation
+  ("4th Cir."), the local data by id ("ca4"), so the same court can be listed twice. A citation lookup has no filters.
 - Build on the case page runs `tribonian map get --cluster N` then `tribonian case build cases/<file>` in the work folder
   (`python -m tribonian` with `src/` on `PYTHONPATH`; interpreter: `[gui] python`; or `<prefix> tribonian` when the
   `TRIBONIAN_COMMAND_PREFIX` variable is set, e.g. `wsl` to run the scripts inside WSL), streaming output into a log panel at the bottom. A build only counts

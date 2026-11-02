@@ -95,6 +95,10 @@ pub struct App {
     stx: Option<Sender<search::Req>>,
     srx: Option<Receiver<search::Resp>>,
     pub search_cache: HashMap<Page, Result<search::Results, String>>,
+    /// Each search's filters and sort. Kept per search: a new search starts unfiltered, Back finds them as they were.
+    pub search_filters: HashMap<Page, search::Filter>,
+    /// The Courts list's narrowing box.
+    pub court_search: String,
     pub search_pending: Option<Page>,
     pub search_input: String,
     pub search_mode: search::Mode,
@@ -198,6 +202,8 @@ impl App {
             stx: None,
             srx: None,
             search_cache: HashMap::new(),
+            search_filters: HashMap::new(),
+            court_search: String::new(),
             search_pending: None,
             search_input: String::new(),
             search_mode: search::Mode::Name,
@@ -547,7 +553,8 @@ impl App {
             }
             if let (Some(tx), Some(i)) = (&self.stx, self.view_sel) {
                 self.search_pending = Some(page.clone());
-                let _ = tx.send(search::Req { page: page.clone(), query: query.clone(), mode: *mode, view: self.views[i].path.clone() });
+                let filter = self.search_filters.get(page).cloned().unwrap_or_default();
+                let _ = tx.send(search::Req { page: page.clone(), query: query.clone(), mode: *mode, view: self.views[i].path.clone(), filter });
             }
             return;
         }
@@ -562,6 +569,21 @@ impl App {
             self.inflight.insert(page.clone());
             self.pending = Some(page.clone());
             let _ = tx.send(db::Req::Load(page.clone()));
+        }
+    }
+
+    /// Change a search's filters or sort. The results on screen stay until the new ones arrive.
+    pub fn set_search_filter(&mut self, page: &Page, filter: search::Filter) {
+        self.search_filters.insert(page.clone(), filter);
+        self.resend_search(page);
+    }
+
+    fn resend_search(&mut self, page: &Page) {
+        let Page::Search { query, mode } = page else { return };
+        if let (Some(tx), Some(i)) = (&self.stx, self.view_sel) {
+            self.search_pending = Some(page.clone());
+            let filter = self.search_filters.get(page).cloned().unwrap_or_default();
+            let _ = tx.send(search::Req { page: page.clone(), query: query.clone(), mode: *mode, view: self.views[i].path.clone(), filter });
         }
     }
 
