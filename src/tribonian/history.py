@@ -539,7 +539,7 @@ def walk(seed, get, max_dockets=12, find=None):
         d["missing_entries"] = missing_numbers(r.get("entries") or []) if r["court"] in CIRCUIT_OF else 0
         dockets.append(d)
         if key in tried and not any(candidate_of.get(k) == key and raws.get(k, {}).get("found") for k in candidate_of):
-            notes.append("%s %s: no entries, no link to the court below, nothing found by name; earlier history may be missing." % key)
+            notes.append("%s %s: no entries, no link to the court below, nothing found by name (no search when offline); earlier history may be missing." % key)
         if not r.get("found"):
             notes.append("%s %s: named by another docket, but not on CourtListener." % key)
         if r.get("truncated"):
@@ -572,47 +572,64 @@ def lanes_of(chain):
     return [(d["court"], d["number"]) for d in ds]
 
 
-def render(chain, all_events=False, cites=None, width=110):
-    """Text graph. One lane per docket (a new number in the same court is a new lane), time running down."""
+def layout(chain, cites=None):
+    """What a graph draws, for the terminal and the GUI alike: lanes, then rows in time order. A row is an event on one
+    lane (at) or an arrow between two (from, to); key False rows only show with every filing."""
     lanes = lanes_of(chain)
     idx = {k: i for i, k in enumerate(lanes)}
-    cell = 3
-    lines = []
+    by_key = {(d["court"], d["number"]): d for d in chain["dockets"]}
     weak_count = Counter((l["date"], l["kind"]) for l in chain["links"] if l.get("weak") and l["kind"] in KIND_LABEL)
-    name = next((d["case_name"] for d in chain["dockets"] if d.get("case_name")), "")
-    if name:
-        lines += [name, ""]
-    for i, (court, number) in enumerate(lanes):
-        cand = any(d.get("candidate") and (d["court"], d["number"]) == (court, number) for d in chain["dockets"])
-        lines.append(" " * 12 + "│  " * i + "┌─ %s %s%s" % (court_label(court, cites), number, " (?) matched by name only" if cand else ""))
-    shown, rows = set(), []
+    rows, shown = [], set()
     for e in chain["events"]:
         k = (e["date"], tuple(e["docket"]), e["kind"])
-        if all_events or (e.get("key") and (e.get("latest") or k not in shown)):
+        key = bool(e.get("key")) and (bool(e.get("latest")) or k not in shown)
+        if key:
             shown.add(k)
-            rows.append((e["date"], 1, "event", e))
-    rows += [(l["date"], 0 if l["kind"] in ("appeal", "cert") else 2, "link", l) for l in chain["links"] if l["date"] and l["kind"] in KIND_LABEL]
-    rows.sort(key=lambda r: (r[0], r[1]))
+        rows.append({"date": e["date"], "type": "event", "at": idx[tuple(e["docket"])], "kind": e["kind"], "key": key, "text": KIND_TEXT(e, cites),
+                     "full": e["text"], "weak": "(?)" in KIND_TEXT(e, cites), "vacated": bool(e.get("vacated")), "_order": 1})
+    for l in chain["links"]:
+        if not l["date"] or l["kind"] not in KIND_LABEL:
+            continue
+        text = "%s -> %s %s" % (KIND_LABEL[l["kind"]], court_label(l["to"][0], cites), l["to"][1])
+        if l.get("weak"):
+            n = weak_count[(l["date"], l["kind"])]
+            text += " (?, one of %d)" % n if n > 1 else " (?)"
+        if l.get("recalled"):
+            text += " (recalled %s)" % l["recalled"]
+        rows.append({"date": l["date"], "type": "link", "from": idx[tuple(l["from"])], "to": idx[tuple(l["to"])], "kind": l["kind"], "key": True, "text": text,
+                     "full": "", "how": l["how"], "weak": bool(l.get("weak")), "_order": 0 if l["kind"] in ("appeal", "cert") else 2})
+    rows.sort(key=lambda r: (r["date"], r.pop("_order")))
+    return {"name": next((d["case_name"] for d in chain["dockets"] if d.get("case_name")), ""), "notes": chain["notes"], "rows": rows,
+            "lanes": [{"court": c, "number": n, "label": "%s %s" % (court_label(c, cites), n), "candidate": bool(by_key[(c, n)].get("candidate")),
+                       "url": by_key[(c, n)].get("url") or "", "name": by_key[(c, n)].get("case_name") or ""} for c, n in lanes]}
+
+
+def render(chain, all_events=False, cites=None, width=110):
+    """Text graph. One lane per docket (a new number in the same court is a new lane), time running down."""
+    view = layout(chain, cites)
+    lanes = view["lanes"]
+    cell = 3
+    lines = [view["name"], ""] if view["name"] else []
+    for i, lane in enumerate(lanes):
+        lines.append(" " * 12 + "│  " * i + "┌─ %s%s" % (lane["label"], " (?) matched by name only" if lane["candidate"] else ""))
+    rows = [r for r in view["rows"] if all_events or r["key"]]
     span = {}
-    for date, _, typ, x in rows:
-        for k in ([x["docket"]] if typ == "event" else [x["from"], x["to"]]):
-            k = tuple(k)
-            a, b = span.get(k, (date, date))
-            span[k] = (min(a, date), max(b, date))
+    for r in rows:
+        for i in ([r["at"]] if r["type"] == "event" else [r["from"], r["to"]]):
+            a, b = span.get(i, (r["date"], r["date"]))
+            span[i] = (min(a, r["date"]), max(b, r["date"]))
 
     def bar(i, date):
-        a_b = span.get(lanes[i])
-        return "│" if a_b and a_b[0] <= date <= a_b[1] else " "
+        return "│" if i in span and span[i][0] <= date <= span[i][1] else " "
 
-    for date, _, typ, x in rows:
-        if typ == "event":
-            at = idx[tuple(x["docket"])]
-            g = "".join(("●" if i == at else bar(i, date)) + "  " for i in range(len(lanes)))
-            text = KIND_TEXT(x, cites)
+    for r in rows:
+        date = r["date"]
+        if r["type"] == "event":
+            g = "".join(("●" if i == r["at"] else bar(i, date)) + "  " for i in range(len(lanes)))
         else:
-            a, b = idx[tuple(x["from"])], idx[tuple(x["to"])]
+            a, b = r["from"], r["to"]
             lo, hi = min(a, b), max(a, b)
-            dash = {"field": "─", "entry": "┄", "name": "?"}.get(x["how"], "·")
+            dash = {"field": "─", "entry": "┄", "name": "?"}.get(r["how"], "·")
             g = ""
             for i in range(len(lanes)):
                 if i == a:
@@ -624,14 +641,8 @@ def render(chain, all_events=False, cites=None, width=110):
                 else:
                     g += bar(i, date)
                 g += (dash * (cell - 1)) if lo <= i < hi else " " * (cell - 1)
-            text = "%s -> %s %s" % (KIND_LABEL[x["kind"]], court_label(x["to"][0], cites), x["to"][1])
-            if x.get("weak"):
-                n = weak_count[(x["date"], x["kind"])]
-                text += " (?, one of %d)" % n if n > 1 else " (?)"
-            if x.get("recalled"):
-                text += " (recalled %s)" % x["recalled"]
         room = max(20, width - 12 - len(g))
-        lines.append("%-10s  %s%s" % (date, g, text[:room]))
+        lines.append("%-10s  %s%s" % (date, g, r["text"][:room]))
     lines.append("")
     lines.append("─ from the docket's fields   ┄ from an entry's text   · inferred   ? by name   (?) weak match   ● filing")
     for n in chain["notes"]:
@@ -699,14 +710,16 @@ def main():
         return related_from(raw, raw["hits"]["opinions"], raw["hits"]["dockets"]) if raw["hits"] else None
     chain = walk(seed, lambda court, number: load_docket(court, number, tok, args.refresh, args.max_pages), args.max_dockets,
                  None if args.no_name_search else find)
+    from tribonian import dockets
+    cites = dockets.court_cites()
+    chain["view"] = layout(chain, cites)                       # what the GUI draws
     OUT.mkdir(parents=True, exist_ok=True)
     out = OUT / ("%s-%s.json" % (seed[0], c.slugify(seed[1])))
     out.write_text(json.dumps(chain, indent=1, ensure_ascii=False), encoding="utf-8")
     if args.json:
         print(json.dumps(chain, indent=1, ensure_ascii=False))
     else:
-        from tribonian import dockets
-        print(render(chain, args.all, dockets.court_cites()))
+        print(render(chain, args.all, cites))
         print("saved %s" % out)
 
 
