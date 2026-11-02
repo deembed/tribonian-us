@@ -47,6 +47,8 @@ class Classify(unittest.TestCase):
                            ("NOTICE of Appeal Due letter sent to counsel", None),
                            ("EO: The Court asks whether counsel will represent Plaintiff on remand", None),
                            ("ORDER: The court is prepared to rule on the parties' cross-motions, but the appeal may be dismissed", None),
+                           ("MINUTE ORDER granting 14 Joint Motion; holding in abeyance 15 Motion to Expedite", None),
+                           ("PER CURIAM ORDER filed granting the joint motion to hold case in abeyance", "abeyance"),
                            ("Petition DENIED.", "cert_denied"), ("JUDGMENT ISSUED.", "mandate"), ("Argued. For petitioners: X", "argued")]:
             self.assertEqual(h.classify(text)[0], kind, text)
 
@@ -84,6 +86,40 @@ class Walk(unittest.TestCase):
 
     def test_missing_entries(self):
         self.assertEqual(h.missing_numbers(DCD["entries"]), 38)
+
+
+class Display(unittest.TestCase):
+    def setUp(self):
+        self.chain = chain_from("cadc", "21-5166")
+        self.keys = [e for e in self.chain["events"] if e.get("key")]
+
+    def test_copy_of_another_courts_action_hidden(self):
+        us = dict(US, entries=[{"date": "2024-06-28", "text": "Judgment VACATED and case REMANDED."}])
+        chain = h.walk(("cadc", "21-5166"), lambda c, n: us if c == "scotus" else ALL[(c, n)])
+        rows = [e for e in chain["events"] if e["kind"] == "remand"]
+        self.assertEqual({e["docket"][0]: e["key"] for e in rows}, {"cadc": False, "scotus": True})
+
+    def test_copy_kept_when_acting_court_has_no_entries(self):
+        self.assertTrue(any(e["kind"] == "remand" and e["docket"] == ["cadc", "21-5166"] for e in self.keys))
+
+    def test_recalled_mandate(self):
+        m = [l for l in self.chain["links"] if l["kind"] == "mandate"][0]
+        self.assertEqual(m["recalled"], "2024-07-30")
+        self.assertTrue(all(e["vacated"] for e in self.chain["events"] if e["kind"] == "mandate"))
+
+    def test_latest_and_reopened(self):
+        late = [e for e in self.keys if e.get("latest") and e["docket"] == ["cadc", "21-5166"]]
+        self.assertIn("UNOPPOSED MOTION", late[0]["text"])
+        raw = dict(CADC, entries=CADC["entries"] + [
+            {"date": "2025-08-13", "text": "PER CURIAM ORDER filed granting the joint motion to hold case in abeyance."}])
+        evs, _ = h.read_docket(raw)
+        self.assertTrue([e for e in evs if e["kind"] == "terminated"][0]["reopened"])
+        self.assertEqual(evs[-1]["kind"], "abeyance")
+
+    def test_second_mandate_kept(self):
+        raw = dict(CADC, entries=CADC["entries"] + [{"date": "2025-01-01", "text": "MANDATE ISSUED to Clerk"}])
+        chain = h.walk(("cadc", "21-5166"), lambda c, n: raw if c == "cadc" else ALL[(c, n)])
+        self.assertEqual(len([l for l in chain["links"] if l["kind"] == "mandate"]), 2)
 
 
 class Render(unittest.TestCase):
