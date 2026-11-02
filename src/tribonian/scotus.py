@@ -907,7 +907,10 @@ def resolve_docket(con, before, after):
 # for cert. filed Aug. 26, 2025)", "Pennsylvania v. President, No. 25-2575 (3d Cir. appeal filed … 2025)", "Klein v.
 # Oregon Bureau of Lab. & Indus., No. A159899 (Or. Ct. App. argued Jan. 30, 2024)". A reporter or Westlaw cite after
 # the number is resolve_docket's (through the reporter cite), not this.
-ONLY_DOCKET_RE = re.compile(r"\bNo\.\s?((?:\d:)?\d{2}[-–][\w-]*\d|[A-Z]\d{4,8})(?=,?\s*\()")
+# number shapes: "25-2575", "1:22-cv-00057", "A159899", and trial courts' "8617-FEL-84" (D.C. Superior Court), "2012-CF1-1234";
+# "etc." after it: several dockets tried together ("Crim. No. 8617-FEL-84 etc. (Aug. 6, 2012)")
+ONLY_DOCKET_RE = re.compile(r"\bNo\.\s?((?:\d:)?\d{2}[-–][\w-]*\d|[A-Z]\d{4,8}|\d{3,6}(?:[-–][A-Z0-9]{1,6}){1,3})"
+                            r"(?=(?:,?\s+etc\.)?,?\s*\()")
 COURT_LEAD_RE = re.compile(r"^\s*\(((?:[A-Z0-9][\w.'&]*\.?\s?){1,6}?)(?=\s+[a-z]|\s*\d{4}\)|\s*(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)\b)")
 
 
@@ -922,11 +925,14 @@ def docket_only(con, number, after, scotus_dir):
         if (scotus_dir / ("%s.json" % no)).exists():
             return True, "", ""
         return False, "a Supreme Court docket not fetched (tribonian scotus fetch %s)" % no, ""
+    paren = re.sub(r"^,?\s+etc\.", "", paren)
     m = COURT_LEAD_RE.match(paren)
     label = (m.group(1) if m else "").strip()
-    if not label:
-        return False, "", None                         # no court named: left unmarked
-    federal = re.search(r"\bCir\.|\bD\.\s?[A-Z]|Fed\.\s?Cl|Bankr|B\.A\.P|J\.P\.M\.L|Ct\.\s?Int", label)
+    if not label or re.match(r"(?:Jan|Feb|Mar|Apr|May|June?|July?|Aug|Sept?|Oct|Nov|Dec)\b", label):
+        # "(Aug. 6, 2012)": no court in the cite itself, so nothing to look it up in
+        return False, "a docket number with no court named in its parenthetical: not looked up", "orange"
+    federal = re.search(r"\bCir\.|\bD\.\s?[A-Z]|Fed\.\s?Cl|Bankr|B\.A\.P|J\.P\.M\.L|Ct\.\s?Int", label) and \
+        not re.search(r"Super|D\.\s?C\.\s?(?:Ct\.\s?)?App", label)      # D.C.'s own courts are local, not federal
     if not federal:
         return False, "a state court's docket: CourtListener has no state dockets", "orange"
     d = resolve_docket(con, "No. %s" % number, "(%s %s)" % (label, (re.findall(r"(?:1[789]|20)\d\d", head) or ["2000"])[-1]))
