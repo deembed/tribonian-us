@@ -49,6 +49,7 @@ class Classify(unittest.TestCase):
                            ("ORDER: The court is prepared to rule on the parties' cross-motions, but the appeal may be dismissed", None),
                            ("MINUTE ORDER granting 14 Joint Motion; holding in abeyance 15 Motion to Expedite", None),
                            ("PER CURIAM ORDER filed granting the joint motion to hold case in abeyance", "abeyance"),
+                           ("MANDATE of Ninth Circuit filed: case REMANDED to the district court", "mandate"),
                            ("Petition DENIED.", "cert_denied"), ("JUDGMENT ISSUED.", "mandate"), ("Argued. For petitioners: X", "argued")]:
             self.assertEqual(h.classify(text)[0], kind, text)
 
@@ -263,6 +264,27 @@ class NameSearch(unittest.TestCase):
         rows = {e["text"] for e in self.chain["events"] if e["kind"] == "decision"}
         self.assertEqual(rows, {"Decision (780 F.3d 1267)", "Decision or order (136 S. Ct. 890)", "Decision (579 U.S. 211)"})
         print("\n" + h.render(self.chain))
+
+    def test_lexis_is_not_the_us_reports(self):
+        hits = [{"court_id": "scotus", "dateFiled": "2016-01-15", "docketNumber": "15-415", "citation": ["2016 U.S. LEXIS 635", "136 S. Ct. 890"]}]
+        r = h.related_from(NINTH, hits, [])
+        self.assertEqual(r["decisions"]["scotus 15-415"][0]["text"], "Decision or order (2016 U.S. LEXIS 635)")
+
+    def test_same_day_records_keep_the_cite(self):
+        hits = [{"court_id": "ca9", "dateFiled": "2017-01-09", "docketNumber": "13-55323", "citation": []},
+                {"court_id": "ca9", "dateFiled": "2017-01-09", "docketNumber": "13-55323", "citation": ["845 F.3d 925"]}]
+        self.assertEqual([r["text"] for r in h.related_from(NINTH, hits, [])["decisions"]["ca9 13-55323"]], ["Decision (845 F.3d 925)"])
+
+    def test_cca_wording(self):
+        self.assertEqual(h.USCA_RE.findall("MANDATE of Ninth Circuit Court of Appeals filed re: Notice of Appeal 29 CCA # 13-55323."), ["13-55323"])
+        self.assertEqual(h.USCA_RE.findall("NOTIFICATION by Circuit Court of Appellate Docket Number 13-55323, 9th CCA"), ["13-55323"])
+
+    def test_copy_gets_firm_arrow_when_only_opinions_cover_the_date(self):
+        cacd = dict(ENCINO[("cacd", "2:12-cv-08051")])
+        cacd["entries"] = cacd["entries"] + [{"date": "2015-06-10", "number": 34, "text": "MANDATE of Ninth Circuit Court of Appeals filed re: Notice of Appeal 29 CCA # 13-55323."}]
+        chain = h.walk(("scotus", "16-1362"), lambda c, n: cacd if n == "2:12-cv-08051" else ENCINO[(c, n)], find=lambda raw: h.related_from(raw, OPINIONS, DOCKETS))
+        m = [l for l in chain["links"] if l["kind"] == "mandate" and l["date"] == "2015-06-10"]
+        self.assertEqual([(l["from"][1], l["to"][1], bool(l.get("weak"))) for l in m], [("13-55323", "2:12-cv-08051", False)])
 
     def test_nothing_found_is_said(self):
         chain = h.walk(("ca9", "13-55323"), lambda c, n: ENCINO[(c, n)], find=lambda raw: {"decisions": {}, "candidates": []})

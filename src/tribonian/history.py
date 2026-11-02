@@ -59,8 +59,8 @@ KINDS = [
     ("cert_petition", re.compile(r"(?:petition for (?:a )?writ of certiorari|certiorari petition).*\b(?:filed|docketed)", re.I)),
     ("cert_granted", re.compile(r"(?:certiorari\b.*\bgranted|^petition granted)", re.I)),
     ("cert_denied", re.compile(r"(?:certiorari\b.*\bdenied|^petition denied)", re.I)),
-    ("remand", re.compile(r"\b(?:vacated|reversed|case|cause)\b.*\bremanded\b|^(?:order|opinion|judgment)\b.*\bremand(?:ed|ing)\b", re.I)),
     ("mandate", re.compile(r"^mandate|^usca mandate|^judgment issued", re.I)),
+    ("remand", re.compile(r"\b(?:vacated|reversed|case|cause)\b.*\bremanded\b|^(?:order|opinion|judgment)\b.*\bremand(?:ed|ing)\b", re.I)),
     ("judgment", re.compile(r"^(?:final |amended |per curiam )?judgment\b", re.I)),
     ("opinion", re.compile(r"^(?:memorandum |per curiam )?opinion\b", re.I)),
     ("argued", re.compile(r"^argued\b|^oral argument (?:held|heard)", re.I)),
@@ -68,12 +68,12 @@ KINDS = [
     ("decision", re.compile(r"^Decision\b")),
     ("dismissed", re.compile(r"^(?:clerk's |per curiam )?order\b.{0,40}\bdismiss(?:ed|ing)\b|^(?:case |appeal )?dismissed\b", re.I)),
 ]
-USCA_RE = re.compile(r"USCA (?:Case )?(?:Number|No\.?|#)\s*(\d{2}-\d+)", re.I)
+USCA_RE = re.compile(r"(?:USCA (?:Case )?(?:Number|No\.?|#)|CCA\s*#|Appellate Docket Number)\s*(\d{2}-\d+)", re.I)
 SCOTUS_NO_RE = re.compile(r"(?<!USCA )(?:\bNo\.\s*|Case number:\s*|certiorari\s*\()(\d{2}(?:-|A)\d+)", re.I)
 HIGH_COURT_RE = re.compile(r"Supreme Court|certiorari", re.I)
 FROM_HIGH_COURT_RE = re.compile(r"Clerk of the Supreme Court|received from the Supreme Court|Supreme Court Case Info|"
                                 r"Letter from (?:the )?(?:U\.S\. |United States )?Supreme Court", re.I)
-USCA_WORD_RE = re.compile(r"\bUSCA\b")
+USCA_WORD_RE = re.compile(r"\b(?:USCA|CCA)\b|\b(?:from|of) (?:the )?\w+ Circuit\b")
 REOPENS = {"argued", "opinion", "judgment", "abeyance", "remand", "decision"}
 FED_CIRCUIT_RE = re.compile(r"federal circuit|\bCAFC\b", re.I)
 
@@ -171,7 +171,7 @@ def read_docket(raw):
         if kind in ("mandate", "remand") and not HIGH_COURT_RE.search(text):      # back down
             for r in below:
                 link(me, r, "mandate" if kind == "mandate" else "remand", e["date"], "entry", weak=len(below) > 1)
-        if e.get("from_opinions") and raw["court"] == SCOTUS and " U.S. " in text:   # its disposition isn't in the metadata
+        if e.get("from_opinions") and raw["court"] == SCOTUS and re.search(r"\(\d+ U\.S\. \d", text):   # its disposition isn't in the metadata
             for r in below:
                 link(me, r, "returned", e["date"], "inferred", weak=True)
         if kind == "remand" and raw["court"] == SCOTUS:
@@ -342,7 +342,7 @@ def plain_number(number):
 
 def best_cite(cites):
     cites = cites or []
-    return next((x for x in cites if re.search(r" U\.S\. | F\.\dd | F\.4th ", x)), cites[0] if cites else "")
+    return next((x for x in cites if re.match(r"\d+ (?:U\.S\.|F\.\dd|F\.4th) \d", x)), cites[0] if cites else "")
 
 
 def related_from(raw, opinions, dockets, cap=3):
@@ -355,9 +355,14 @@ def related_from(raw, opinions, dockets, cap=3):
         if not n or k[0] not in (SCOTUS, raw["court"]) or (k[0] == raw["court"] and n != raw["number"]):
             continue
         cite = best_cite(o.get("citation"))
-        word = "Decision" if raw["court"] == k[0] or " U.S. " in cite else "Decision or order"
-        decisions.setdefault(" ".join(k), []).append({"date": o.get("dateFiled"), "text": "%s (%s)" % (word, cite) if cite else word,
-                                                      "from_opinions": True})
+        word = "Decision" if raw["court"] == k[0] or re.match(r"\d+ U\.S\. \d", cite) else "Decision or order"
+        rows = decisions.setdefault(" ".join(k), [])
+        same = next((r for r in rows if r["date"] == o.get("dateFiled")), None)   # one record of it may have no cite
+        if same and (not cite or "(" in same["text"]):
+            continue
+        if same:
+            rows.remove(same)
+        rows.append({"date": o.get("dateFiled"), "text": "%s (%s)" % (word, cite) if cite else word, "from_opinions": True})
         if k[0] == SCOTUS and k not in order:
             order.append(k)
     districts = []
@@ -380,7 +385,7 @@ def find_related(raw, tok):
     print("  no entries and no link below: searching by name, %s" % q, file=sys.stderr, flush=True)
     opinions = search("o", [SCOTUS, raw["court"]], "%d-01-01" % year, "%d-12-31" % (year + WINDOW_AFTER))
     dockets = search("d", _DISTRICTS.get(raw["court"], "").split(), "%d-01-01" % (year - WINDOW_BEFORE), "%d-12-31" % year)
-    return related_from(raw, opinions, dockets) if opinions or dockets else {"decisions": {}, "candidates": []}
+    return {"opinions": opinions, "dockets": dockets}
 
 
 def dead_end(raw):
@@ -444,7 +449,7 @@ def add_sources(raws, links, events, covered):
                 out.append({"from": list(k), "to": list(here), "kind": "mandate", "date": e["date"], "how": "entry" if named else "inferred", "weak": weak})
                 continue
             below = lower_refs(raws[k])                        # the Supreme Court sends it back to the docket below
-            dest = [here] if here in below else below
+            dest = [here] if k[0] != SCOTUS or here in below else below
             for t in dest:
                 out.append({"from": list(k), "to": list(t), "kind": "remand", "date": e["date"], "how": "entry" if named else "inferred",
                             "weak": weak or len(dest) > 1})
@@ -489,7 +494,7 @@ def walk(seed, get, max_dockets=12, find=None):
     # an earlier round, whose docket has no entries, stays as the only record of it
     reach = {}
     for r in raws.values():
-        dates = [e["date"] for e in r.get("entries") or [] if e.get("date")]
+        dates = [e["date"] for e in r.get("entries") or [] if e.get("date") and not e.get("from_opinions")]
         if dates:
             reach.setdefault(r["court"], []).append((min(dates), max(dates)))
     def covered(court, date):                                  # a clerk's copy can come some weeks after the last entry
@@ -686,11 +691,12 @@ def main():
     else:
         sys.exit("Name the docket: --court ID --number N (e.g. --court cadc --number 21-5166), or --docket ID")
     def find(raw):
-        if "related" not in raw:
-            raw["related"] = find_related(raw, tok)
+        if "hits" not in raw:
+            raw["hits"] = find_related(raw, tok)
+            raw.pop("related", None)
             if tconfig.online():
                 raw_path(raw["court"], raw["number"]).write_text(json.dumps(raw, indent=1, ensure_ascii=False), encoding="utf-8")
-        return raw["related"]
+        return related_from(raw, raw["hits"]["opinions"], raw["hits"]["dockets"]) if raw["hits"] else None
     chain = walk(seed, lambda court, number: load_docket(court, number, tok, args.refresh, args.max_pages), args.max_dockets,
                  None if args.no_name_search else find)
     OUT.mkdir(parents=True, exist_ok=True)
