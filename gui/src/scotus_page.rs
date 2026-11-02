@@ -366,7 +366,12 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
     };
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.heading(d.title());
-        ui.label(format!("No. {} · docketed {} · {}", d.number, d.docketed, d.status()));
+        ui.horizontal(|ui| {
+            ui.label(format!("No. {} · docketed {} · {}", d.number, d.docketed, d.status()));
+            if ui.small_button("Case history").on_hover_text("this case across its courts: its dockets, appeals and remands").clicked() {
+                app.goto = Some(crate::case_history::page_for("scotus", &d.number));
+            }
+        });
         if !d.lower_court.is_empty() {
             ui.horizontal(|ui| {
                 ui.weak(format!("Below: {}, No. {}, decided {}", d.lower_court, d.lower_numbers, d.lower_decision));

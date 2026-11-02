@@ -219,6 +219,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::CourtDockets(id) => return crate::dockets_page::court_page(app, ui, id),
         Page::RecapDocket(id) => return crate::dockets_page::docket_page(app, ui, *id),
         Page::DocketSearch(q) => return crate::dockets_page::search_page(app, ui, q),
+        Page::CaseHistory(k) => return crate::case_history::history_page(app, ui, k),
         _ => {}
     }
     if let Some(e) = app.errors.get(&page) {
@@ -285,6 +286,10 @@ fn home(app: &mut App, ui: &mut Ui) {
                 "Federal or State, then the court: the Supreme Court (tribonian scotus), and dockets fetched from RECAP (tribonian case recap)",
             ) {
                 go = Some(Page::Dockets);
+            }
+            ui.add_space(8.0);
+            if button(ui, big("Case History"), "one federal case across its courts: a timeline of its dockets, appeals and remands (tribonian history)") {
+                go = Some(Page::CaseHistory(String::new()));
             }
         });
         cols[1].vertical_centered(|ui| {
