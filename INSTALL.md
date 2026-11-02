@@ -1,6 +1,9 @@
 # Installing tribonian-us
 
-Four pieces, the same on every system. After them, `tribonian check` says what is there and what is missing.
+The short way: `git clone`, then `./bootstrap.sh` (Windows: `bootstrap.ps1`). It tells you which of the pieces below to
+install if any is missing, then opens the app's Setup guide.
+
+By hand: four pieces, the same on every system. After them, `tribonian check` says what is there and what is missing.
 
 1. **Python 3.10 or newer** and **git**: the pipeline (`tribonian` command).
 2. **A TeX distribution** with XCharter, tcolorbox and ulem: the PDFs. Skip it for notes only (`MD_ONLY=1 tribonian build`).

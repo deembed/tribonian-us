@@ -5,6 +5,7 @@
 mod apisearch;
 mod cases;
 mod check_page;
+mod setup_page;
 mod cocache;
 mod config;
 mod db;
@@ -153,6 +154,7 @@ pub struct App {
     dsrx: Receiver<dockets::Resp>,
     pub sem_ui: semsearch_page::SemUi,
     pub check_ui: check_page::CheckUi,
+    pub setup_ui: setup_page::SetupUi,
     egui_ctx: Option<egui::Context>,
     /// Database pages requested and not answered yet (the main window's and every pop-out's).
     inflight: std::collections::HashSet<Page>,
@@ -245,6 +247,7 @@ impl App {
             dsrx,
             sem_ui: Default::default(),
             check_ui: Default::default(),
+            setup_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
             inflight: Default::default(),
             cocite: Vec::new(),
@@ -835,6 +838,7 @@ impl App {
             Page::Scotus => "SCOTUS".into(),
             Page::SemSearch => "Sub-Cluster Search".into(),
             Page::Check => "Check setup".into(),
+            Page::Setup => "Setup guide".into(),
             Page::Dockets => "View Dockets".into(),
             Page::DocketsFederal => "Federal".into(),
             Page::DocketsState(None) => "State".into(),
@@ -928,6 +932,7 @@ impl App {
             Page::Scotus => {}
             Page::SemSearch => {}
             Page::Check => {}
+            Page::Setup => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Dockets => {}
             Page::DocketSearch(_) => {}
@@ -1002,6 +1007,7 @@ impl App {
                     Page::Scotus => "scotus",
                     Page::SemSearch => "semantic search",
                     Page::Check => "check setup",
+                    Page::Setup => "setup guide",
                     Page::Docket(_) => "docket",
                     Page::Dockets => "dockets",
                     Page::DocketsFederal => "federal courts",
