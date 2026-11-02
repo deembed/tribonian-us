@@ -486,6 +486,16 @@ tribonian map semsearch --file draft.md --since 1980 --court scotus   # one sear
 - **`semsearch`:** CourtListener's semantic search (`semantic=true`), one search per date window per paragraph: the five-year slices of the case-note view ending in or after `--since` (default 1980; `--since 1700` for all; `--window START:END` sets windows by hand), `--pages` pages of 20 per window (default 1), only cases cited more than `--cited-gt` times (default 5; 0 = off: an uncited case can't be in a slice, so it could never get a sub-cluster). Windows exist because the server's own order has a strong recency boost: one undated search returns only recent cases. The server orders hits by its keyword (bm25) score with a recency boost, so everything is re-ranked by `meta.score.semantic`; records of one decision (same name without "Revisions: …", same date) collapse to the most-cited one. Each hit gets its sub-cluster and area from the co-citation view, as of the newest complete slice it is in. Writes `cases/semsearch/<slug>/results.json` (`--out DIR` to choose), with a per-paragraph roll-up by sub-cluster. Cost: paragraphs × windows × pages requests through the shared throttle; raw responses are cached in `cases/semsearch/_cache/`, so reruns are free and a run stopped at the daily limit resumes. The GUI's "Sub-Cluster Search (draft)" runs it.
 - **`fixlinks`:** takes no options (it is handled before argparse); rewrites notes and saved Cited-by sections in place and needs the local database.
 
+## `tribonian history` — one federal case across its courts
+
+```
+tribonian history --court cadc --number 21-5166        # graph: time runs down, one lane per docket
+tribonian history --court scotus --number 22-451 --json
+tribonian history --docket 62982521 --all              # every filing, not only key events
+```
+
+Start from any docket in the chain. Links come from the originating-court fields and from docket text (`USCA Case Number`, `as No. 22-451`, `MANDATE ISSUED`, `remanded`), never from names or dates. Federal only; a link to a state court or agency is noted, not followed. Downloads stay in `cases/history/_raw/` (`--refresh` reads them again).
+
 ## `tribonian db` (casedb.py) — local CourtListener database
 
 ```

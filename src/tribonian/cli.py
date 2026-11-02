@@ -22,6 +22,7 @@ COMMANDS = {
     "db":              ("casedb",          "bulk CSV -> local SQLite databases, full-text index"),
     "cocite":          ("cocite",          "co-citation clusters, lineages, areas, labels, vault, US Code co-citation"),
     "dockets":         ("dockets",         "View Dockets: the court tree and the index of fetched dockets (for the GUI)"),
+    "history":         ("history",         "one federal case across its courts: a timeline of dockets, appeals and remands"),
     "scotus":          ("scotus",          "pending Supreme Court cases: fetch, build, recent"),
     "cfr":             ("cfr",             "Code of Federal Regulations: fetch titles from eCFR, list what is local"),
     "state":           ("statelaw",        "state law: fetch a state's code from its publisher (Colorado so far), list"),
