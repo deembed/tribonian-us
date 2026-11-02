@@ -25,7 +25,7 @@ from contextlib import contextmanager
 from collections import Counter
 from datetime import date
 from html.parser import HTMLParser
-import urllib.error, urllib.parse, urllib.request
+import http.client, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 from tribonian import citemarks               # cite tints in the PDF and the closing "Cites not resolved" part
@@ -171,6 +171,12 @@ def call(url, tok, data=None, soft=False):
                 time.sleep(10)
                 continue
             sys.exit(f"Network error reaching {url}: {e.reason}")
+        except (TimeoutError, ConnectionError, http.client.HTTPException) as e:   # a read that stalls isn't a URLError
+            if attempt < 4:
+                print(f"  {type(e).__name__}; retrying", file=sys.stderr)
+                time.sleep(10)
+                continue
+            sys.exit(f"Network error reaching {url}: {e}")
 
 
 def cite_str(c):

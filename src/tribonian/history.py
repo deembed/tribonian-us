@@ -169,7 +169,7 @@ def _appeal_court(rec):
 
 def _entries_api(did, tok, max_pages):
     """A docket's entries. Falls back to RECAP's document search if the token may not read docket entries."""
-    q = urllib.parse.urlencode({"docket": did, "page_size": PAGE_SIZE, "order_by": "date_filed",
+    q = urllib.parse.urlencode({"docket": did, "page_size": PAGE_SIZE,   # unsorted: walk() sorts, and sorting here can stall the server
                                 "fields": "date_filed,entry_number,description"})
     url, out, pages, src = "%s/docket-entries/?%s" % (c.API, q), [], 0, "docket-entries"
     while url and pages < max_pages:
@@ -260,6 +260,7 @@ def load_docket(court, number, tok, refresh, max_pages):
     p = raw_path(court, number)
     if p.exists() and not refresh:
         return json.loads(p.read_text(encoding="utf-8"))
+    print("reading %s %s ..." % (court, number), file=sys.stderr, flush=True)
     raw = fetch_docket(court, number, tok, max_pages)
     if tconfig.online():
         p.parent.mkdir(parents=True, exist_ok=True)
