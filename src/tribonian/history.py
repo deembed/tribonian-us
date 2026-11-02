@@ -11,6 +11,10 @@ Start from any docket in the chain. The walk follows, in both directions:
   inferred  an old appeal that names no district court, reached through the Supreme Court number on the
           district docket (infer_round)
 Links are not guessed from names. In the graph, field links are solid, entry links dashed, inferred links dotted.
+An appeal with no entries and no link below is a dead end, so it gets a name search (find_related): CourtListener's
+opinions (dates of decisions, other Supreme Court numbers) and dockets in that circuit's district courts, within years
+worked out from the appeal's number. A candidate that names the appeal becomes a firm link; otherwise its lane is (?).
+
 A weak match is marked (?), with every candidate listed: a copied event with no number in its text, a remand with
 more than one docket below, anything inferred, and a district court's own remand, which may go to a state court.
 
@@ -61,6 +65,7 @@ KINDS = [
     ("opinion", re.compile(r"^(?:memorandum |per curiam )?opinion\b", re.I)),
     ("argued", re.compile(r"^argued\b|^oral argument (?:held|heard)", re.I)),
     ("abeyance", re.compile(r"^(?:\w+ ){0,3}order\b.*\b(?:case|cases|appeal|action|matter|proceedings?)\b[^.;]*\bin abeyance\b", re.I)),
+    ("decision", re.compile(r"^Decision\b")),
     ("dismissed", re.compile(r"^(?:clerk's |per curiam )?order\b.{0,40}\bdismiss(?:ed|ing)\b|^(?:case |appeal )?dismissed\b", re.I)),
 ]
 USCA_RE = re.compile(r"USCA (?:Case )?(?:Number|No\.?|#)\s*(\d{2}-\d+)", re.I)
@@ -69,7 +74,7 @@ HIGH_COURT_RE = re.compile(r"Supreme Court|certiorari", re.I)
 FROM_HIGH_COURT_RE = re.compile(r"Clerk of the Supreme Court|received from the Supreme Court|Supreme Court Case Info|"
                                 r"Letter from (?:the )?(?:U\.S\. |United States )?Supreme Court", re.I)
 USCA_WORD_RE = re.compile(r"\bUSCA\b")
-REOPENS = {"argued", "opinion", "judgment", "abeyance", "remand"}
+REOPENS = {"argued", "opinion", "judgment", "abeyance", "remand", "decision"}
 FED_CIRCUIT_RE = re.compile(r"federal circuit|\bCAFC\b", re.I)
 
 
@@ -166,6 +171,9 @@ def read_docket(raw):
         if kind in ("mandate", "remand") and not HIGH_COURT_RE.search(text):      # back down
             for r in below:
                 link(me, r, "mandate" if kind == "mandate" else "remand", e["date"], "entry", weak=len(below) > 1)
+        if e.get("from_opinions") and raw["court"] == SCOTUS and " U.S. " in text:   # its disposition isn't in the metadata
+            for r in below:
+                link(me, r, "returned", e["date"], "inferred", weak=True)
         if kind == "remand" and raw["court"] == SCOTUS:
             for r in below:
                 link(me, r, "remand", e["date"], "entry", weak=len(below) > 1)
@@ -298,6 +306,87 @@ def load_docket(court, number, tok, refresh, max_pages):
 
 # -------------------------------------------------------------- the chain
 
+# -------------------------------------------------------------- name search, for a dead end
+
+NAME_STOP = set("inc llc ltd corp corporation company the and for of et al petitioner petitioners respondent respondents appellant "
+                "appellee united states america secretary department administrator re in".split())
+WINDOW_BEFORE, WINDOW_AFTER = 10, 15                           # years around the appeal: filed before it, decided after it
+
+
+def name_query(name):
+    """'Hector Navarro v. Encino Motorcars' -> 'caseName:((Hector OR Navarro) AND (Encino OR Motorcars))'.
+    Any word of a side will do: the same district case is 'Navarro v. Mercedes Benz of Encino'. None without two sides."""
+    sides = re.split(r"\s+v(?:s)?\.?\s+", name or "", flags=re.I)
+    if len(sides) != 2:
+        return None
+    groups = []
+    for side in sides:
+        words = [w for w in re.findall(r"[A-Za-z][A-Za-z'&-]{2,}", side) if w.lower() not in NAME_STOP]
+        if not words:
+            return None
+        groups.append("(%s)" % " OR ".join(words[:5]))
+    return "caseName:(%s AND %s)" % tuple(groups)
+
+
+def appeal_year(number):
+    """'13-55323' -> 2013, the year the number was given."""
+    m = re.match(r"(\d{2})-", number or "")
+    return (1900 if int(m.group(1)) > 50 else 2000) + int(m.group(1)) if m else None
+
+
+def plain_number(number):
+    """'No. 15\u2013415.' -> '15-415'."""
+    m = re.search(r"(\d{2})\s*[-\u2013\u2014]\s*0*(\d+)", number or "")
+    return "%s-%s" % m.groups() if m else ""
+
+
+def best_cite(cites):
+    cites = cites or []
+    return next((x for x in cites if re.search(r" U\.S\. | F\.\dd | F\.4th ", x)), cites[0] if cites else "")
+
+
+def related_from(raw, opinions, dockets, cap=3):
+    """What a name search found -> {decisions: {"court number": [entries]}, candidates: [[court, number]]}. Pure."""
+    me = [raw["court"], raw["number"]]
+    decisions, order = {}, []
+    for o in opinions:
+        n = plain_number(o.get("docketNumber"))
+        k = [o.get("court_id"), n]
+        if not n or k[0] not in (SCOTUS, raw["court"]) or (k[0] == raw["court"] and n != raw["number"]):
+            continue
+        cite = best_cite(o.get("citation"))
+        word = "Decision" if raw["court"] == k[0] or " U.S. " in cite else "Decision or order"
+        decisions.setdefault(" ".join(k), []).append({"date": o.get("dateFiled"), "text": "%s (%s)" % (word, cite) if cite else word,
+                                                      "from_opinions": True})
+        if k[0] == SCOTUS and k not in order:
+            order.append(k)
+    districts = []
+    for d in dockets:
+        k = [d.get("court_id"), clean_number(d.get("docketNumber"))]
+        if CIRCUIT_OF.get(k[0]) == raw["court"] and k not in districts:
+            districts.append(k)
+    return {"decisions": decisions, "candidates": order[:cap] + districts[:cap], "me": me}
+
+
+def find_related(raw, tok):
+    """The two searches (cached with the docket): opinions in this court and the Supreme Court, and dockets in this
+    circuit's district courts. Dates narrow both."""
+    q, year = name_query(raw.get("case_name")), appeal_year(raw["number"])
+    if not q or not year or not tconfig.online():
+        return None
+    def search(kind, courts, after, before):
+        p = {"type": kind, "q": q, "court": " ".join(courts), "filed_after": after, "filed_before": before, "order_by": "dateFiled asc"}
+        return (c.call("%s/search/?%s" % (c.API, urllib.parse.urlencode(p)), tok, soft=(400, 403, 404)) or {}).get("results") or []
+    print("  no entries and no link below: searching by name, %s" % q, file=sys.stderr, flush=True)
+    opinions = search("o", [SCOTUS, raw["court"]], "%d-01-01" % year, "%d-12-31" % (year + WINDOW_AFTER))
+    dockets = search("d", _DISTRICTS.get(raw["court"], "").split(), "%d-01-01" % (year - WINDOW_BEFORE), "%d-12-31" % year)
+    return related_from(raw, opinions, dockets) if opinions or dockets else {"decisions": {}, "candidates": []}
+
+
+def dead_end(raw):
+    return raw.get("found") and raw["court"] in APPEALS and not raw.get("entries") and not lower_refs(raw)
+
+
 def infer_round(raws, links, events):
     """An old appeal whose docket names no district court. The district docket names the Supreme Court number, and
     that docket names the appeal, so the appeal came from this district court. The district's own entries then date
@@ -362,9 +451,11 @@ def add_sources(raws, links, events, covered):
     return out
 
 
-def walk(seed, get, max_dockets=12):
-    """Follow links from seed (court, number). get(court, number) -> raw record. -> the chain as plain data."""
+def walk(seed, get, max_dockets=12, find=None):
+    """Follow links from seed (court, number). get(court, number) -> raw record; find(raw) -> a name search's results,
+    for a dead end. -> the chain as plain data."""
     todo, raws, links, events, notes = [tuple(seed)], {}, [], [], []
+    decisions, candidate_of, tried = {}, {}, []
     while todo:
         key = todo.pop(0)
         if key in raws:
@@ -374,7 +465,22 @@ def walk(seed, get, max_dockets=12):
             break
         raw = get(*key)
         raws[key] = raw
+        if find and dead_end(raw):
+            tried.append(key)
+            found = find(raw) or {}
+            for k, v in (found.get("decisions") or {}).items():
+                decisions.setdefault(tuple(k.split(" ", 1)), v)
+            for k in found.get("candidates") or []:
+                k = tuple(k)
+                candidate_of.setdefault(k, key)
+                if k not in raws and k not in todo:
+                    todo.append(k)
+        if not raw.get("entries") and key in decisions:
+            raw = raws[key] = dict(raw, entries=decisions[key])
         evs, lks = read_docket(raw)
+        if key in candidate_of and not any(candidate_of[key] in (tuple(l["from"]), tuple(l["to"])) for l in lks):
+            raw["candidate"] = True                            # it doesn't name the appeal: show it, don't follow it
+            lks = []
         events += [dict(e, docket=list(key)) for e in evs]
         for l in lks:
             links.append(l)
@@ -391,6 +497,16 @@ def walk(seed, get, max_dockets=12):
         return any(a <= date and grace <= b for a, b in reach.get(court, []))
     links = [l for l in links if not (l.get("copy") and covered(l["from"][0], l["date"]))]
     links += infer_round(raws, links, events)
+    joined = {frozenset((tuple(l["from"]), tuple(l["to"]))) for l in links}
+    for k, a in candidate_of.items():
+        if k not in raws or frozenset((k, a)) in joined or not raws[k].get("found"):
+            continue
+        filed = raws[k].get("date_filed") or ""
+        if k[0] == SCOTUS:
+            links.append({"from": list(a), "to": list(k), "kind": "cert", "date": filed, "how": "name", "weak": True})
+        else:
+            noas = sorted(e["date"] for e in events if tuple(e["docket"]) == k and e["kind"] == "appeal")
+            links.append({"from": list(k), "to": list(a), "kind": "appeal", "date": noas[0] if noas else filed, "how": "name", "weak": True})
     links += add_sources(raws, links, events, covered)
     seen, unique = set(), []
     for l in sorted(links, key=lambda l: (l["date"], bool(l.get("weak")), l["how"] != "field")):
@@ -413,10 +529,12 @@ def walk(seed, get, max_dockets=12):
                     e["vacated"] = True
     dockets = []
     for key, r in raws.items():
-        d = {k: r.get(k) for k in ("court", "number", "found", "case_name", "date_filed", "date_terminated", "url", "ids", "source", "truncated", "origin")}
+        d = {k: r.get(k) for k in ("court", "number", "found", "case_name", "date_filed", "date_terminated", "url", "ids", "source", "truncated", "origin", "candidate")}
         d["entries"] = len(r.get("entries") or [])
         d["missing_entries"] = missing_numbers(r.get("entries") or []) if r["court"] in CIRCUIT_OF else 0
         dockets.append(d)
+        if key in tried and not any(candidate_of.get(k) == key and raws.get(k, {}).get("found") for k in candidate_of):
+            notes.append("%s %s: no entries, no link to the court below, nothing found by name; earlier history may be missing." % key)
         if not r.get("found"):
             notes.append("%s %s: named by another docket, but not on CourtListener." % key)
         if r.get("truncated"):
@@ -433,7 +551,7 @@ def walk(seed, get, max_dockets=12):
 
 # -------------------------------------------------------------- the graph
 
-KIND_LABEL = {"appeal": "appeal", "cert": "to the Supreme Court", "mandate": "mandate", "remand": "remand"}
+KIND_LABEL = {"appeal": "appeal", "cert": "to the Supreme Court", "mandate": "mandate", "remand": "remand", "returned": "back to"}
 
 
 def _rank(court):
@@ -460,7 +578,8 @@ def render(chain, all_events=False, cites=None, width=110):
     if name:
         lines += [name, ""]
     for i, (court, number) in enumerate(lanes):
-        lines.append(" " * 12 + "│  " * i + "┌─ %s %s" % (court_label(court, cites), number))
+        cand = any(d.get("candidate") and (d["court"], d["number"]) == (court, number) for d in chain["dockets"])
+        lines.append(" " * 12 + "│  " * i + "┌─ %s %s%s" % (court_label(court, cites), number, " (?) matched by name only" if cand else ""))
     shown, rows = set(), []
     for e in chain["events"]:
         k = (e["date"], tuple(e["docket"]), e["kind"])
@@ -488,7 +607,7 @@ def render(chain, all_events=False, cites=None, width=110):
         else:
             a, b = idx[tuple(x["from"])], idx[tuple(x["to"])]
             lo, hi = min(a, b), max(a, b)
-            dash = {"field": "─", "entry": "┄"}.get(x["how"], "·")
+            dash = {"field": "─", "entry": "┄", "name": "?"}.get(x["how"], "·")
             g = ""
             for i in range(len(lanes)):
                 if i == a:
@@ -509,7 +628,7 @@ def render(chain, all_events=False, cites=None, width=110):
         room = max(20, width - 12 - len(g))
         lines.append("%-10s  %s%s" % (date, g, text[:room]))
     lines.append("")
-    lines.append("─ from the docket's fields   ┄ from an entry's text   · inferred   (?) weak match   ● filing")
+    lines.append("─ from the docket's fields   ┄ from an entry's text   · inferred   ? by name   (?) weak match   ● filing")
     for n in chain["notes"]:
         lines.append("note: " + n)
     return "\n".join(lines)
@@ -552,6 +671,7 @@ def main():
     ap.add_argument("--json", action="store_true", help="print the chain as JSON instead of the graph")
     ap.add_argument("--all", action="store_true", help="every filing in the graph, not only the key events")
     ap.add_argument("--refresh", action="store_true", help="read the dockets again instead of using cases/history/_raw/")
+    ap.add_argument("--no-name-search", action="store_true", help="don't search by case name at a dead end")
     ap.add_argument("--max-dockets", type=int, default=12, help="stop after this many dockets (default 12)")
     ap.add_argument("--max-pages", type=int, default=20, help="pages of %d entries to read per docket (default 20)" % PAGE_SIZE)
     args = ap.parse_args()
@@ -565,7 +685,14 @@ def main():
         seed = (args.court.lower(), clean_number(args.number))
     else:
         sys.exit("Name the docket: --court ID --number N (e.g. --court cadc --number 21-5166), or --docket ID")
-    chain = walk(seed, lambda court, number: load_docket(court, number, tok, args.refresh, args.max_pages), args.max_dockets)
+    def find(raw):
+        if "related" not in raw:
+            raw["related"] = find_related(raw, tok)
+            if tconfig.online():
+                raw_path(raw["court"], raw["number"]).write_text(json.dumps(raw, indent=1, ensure_ascii=False), encoding="utf-8")
+        return raw["related"]
+    chain = walk(seed, lambda court, number: load_docket(court, number, tok, args.refresh, args.max_pages), args.max_dockets,
+                 None if args.no_name_search else find)
     OUT.mkdir(parents=True, exist_ok=True)
     out = OUT / ("%s-%s.json" % (seed[0], c.slugify(seed[1])))
     out.write_text(json.dumps(chain, indent=1, ensure_ascii=False), encoding="utf-8")

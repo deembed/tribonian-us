@@ -212,6 +212,63 @@ class WeakMatches(unittest.TestCase):
         self.assertEqual(h.KIND_TEXT(e), "remanded (?)")
 
 
+# Encino, from CourtListener's real search results: every record of 13-55323 is empty, and nothing names 15-415.
+NINTH = {"court": "ca9", "number": "13-55323", "found": True, "case_name": "Hector Navarro v. Encino Motorcars", "date_filed": "", "lower_numbers": [],
+         "appeal_from": None, "origin": "", "entries": []}
+ENCINO = {("ca9", "13-55323"): NINTH,
+          ("scotus", "16-1362"): {"court": "scotus", "number": "16-1362", "found": True, "date_filed": "2017-05-12", "lower_numbers": ["13-55323"],
+                                  "appeal_from": "ca9", "origin": "", "entries": [{"date": "2018-04-02", "text": "Judgment REVERSED and case REMANDED."}]},
+          ("scotus", "15-415"): {"court": "scotus", "number": "15-415", "found": True, "date_filed": "2015-10-02", "lower_numbers": ["13-55323"],
+                                 "appeal_from": "ca9", "origin": "", "entries": []},
+          ("cacd", "2:12-cv-08051"): {"court": "cacd", "number": "2:12-cv-08051", "found": True, "date_filed": "2012-09-18", "lower_numbers": [],
+                                      "appeal_from": None, "origin": "", "entries": [
+                                          {"date": "2013-03-01", "number": 40, "text": "NOTICE OF APPEAL by Navarro"},
+                                          {"date": "2013-03-05", "number": 41, "text": "USCA Case Number 13-55323 for 40 Notice of Appeal"}]},
+          ("cacd", "2:15-cv-00001"): {"court": "cacd", "number": "2:15-cv-00001", "found": True, "date_filed": "2012-01-01", "lower_numbers": [],
+                                      "appeal_from": None, "origin": "", "entries": [{"date": "2013-01-01", "text": "USCA Case Number 13-99999 for appeal"}]}}
+OPINIONS = [{"caseName": "Hector Navarro v. Encino Motorcars", "court_id": "ca9", "dateFiled": "2015-03-24", "docketNumber": "13-55323", "citation": ["780 F.3d 1267", "2015 WL 1296074"]},
+            {"caseName": "Encino Motorcars, LLC v. Navarro", "court_id": "scotus", "dateFiled": "2016-01-15", "docketNumber": "No. 15\u2013415.", "citation": ["136 S. Ct. 890"]},
+            {"caseName": "Encino Motorcars, LLC v. Navarro", "court_id": "scotus", "dateFiled": "2016-06-20", "docketNumber": "15\u2013415.", "citation": ["579 U.S. 211", "136 S. Ct. 2117"]},
+            {"caseName": "Other", "court_id": "ca9", "dateFiled": "2016-06-20", "docketNumber": "14-1", "citation": []}]
+DOCKETS = [{"court_id": "cacd", "docketNumber": "2:12-cv-08051"}, {"court_id": "cacd", "docketNumber": "2:15-cv-00001"}, {"court_id": "nysd", "docketNumber": "1:12-cv-1"}]
+
+
+class NameSearch(unittest.TestCase):
+    def setUp(self):
+        self.chain = h.walk(("scotus", "16-1362"), lambda c, n: ENCINO[(c, n)], find=lambda raw: h.related_from(raw, OPINIONS, DOCKETS))
+
+    def test_query_any_word_of_each_side(self):
+        self.assertEqual(h.name_query("Hector Navarro v. Encino Motorcars, LLC"), "caseName:((Hector OR Navarro) AND (Encino OR Motorcars))")
+        self.assertIsNone(h.name_query("In re Sackett"))
+
+    def test_numbers_and_year(self):
+        self.assertEqual(h.plain_number("No. 15\u2013415."), "15-415")
+        self.assertEqual(h.appeal_year("13-55323"), 2013)
+        self.assertEqual(h.appeal_year("98-1"), 1998)
+
+    def test_named_candidates_become_firm(self):
+        got = {(l["from"][1], l["to"][1], l["kind"], bool(l.get("weak"))) for l in self.chain["links"]}
+        self.assertIn(("13-55323", "15-415", "cert", False), got)
+        self.assertIn(("2:12-cv-08051", "13-55323", "appeal", False), got)
+        self.assertIn(("15-415", "13-55323", "returned", True), got)
+
+    def test_unconfirmed_candidate_shown_not_followed(self):
+        self.assertNotIn("13-99999", {d["number"] for d in self.chain["dockets"]})
+        cand = {d["number"] for d in self.chain["dockets"] if d.get("candidate")}
+        self.assertEqual(cand, {"2:15-cv-00001"})
+        self.assertIn("matched by name only", h.render(self.chain))
+        self.assertTrue(any(l["how"] == "name" and l["weak"] for l in self.chain["links"]))
+
+    def test_decisions_fill_empty_lanes(self):
+        rows = {e["text"] for e in self.chain["events"] if e["kind"] == "decision"}
+        self.assertEqual(rows, {"Decision (780 F.3d 1267)", "Decision or order (136 S. Ct. 890)", "Decision (579 U.S. 211)"})
+        print("\n" + h.render(self.chain))
+
+    def test_nothing_found_is_said(self):
+        chain = h.walk(("ca9", "13-55323"), lambda c, n: ENCINO[(c, n)], find=lambda raw: {"decisions": {}, "candidates": []})
+        self.assertIn("earlier history may be missing", " ".join(chain["notes"]))
+
+
 class Render(unittest.TestCase):
     def test_graph(self):
         g = h.render(chain_from("cadc", "21-5166"), cites={"dcd": "D.D.C."})
