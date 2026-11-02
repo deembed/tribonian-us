@@ -179,7 +179,7 @@ def read_docket(raw):
         if kind in ("mandate", "remand") and not HIGH_COURT_RE.search(text):      # back down
             for r in below:
                 link(me, r, "mandate" if kind == "mandate" else "remand", e["date"], "entry", weak=len(below) > 1)
-        if e.get("from_opinions") and raw["court"] == SCOTUS and re.search(r"\(\d+ U\.S\. \d", text):   # its disposition isn't in the metadata
+        if e.get("last_decision") and raw["court"] == SCOTUS and re.search(r"\(\d+ U\.S\. \d", text):   # its disposition isn't in the metadata
             for r in below:
                 link(me, r, "returned", e["date"], "inferred", weak=True)
         if kind == "remand" and raw["court"] == SCOTUS:
@@ -373,6 +373,14 @@ def related_from(raw, opinions, dockets, cap=3):
         rows.append({"date": o.get("dateFiled"), "text": "%s (%s)" % (word, cite) if cite else word, "from_opinions": True})
         if k[0] == SCOTUS and k not in order:
             order.append(k)
+    for k, rows in decisions.items():                          # only a Supreme Court docket's last decision sends it back
+        if k.startswith(SCOTUS + " "):
+            last = max(rows, key=lambda r: r["date"] or "")
+            for r in rows:
+                if r is last:
+                    r["last_decision"] = True
+                else:
+                    r["text"] = r["text"].replace("Decision (", "Decision or order (", 1)
     districts = []
     for d in dockets:
         k = [d.get("court_id"), clean_number(d.get("docketNumber"))]
@@ -482,7 +490,13 @@ def walk(seed, get, max_dockets=12, find=None):
             tried.append(key)
             found = find(raw) or {}
             for k, v in (found.get("decisions") or {}).items():
-                decisions.setdefault(tuple(k.split(" ", 1)), v)
+                k = tuple(k.split(" ", 1))
+                decisions.setdefault(k, v)
+                if k in raws and not raws[k].get("entries"):   # read before the search found its decisions
+                    raws[k] = dict(raws[k], entries=v)
+                    evs, lks = read_docket(raws[k])
+                    events[:] = [e for e in events if tuple(e["docket"]) != k] + [dict(e, docket=list(k)) for e in evs]
+                    links += lks
             for k in found.get("candidates") or []:
                 k = tuple(k)
                 candidate_of.setdefault(k, key)
@@ -510,9 +524,15 @@ def walk(seed, get, max_dockets=12, find=None):
         return any(a <= date and grace <= b for a, b in reach.get(court, []))
     links = [l for l in links if not (l.get("copy") and covered(l["from"][0], l["date"]))]
     links += infer_round(raws, links, events)
+    remands = [l for l in links if l["kind"] == "remand"]      # an opinion's date beside the clerk's remand: one trip
+    def near(a, b):
+        return abs((datetime.date.fromisoformat(a) - datetime.date.fromisoformat(b)).days) <= 30
+    links = [l for l in links if not (l["kind"] == "returned" and any(r["from"] == l["from"] and r["to"] == l["to"] and near(r["date"], l["date"]) for r in remands))]
     joined = {frozenset((tuple(l["from"]), tuple(l["to"]))) for l in links}
     for k, a in candidate_of.items():
         if k not in raws or frozenset((k, a)) in joined or not raws[k].get("found"):
+            continue
+        if k[0] == SCOTUS and lower_refs(raws[k]) and a not in lower_refs(raws[k]):   # it names another appeal
             continue
         filed = raws[k].get("date_filed") or ""
         if k[0] == SCOTUS:

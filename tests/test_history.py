@@ -291,6 +291,16 @@ class NameSearch(unittest.TestCase):
         self.assertEqual(rows, {"Decision (780 F.3d 1267)", "Decision or order (136 S. Ct. 890)", "Decision (579 U.S. 211)"})
         print("\n" + h.render(self.chain))
 
+    def test_candidate_naming_another_appeal_gets_no_link(self):
+        hits = [{"court_id": "scotus", "dateFiled": "2023-05-25", "docketNumber": "21-454", "citation": []},
+                {"court_id": "scotus", "dateFiled": "2012-03-21", "docketNumber": "10-1062", "citation": ["566 U.S. 120"]},
+                {"court_id": "scotus", "dateFiled": "2011-06-28", "docketNumber": "10-1062", "citation": ["564 U.S. 1052"]}]
+        chain = h.walk(("scotus", "21-454"), lambda c, n: SACKETT[(c, n)], find=lambda raw: h.related_from(raw, hits, []))
+        got = {(l["from"][1], l["to"][1]) for l in chain["links"]}
+        self.assertNotIn(("08-35854", "21-454"), got)
+        self.assertIn(("2012-03-21", "decision"), {(e["date"], e["kind"]) for e in chain["events"] if e["docket"][1] == "10-1062"})
+        self.assertFalse([l for l in chain["links"] if l["kind"] == "returned"])   # the clerk's remand letter covers it
+
     def test_lexis_is_not_the_us_reports(self):
         hits = [{"court_id": "scotus", "dateFiled": "2016-01-15", "docketNumber": "15-415", "citation": ["2016 U.S. LEXIS 635", "136 S. Ct. 890"]}]
         r = h.related_from(NINTH, hits, [])
