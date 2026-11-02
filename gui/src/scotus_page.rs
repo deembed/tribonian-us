@@ -442,6 +442,7 @@ pub fn docket_page(app: &mut App, ui: &mut Ui, num: &str) {
         ui.horizontal(|ui| {
             let queued = app.is_queued(scotus::docket_key(&d.number));
             crate::pages::law_checkboxes(ui, app, "filings");
+            crate::pages::coupling_checkbox(ui, app);
             if ui
                 .add_enabled(!queued, egui::Button::new("Fetch updates"))
                 .on_hover_text(format!("queues tribonian scotus fetch {}: the docket again, and any new filing's PDF", d.number))

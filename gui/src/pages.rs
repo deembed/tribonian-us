@@ -917,6 +917,7 @@ fn case_page(app: &mut App, ui: &mut Ui, c: &CaseData) {
         let queued = app.is_queued(c.r#ref);
         let title = entry.as_ref().map(|e| e.name.clone()).filter(|n| !n.is_empty()).unwrap_or_else(|| c.name.clone());
         law_checkboxes(ui, app, "case");
+        coupling_checkbox(ui, app);
         let quick = ui
             .add_enabled(!queued, egui::Button::new("Quick build"))
             .on_hover_text(format!(
@@ -1275,16 +1276,16 @@ fn wrapped_weak(ui: &mut Ui, text: String) {
     ui.add(egui::Label::new(RichText::new(text).weak()).wrap());
 }
 
-/// "Coupled cases": what `casemap.py coupling` cached, and the button that queues it. Never run
-/// automatically: it reads the whole citation cache.
+/// "Coupled cases": what `casemap.py coupling` cached, and the button that queues it. Builds compute it too
+/// when it isn't cached ("Find coupled cases" checkbox); the button redoes it without a rebuild.
 fn coupling_section(app: &mut App, ui: &mut Ui, c: &CaseData) {
     let queued = app.is_queued(c.r#ref);
     let button = |app: &mut App, ui: &mut Ui, text: &str| {
         let b = ui.add_enabled(!queued, egui::Button::new(text)).on_hover_text(format!(
             "Finds the cases that cite the most of the same cases as this one, rare shared citations counting more \
              (bibliographic coupling). Queues tribonian map coupling --cluster {}, which reads the whole citation cache \
-             (about 300 MB), so it takes seconds to a minute. Only on request: builds never run it. A later build then \
-             shows the result in the note and the PDF.",
+             (about 300 MB), so it takes seconds to a minute. Builds also compute it when it isn't cached, unless \
+             \"Find coupled cases\" is unticked. A later build shows the result in the note and the PDF.",
             c.r#ref
         ));
         if b.clicked() {
@@ -1998,14 +1999,18 @@ fn cocited_page(app: &mut App, ui: &mut Ui, c: &CoCited) {
 }
 
 /// The checkboxes beside every Build button (case, docket, RECAP), the same everywhere: "Print the law cited"
-/// (off: --no-law), "Fetch state law" (--fetch-state-law; greyed out when nothing is printed) and "Summarize the
-/// cases cited" (--cases).
+/// (off: --no-law), "Fetch federal law" (--fetch) and "Fetch state law" (--fetch-state-law), both greyed out when
+/// nothing is printed, and "Summarize the cases cited" (--cases).
 /// `what`: "case", "filings" or "documents", for the hover text.
 pub fn law_checkboxes(ui: &mut egui::Ui, app: &mut App, what: &str) {
     ui.checkbox(&mut app.print_law, "Print the law cited").on_hover_text(format!(
         "end the PDF with The Law Cited: every statute, constitutional provision and regulation the {what} cite, with \
          its text where it is stored here; each cite links to it. Off: --no-law (no appendix, nothing fetched; the \
          note keeps its list)."
+    ));
+    ui.add_enabled(app.print_law, egui::Checkbox::new(&mut app.fetch_federal_law, "Fetch federal law")).on_hover_text(format!(
+        "also download the federal law the {what} cite that is not stored here: C.F.R. titles and the U.S. Constitution \
+         (--fetch), so The Law Cited prints its text. A refusal or a dropped connection is reported and the build goes on."
     ));
     ui.add_enabled(app.print_law, egui::Checkbox::new(&mut app.fetch_state_law, "Fetch state law")).on_hover_text(format!(
         "also download and build the state law the {what} cite that is not stored here (--fetch-state-law), so The Law \
@@ -2016,4 +2021,13 @@ pub fn law_checkboxes(ui: &mut egui::Ui, app: &mut App, what: &str) {
         "end the PDF with The Cases Cited: each case the {what} cite, once, with CourtListener's reporter summary or \
          syllabus where it has one, otherwise the parentheticals later courts most often wrote about it (--cases)."
     ));
+}
+
+/// Beside the Build buttons of case and Supreme Court builds only: `recap build` has no coupling.
+pub fn coupling_checkbox(ui: &mut egui::Ui, app: &mut App) {
+    ui.checkbox(&mut app.find_coupling, "Find coupled cases").on_hover_text(
+        "compute the cases citing the most of the same cases when they aren't cached: it reads the whole citation cache, \
+         so seconds to a minute the first time, Quick build included. Off: --no-coupling (a case still shows them when \
+         cached; a Supreme Court build leaves the appendix out).",
+    );
 }

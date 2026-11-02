@@ -8,7 +8,8 @@
 //! full result is kept.
 //!
 //! The same queue also runs single script commands for a case (`run_script`): "Find coupled cases"
-//! queues `tribonian map coupling --cluster N`, which writes cases/citedby/<N>/coupling.json.
+//! queues `tribonian map coupling --cluster N`, which writes cases/citedby/<N>/coupling.json (builds
+//! also write it when it isn't cached, unless they pass --no-coupling).
 //!
 //! And a run of commands that stops at the first failure (`run_steps`): the SCOTUS page's
 //! "Fetch & build" queues `tribonian scotus fetch <docket>` then `tribonian scotus build <docket>` as one job.
