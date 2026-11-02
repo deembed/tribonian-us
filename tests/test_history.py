@@ -122,6 +122,65 @@ class Display(unittest.TestCase):
         self.assertEqual(len([l for l in chain["links"] if l["kind"] == "mandate"]), 2)
 
 
+# Sackett's first round: the district docket never names 08-35854, only the Supreme Court's number.
+IDD = {"court": "idd", "number": "2:08-cv-00185", "found": True, "case_name": "Sackett", "date_filed": "2008-04-28", "date_terminated": "2019-03-31",
+       "lower_numbers": [], "appeal_from": None, "origin": "", "entries": [
+           {"date": "2008-10-16", "number": 29, "text": "NOTICE OF APPEAL as to 22 Judgment by Michael Sackett"},
+           {"date": "2010-09-17", "number": 40, "text": "OPINION of USCA as to 29 Notice of Appeal (AFFIRMED)"},
+           {"date": "2010-12-09", "number": 42, "text": "MANDATE of USCA as to 29 Notice of Appeal"},
+           {"date": "2011-02-25", "number": 43, "text": "Letter from Supreme Court of the United States Re: Petition for a writ of certiorari (10-1062)(dks)"},
+           {"date": "2012-03-22", "number": 45, "text": "Letter from Supreme Court of the United States that the judgment is reversed and the case is remanded to the United States of Appeals for the Ninth Circuit"},
+           {"date": "2012-05-03", "number": 49, "text": "MANDATE of USCA as to 29 Notice of Appeal"},
+           {"date": "2019-05-30", "number": 122, "text": "NOTICE OF APPEAL by Michael Sackett"},
+           {"date": "2019-05-30", "number": 123, "text": "USCA Case Number 19-35469 for 122 Notice of Appeal"},
+           {"date": "2021-10-08", "number": 133, "text": "MANDATE - of USCA 19-35469 as to 122 Notice of Appeal"},
+           {"date": "2023-05-30", "number": 135, "text": "Letter from the United States Supreme Court re: USCA 19-35469. (Attachments: # 1 21-454 Opinion)(jd)"},
+       ]}
+SACKETT = {
+    ("idd", "2:08-cv-00185"): IDD,
+    ("ca9", "19-35469"): {"court": "ca9", "number": "19-35469", "found": True, "date_filed": "2019-05-30", "lower_numbers": ["2:08-cv-00185"],
+                          "appeal_from": "idd", "origin": "", "entries": [
+                              {"date": "2021-10-08", "text": "MANDATE ISSUED.(RMG, MTF and JAO)"},
+                              {"date": "2023-05-30", "text": "Supreme Court Case Info Case number: 21-454 Filed on: 09/22/2021 Ruling: Reversed/Remanded, 05/25/2023"}]},
+    ("scotus", "21-454"): {"court": "scotus", "number": "21-454", "found": True, "date_filed": "2021-09-24", "lower_numbers": ["19-35469"],
+                           "appeal_from": "ca9", "origin": "", "entries": [{"date": "2023-05-25", "text": "Judgment REVERSED and case REMANDED."}]},
+    ("scotus", "10-1062"): {"court": "scotus", "number": "10-1062", "found": True, "date_filed": "2011-02-25", "lower_numbers": ["08-35854"],
+                            "appeal_from": "ca9", "origin": "", "entries": []},
+    ("ca9", "08-35854"): {"court": "ca9", "number": "08-35854", "found": True, "date_filed": "", "lower_numbers": [], "appeal_from": None,
+                          "origin": "", "entries": []},
+}
+
+
+class TwoRounds(unittest.TestCase):
+    def setUp(self):
+        self.chain = h.walk(("scotus", "21-454"), lambda c, n: SACKETT[(c, n)])
+
+    def test_every_docket_found(self):
+        self.assertEqual({d["number"] for d in self.chain["dockets"]}, {n for _, n in SACKETT})
+
+    def test_first_round_inferred(self):
+        got = {(l["from"][1], l["to"][1], l["kind"], l["date"]) for l in self.chain["links"] if l["how"] == "inferred"}
+        self.assertEqual(got, {("2:08-cv-00185", "08-35854", "appeal", "2008-10-16"), ("08-35854", "2:08-cv-00185", "mandate", "2010-12-09"),
+                               ("10-1062", "08-35854", "remand", "2012-03-22"), ("08-35854", "2:08-cv-00185", "mandate", "2012-05-03")})
+
+    def test_copies_hidden_only_inside_the_acting_courts_reach(self):
+        keys = {(e["date"], e["kind"]) for e in self.chain["events"] if e.get("key") and e["docket"][0] == "idd"}
+        self.assertIn(("2010-09-17", "opinion"), keys)      # 08-35854 has no entries: this is the only record
+        self.assertNotIn(("2021-10-08", "mandate"), keys)   # 19-35469 has its own
+
+    def test_one_remand_arrow_per_remand(self):
+        back = [l for l in self.chain["links"] if l["kind"] == "remand" and l["to"][1] == "19-35469"]
+        self.assertEqual([l["date"] for l in back], ["2023-05-25"])
+
+    def test_usca_number_is_not_a_supreme_court_number(self):
+        self.assertEqual(h.SCOTUS_NO_RE.findall("Letter re: USCA No. 19-35469"), [])
+
+    def test_graph_order(self):
+        lanes = [n for _, n in h.lanes_of(self.chain)]
+        self.assertEqual(lanes, ["2:08-cv-00185", "08-35854", "19-35469", "10-1062", "21-454"])
+        print("\n" + h.render(self.chain))
+
+
 class Render(unittest.TestCase):
     def test_graph(self):
         g = h.render(chain_from("cadc", "21-5166"), cites={"dcd": "D.D.C."})

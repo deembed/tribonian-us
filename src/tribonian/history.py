@@ -8,7 +8,9 @@ Start from any docket in the chain. The walk follows, in both directions:
   field   a docket's originating-court fields (appeals -> district, Supreme Court -> appeals)
   entry   the docket's own text ("USCA Case Number 21-5166", "placed on the docket ... as No. 22-451",
           "MANDATE ISSUED", "vacated and the case remanded")
-Links are not guessed from names or dates. In the graph, field links are solid and entry links dashed.
+  inferred  an old appeal that names no district court, reached through the Supreme Court number on the
+          district docket (infer_round)
+Links are not guessed from names. In the graph, field links are solid, entry links dashed, inferred links dotted.
 
 Federal only: a link to a state court or an agency is noted, not followed. A filing missing from RECAP is
 missing here too; district-court gaps in the entry numbers are counted and shown.
@@ -16,7 +18,7 @@ missing here too; district-court gaps in the entry numbers are counted and shown
 Downloads are kept in cases/history/_raw/ (--refresh reads them again); the chain is saved in
 cases/history/<court>-<number>.json.
 """
-import argparse, json, re, sys, urllib.parse
+import argparse, datetime, json, re, sys, urllib.parse
 
 from tribonian import case2md as c
 from tribonian import scotus, tconfig
@@ -52,16 +54,17 @@ KINDS = [
     ("cert_denied", re.compile(r"(?:certiorari\b.*\bdenied|^petition denied)", re.I)),
     ("remand", re.compile(r"\b(?:vacated|reversed|case|cause)\b.*\bremanded\b|^(?:order|opinion|judgment)\b.*\bremand(?:ed|ing)\b", re.I)),
     ("mandate", re.compile(r"^mandate|^usca mandate|^judgment issued", re.I)),
-    ("judgment", re.compile(r"^(?:final |per curiam )?judgment\b", re.I)),
+    ("judgment", re.compile(r"^(?:final |amended |per curiam )?judgment\b", re.I)),
     ("opinion", re.compile(r"^(?:memorandum |per curiam )?opinion\b", re.I)),
     ("argued", re.compile(r"^argued\b|^oral argument (?:held|heard)", re.I)),
     ("abeyance", re.compile(r"^(?:\w+ ){0,3}order\b.*\b(?:case|cases|appeal|action|matter|proceedings?)\b[^.;]*\bin abeyance\b", re.I)),
     ("dismissed", re.compile(r"^(?:clerk's |per curiam )?order\b.{0,40}\bdismiss(?:ed|ing)\b|^(?:case |appeal )?dismissed\b", re.I)),
 ]
 USCA_RE = re.compile(r"USCA (?:Case )?(?:Number|No\.?|#)\s*(\d{2}-\d+)", re.I)
-SCOTUS_NO_RE = re.compile(r"\bNo\.\s*(\d{2}(?:-|A)\d+)", re.I)
+SCOTUS_NO_RE = re.compile(r"(?<!USCA )(?:\bNo\.\s*|Case number:\s*|certiorari\s*\()(\d{2}(?:-|A)\d+)", re.I)
 HIGH_COURT_RE = re.compile(r"Supreme Court|certiorari", re.I)
-FROM_HIGH_COURT_RE = re.compile(r"Clerk of the Supreme Court|received from the Supreme Court", re.I)
+FROM_HIGH_COURT_RE = re.compile(r"Clerk of the Supreme Court|received from the Supreme Court|Supreme Court Case Info|"
+                                r"Letter from (?:the )?(?:U\.S\. |United States )?Supreme Court", re.I)
 USCA_WORD_RE = re.compile(r"\bUSCA\b")
 REOPENS = {"argued", "opinion", "judgment", "abeyance", "remand"}
 FED_CIRCUIT_RE = re.compile(r"federal circuit|\bCAFC\b", re.I)
@@ -116,8 +119,8 @@ def read_docket(raw):
     me = (raw["court"], raw["number"])
     events, links = [], []
 
-    def link(a, b, kind, date, how):
-        links.append({"from": list(a), "to": list(b), "kind": kind, "date": date, "how": how})
+    def link(a, b, kind, date, how, **extra):
+        links.append(dict({"from": list(a), "to": list(b), "kind": kind, "date": date, "how": how}, **extra))
 
     for r in lower_refs(raw):
         link(r, me, "cert" if raw["court"] == SCOTUS else "appeal", raw.get("noa_date") or raw.get("date_filed") or "", "field")
@@ -138,7 +141,8 @@ def read_docket(raw):
         ev = {"date": e["date"], "kind": kind or "other", "text": text, "key": kind is not None,
               "vacated": later, "number": e.get("number")}
         # another court's action, copied onto this docket: walk() hides it when that court's lane has its own entries
-        if kind and raw["court"] in APPEALS and FROM_HIGH_COURT_RE.search(LATER.sub("", text)):
+        from_high_court = raw["court"] != SCOTUS and FROM_HIGH_COURT_RE.search(LATER.sub("", text))
+        if kind and from_high_court:
             ev["reports"] = SCOTUS
         elif kind and kind != "appeal" and raw["court"] in CIRCUIT_OF and circuit and USCA_WORD_RE.search(text):
             ev["reports"] = circuit
@@ -148,11 +152,14 @@ def read_docket(raw):
         if raw["court"] in CIRCUIT_OF and circuit:             # district -> appeals
             for n in USCA_RE.findall(text):
                 link(me, (circuit, n), "appeal", e["date"], "entry")
-        elif raw["court"] in APPEALS and HIGH_COURT_RE.search(text):     # appeals <-> Supreme Court
+        if from_high_court:                                    # the Supreme Court's clerk, naming its number
             for n in SCOTUS_NO_RE.findall(text):
-                link(me, (SCOTUS, n), "cert", e["date"], "entry")
-                if kind == "remand":
-                    link((SCOTUS, n), me, "remand", e["date"], "entry")
+                if raw["court"] in APPEALS:
+                    link(me, (SCOTUS, n), "cert", e["date"], "entry")
+                    if kind == "remand":
+                        link((SCOTUS, n), me, "remand", e["date"], "entry", copy=True)
+                else:                                          # read that docket, but the jump isn't from here
+                    link(me, (SCOTUS, n), "mentions", e["date"], "entry")
         if kind in ("mandate", "remand") and not HIGH_COURT_RE.search(text):      # back down
             for r in below:
                 link(me, r, "mandate" if kind == "mandate" else "remand", e["date"], "entry")
@@ -160,7 +167,7 @@ def read_docket(raw):
             for r in below:
                 link(me, r, "remand", e["date"], "entry")
     filings = [e for e in events if e["kind"] not in ("filed", "terminated")]
-    if filings and not filings[-1]["key"]:                     # where the docket stands now
+    if filings and not any(e["key"] for e in filings if e["date"] == filings[-1]["date"]):   # where the docket stands now
         filings[-1].update(key=True, latest=True)
     for t in events:
         if t["kind"] == "terminated":
@@ -288,6 +295,37 @@ def load_docket(court, number, tok, refresh, max_pages):
 
 # -------------------------------------------------------------- the chain
 
+def infer_round(raws, links, events):
+    """An old appeal whose docket names no district court. The district docket names the Supreme Court number, and
+    that docket names the appeal, so the appeal came from this district court. The district's own entries then date
+    the jumps: its notice of appeal before the petition, and the "of USCA" mandates and the remand letter until
+    its next notice of appeal. These links are how="inferred"."""
+    out = []
+    for m in [l for l in links if l["kind"] == "mentions"]:
+        d, s = tuple(m["from"]), tuple(m["to"])
+        sup = raws.get(s) or {}
+        for a in lower_refs(sup):
+            ra = raws.get(a)
+            if a[0] != CIRCUIT_OF.get(d[0]) or not ra or lower_refs(ra):
+                continue
+            mine = [e for e in events if tuple(e["docket"]) == d]
+            filed = sup.get("date_filed") or m["date"]
+            noas = sorted(e["date"] for e in mine if e["kind"] == "appeal")
+            before = [x for x in noas if x <= filed]
+            if not before:
+                continue
+            start, end = before[-1], min([x for x in noas if x > filed], default="9999")
+            out.append({"from": list(d), "to": list(a), "kind": "appeal", "date": start, "how": "inferred"})
+            for e in mine:
+                if not start < e["date"] < end:
+                    continue
+                if e["kind"] == "mandate" and USCA_WORD_RE.search(e["text"]) and not USCA_RE.search(e["text"]):
+                    out.append({"from": list(a), "to": list(d), "kind": "mandate", "date": e["date"], "how": "inferred"})
+                elif e["kind"] == "remand" and e.get("reports") == SCOTUS and e["date"] >= filed:
+                    out.append({"from": list(s), "to": list(a), "kind": "remand", "date": e["date"], "how": "inferred"})
+    return out
+
+
 def walk(seed, get, max_dockets=12):
     """Follow links from seed (court, number). get(court, number) -> raw record. -> the chain as plain data."""
     todo, raws, links, events, notes = [tuple(seed)], {}, [], [], []
@@ -305,6 +343,18 @@ def walk(seed, get, max_dockets=12):
         for l in lks:
             links.append(l)
             todo += [tuple(l["from"]), tuple(l["to"])]
+    # how far each court's own entries reach: a copy of its action is hidden only inside that span, so a copy from
+    # an earlier round, whose docket has no entries, stays as the only record of it
+    reach = {}
+    for r in raws.values():
+        dates = [e["date"] for e in r.get("entries") or [] if e.get("date")]
+        if dates:
+            reach.setdefault(r["court"], []).append((min(dates), max(dates)))
+    def covered(court, date):                                  # a clerk's copy can come some weeks after the last entry
+        grace = (datetime.date.fromisoformat(date) - datetime.timedelta(days=90)).isoformat()
+        return any(a <= date and grace <= b for a, b in reach.get(court, []))
+    links = [l for l in links if not (l.get("copy") and covered(l["from"][0], l["date"]))]
+    links += infer_round(raws, links, events)
     seen, unique = set(), []
     for l in sorted(links, key=lambda l: (l["date"], l["how"] != "field")):
         up = l["kind"] in ("appeal", "cert")                   # one appeal per pair; each trip back down is its own
@@ -312,9 +362,8 @@ def walk(seed, get, max_dockets=12):
         if k not in seen:
             seen.add(k)
             unique.append(l)
-    has_lane = {r["court"] for r in raws.values() if r.get("entries")}
     for e in events:
-        if e.get("reports") in has_lane:
+        if e.get("reports") and covered(e["reports"], e["date"]):
             e["key"] = False
     # a recall undoes the latest mandate before it, on the arrow and on the row
     for r in [e for e in events if e["kind"] == "recalled"]:
@@ -355,7 +404,11 @@ def _rank(court):
 
 
 def lanes_of(chain):
-    ds = sorted(chain["dockets"], key=lambda d: (_rank(d["court"]), d.get("date_filed") or "9999", d["number"]))
+    first = {}
+    for l in chain["links"]:
+        for k in (tuple(l["from"]), tuple(l["to"])):
+            first[k] = min(first.get(k, "9999"), l["date"] or "9999")
+    ds = sorted(chain["dockets"], key=lambda d: (_rank(d["court"]), d.get("date_filed") or first.get((d["court"], d["number"]), "9999"), d["number"]))
     return [(d["court"], d["number"]) for d in ds]
 
 
@@ -376,7 +429,7 @@ def render(chain, all_events=False, cites=None, width=110):
         if all_events or (e.get("key") and (e.get("latest") or k not in shown)):
             shown.add(k)
             rows.append((e["date"], 1, "event", e))
-    rows += [(l["date"], 0 if l["kind"] in ("appeal", "cert") else 2, "link", l) for l in chain["links"] if l["date"]]
+    rows += [(l["date"], 0 if l["kind"] in ("appeal", "cert") else 2, "link", l) for l in chain["links"] if l["date"] and l["kind"] in KIND_LABEL]
     rows.sort(key=lambda r: (r[0], r[1]))
     span = {}
     for date, _, typ, x in rows:
@@ -397,7 +450,7 @@ def render(chain, all_events=False, cites=None, width=110):
         else:
             a, b = idx[tuple(x["from"])], idx[tuple(x["to"])]
             lo, hi = min(a, b), max(a, b)
-            dash = "─" if x["how"] == "field" else "┄"
+            dash = {"field": "─", "entry": "┄"}.get(x["how"], "·")
             g = ""
             for i in range(len(lanes)):
                 if i == a:
@@ -415,7 +468,7 @@ def render(chain, all_events=False, cites=None, width=110):
         room = max(20, width - 12 - len(g))
         lines.append("%-10s  %s%s" % (date, g, text[:room]))
     lines.append("")
-    lines.append("─ from the docket's fields   ┄ from an entry's text   ● filing")
+    lines.append("─ from the docket's fields   ┄ from an entry's text   · inferred through the Supreme Court docket   ● filing")
     for n in chain["notes"]:
         lines.append("note: " + n)
     return "\n".join(lines)
