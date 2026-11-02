@@ -15,6 +15,7 @@ import os, runpy, signal, sys
 # command -> (module, what it does). Order is the order of the help text.
 COMMANDS = {
     "check":           ("check",           "setup and database health: is each piece there, does it answer"),
+    "setup":           ("setup_guide",     "first install: tools, where the data goes, API token, database"),
     "usc":             ("usc2md",          "US Code: USLM XML -> section notes and chapter PDFs"),
     "usc-status":      ("usc_status",      "US Code release points: what is current, what changed"),
     "case":            ("case2md",         "cases: fetch, build, find, recap, api-search"),

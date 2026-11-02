@@ -74,6 +74,13 @@ A case on the day it was argued:
 
 ## Getting started
 
+**The short way:** clone, then run `./bootstrap.sh` (Windows: `bootstrap.ps1`). It makes a virtual environment,
+installs the Python packages, then builds and opens the desktop browser, telling you the install command for
+anything missing (Python, a C compiler, Rust). The start screen's **Setup guide** walks you through where the data
+goes, the CourtListener API token and the local database, and shows how many actions are still required.
+Without the app: `./bootstrap.sh --no-gui`, then `tribonian setup`. The stages below are the same thing by hand,
+plus the US Code, the citation maps and the rest.
+
 A walk from an empty machine to everything working: US Code PDFs, case notes, the local CourtListener database,
 the co-citation map and the GUI. Each stage works on its own, so you can stop after any of them.
 After any stage, `tribonian check` shows what is there, whether each database answers a query, and the fix for

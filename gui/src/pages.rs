@@ -213,6 +213,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::Docket(n) => return crate::scotus_page::docket_page(app, ui, n),
         Page::SemSearch => return crate::semsearch_page::sem_page(app, ui),
         Page::Check => return crate::check_page::check_page(app, ui),
+        Page::Setup => return crate::setup_page::setup_page(app, ui),
         Page::Dockets => return crate::dockets_page::dockets_home(app, ui),
         Page::DocketsFederal => return crate::dockets_page::federal_page(app, ui),
         Page::DocketsState(code) => return crate::dockets_page::state_page(app, ui, code),
@@ -254,6 +255,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
 }
 
 fn home(app: &mut App, ui: &mut Ui) {
+    crate::setup_page::tick(app);
     ui.add_space(30.0);
     ui.vertical_centered(|ui| {
         ui.heading(RichText::new("What do you want to do?").size(26.0));
@@ -306,6 +308,15 @@ fn home(app: &mut App, ui: &mut Ui) {
         cols[2].vertical_centered(|ui| {
             ui.heading("Setup");
             ui.add_space(12.0);
+            let guide = match app.setup_ui.actions_required() {
+                Some(0) | None => big("Setup guide"),
+                Some(1) => big("Setup: 1 action required").color(Color32::from_rgb(220, 170, 50)),
+                Some(n) => big(&format!("Setup: {n} actions required")).color(Color32::from_rgb(220, 170, 50)),
+            };
+            if button(ui, guide, "first install, step by step: Python packages, where the data goes, the API token, the database (tribonian setup)") {
+                go = Some(Page::Setup);
+            }
+            ui.add_space(8.0);
             let trouble = app.cfg_err.is_some() || app.view_err.is_some();
             let label = if trouble { big("Check setup (something is missing)").color(Color32::LIGHT_RED) } else { big("Check setup") };
             if button(ui, label, "is each tool and database there, and does it answer a query (tribonian check)") {

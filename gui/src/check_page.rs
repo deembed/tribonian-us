@@ -9,6 +9,7 @@
 //!
 //! Reads only. The live API request is opt-in (it uses one of the day's requests).
 
+use crate::model::Page;
 use crate::App;
 use eframe::egui::{self, Color32, RichText, Ui};
 use serde::Deserialize;
@@ -255,6 +256,9 @@ pub fn check_page(app: &mut App, ui: &mut Ui) {
             start(app);
         }
         ui.checkbox(&mut app.check_ui.api, "include one live CourtListener request");
+        if ui.button("Setup guide").on_hover_text("the first-install steps, with buttons").clicked() {
+            app.goto = Some(Page::Setup);
+        }
         if running {
             ui.spinner();
             ui.weak("checking…");
