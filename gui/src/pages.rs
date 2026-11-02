@@ -1513,13 +1513,15 @@ fn snippet_job(ui: &Ui, text: &str) -> egui::text::LayoutJob {
 }
 
 fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
-    use crate::search::Mode;
+    use crate::search::{Mode, SortKey};
     let Page::Search { query, mode } = page else { return };
     if query.is_empty() {
         ui.heading("Search Opinions");
         ui.label("Type a case name, a citation, a Supreme Court docket number (25-579), or (with Parentheticals) what a case stands for, then press Enter.");
         return;
     }
+    ui.heading(format!("Search: {query}"));
+    search_filter_bar(app, ui, page);
     // pending Supreme Court cases aren't in the CourtListener database: match scotus.py's dockets first
     if *mode == Mode::Name {
         crate::scotus_page::docket_hits(app, ui, query);
@@ -1538,48 +1540,82 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
             return;
         }
     };
-    ui.heading(format!("Search: {query}"));
     let what = match (mode, res.as_citation) {
         (Mode::Name, true) => "looked up as a citation".to_string(),
         (Mode::Name, false) => format!(
-            "{} names matched{}, most cited first",
+            "{} names matched{}{}",
             res.read,
-            if res.capped { " (read stopped at the cap)" } else { "" }
+            if res.capped { " (read stopped at the cap)" } else { "" },
+            if app.search_filters.get(page).is_none_or(|f| f.sort == SortKey::Default) { ", most cited first" } else { "" }
         ),
         (Mode::Parenthetical, _) => format!(
-            "{} parentheticals matched{}; cases ranked by how many describe them, then by how often they are cited",
+            "{} parentheticals matched{}{}",
             res.read,
-            if res.capped { " (read stopped at the cap)" } else { "" }
+            if res.capped { " (read stopped at the cap)" } else { "" },
+            if app.search_filters.get(page).is_none_or(|f| f.sort == SortKey::Default) {
+                "; cases ranked by how many describe them, then by how often they are cited"
+            } else {
+                ""
+            }
         ),
     };
-    ui.weak(format!("{} cases · {what} · {} ms", res.hits.len(), res.elapsed.as_millis()));
+    let filter = app.search_filters.get(page).cloned().unwrap_or_default();
+    let count = if filter.narrows() {
+        format!("{} of {} cases match the filters{}", res.matched, res.total, if res.capped { " (filtered within what was read)" } else { "" })
+    } else {
+        format!("{} cases", res.total)
+    };
+    let shown = if res.hits.len() < res.matched { format!(", top {} shown", res.hits.len()) } else { String::new() };
+    ui.weak(format!("{count}{shown} · {what} · {} ms", res.elapsed.as_millis()));
     ui.add_space(8.0);
     if res.hits.is_empty() {
-        ui.label(match mode {
+        ui.label(if filter.narrows() && res.total > 0 { "No case matches the filters." } else { match mode {
             Mode::Name => "No case found. Try fewer words, or Parentheticals.",
             Mode::Parenthetical => "No parenthetical matches. Try fewer words or drop the quotes.",
-        });
+        } });
         return;
     }
     let f = app.filter.clone();
     let mut go = None;
+    let mut sort_click = None;
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         egui::Grid::new("hits").striped(true).num_columns(9).show(ui, |ui| {
+            let sortable = !res.as_citation;
+            let mut head = |ui: &mut Ui, text: &str, key: SortKey, hover: &str| {
+                let arrow = match (filter.sort == key, filter.asc) {
+                    (true, true) => " ▲",
+                    (true, false) => " ▼",
+                    _ => "",
+                };
+                if !sortable {
+                    ui.strong(text).on_hover_text(hover);
+                } else if ui
+                    .add(egui::Button::new(RichText::new(format!("{text}{arrow}")).strong()).frame(false))
+                    .on_hover_text(format!("{hover}{}sort every match by this; click again to reverse", if hover.is_empty() { "" } else { "\n" }))
+                    .clicked()
+                {
+                    sort_click = Some(key);
+                }
+            };
             ui.label("");
-            ui.strong("Case");
+            head(ui, "Case", SortKey::Case, "");
             ui.label("");
-            ui.strong("Cite");
-            ui.strong("Year");
-            ui.strong("Court");
-            ui.strong("Citing").on_hover_text("decisions citing it, summed over every slice of this view; blank = cited too rarely to be a node");
-            ui.strong("Good law").on_hover_text(GL_HELP);
-            ui.strong(if *mode == Mode::Parenthetical { "Parentheticals" } else { "" });
+            head(ui, "Cite", SortKey::Cite, "by reporter, then volume and page");
+            head(ui, "Year", SortKey::Year, "");
+            head(ui, "Court", SortKey::Court, "");
+            head(ui, "Citing", SortKey::Citing, "decisions citing it, summed over every slice of this view; blank = cited too rarely to be a node");
+            head(ui, "Good law", SortKey::GoodLaw, GL_HELP);
+            if *mode == Mode::Parenthetical {
+                head(ui, "Parentheticals", SortKey::Parentheticals, "");
+            } else {
+                ui.label("");
+            }
             ui.end_row();
             for h in res.hits.iter().filter(|h| matches(&f, &h.name) || matches(&f, &h.cite)) {
                 together_button(app, ui, h.r#ref, &h.name);
                 ui.vertical(|ui| {
-                    if ui.link(&h.name).clicked() {
+                    if ui.link(short_case_name(&h.name)).on_hover_text(&h.name).clicked() {
                         go = Some(Page::Case(h.r#ref));
                     }
                     if let Some(sn) = &h.snippet {
@@ -1601,8 +1637,136 @@ fn search_page(app: &mut App, ui: &mut Ui, page: &Page) {
             }
         });
     });
+    if let Some(key) = sort_click {
+        let mut next = filter.clone();
+        next.click(key);
+        app.set_search_filter(page, next);
+    }
     if go.is_some() {
         app.goto = go;
+    }
+}
+
+/// A long case name in a results table: the first 70 characters (the table's width comes from its longest row);
+/// the whole name goes in the hover text.
+fn short_case_name(name: &str) -> String {
+    if name.chars().count() > 70 {
+        format!("{}…", name.chars().take(69).collect::<String>())
+    } else {
+        name.to_string()
+    }
+}
+
+/// A search's year range, court list and sort reset, always at the top of the page. They apply to every match, and
+/// to the CourtListener results, whose courts are added to the list. Greyed out for a citation lookup, which
+/// returns too few cases to filter.
+fn search_filter_bar(app: &mut App, ui: &mut Ui, page: &Page) {
+    use crate::search::{looks_like_cite, Mode, SortKey, GOOD_LAW};
+    use egui::containers::menu::{MenuButton, MenuConfig};
+    let Page::Search { query, mode } = page else { return };
+    let enabled = !(*mode == Mode::Name && looks_like_cite(query));
+    let old = app.search_filters.get(page).cloned().unwrap_or_default();
+    let mut f = old.clone();
+    let mut courts = match app.search_cache.get(page) {
+        Some(Ok(r)) => r.courts.clone(),
+        _ => Vec::new(),
+    };
+    if let Some(Ok(api)) = app.api_cache.get(page) {
+        for h in api.hits.iter().filter(|h| !h.local) {
+            match courts.iter_mut().find(|c| c.0 == h.court) {
+                Some(c) => c.1 += 1,
+                None => courts.push((h.court.clone(), 1)),
+            }
+        }
+        courts.sort_by(|a, b| a.0.is_empty().cmp(&b.0.is_empty()).then(a.0.cmp(&b.0)));
+    }
+    let label = |c: &str| if c.is_empty() { "(Blank)".to_string() } else { c.to_string() };
+    ui.add_enabled_ui(enabled, |ui| ui.horizontal(|ui| {
+        ui.label("Year");
+        ui.add(egui::TextEdit::singleline(&mut f.from).desired_width(44.0).hint_text("from"));
+        ui.label("to");
+        ui.add(egui::TextEdit::singleline(&mut f.to).desired_width(44.0).hint_text("to"));
+        let ticked = courts.iter().filter(|(c, _)| !f.excluded.contains(c)).count();
+        let title = if ticked == courts.len() { "Courts: all".to_string() } else { format!("Courts: {ticked} of {}", courts.len()) };
+        let config = MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        MenuButton::new(title).config(config).ui(ui, |ui| {
+            ui.set_min_width(220.0);
+            ui.add(egui::TextEdit::singleline(&mut app.court_search).hint_text("narrow the list"));
+            let want = app.court_search.trim().to_lowercase();
+            let listed: Vec<&(String, usize)> = courts.iter().filter(|(c, _)| label(c).to_lowercase().contains(&want)).collect();
+            ui.horizontal(|ui| {
+                if ui.button("All").on_hover_text("tick every court listed").clicked() {
+                    for (c, _) in &listed {
+                        f.excluded.remove(c);
+                    }
+                }
+                if ui.button("None").on_hover_text("untick every court listed").clicked() {
+                    for (c, _) in &listed {
+                        f.excluded.insert(c.clone());
+                    }
+                }
+            });
+            ui.separator();
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for (c, n) in &listed {
+                    let mut on = !f.excluded.contains(c);
+                    if ui.checkbox(&mut on, format!("{} ({n})", label(c))).changed() {
+                        if on {
+                            f.excluded.remove(c);
+                        } else {
+                            f.excluded.insert(c.clone());
+                        }
+                    }
+                }
+            });
+        });
+        ui.label("Citing");
+        ui.add(egui::TextEdit::singleline(&mut f.citing_min).desired_width(44.0).hint_text("min"))
+            .on_hover_text("the Citing column: decisions citing it, summed over this view's slices (blank there = 0). CourtListener's results use its own citing count.");
+        ui.label("to");
+        ui.add(egui::TextEdit::singleline(&mut f.citing_max).desired_width(44.0).hint_text("max"));
+        let law_ticked = GOOD_LAW.iter().filter(|(r, _)| !f.law_excluded.contains(r)).count();
+        let law_title = if law_ticked == GOOD_LAW.len() { "Good law: all".to_string() } else { format!("Good law: {law_ticked} of {}", GOOD_LAW.len()) };
+        let law_config = MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        MenuButton::new(law_title).config(law_config).ui(ui, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("All").clicked() {
+                    f.law_excluded.clear();
+                }
+                if ui.button("None").clicked() {
+                    f.law_excluded = GOOD_LAW.iter().map(|(r, _)| *r).collect();
+                }
+            });
+            ui.separator();
+            for (r, name) in GOOD_LAW {
+                let mut on = !f.law_excluded.contains(&r);
+                if ui.checkbox(&mut on, name).changed() {
+                    if on {
+                        f.law_excluded.remove(&r);
+                    } else {
+                        f.law_excluded.insert(r);
+                    }
+                }
+            }
+        })
+        .0
+        .on_hover_text("what the Good law column shows. Only cases with a cached check have a status, so most read Not computed; the first change reads the cached result of every match, which can pause a large search.");
+        if f.narrows() && ui.button("Clear filters").clicked() {
+            f.from.clear();
+            f.to.clear();
+            f.excluded.clear();
+            f.citing_min.clear();
+            f.citing_max.clear();
+            f.law_excluded.clear();
+        }
+        if f.sort != SortKey::Default && ui.button("Default order").clicked() {
+            f.sort = SortKey::Default;
+            f.asc = false;
+        }
+    }));
+    ui.add_space(4.0);
+    if f != old {
+        app.set_search_filter(page, f);
     }
 }
 
@@ -1627,14 +1791,20 @@ fn api_hits(app: &mut App, ui: &mut Ui, page: &Page) {
             return;
         }
     };
-    let new: Vec<_> = res.hits.iter().filter(|h| !h.local).collect();
+    let filter = app.search_filters.get(page).cloned().unwrap_or_default();
+    let new: Vec<_> = res
+        .hits
+        .iter()
+        .filter(|h| !h.local && filter.keeps(h.date.get(..4).and_then(|y| y.parse().ok()), &h.court, h.cited, None))
+        .collect();
+    let local = res.hits.iter().filter(|h| h.local).count();
     ui.strong(format!("CourtListener: {} not in the local database", new.len()));
     ui.weak(format!(
         "filed {} · {} matches, first {} read ({} already local) · {}",
         if res.after.is_empty() { "any date".to_string() } else { format!("after {}", res.after) },
         res.count.map(|n| n.to_string()).unwrap_or_else(|| "?".into()),
         res.hits.len(),
-        res.hits.len() - new.len(),
+        local,
         if res.cached { format!("cached {}", res.fetched) } else { "1 API request".to_string() }
     ));
     let mut go = None;
@@ -1643,7 +1813,7 @@ fn api_hits(app: &mut App, ui: &mut Ui, page: &Page) {
         egui::Grid::new("api_hits").striped(true).num_columns(6).show(ui, |ui| {
             for h in &new {
                 ui.vertical(|ui| {
-                    if ui.link(&h.name).clicked() {
+                    if ui.link(short_case_name(&h.name)).on_hover_text(&h.name).clicked() {
                         go = Some(Page::Case(h.cluster));
                     }
                     if !h.snippet.is_empty() {
