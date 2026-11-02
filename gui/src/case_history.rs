@@ -173,8 +173,29 @@ fn index(app: &mut App, ui: &mut Ui) {
     ui.label("One federal case across its courts: its dockets, appeals and remands. Start from any docket in the chain.");
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut app.history_ui.court).hint_text("court id, e.g. scotus").desired_width(130.0))
-            .on_hover_text("CourtListener's court id: scotus, ca1–ca11, cadc, cafc; district courts like mdd (D. Md.), nysd (S.D.N.Y.)");
+        // the Supreme Court first, then the courts of appeals and the rest; its usual starting point is the default
+        let courts: Vec<crate::dockets::Court> = app
+            .courts
+            .as_ref()
+            .ok()
+            .and_then(|t| t.as_ref())
+            .map(|t| t.federal.supreme.iter().chain(t.recap_courts()).cloned().collect())
+            .unwrap_or_default();
+        if courts.is_empty() {
+            ui.add(egui::TextEdit::singleline(&mut app.history_ui.court).hint_text("court id, e.g. scotus").desired_width(130.0))
+                .on_hover_text("CourtListener's court id: scotus, ca1–ca11, cadc, cafc; district courts like mdd (D. Md.), nysd (S.D.N.Y.)");
+        } else {
+            if app.history_ui.court.is_empty() {
+                app.history_ui.court = courts[0].id.clone();
+            }
+            let cur = courts.iter().find(|c| c.id == app.history_ui.court).map(|c| if c.cite.is_empty() { c.name.clone() } else { c.cite.clone() });
+            egui::ComboBox::from_id_salt("history-court").selected_text(cur.unwrap_or_else(|| app.history_ui.court.clone())).width(130.0).show_ui(ui, |ui| {
+                for c in &courts {
+                    let label = if c.cite.is_empty() { c.name.clone() } else { format!("{} — {}", c.cite, c.name) };
+                    ui.selectable_value(&mut app.history_ui.court, c.id.clone(), label);
+                }
+            });
+        }
         let r = ui.add(egui::TextEdit::singleline(&mut app.history_ui.number).hint_text("case no., e.g. 21-454").desired_width(160.0));
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ui.button("Open").on_hover_text("shows the chain if it is built; otherwise offers to build it").clicked() || enter {
