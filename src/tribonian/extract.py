@@ -34,9 +34,10 @@ from pathlib import Path
 
 from tribonian import rules, trace
 
-VERSION = 4                     # 2: a mark is matched to its note anywhere later in the brief (endnotes)
+VERSION = 5                     # 2: a mark is matched to its note anywhere later in the brief (endnotes)
                                 # 3: labels in order, "6. Text" labels, a wrapped "12, 2024)." is not a label
                                 # 4: numbering that starts again at 1 (an appendix's own opinions); "5.56mm" is not a label
+                                # 5: a page whose text is drawn sideways is turned upright first (a landscape table)
 NOTES_START = ""
 NOTE_LABEL = ""
 MARK_DIGITS = "".join(chr(0xE030 + d) for d in range(10))   # a footnote mark's digits: same width as 0-9
@@ -91,14 +92,46 @@ def stale(pdf):
 
 # ---------------------------------------------------------------- the PDF's own type
 
+def turn_for(ch):
+    """A page's characters -> the clockwise turn (90, 180, 270) that sets its text upright, or 0. Most of the page
+    has to be sideways or upside down: a landscape table on a portrait page (Cruz et al.'s appendix), not a
+    rotated label in a margin."""
+    if len(ch) < 50 or sum(1 for c in ch if c.get("upright")) >= 0.5 * len(ch):
+        return 0
+    sign = lambda v: (v > 0.01) - (v < -0.01)   # the text matrix's direction (its scale is the font size)
+    a, b = Counter((sign(c["matrix"][0]), sign(c["matrix"][1])) for c in ch).most_common(1)[0][0]
+    return {(0, 1): 90, (0, -1): 270, (-1, 0): 180}.get((a, b), 0)
+
+
+def turned_copy(pdf, turns, folder):
+    """A copy of the PDF with these pages turned ({page index: degrees clockwise}); the original is not touched."""
+    import pypdfium2 as pdfium
+    doc = pdfium.PdfDocument(str(pdf))
+    try:
+        for pi, deg in turns.items():
+            doc[pi].set_rotation((doc[pi].get_rotation() + deg) % 360)
+        out = Path(folder) / pdf.name
+        doc.save(str(out))
+    finally:
+        doc.close()
+    return out
+
+
 def plumber_pages(pdf):
-    """-> (body size, [page: [(char, size, raised mark?)]]) in content order, whitespace left out.
-    A glyph pdfplumber cannot map ("(cid:49)") is kept as a character that matches nothing."""
+    """-> (body size, [page: [(char, size, raised mark?)]], {page index: turn}) in content order, whitespace left
+    out. A glyph pdfplumber cannot map ("(cid:49)") is kept as a character that matches nothing. The turns: pages
+    whose text is drawn sideways (turn_for); their characters are read again once the pages are turned."""
+    import logging
     import pdfplumber
-    pages, sizes = [], Counter()
+    # pdfminer warns about each malformed font map ("Ignoring (part of) ToUnicode map"); the characters it cannot
+    # map come out as (cid:N), the page's two reads disagree, and it keeps pdftotext's text: nothing to report
+    logging.getLogger("pdfminer").setLevel(logging.ERROR)
+    pages, sizes, turns = [], Counter(), {}
     with pdfplumber.open(str(pdf)) as doc:
-        for pg in doc.pages:
+        for pi, pg in enumerate(doc.pages):
             ch = [c for c in pg.chars if c["text"].strip()]
+            if turn_for(ch):
+                turns[pi] = turn_for(ch)
             sizes.update(round(c["size"], 1) for c in ch)
             out, ref, last = [], None, None      # ref: the text a mark is measured against
             for c in ch:
@@ -116,7 +149,7 @@ def plumber_pages(pdf):
             pg.flush_cache()
             pages.append(out)
     body = sizes.most_common(1)[0][0] if sizes else 0
-    return body, pages
+    return body, pages, turns
 
 
 def pdftotext_pages(pdf):
@@ -133,9 +166,39 @@ def align(page_text, chars):
     b = "".join(c[0] for c in chars)
     attr = {}
     sm = SequenceMatcher(None, a, b, autojunk=False)
+    got = set()
     for i, j, n in sm.get_matching_blocks():
         for k in range(n):
             attr[pos[i + k]] = chars[j + k][1:]
+            got.add(j + k)
+    # a mark the alignment left out: the two reads take a table's cells in a different order (pdftotext by rows,
+    # pdfplumber cell by cell), so short cells ("GA4") fall between the long matches. Find the mark with the few
+    # characters before it ("GA" + "4") in pdftotext's text, the next place after the last one found.
+    j, start = 0, 0
+    while j < len(b):
+        if not (chars[j][2] and j not in got):
+            j += 1
+            continue
+        end = j
+        while end < len(b) and chars[end][2]:
+            end += 1
+        pre = j
+        while pre > 0 and j - pre < 6 and not chars[pre - 1][2]:
+            pre -= 1
+        at = -1                                  # the longest context that is found, down to 2 characters
+        for pre in range(pre, j - 1):            # ("1799CT19": the year is a row above in pdftotext; "CT19")
+            needle = b[pre:end]
+            at = a.find(needle, start)
+            if at < 0:
+                at = a.find(needle)
+            if at >= 0:
+                break
+        if at >= 0:
+            for k in range(end - j):
+                attr[pos[at + (j - pre) + k]] = chars[j + k][1:]
+            start = at + len(needle)
+            trace.hit("align", "mark:found-by-context", None, needle, keep=False)
+        j = end
     return attr, (sum(n for _, _, n in sm.get_matching_blocks()) / len(a) if a else 1.0)
 
 
@@ -302,6 +365,90 @@ def split_page(text, attr, body, nxt, prev_notes):
     return body_lines, block, marks, [n[0] for n in labelled], nxt, True
 
 
+# ---------------------------------------------------------------- tables (detection only, for now)
+
+LEADER_WORD = re.compile(r"(?:\.\s?){4,}|…{2,}|·{4,}")    # dot leaders, in a word of their own or run into the text
+
+
+def find_tables(pg, body):
+    """One pdfplumber page -> its table-like regions: [{kind, top, bottom, rows, cols, cell, sample}].
+    A line is split where the space between two words is far wider than a justified line's (columns); a table is
+    3+ such lines, consecutive or with a wrapped cell's line between them, whose splits line up. kind:
+      leaders      a table of contents or authorities (dot leaders): the build already sets these
+      ruled        drawn lines around the cells (pdfplumber's own table finder agrees)
+      short-cells  cells of a few words: a list of names, a signature block
+      aligned      columns of text with no lines
+    Not used by extract() yet: tribonian's tools/table_survey.py counts what it finds across the filings."""
+    words = pg.extract_words(x_tolerance=1.5, y_tolerance=2, extra_attrs=["size"])
+    if not words:
+        return []
+    gap_min = max(12.0, 1.3 * (body or 10))
+    lines = []                                   # [(top, [(x0, x1, text)])]
+    for w in sorted(words, key=lambda w: (round(w["top"]), w["x0"])):
+        if lines and abs(w["top"] - lines[-1][0]) < 3:
+            lines[-1][1].append(w)
+        else:
+            lines.append([w["top"], [w]])
+    rows = []                                    # per line: (top, bottom, [segments (x0, text)], leader?)
+    for top, ws in lines:
+        ws.sort(key=lambda w: w["x0"])
+        leader = any(LEADER_WORD.search(w["text"]) for w in ws)
+        if leader and len(ws) > 1:               # an entry and its page: two cells, however close the dots run
+            segs = [ws[:-1], ws[-1:]]
+        else:
+            segs, cur = [], [ws[0]]
+            for a, b in zip(ws, ws[1:]):
+                if b["x0"] - a["x1"] >= gap_min:
+                    segs.append(cur)
+                    cur = []
+                cur.append(b)
+            segs.append(cur)
+        rows.append((top, max(w["bottom"] for w in ws), [(s[0]["x0"], " ".join(w["text"] for w in s)) for s in segs], leader))
+    out, i = [], 0
+    while i < len(rows):
+        if len(rows[i][2]) < 2:
+            i += 1
+            continue
+        j, last, starts = i, i, []
+        while j < len(rows):                     # the run: split lines, and a wrapped cell's line between them
+            segs = rows[j][2]
+            if len(segs) >= 2:
+                starts += [round(x) for x, _ in segs[1:]]
+                last = j
+            elif j - last > 1 or not any(abs(segs[0][0] - x) <= 6 for x in starts):
+                break
+            j += 1
+        split = [r for r in rows[i:last + 1] if len(r[2]) >= 2]
+        if len(split) >= 3:
+            cols = sorted(set(starts))
+            kept, run = [], []
+            for x in cols:                       # column starts that 3+ lines share (within 6pt)
+                if run and x - run[-1] > 6:
+                    if sum(starts.count(y) for y in run) >= max(3, len(split) // 2):
+                        kept.append(run[0])
+                    run = []
+                run.append(x)
+            if run and sum(starts.count(y) for y in run) >= max(3, len(split) // 2):
+                kept.append(run[0])
+            if kept:
+                cells = [t for r in split for _, t in r[2]]
+                cell = sum(len(t.split()) for t in cells) / len(cells)
+                top, bottom = split[0][0], split[-1][1]
+                if sum(r[3] for r in split) >= len(split) / 2:
+                    kind = "leaders"
+                elif any(t.bbox[1] <= bottom and t.bbox[3] >= top for t in pg.find_tables()):
+                    kind = "ruled"
+                elif cell <= 4:
+                    kind = "short-cells"
+                else:
+                    kind = "aligned"
+                out.append({"kind": kind, "top": round(top), "bottom": round(bottom), "rows": len(split),
+                            "cols": len(kept) + 1, "cell": round(cell, 1),
+                            "sample": " / ".join(" | ".join(t for _, t in r[2]) for r in split[:2])[:160]})
+        i = last + 1
+    return out
+
+
 # ---------------------------------------------------------------- one PDF
 
 def extract(pdf, write=True):
@@ -319,9 +466,19 @@ def extract(pdf, write=True):
 
 
 def _extract(pdf):
+    import tempfile
     texts = pdftotext_pages(pdf)
+    turned = []
     try:
-        body, chars = plumber_pages(pdf)
+        body, chars, turns = plumber_pages(pdf)
+        if turns:                                # sideways text: read both again from a copy with those pages turned
+            with tempfile.TemporaryDirectory() as tmp:
+                copy = turned_copy(pdf, turns, tmp)
+                texts = pdftotext_pages(copy)
+                body, chars, _ = plumber_pages(copy)
+            turned = sorted(turns)
+            for pi in turned:
+                trace.hit("page", "turned:sideways-text", pi, "%d degrees" % turns[pi])
     except Exception as e:                       # pdfplumber cannot read it: pdftotext's text as it is
         body, chars, err = 0, [], repr(e)[:200]
     else:
@@ -363,5 +520,6 @@ def _extract(pdf):
     text = "\f".join("\n".join(lines + block) for lines, block, _ in pages)
     summary = {"version": VERSION, "pdf": pdf.name, "pdf_bytes": pdf.stat().st_size, "pdf_mtime": int(pdf.stat().st_mtime),
                "pages": len(texts), "body_size": body, "notes": len(notes), "marked": marked,
-               "unread_pages": unread, "how": "superscript" if notes else "text", "error": err}
+               "unread_pages": unread, "turned_pages": [pi + 1 for pi in turned],
+               "how": "superscript" if notes else "text", "error": err}
     return text, summary
