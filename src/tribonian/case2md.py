@@ -656,9 +656,38 @@ def inline(node, mode, ctx, marks):
                        "\\leaders\\hbox to .6em{\\hss.\\hss}\\hskip 1.5em plus 1fill\\nobreak\\mbox{\\,%s}" % pages)
         elif k.tag == "br":
             out.append(" ")
+        elif k.tag == "table":
+            out.append(table_out(k, mode, ctx, marks))
         else:
             out.append(inline(k, mode, ctx, marks))
     return "".join(out)
+
+
+ROWBREAK = "\ue024"                     # a Markdown table's line break: not whitespace, so clean() keeps it; a newline after
+
+
+def table_out(t, mode, ctx, marks):
+    """<table><tr><td>... (a ruled table extract.py read cell by cell) -> a Markdown pipe table, or in the PDF one
+    small tabular per row (a long table breaks between rows; a tabular inside the breakable boxes can't), the
+    columns as wide as their text needs, in proportion."""
+    rows = [[clean(inline(td, mode, ctx, marks)) for td in tr.kids if isinstance(td, El)] for tr in t.kids if isinstance(tr, El)]
+    rows = [r for r in rows if any(r)]
+    if not rows:
+        return ""
+    n = int(t.attrs.get("ncols") or max(len(r) for r in rows))
+    rows = [r + [""] * (n - len(r)) for r in rows]
+    first = t.attrs.get("row", "0") == "0"      # fill_opinion: one row per item; the first draws the top rule
+    if mode == "md":
+        lines = ["| " + " | ".join(r) + " |" for r in rows]
+        if first:
+            lines.insert(1, "|" + "---|" * n)
+        return ROWBREAK.join(lines)
+    widths = [float(w) for w in t.attrs["widths"].split(",")] if t.attrs.get("widths") else [1.0 / n] * n
+    room = 1.0 - 0.022 * (n - 1)               # less the 4pt gaps between columns
+    spec = "@{}" + "".join("p{%.3f\\linewidth}" % (room * w) for w in widths) + "@{}"
+    body = "".join("\\noindent\\begin{tabular}{%s}%s%s\\\\\\hline\\end{tabular}\\par\\nointerlineskip\n"
+                   % (spec, "\\hline " if first and i == 0 else "", " & ".join(r)) for i, r in enumerate(rows))
+    return "{\\footnotesize\\setlength{\\tabcolsep}{4pt}\\renewcommand{\\arraystretch}{1.1}%s}" % body
 
 
 # ---------------------------------------------------------------- quote marks: where later opinions reuse the wording
@@ -2064,9 +2093,14 @@ def render_md(meta, ops, tail="", cluster=None, head=None):
                     title = ". " + esc(clean(blocks[0][1].text()), "md")
                     blocks = blocks[1:]
                 L.extend(["#" * (2 + part.level) + " " + part.label + title, ""])
+            group = None
             for kind, el in blocks:
                 marks = []
-                t = clean(inline(el, "md", ctx, marks))
+                t = clean(inline(el, "md", ctx, marks)).replace(ROWBREAK, "\n")
+                g = el.kids[0].attrs.get("group") if el.attrs.get("table") and el.kids else None
+                if g and g == group and L and L[-1] == "":
+                    L.pop()                     # the next row of the same table: no blank line between
+                group = g
                 L.extend([("> " if kind == "q" else "") + t, ""])
                 for m in marks:
                     d = fn_md(o, ctx, m)
@@ -2336,14 +2370,15 @@ def render_tex(meta, ops, fontpkg, style):
                         lead = "\\tocback" + toc_entry("tochead" if part.level == 1 else "tocsub", toc_head(part, el, 60)) + lead
                     if depth <= 0:               # unboxed top-level heading: not alone at a page's foot (boxed ones
                         lead = "\\headroom{5}" + lead      # already need 3 lines before tcolorbox breaks them)
-                    if kind == "q" or kind is None:          # label on its own line
+                    if kind == "q" or kind is None or (el is not None and el.attrs.get("table")):   # label on its own line
                         parts_add(depth, [lead + "\\par"], first and i == 0)
                         lead = ""
                         if kind is None:
                             break
                         first = False
                 text, fns = block(kind, el, lead)
-                r = parts_add(depth, [text + "\\par"], first and i == 0, fns)
+                row = el.kids[0].attrs.get("row") if el is not None and el.attrs.get("table") and el.kids else None
+                r = parts_add(depth, [text + "\\par"], first and i == 0, fns, gap=row in (None, "0"))
                 last = r or last
             group_last = None
             bare = toc and part.level == 1 and not re.fullmatch(r"[IVXLC]+|[A-Z]|\d+|[a-z]", part.label or "")   # "Argument": list its I., II. too
@@ -2355,9 +2390,9 @@ def render_tex(meta, ops, fontpkg, style):
                 last = group_last
             return last
 
-        def parts_add(depth, paras, opens, fns=""):
-            if depth <= 0:
-                parts.append("\\vspace{%s}%s\n" % ("3pt", "\n".join(paras)))
+        def parts_add(depth, paras, opens, fns="", gap=True):
+            if depth <= 0:                      # gap=False: a table's next row, straight under the one before
+                parts.append("%s%s\n" % ("\\vspace{3pt}" if gap else "\\nointerlineskip", "\n".join(paras)))
                 rec = None
             else:
                 rec = {"depth": depth, "paras": paras, "opens": opens, "closes": []}
@@ -2886,7 +2921,7 @@ STAMP_RE = re.compile(r"^\s*\(\d{1,4} of \d{1,4}\)\s*$")      # a combined PDF's
 FNLABEL_RE = re.compile(r"^\s*(\d{1,3})\s*$")
 NUMHEAD_RE = re.compile(r"^([IVX]{1,6}|[A-Z]|\d{1,2})\.\s+(\S.{0,90})$")
 # a table of contents / authorities line: dot leaders, then the page(s) at the right margin
-LEADER_RE = re.compile(r"\s*\.(?:\s?\.){3,}\s*((?:\d+|[ivxlc]+|passim)(?:\s*(?:,|&|–|-|and)\s*(?:\d+|passim))*)\s*$", re.I)
+LEADER_RE = re.compile(r"\s*\.(?:\s{0,3}\.){3,}\s*((?:\d+a?|[ivxlc]+|passim)(?:\s*(?:,|&|–|-|and)\s*(?:\d+a?|passim))*)\s*$", re.I)   # "13a": an appendix page
 ENUM_RE = re.compile(r"^\((?:\d{1,2}|[a-z]|[ivx]{1,4})\)\s")
 STATUTE_RE = re.compile(r"\d+\s*U\.\s?S\.\s?C\.?\s*(?:A\.\s*)?§+\s*\d+[A-Za-z]*(?:-\d+[A-Za-z]*)?")
 # a footnote number glued to the end of a word or punctuation: "FOIA1", "(MMS),1", "SOPs.3" -- not dot leaders ("....2")
@@ -3234,8 +3269,9 @@ def layout_pages(text, heads=None):
         labels.append(label)
         if not any(l.strip() for l in raw):
             continue
-        margin = min(len(l) - len(l.lstrip()) for l in raw if l.strip())
-        raw = [l[margin:] if l.strip() else "" for l in raw]
+        tab = lambda l: l[:1] in extract.TABLE_CHARS        # extract.py's table block: kept as it is
+        margin = min([len(l) - len(l.lstrip()) for l in raw if l.strip() and not tab(l)] or [0])
+        raw = [l if tab(l) else l[margin:] if l.strip() else "" for l in raw]
         prev_open = bool(footnotes) and not re.search(r"[.)”\"’]\s*$", join_lines(footnotes[-1][2][-1] if footnotes[-1][2] else []))
         if given is not None:                   # extracted from the PDF's type (extract.py): taken as they are
             body, fns = raw, []
@@ -3334,6 +3370,17 @@ def _(c):
 
 # a line inside a run: a heading set with no blank line around it
 IN_RUN = rules.Decision("block")
+CONTENTS_TITLE_RE = re.compile(r"(?i)^\s*(?:appendix\s+)?(?:table of (?:contents|appendices)|index to appendi(?:x|ces))\s*$")
+
+
+@IN_RUN.rule("head:contents-title")             # "TABLE OF CONTENTS", "TABLE OF APPENDICES": a line of its own
+def _(c):
+    return bool(CONTENTS_TITLE_RE.match(c.l.text))
+
+
+@IN_RUN.rule("drop:page-column-header")         # a contents page's "Page" over the numbers: not an entry's text
+def _(c):
+    return bool(re.fullmatch(r"(?i)\s*pages?|page\(s\)\s*", c.l.text))
 
 
 @IN_RUN.rule("heading:centred-label-in-run")    # a centred "II"
@@ -3398,9 +3445,11 @@ def recap_blocks(lines, labels):
     def median(xs):
         xs = sorted(xs)
         return xs[len(xs) // 2] if xs else None
-    whole = median([l.end for l in lines if len(l.text) >= 25]) or max((l.end for l in lines), default=80)
+    from tribonian import extract
+    text_lines = [l for l in lines if l.text[:1] not in extract.TABLE_CHARS]   # a table block's lines: not the page's margins
+    whole = median([l.end for l in text_lines if len(l.text) >= 25]) or max((l.end for l in text_lines), default=80)
     for pi in {l.pi for l in lines}:
-        mine = [l for l in lines if l.pi == pi]
+        mine = [l for l in text_lines if l.pi == pi] or [l for l in lines if l.pi == pi]
         ends = [l.end for l in mine if len(l.text) >= 25]
         right[pi] = median(ends) if len(ends) >= 4 else whole
         spaced = [l.ind for l in mine if l.gap != 0] or [l.ind for l in mine]
@@ -3449,6 +3498,21 @@ def recap_blocks(lines, labels):
 
     sig, carry = None, None
     for run in runs:
+        if run[0].text == extract.TABLE_START:  # extract.py's table: its rows and cells as they are
+            cur, carry = None, None
+            ncols = max((l.text.count(extract.TABLE_CELL) + 1 for l in run if l.text.startswith(extract.TABLE_ROW)), default=0)
+            if blocks and blocks[-1]["kind"] == "table" and blocks[-1]["ncols"] == ncols:
+                tb = blocks[-1]                 # the same table going on from the page before: one table, one set of widths
+                trace.hit("block", "table:continues", run[0].pi, keep=False)
+            else:
+                tb = new("table", ncols=ncols)
+            for l in run[1:]:
+                if l.text.startswith(extract.TABLE_ROW):
+                    for cell in l.text[1:].split(extract.TABLE_CELL):
+                        tb["pieces"] += [(cell, l.pi), El("cell")]
+                    tb["pieces"].append(El("row"))
+            trace.hit("block", "table:extracted", run[0].pi, run[1].text[1:].replace(extract.TABLE_CELL, " | ") if len(run) > 1 else "")
+            continue
         # single-spaced text: a page break is not a blank line, so a paragraph that reaches the
         # foot of a page at full width runs on at the top of the next
         if not double and cur is None and carry is not None and run[0].gap is None \
@@ -3520,6 +3584,12 @@ def recap_blocks(lines, labels):
             ic = rules.ctx(run=run, l=l, cur=cur, gap=right[l.pi] - l.end,
                            m=NUMHEAD_RE.match(l.text) if len(run) > 1 and l.ind >= 6 else None)
             kind = IN_RUN.decide(ic, l.pi, l.text)
+            if kind == "head:contents-title":
+                cur = None
+                new("head", pieces=[(l.text.strip(), l.pi)])
+                continue
+            if kind == "drop:page-column-header":
+                continue
             if kind == "heading:centred-label-in-run":
                 cur = None                      # a centred "II" with no blank line around it
                 new("h", label=l.text.rstrip("."))
@@ -3648,7 +3718,7 @@ def place_marks(blocks, footnotes, warn, spaced=False):
                 pieces = blocks[bi]["pieces"]
                 while pj < len(pieces):
                     p = pieces[pj]
-                    if isinstance(p, tuple) and (blocks[bi]["kind"] in ("p", "q") or (pat == "TOKEN" and blocks[bi]["kind"] in ("head", "title"))):
+                    if isinstance(p, tuple) and (blocks[bi]["kind"] in ("p", "q") or (pat == "TOKEN" and blocks[bi]["kind"] in ("head", "title", "table"))):
                         if p[1] > pi:
                             break
                         last = (bi, pj)
@@ -3860,6 +3930,31 @@ def fill_opinion(o, blocks, footnotes):
             if b["pieces"]:
                 o["flat"].append(["p", El("p")])
                 o["flat"][-1][1].kids.append(element("i", b["pieces"]))
+        elif b["kind"] == "table":
+            # one item per row (its footnotes print on the page the row is on; the PDF breaks between rows), the
+            # table's column widths worked out once over all its rows and shared
+            rows, row, cell = [], El("tr"), []
+            for p in b["pieces"]:
+                if isinstance(p, El) and p.tag == "cell":
+                    row.kids.append(element("td", cell))
+                    cell = []
+                elif isinstance(p, El) and p.tag == "row":
+                    rows.append(row)
+                    row = El("tr")
+                else:
+                    cell.append(p)
+            rows = [r for r in rows if any(td.text().strip() for td in r.kids)]
+            n = max((len(r.kids) for r in rows), default=0)
+            need = [max(4, min(60, sum(len(r.kids[i].text()) for r in rows if i < len(r.kids)) / max(1, len(rows))))
+                    for i in range(n)]
+            widths = ",".join("%.4f" % (w / sum(need)) for w in need)
+            group = "t%d" % len(o["flat"])
+            for i, r in enumerate(rows):
+                tab = El("table", {"group": group, "row": str(i), "widths": widths, "ncols": str(n)})
+                tab.kids.append(r)
+                wrap = El("p", {"table": "yes"})
+                wrap.kids.append(tab)
+                o["flat"].append(["p", wrap])
         elif any(isinstance(p, tuple) and p[0].strip() for p in b["pieces"]):
             el = element("blockquote" if b["kind"] == "q" else "p", b["pieces"])
             o["flat"].append(["q" if b["kind"] == "q" else "p", leader_entry(el) if b.get("toc") else el])

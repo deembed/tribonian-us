@@ -34,16 +34,22 @@ from pathlib import Path
 
 from tribonian import rules, trace
 
-VERSION = 5                     # 2: a mark is matched to its note anywhere later in the brief (endnotes)
+VERSION = 7                     # 2: a mark is matched to its note anywhere later in the brief (endnotes)
                                 # 3: labels in order, "6. Text" labels, a wrapped "12, 2024)." is not a label
                                 # 4: numbering that starts again at 1 (an appendix's own opinions); "5.56mm" is not a label
                                 # 5: a page whose text is drawn sideways is turned upright first (a landscape table)
+                                # 6: a ruled table is read cell by cell into a table block
+                                # 7: a table's line pdftotext set outside its box goes with it; "1a" is not note 1
 NOTES_START = ""
 NOTE_LABEL = ""
+TABLE_START, TABLE_END = "\ue020", "\ue022"   # a table block, in place of the table's lines: one TABLE_ROW line
+TABLE_ROW, TABLE_CELL = "\ue023", "\ue021"    # per row, its cells split by TABLE_CELL
+TABLE_CHARS = TABLE_START + TABLE_END + TABLE_ROW
 MARK_DIGITS = "".join(chr(0xE030 + d) for d in range(10))   # a footnote mark's digits: same width as 0-9
 TO_MARK = str.maketrans("0123456789", MARK_DIGITS)
 FROM_MARK = str.maketrans(MARK_DIGITS, "0123456789")
-DROP_MARK = {ord(ch): None for ch in MARK_DIGITS}
+DROP_MARK = {ord(ch): None for ch in MARK_DIGITS + TABLE_CHARS}
+DROP_MARK[ord(TABLE_CELL)] = " "                 # a table's cells read as text, a space between them
 MARK_RE = re.compile("[%s]+" % MARK_DIGITS)
 
 SMALL = rules.PARAMS.small      # a footnote's type, or a mark: below this share of the body size
@@ -117,16 +123,117 @@ def turned_copy(pdf, turns, folder):
     return out
 
 
+def cell_text(cs):
+    """A table cell's characters [(char dict, raised mark?)] -> its text, lines joined, marks in look-alike digits."""
+    if cs and sum(1 for c, _ in cs if not c.get("upright", True)) > len(cs) / 2:
+        # a header set vertically: read along the text (up the page when it is turned left)
+        up = Counter((c["matrix"][1] > 0) for c, _ in cs).most_common(1)[0][0]
+        cols = []                                # its lines are columns: [x, [chars]]
+        for c, _ in sorted(cs, key=lambda cr: cr[0]["x0"]):
+            if cols and abs(cols[-1][0] - c["x0"]) < 2:
+                cols[-1][1].append(c)
+            else:
+                cols.append([c["x0"], [c]])
+        parts = []
+        for _, col in (cols if up else cols[::-1]):          # turned left: the first line is the leftmost
+            col.sort(key=lambda c: -c["bottom"] if up else c["top"])
+            t, prev = "", None
+            for c in col:
+                gap = 0 if prev is None else (prev["top"] - c["bottom"]) if up else (c["top"] - prev["bottom"])
+                if gap > 0.2 * ((prev or c)["size"] or 10):
+                    t += " "
+                t += c["text"]
+                prev = c
+            parts.append(t)
+        return " ".join(" ".join(parts).split())
+    # a mark, by the cell's own geometry (the page's content order can put another cell's text before it): digits
+    # smaller than the cell's text and raised above the baseline of the text beside them
+    if cs:
+        sizes = sorted(c["size"] for c, _ in cs)
+        text_size = sizes[len(sizes) // 2]
+        full = [c for c, _ in cs if c["size"] >= text_size * 0.95]
+        def raised(c):
+            if not (c["text"].isdigit() and c["size"] < text_size * 0.95):
+                return False
+            beside = [f for f in full if f["bottom"] - 8 <= c["bottom"] <= f["bottom"] + 1 and abs(f["x1"] - c["x0"]) < 20]
+            return any(c["bottom"] < f["bottom"] - RAISE for f in beside)
+        cs = [(c, r or raised(c)) for c, r in cs]
+    lines = []                                   # [bottom, [(char, raised)]]
+    for c, r in sorted(cs, key=lambda cr: (cr[1], cr[0]["bottom"])):   # the text's lines first, then the marks
+        if r:                                    # a mark goes on the line just below its baseline
+            near = [ln for ln in lines if 0 <= ln[0] - c["bottom"] <= 8]
+            if near:
+                min(near, key=lambda ln: ln[0] - c["bottom"])[1].append((c, r))
+                continue
+        hit = next((ln for ln in lines if abs(ln[0] - c["bottom"]) < 2), None)
+        if hit:
+            hit[1].append((c, r))
+        else:
+            lines.append([c["bottom"], [(c, r)]])
+    out = []
+    for _, ln in sorted(lines, key=lambda ln: ln[0]):
+        ln.sort(key=lambda cr: cr[0]["x0"])
+        t, prev = "", None
+        for c, r in ln:
+            if prev is not None and c["x0"] - prev["x1"] > 0.2 * (prev["size"] or 10) and not r:
+                t += " "
+            t += c["text"].translate(TO_MARK) if r else c["text"]
+            prev = c
+        out.append(t)
+    text = ""
+    for l in out:                                # "consti-" + "tution": the word whole again
+        text = text[:-1] + l if text.endswith("-") and l[:1].islower() else (text + " " + l if text else l)
+    return text.strip()
+
+
+def page_tables(pg, ch, out):
+    """A page's ruled tables (pdfplumber finds them by their lines) -> [{top, bottom, rows: [[cell text]]}], each
+    cell read from the characters inside its own box. Charts and figures that only look ruled (cells of a letter
+    or two) are left out."""
+    try:
+        found = pg.find_tables()
+    except Exception:
+        return []
+    res = []
+    for t in found:
+        rows = []
+        for r in t.rows:
+            cells = []
+            for box in r.cells:
+                if box is None:                  # covered by a cell spanning it
+                    cells.append("")
+                    continue
+                x0, top, x1, bottom = box
+                cells.append(cell_text([(c, o[2]) for c, o in zip(ch, out) if c["x0"] >= x0 - 1 and c["x1"] <= x1 + 1
+                                        and c["top"] >= top - 1 and c["bottom"] <= bottom + 1]))
+            if any(cells):
+                rows.append(cells)
+        if not rows:
+            continue
+        n = max(len(r) for r in rows)
+        rows = [r + [""] * (n - len(r)) for r in rows]
+        keep = [i for i in range(n) if any(r[i] for r in rows)]          # a spacer column, empty in every row: out
+        rows = [[r[i] for i in keep] for r in rows]
+        filled = [x for r in rows for x in r if x]
+        # a table: 2+ rows, 2+ columns, half its rows with 2+ cells filled (ruled lines around text are not one),
+        # and cells of more than a letter or two (a chart's axis labels are not one)
+        if len(rows) < 2 or len(keep) < 2 or sum(1 for r in rows if sum(1 for x in r if x) >= 2) < len(rows) / 2 \
+                or sum(len(x) for x in filled) / len(filled) < 3:
+            continue
+        res.append({"top": t.bbox[1], "bottom": t.bbox[3], "rows": rows})
+    return res
+
+
 def plumber_pages(pdf):
-    """-> (body size, [page: [(char, size, raised mark?)]], {page index: turn}) in content order, whitespace left
-    out. A glyph pdfplumber cannot map ("(cid:49)") is kept as a character that matches nothing. The turns: pages
+    """-> (body size, [page: [(char, size, raised mark?, top)]], {page index: turn}, [page: tables]) in content
+    order, whitespace left out. A glyph pdfplumber cannot map ("(cid:49)") is kept as a character that matches nothing. The turns: pages
     whose text is drawn sideways (turn_for); their characters are read again once the pages are turned."""
     import logging
     import pdfplumber
     # pdfminer warns about each malformed font map ("Ignoring (part of) ToUnicode map"); the characters it cannot
     # map come out as (cid:N), the page's two reads disagree, and it keeps pdftotext's text: nothing to report
     logging.getLogger("pdfminer").setLevel(logging.ERROR)
-    pages, sizes, turns = [], Counter(), {}
+    pages, sizes, turns, tables = [], Counter(), {}, []
     with pdfplumber.open(str(pdf)) as doc:
         for pi, pg in enumerate(doc.pages):
             ch = [c for c in pg.chars if c["text"].strip()]
@@ -144,12 +251,17 @@ def plumber_pages(pdf):
                     raised = True                # the next digit of the same mark
                 else:
                     ref = c
-                out.append((t, c["size"], raised))
+                out.append((t, c["size"], raised, c["top"]))
                 last = c
+            try:
+                tables.append(page_tables(pg, ch, out))
+            except Exception as e:               # a table that can't be read costs that page's tables, not the brief
+                tables.append([])
+                trace.hit("table", "error:" + type(e).__name__, pi, repr(e)[:100])
             pg.flush_cache()
             pages.append(out)
     body = sizes.most_common(1)[0][0] if sizes else 0
-    return body, pages, turns
+    return body, pages, turns, tables
 
 
 def pdftotext_pages(pdf):
@@ -229,6 +341,11 @@ def _(c):
     return bool(re.match(r"[,;:)\]]", c.rest))
 
 
+@LABEL.rule("not-label:appendix-page-number")    # "1a", "12a": an appendix page's number, not note 1
+def _(c):
+    return bool(re.fullmatch(r"[a-z]", c.rest))
+
+
 @LABEL.rule("not-label:decimal-number")         # "5.56mm NATO caliber": a number, not note 5
 def _(c):
     return bool(re.match(r"[.,]\d", c.rest))
@@ -272,7 +389,11 @@ def split_page(text, attr, body, nxt, prev_notes):
     for l in lines:
         starts.append(o)
         o += len(l) + 1
-    none = lambda: (lines, [], page_marks(lines, starts, attr, len(lines)), [], nxt, False)
+    ys = []                                      # each line's place on the page (its characters' middle top)
+    for k, l in enumerate(lines):
+        tops = sorted(attr[starts[k] + i][2] for i, ch in enumerate(l) if not ch.isspace() and starts[k] + i in attr)
+        ys.append(tops[len(tops) // 2] if tops else None)
+    none = lambda: (lines, [], page_marks(lines, starts, attr, len(lines)), [], nxt, False, ys)
 
     def kind(k):
         """'small' (a footnote's type), 'body', or None (too few characters read)."""
@@ -281,7 +402,7 @@ def split_page(text, attr, body, nxt, prev_notes):
         got = [g for g in got if not g[1]]      # marks aside
         if len(got) < 3:
             return None
-        small = sum(sz < body * SMALL for sz, _ in got)
+        small = sum(g[0] < body * SMALL for g in got)
         return "small" if small >= 0.6 * len(got) else "body"
 
     # the notes: from the foot of the page up, small lines (and blank, rule or unreadable ones), past the
@@ -318,8 +439,9 @@ def split_page(text, attr, body, nxt, prev_notes):
     notes, cur, prev_blank, first_label = [], None, False, None
     for k in range(top, end):
         l = lines[k]
-        if RULE_RE.match(l):
-            continue
+        if RULE_RE.match(l) or re.fullmatch(r"\s*\(?\d{1,4}a\)?\s*", l):
+            continue                             # a rule; an appendix page's number ("1a") among the notes
+        l = re.sub(r"\s{3,}\(?\d{1,4}a\)?\s*$", "", l)     # "... yht8wnme.          2a": the page number at its end
         m = re.match(r"^\s*(\d{1,3})\.?(?=\s|[^\d\s]|$)\s*(.*)$", l)      # "6 Text", "6. Text", "6" alone
         n = int(m.group(1)) if m else None
         ahead = min((w for w in want if w >= nxt), default=None)   # the next mark on the page still unclaimed
@@ -362,7 +484,7 @@ def split_page(text, attr, body, nxt, prev_notes):
             if i:
                 block.append("")
             block += p
-    return body_lines, block, marks, [n[0] for n in labelled], nxt, True
+    return body_lines, block, marks, [n[0] for n in labelled], nxt, True, ys[:top] + ys[end:]
 
 
 # ---------------------------------------------------------------- tables (detection only, for now)
@@ -470,37 +592,37 @@ def _extract(pdf):
     texts = pdftotext_pages(pdf)
     turned = []
     try:
-        body, chars, turns = plumber_pages(pdf)
+        body, chars, turns, tables = plumber_pages(pdf)
         if turns:                                # sideways text: read both again from a copy with those pages turned
             with tempfile.TemporaryDirectory() as tmp:
                 copy = turned_copy(pdf, turns, tmp)
                 texts = pdftotext_pages(copy)
-                body, chars, _ = plumber_pages(copy)
+                body, chars, _, tables = plumber_pages(copy)
             turned = sorted(turns)
             for pi in turned:
                 trace.hit("page", "turned:sideways-text", pi, "%d degrees" % turns[pi])
     except Exception as e:                       # pdfplumber cannot read it: pdftotext's text as it is
-        body, chars, err = 0, [], repr(e)[:200]
+        body, chars, tables, err = 0, [], [], repr(e)[:200]
     else:
         err = None
     pages, notes, nxt, prev, unread = [], [], 1, False, 0      # pages: [body lines, block, marks]
     for pi, t in enumerate(texts):
         if pi >= len(chars) or not t.strip():
-            pages.append([t.split("\n"), [], []])
+            pages.append([t.split("\n"), [], [], []])
             prev = False
             continue
         attr, share = align(t, chars[pi])
         if share < rules.PARAMS.agree:           # the two reads disagree (an unmapped font): leave the page be
             trace.hit("page", "unread:reads-disagree", pi, t.strip()[:80])
             unread += 1
-            pages.append([t.split("\n"), [], []])
+            pages.append([t.split("\n"), [], [], []])
             prev = False
             continue
-        lines, block, marks, labels, nxt2, ok = split_page(t, attr, body, nxt, prev)
+        lines, block, marks, labels, nxt2, ok, ys = split_page(t, attr, body, nxt, prev)
         if ok:
             nxt = nxt2
             notes += [(lab, pi) for lab in labels]
-        pages.append([lines, block, marks])
+        pages.append([lines, block, marks, ys])
         prev = ok
     # each note's mark: the last raised digit run with its number at or before the note's page and after the
     # mark before it (a note under its mark, or notes gathered at the end of a section). A raised digit no note
@@ -517,9 +639,42 @@ def _extract(pdf):
         l = pages[pi][0][k]
         pages[pi][0][k] = l[:a] + l[a:b].translate(TO_MARK) + l[b:]
         after, marked = (pi, k, a), marked + 1
-    text = "\f".join("\n".join(lines + block) for lines, block, _ in pages)
+    # each ruled table in place of its lines (pdftotext runs a table's rows and cells together): a table block, its
+    # marks kept where a note claims their number and set back as digits where none does
+    labels = {int(lab) for lab, _ in notes}
+    ntables = 0
+    for pi, pg in enumerate(pages):
+        lines, _, _, ys = pg
+        for t in sorted(tables[pi] if pi < len(tables) else [], key=lambda t: -t["top"]):
+            idx = [k for k, y in enumerate(ys) if y is not None and t["top"] - 2 <= y <= t["bottom"] + 2]
+            if not idx:
+                continue
+            a, b = min(idx), max(idx)
+            # a line of the table pdftotext set just outside its box ("NY 3" under the row it belongs to): its text is
+            # already in a cell, so it goes with the table
+            squash = lambda v: re.sub(r"\W", "", v.translate(FROM_MARK)).lower()
+            whole = squash(" ".join(x for r in t["rows"] for x in r))
+            for step in (1, -1):
+                k, n = (b if step > 0 else a) + step, 0
+                while 0 <= k < len(lines) and n < 3:
+                    v = squash(lines[k])
+                    if not v:
+                        k += step
+                        continue
+                    if len(v) < 2 or v not in whole:
+                        break
+                    a, b = (a, k) if step > 0 else (k, b)
+                    k, n = k + step, n + 1
+            rows = [TABLE_ROW + TABLE_CELL.join(MARK_RE.sub(lambda m: m.group() if int(m.group().translate(FROM_MARK)) in labels
+                                                            else m.group().translate(FROM_MARK), c) for c in r)
+                    for r in t["rows"]]
+            lines[a:b + 1] = ["", TABLE_START] + rows + [TABLE_END, ""]
+            ys[a:b + 1] = [None] * (len(rows) + 4)
+            ntables += 1
+            trace.hit("table", "table:ruled", pi, " | ".join(t["rows"][0])[:100])
+    text = "\f".join("\n".join(lines + block) for lines, block, _, _ in pages)
     summary = {"version": VERSION, "pdf": pdf.name, "pdf_bytes": pdf.stat().st_size, "pdf_mtime": int(pdf.stat().st_mtime),
                "pages": len(texts), "body_size": body, "notes": len(notes), "marked": marked,
-               "unread_pages": unread, "turned_pages": [pi + 1 for pi in turned],
+               "unread_pages": unread, "turned_pages": [pi + 1 for pi in turned], "tables": ntables,
                "how": "superscript" if notes else "text", "error": err}
     return text, summary

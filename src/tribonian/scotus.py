@@ -279,7 +279,7 @@ def fetch(args):
 
 LABEL_RE = re.compile(r"^\s*\(?([ivxlcdm]{1,7}|[IVXLCDM]{1,7}|\d{1,3}a?)\)?\s*$")
 TOC_PAGE_RE = re.compile(r"^\s*(?:(\(?[ivxlcdmIVXLCDM]+\)?|\d+a?)(?:\s*[-–,]\s*\d+a?)*|passim)\s*$")
-TOC_LEAD_RE = re.compile(r"^(.*?)(?:\s*\.(?:\s?\.){2,}\s*|\s{3,})((?:\(?[ivxlcdmIVXLCDM]+\)?|\d+a?)(?:\s*[-–,]\s*\d+a?)*)\s*$")
+TOC_LEAD_RE = re.compile(r"^(.*?)(?:\s*\.(?:\s{0,3}\.){2,}\s*|\s{3,})((?:\(?[ivxlcdmIVXLCDM]+\)?|\d+a?)(?:\s*[-–,]\s*\d+a?)*)\s*$")
 ENTRY_LABEL_RE = re.compile(r"^([IVX]{1,5}|[A-Z]|[a-z]|\d{1,2})\.\s+(.*)$")
 QP_RE = re.compile(r"^\s*QUESTIONS?\s+PRESENTED\b", re.I)
 RANK = {"roman": 0, "upper": 1, "digit": 2, "lower": 3}
@@ -513,6 +513,69 @@ def appendix_cover(ls):
         any(re.fullmatch(r"(?:SUPPLEMENTAL\s+)?APPENDIX\b[A-Z0-9 ,.'’()&-]*", x) for x in top)
 
 
+# "APPENDIX A —", "Appendix B:", "APPENDIX: LIST OF AMICI" (one appendix, no letter); not "APPENDIX TO PETITION"
+APP_TITLE_RE = re.compile(r"(?i)^\s*app(?:endix|\.)(?:\s+([A-Z]|\d+)(?=\s*(?:[—–:.\-]|$)))?(?=\s*(?:[—–:.\-]|$))")
+APP_HEAD_RE = re.compile(r"\s*App(?:endix|\.)\s+[A-Z]{1,2}\s*")                  # a page's running head: "Appendix C"
+APP_TOC_RE = re.compile(r"(?i)^\s*(?:appendix\s+)?(?:table of (?:contents|appendices)|contents|index to appendi(?:x|ces))\s*$")
+
+
+def appendix_contents(pages):
+    """The appendix's own contents page(s) [(label, lines)] -> its appendices, [{label, text, page, level}]: an entry
+    is the lines up to a page number after dot leaders, and a line starting "Appendix X" always starts one (a title
+    with no page of its own above the items it holds takes the next entry's page). Only the "Appendix X" entries are
+    kept: they are the headings; the items under them (statutes, orders) are not."""
+    from tribonian.extract import NOTES_START, drop_marks
+    entries, cur, on = [], None, False
+    for lab, ls in pages:
+        for l in ls:
+            if l == NOTES_START:
+                break
+            t = drop_marks(l).strip()
+            if APP_TOC_RE.match(t):
+                on = True
+                continue
+            if not on or not t or re.fullmatch(r"(?i)page\(?s?\)?", t):
+                continue
+            ind = len(l) - len(l.lstrip())
+            if cur and cur["text"] and (APP_TITLE_RE.match(t) or (cur["title"] and ind <= cur["ind"])):
+                entries.append(cur)                # a new appendix; or a title's own line done (what wraps from it
+                cur = None                         # is indented under it; an item it holds starts at its margin)
+            if re.fullmatch(r"\d+a", t) and cur:  # the entry's page number on a line of its own
+                cur["page"] = t
+                entries.append(cur)
+                cur = None
+                continue
+            cur = cur or {"text": "", "page": "", "ind": ind, "title": bool(APP_TITLE_RE.match(t))}
+            m = TOC_LEAD_RE.match(t)
+            body = m.group(1) if m else t
+            if re.search(r"[A-Z]-$", cur["text"]) and body[:1].isupper():
+                cur["text"] = cur["text"][:-1] + body      # "PRO-" + "VISIONS": capitals broken at a line's end
+            else:
+                cur["text"] = c.join_lines([cur["text"], body]) if cur["text"] else body
+            if m:
+                cur["page"] = m.group(2).strip("()").lower()
+                entries.append(cur)
+                cur = None
+    if cur and cur["text"]:
+        entries.append(cur)
+    for i, e in enumerate(entries):
+        if not e["page"]:
+            e["page"] = next((x["page"] for x in entries[i + 1:] if x["page"]), "")
+    return appendix_heads(entries)
+
+
+def appendix_heads(entries):
+    """Contents entries [{text, page}] -> the appendix's headings: its "Appendix X" titles ("APPENDIX A — ORDER OF ..."
+    -> label "Appendix A", title "ORDER OF ..."), or, when it lists none (one appendix of provisions or documents),
+    every entry on an appendix page ("U.S. Const. Art. VI, cl. 2 ... 1a")."""
+    on = [e for e in entries if re.fullmatch(r"\d+a", e.get("page") or "")]
+    titled = [(e, APP_TITLE_RE.match(e["text"])) for e in on if APP_TITLE_RE.match(e["text"])]
+    if titled:
+        return [{"label": ("Appendix " + m.group(1).upper()) if m.group(1) else "Appendix",
+                 "text": e["text"][m.end():].strip(" :—–-.") or e["text"], "page": e["page"], "level": 2} for e, m in titled]
+    return [{"label": "", "text": e["text"], "page": e["page"], "level": 2} for e in on[:60]]
+
+
 def split_brief(text, appendix=False):
     """-> dict(cover, front [(label, lines)], body [(label, lines)], qp [(label, lines)], toc)."""
     pages = [page_label(p.replace("\r", "").split("\n")) for p in text.split("\f")]
@@ -529,6 +592,11 @@ def split_brief(text, appendix=False):
         if re.fullmatch(r"\d+a", lab) or re.fullmatch(r"APPENDIX(?:\s+[A-Z])?", first) or appendix_cover(ls):
             end = k
             break
+    for k in range(end, len(pages)):          # an appendix page's running head ("Appendix C"): not text
+        lab, ls = pages[k]
+        i = next((i for i, x in enumerate(ls) if x.strip()), None)
+        if i is not None and APP_HEAD_RE.fullmatch(ls[i]):
+            pages[k] = (lab, ls[:i] + [""] + ls[i + 1:])
     front = pages[1:start] if start > 0 else []
     qp = [p for p in front if QP_RE.match(next((x for x in p[1] if x.strip()), ""))]
     return {"cover": "\n".join(pages[0][1]) if pages else "", "front": front, "qp": qp,
@@ -600,6 +668,30 @@ def read_brief(text, f, oi, warn, appendix=False, vocab=None):
         first = lines[k].text.strip()
         heads.append((k, k + 1 if re.fullmatch(r"(?i)appendix(\s+[a-z])?", first) else k,
                       {"label": "", "text": "Appendix", "level": 1, "page": labels[lines[k].pi]}))
+        # the appendix's own table of contents ("APPENDIX A: ... 1a"): its entries are headings under Appendix, found
+        # in the text as the brief's are
+        # its contents page(s) (the page, and the pages after it that still list entries)
+        at_toc = next((n for n in range(main_, min(main_ + 4, len(keep))) if any(APP_TOC_RE.match(l) for l in keep[n][1])), None)
+        toc = []
+        if at_toc is not None:
+            toc.append(keep[at_toc])
+            for pg in keep[at_toc + 1:at_toc + 6]:
+                if sum(1 for l in pg[1] if TOC_LEAD_RE.match(l.strip())) < 2:
+                    break
+                toc.append(pg)
+        apos = heads[-1][1]
+        ents = appendix_contents(toc) or appendix_heads(sp["toc"])   # else the brief's own contents: its "1a" entries
+        for e in ents:
+            e["text"] = despace(e["text"], vocab)
+            r = find_heading(lines, labels, apos, e)
+            if r is None:                       # a title the text garbles: the start of its page
+                i = next((i for i in range(apos, len(lines)) if labels[lines[i].pi] == e["page"]), None)
+                if i is None:
+                    warn("appendix heading not found in the text: %s (p. %s)" % (e["text"][:60], e["page"]))
+                    continue
+                r = (i, i)
+            heads.append((r[0], r[1], e))
+            apos = r[1]
     o = {"oi": oi, "kind": "", "author": "", "byline": [], "flat": [], "footnotes": {}, "api": f,
          "start": labels[lines[0].pi] if lines else "1", "title": f["title"], "who": f["who"]}
     blocks, levels, at, prev_pi = [], [], 0, None
