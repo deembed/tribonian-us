@@ -4,7 +4,7 @@ Four pieces, the same on every system. After them, `tribonian check` says what i
 
 1. **Python 3.10 or newer** and **git**: the pipeline (`tribonian` command).
 2. **A TeX distribution** with XCharter, tcolorbox and ulem: the PDFs. Skip it for notes only (`MD_ONLY=1 tribonian build`).
-3. **Poppler's `pdftotext`** (optional): Supreme Court filings, RECAP documents and some slip opinions.
+3. **Poppler's `pdftotext`** (optional): Supreme Court filings, RECAP documents and some slip opinions. (Supreme Court filings also use pdfplumber, a Python package the install pulls in, to find footnotes.)
 4. **Rust** (optional): the desktop browser in `gui/`.
 
 Then [the same steps everywhere](#then-on-every-system). The [README](README.md#getting-started) takes it from

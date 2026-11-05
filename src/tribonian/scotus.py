@@ -36,6 +36,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from tribonian import case2md as c
+from tribonian import extract
 from tribonian import lawcites
 
 SCOTUS = c.CASES / "scotus"
@@ -170,6 +171,17 @@ def case_file(num):
     return SCOTUS / ("%s.json" % num)
 
 
+def brief_text(link):
+    """A filing's text: extract.py's (<docket>/extracted/<name>.txt) when it is there, else the text fetch
+    wrote beside the PDF before extract.py (a docket not extracted yet)."""
+    if link.get("pdf"):
+        txt, _ = extract.out_paths(c.ROOT / link["pdf"])
+        if txt.exists():
+            return txt.read_text(encoding="utf-8", errors="replace")
+    p = link.get("txt")
+    return (c.ROOT / p).read_text(encoding="utf-8", errors="replace") if p and (c.ROOT / p).exists() else ""
+
+
 def fetch(args):
     num = norm_number(args.number)
     SCOTUS.mkdir(parents=True, exist_ok=True)
@@ -214,13 +226,15 @@ def fetch(args):
             new = True
         else:
             new = False
-        txt = out.with_suffix(".txt")
-        if not txt.exists():
-            t = subprocess.run(["pdftotext", "-layout", str(out), str(txt)], capture_output=True, timeout=600)
-            if t.returncode:
+        txt, _ = extract.out_paths(out)          # the text and its footnotes, from the PDF (extract.py)
+        if extract.stale(out):
+            try:
+                extract.extract(out)
+            except Exception as e:
+                print("  extract failed: %s: %s" % (out.name, e))
                 return "!"
         link["pdf"], link["txt"] = str(out.relative_to(c.ROOT)), str(txt.relative_to(c.ROOT))
-        link["chars"] = len(txt.read_text(encoding="utf-8", errors="replace").strip())
+        link["chars"] = len(extract.plain(txt.read_text(encoding="utf-8", errors="replace")).strip())
         save()
         return "+" if new else "="
 
@@ -273,7 +287,9 @@ RANK = {"roman": 0, "upper": 1, "digit": 2, "lower": 3}
 
 def page_label(lines):
     """Remove the page number at the head or foot of a page. -> (label or '', lines)."""
-    idx = [i for i, l in enumerate(lines) if l.strip()]
+    from tribonian.extract import NOTES_START
+    stop = next((i for i, l in enumerate(lines) if l == NOTES_START), len(lines))   # extract.py's notes block
+    idx = [i for i, l in enumerate(lines[:stop]) if l.strip()]
     for i in (idx[:1] + idx[-1:]) if idx else []:
         m = LABEL_RE.match(lines[i])
         if m:
@@ -598,7 +614,7 @@ def read_brief(text, f, oi, warn, appendix=False, vocab=None):
         short = e["label"] or " ".join(c.titlecase(e["text"]).split()[:3]).rstrip(",;:")   # "Summary of Argument"
         path += [""] * (e["level"] - 1 - len(path)) + [short]
         blocks.append({"kind": "h", "label": lab, "pieces": [], "level": e["level"], "path": "-".join(p for p in path if p)})
-        tail = re.search(r"(?:\s|(?<=[A-Za-z’'”]))(\d{1,2})\s*$", lines[j - 1].text) if j > i else None   # "CURIAE 1", "CURIAE1"
+        tail = re.search(r"(?:\s|(?<=[A-Za-z’'”]))(\d{1,2})\s*$", extract.marks_to_digits(lines[j - 1].text)) if j > i else None   # "CURIAE 1", "CURIAE1"
         if tail and any(f[0] == tail.group(1) for f in footnotes) and not norm(e["text"]).endswith(tail.group(1)):
             heading_marks.append((len(blocks), tail.group(1)))
         if lines[i].pi != prev_pi:              # the page turns before the heading: mark it at the end of what precedes
@@ -647,12 +663,12 @@ def read_brief(text, f, oi, warn, appendix=False, vocab=None):
     o["sections"] = len(heads)
     o["side_cover"] = classify_side(sp["cover"])
     o["appendix_pages"] = sp["appendix_pages"]
-    o["body_text"] = "\n".join(l.text for l in lines) + "\n" + "\n".join(
-        c.join_lines(p) for _, _, paras in footnotes for p in paras)
+    o["body_text"] = extract.drop_marks("\n".join(l.text for l in lines) + "\n" + "\n".join(
+        c.join_lines(p) for _, _, paras in footnotes for p in paras))
     # what the filing itself cites: not its appendix (the lower courts' opinions, the record), even when --appendix prints it
     main = nqp + sp["main"]
-    o["cite_text"] = "\n".join(l.text for l in lines if l.pi < main) + "\n" + "\n".join(
-        c.join_lines(p) for _, pi, paras in footnotes if pi < main for p in paras)
+    o["cite_text"] = extract.drop_marks("\n".join(l.text for l in lines if l.pi < main) + "\n" + "\n".join(
+        c.join_lines(p) for _, pi, paras in footnotes if pi < main for p in paras))
     return o
 
 
@@ -693,7 +709,7 @@ def below_from_appendix(fs, data, con, warn):
     pet = next((f for f in fs if f["kind"] == "petition"), None)
     if pet is None:
         return None
-    toc = appendix_toc(pet["brief"])
+    toc = appendix_toc(extract.plain(pet["brief"]))
     num = (data["feed"].get("LowerCourtCaseNumbers") or "").strip("() ").split(",")[0].strip()
     pick = next((k for k, (t, p) in enumerate(toc) if num and num in t and re.search(r"(?i)\bopinion\b", t)), None)
     if pick is None:
@@ -1266,7 +1282,7 @@ def filings(data, con):
         link = next((l for l in e["links"] if l.get("txt") and not SKIP_LINK.search(l["desc"])), None)
         if not link:
             continue
-        f = dict(e, link=link, brief=(c.ROOT / link["txt"]).read_text(encoding="utf-8", errors="replace"))
+        f = dict(e, link=link, brief=brief_text(link))
         if e["kind"] == "amicus":
             name = short_filer(e["filer"])
             f["abbr"], f["who"] = "%s Amicus Br." % name, name
@@ -1556,7 +1572,7 @@ def law_sources(fs):
         t = provisions_involved(f["o"]["cite_text"])
         if not t.strip():
             continue
-        raw = provisions_involved(f["brief"])        # pdftotext's own lines keep the indents that start paragraphs
+        raw = provisions_involved(extract.plain(f["brief"]))   # pdftotext's own lines keep the indents that start paragraphs
         secs.append((f["abbr"], raw if raw.strip() else t))
         flat, at = lawcites.flatten(t), 0
         for m in REPRO_RE.finditer(flat):
@@ -2293,11 +2309,11 @@ def docket_tex(data, qp_text):
 
 def qp_paragraphs(data):
     """The Clerk's question-presented PDF -> paragraphs (the docket line and case name left out)."""
-    p = data.get("qp", {}).get("txt")
-    if not p or not (c.ROOT / p).exists():
+    text = extract.plain(brief_text(data["qp"])) if data.get("qp") else ""
+    if not text.strip():
         return []
     paras, cur = [], []
-    for l in (c.ROOT / p).read_text(encoding="utf-8", errors="replace").split("\n"):
+    for l in text.split("\n"):
         t = " ".join(l.split())
         if not t:
             if cur:
@@ -3122,6 +3138,136 @@ def recent(args):
 
 # ================================================================ main
 
+def _extract_one(pdf):
+    try:
+        return pdf, extract.extract(pdf)[1], None
+    except Exception as e:                      # one bad PDF is a line in the report, not a stopped run
+        return pdf, None, repr(e)[:200]
+
+
+def extract_cmd(args):
+    """Every filed PDF of the dockets -> extracted/ (extract.py); the docket file points at the new text, and
+    the pdftotext text fetch used to write beside each PDF is removed (the PDF is the only input kept)."""
+    import multiprocessing as mp
+    nums = [norm_number(n) for n in args.numbers] or sorted(
+        p.stem for p in SCOTUS.glob("*.json") if not p.stem.startswith("_"))
+    dockets, jobs = [], []
+    for num in nums:
+        if not case_file(num).exists():
+            print("no %s: run tribonian scotus fetch %s first" % (case_file(num).relative_to(c.ROOT), num))
+            continue
+        data = json.loads(case_file(num).read_text(encoding="utf-8"))
+        links = ([data["qp"]] if data.get("qp") else []) + [l for e in data.get("entries", []) for l in e.get("links", [])]
+        links = [l for l in links if l.get("pdf") and (c.ROOT / l["pdf"]).exists()]
+        dockets.append((num, data, links))
+        jobs += [c.ROOT / l["pdf"] for l in links if not args.stale or extract.stale(c.ROOT / l["pdf"])]
+    jobs = sorted(set(jobs))
+    print("%d PDFs in %d dockets, %d workers" % (len(jobs), len(dockets), args.j), flush=True)
+    done, failed, notes, marked = {}, [], 0, 0
+    with mp.Pool(max(1, args.j)) as pool:
+        for i, (pdf, summ, err) in enumerate(pool.imap_unordered(_extract_one, jobs), 1):
+            rel = pdf.relative_to(SCOTUS)
+            if err:
+                failed.append((rel, err))
+                print("%4d/%d  failed  %s: %s" % (i, len(jobs), rel, err), flush=True)
+                continue
+            done[pdf] = summ
+            notes, marked = notes + summ["notes"], marked + summ["marked"]
+            print("%4d/%d  %3d notes, %3d marks%s  %s" % (i, len(jobs), summ["notes"], summ["marked"],
+                  ", %d pages unread" % summ["unread_pages"] if summ["unread_pages"] else "", rel), flush=True)
+    removed = 0
+    for num, data, links in dockets:
+        for l in links:
+            pdf = c.ROOT / l["pdf"]
+            txt, _ = extract.out_paths(pdf)
+            if not txt.exists():
+                continue
+            l["txt"] = str(txt.relative_to(c.ROOT))
+            l["chars"] = len(extract.plain(txt.read_text(encoding="utf-8", errors="replace")).strip())
+            old = pdf.with_suffix(".txt")
+            if old.exists():
+                old.unlink()
+                removed += 1
+        case_file(num).write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+    print("extracted %d PDFs (%d notes, %d of them with their mark found), %d failed; removed %d old .txt files"
+          % (len(done), notes, marked, len(failed), removed))
+    for rel, err in failed:
+        print("  failed: %s: %s" % (rel, err))
+
+
+def _trace_one(job):
+    """One filing -> (its path under cases/scotus, {(decision, rule): n}, [hits]), read as the build reads it."""
+    from tribonian import trace
+    import contextlib, io
+    rel, pdf = job
+    link = {"pdf": str(pdf.relative_to(c.ROOT))}
+    text = brief_text(link)
+    if not text.strip():
+        return rel, {}, [], "no text"
+    try:
+        with trace.collect() as (counts, hits), contextlib.redirect_stdout(io.StringIO()):
+            read_brief(text, {"title": "", "who": "", "abbr": ""}, 0, lambda w: None)
+    except Exception as e:
+        return rel, {}, [], repr(e)[:150]
+    meta = extract.out_paths(pdf)[1]
+    if meta.exists():                            # the extractor's own rules, counted when it ran
+        for k, n in json.loads(meta.read_text(encoding="utf-8")).get("rules", {}).items():
+            d, r = k.split("/", 1)
+            counts["extract-" + d, r] += n
+    return rel, dict(counts), hits, None
+
+
+def trace_cmd(args):
+    """Read every extracted filing as the build does, with each parsing decision's rule recorded ->
+    build/trace/rules.tsv (per rule: times, filings, share of its decision), hits.tsv (each recorded decision
+    with its line), and a summary. Changes nothing."""
+    import multiprocessing as mp
+    nums = [norm_number(n) for n in args.numbers] or sorted(
+        p.stem for p in SCOTUS.glob("*.json") if not p.stem.startswith("_"))
+    jobs = []
+    for num in nums:
+        if case_file(num).exists():
+            data = json.loads(case_file(num).read_text(encoding="utf-8"))
+            for l in ([data["qp"]] if data.get("qp") else []) + [l for e in data.get("entries", []) for l in e.get("links", [])]:
+                if l.get("pdf") and (c.ROOT / l["pdf"]).exists():
+                    pdf = c.ROOT / l["pdf"]
+                    jobs.append((str(pdf.relative_to(SCOTUS).with_suffix("")), pdf))
+    jobs = sorted(set(jobs))
+    out = c.ROOT / "build" / "trace"
+    out.mkdir(parents=True, exist_ok=True)
+    total, where, failed = Counter(), {}, []
+    print("%d filings, %d workers" % (len(jobs), args.j), flush=True)
+    with open(out / "hits.tsv", "w", encoding="utf-8") as fh, mp.Pool(max(1, args.j)) as pool:
+        fh.write("filing\tdecision\trule\tpage\tline\tline before\n")
+        for i, (rel, counts, hits, err) in enumerate(pool.imap_unordered(_trace_one, jobs), 1):
+            if err:
+                failed.append((rel, err))
+                continue
+            for k, n in counts.items():
+                total[k] += n
+                where.setdefault(k, set()).add(rel)
+            for d, r, pg, t, b in hits:
+                fh.write("\t".join(str(v).replace("\t", " ") for v in (rel, d, r, "" if pg is None else pg + 1, t, b)) + "\n")
+            if i % 50 == 0:
+                print("  %d/%d" % (i, len(jobs)), flush=True)
+    per = Counter()
+    for (d, r), n in total.items():
+        per[d] += n
+    rows = sorted(total.items(), key=lambda kv: (kv[0][0], -kv[1]))
+    with open(out / "rules.tsv", "w", encoding="utf-8") as fh:
+        fh.write("decision\trule\ttimes\tfilings\tshare\n")
+        for (d, r), n in rows:
+            fh.write("%s\t%s\t%d\t%d\t%.4f\n" % (d, r, n, len(where[(d, r)]), n / per[d]))
+    print("\n%-17s %-48s %8s %8s %7s" % ("decision", "rule", "times", "filings", "share"))
+    prev = None
+    for (d, r), n in rows:
+        print("%-17s %-48s %8d %8d %6.1f%%" % (d if d != prev else "", r, n, len(where[(d, r)]), 100 * n / per[d]))
+        prev = d
+    print("\nwrote build/trace/rules.tsv and build/trace/hits.tsv (%d filings, %d failed)" % (len(jobs) - len(failed), len(failed)))
+    for rel, err in failed[:10]:
+        print("  failed: %s: %s" % (rel, err))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -3158,6 +3304,18 @@ def main():
     bw = sub.add_parser("below", help="fetch the docket of the case below from RECAP (federal courts of appeals)")
     bw.add_argument("number", help="docket number or application, e.g. 26A476")
     bw.set_defaults(func=below_cmd)
+    x = sub.add_parser("extract", help="each filed PDF -> <docket>/extracted/: its text, footnotes found from the PDF's "
+                       "type (redo after extract.py changes; fetch runs it for new PDFs)")
+    x.add_argument("numbers", nargs="*", help="docket numbers (default: every fetched docket)")
+    x.add_argument("--stale", action="store_true", help="only PDFs whose extracted files are missing or older than "
+                   "the PDF or the extractor")
+    x.add_argument("-j", type=int, default=2, help="worker processes (default 2)")
+    x.set_defaults(func=extract_cmd)
+    t = sub.add_parser("trace", help="which named rule made each parsing decision (paragraphs, footnotes, marks), "
+                       "totalled over the filings -> build/trace/")
+    t.add_argument("numbers", nargs="*", help="docket numbers (default: every fetched docket)")
+    t.add_argument("-j", type=int, default=2, help="worker processes (default 2)")
+    t.set_defaults(func=trace_cmd)
     r = sub.add_parser("recent", help="the Court's recent opinions, grants and orders -> cases/scotus/_recent.json")
     r.add_argument("--json", action="store_true", help="also print the result as JSON")
     r.add_argument("--days", type=int, default=RECENT_DAYS, help="how far back (default %d)" % RECENT_DAYS)

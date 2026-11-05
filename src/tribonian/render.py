@@ -62,8 +62,14 @@ def tex_safe(c):
 BREAKABLE = re.compile(r"(?:https?://|www\.)\S+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
+# extract.py's footnote marks (look-alike digits U+E030-E039) are footnote marks by the time text is set; one
+# left over (a mark in a heading line) prints as its digit, never as an unknown character
+MARK_DIGITS = str.maketrans({0xE030 + d: str(d) for d in range(10)})
+
+
 def tex_chars(s):
     """Escape a string for LaTeX; URLs and email addresses get break points."""
+    s = s.translate(MARK_DIGITS)
     if "@" not in s and "://" not in s and "www." not in s:
         return _tex_chars(s)
     out, last = [], 0
