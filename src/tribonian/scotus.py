@@ -1838,7 +1838,7 @@ def law_tex(lc):
             "\\clearpage\\pdfbookmark[0]{Every provision, by side}{provisions}\n"
             "\\noindent\\tocback\\tocadd{tocsec}{Every provision, by side}{\\large\\bfseries Every provision, by side\\par}\\vspace{2pt}\n"
             "{\\scriptsize\\itshape %s Named = mentions by name, pet./resp. (amici included).\\par}\\vspace{3pt}\n"
-            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}" + FULL_WIDTH + "\n"
+            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\\setlength{\\LTleft}{0pt}\\setlength{\\LTright}{0pt}\n"
             "\\begin{longtable}{@{\\extracolsep{\\fill}}r p{7.4cm} r r r r r r@{}}\n"
             "%s\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
         COUPLE_COLOR, COUPLE_COLOR.split("!")[0], "\n".join(out), E(SPLIT_NOTE), RULED,
@@ -2135,7 +2135,6 @@ def all_rows(cp):
             [(k, "resp") for k in cp["only_r"]] + [(k, "amici") for k in cp["amici_only"]])
 
 
-FULL_WIDTH = "\\setlength{\\LTleft}{0pt}\\setlength{\\LTright}{0pt}"   # with @{\\extracolsep{\\fill}}: the longtable spans the text width
 RULED = "\\setlength{\\arrayrulewidth}{0.2pt}"          # thin lines between rows, to follow a row across
 
 
@@ -2264,7 +2263,7 @@ def authorities_tex(cp, names):
             "\\noindent\\tocback\\tocadd{tocsec}{Every authority, by side}{\\large\\bfseries Every authority, by side\\par}\\vspace{2pt}\n"
             "{\\scriptsize\\itshape Not part of the record. %s Below = cited in the court of appeals' opinion. "
             "Cite is what \\texttt{tribonian case fetch --cite} takes.\\par}\\vspace{3pt}\n"
-            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}" + FULL_WIDTH + "\n"
+            "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\\setlength{\\LTleft}{0pt}\\setlength{\\LTright}{0pt}\n"
             "\\begin{longtable}{@{\\extracolsep{\\fill}}r p{6.5cm} p{2.9cm} r r r r r c@{}}\n"
             "%s\\\\\\hline\\endhead\n%s\\\\\\hline\n\\end{longtable}}\n") % (
         c.esc(SPLIT_NOTE, "tex"), RULED, head, "\\\\\\hline\n".join(rows))
@@ -2448,7 +2447,7 @@ def status_tex(cols, names, gl, amici_only):
             rows.append("%d & %s %s & %s & {\\scriptsize\\itshape %s} & %d & %d" % (
                 i, dot(st), E(nm(names, k, 62)) + dag(k), E(cite_of(names, k)), E(w), a, b))
         out.append("\\noindent\\tocback\\tocadd{tocsec}{Common authorities}\\pdfbookmark[1]{Common authorities}{status-common}{\\large\\bfseries Common authorities\\par}\\vspace{2pt}\n"
-                   "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}" + FULL_WIDTH + "\n"
+                   "{\\footnotesize\\setlength{\\tabcolsep}{3pt}%s\\renewcommand{\\arraystretch}{1.2}\\setlength{\\LTleft}{0pt}\\setlength{\\LTright}{0pt}\n"
                    "\\begin{longtable}{@{\\extracolsep{\\fill}}r p{6.8cm} p{3.0cm} p{2.4cm} r r@{}}\n"
                    "\\# & Case & Cite & Status & \\parbox[b]{1.2cm}{\\raggedleft %s} & \\parbox[b]{1.2cm}{\\raggedleft %s}\\\\\\hline\\endhead\n"
                    "%s\\\\\\hline\n\\end{longtable}}\n" % (RULED, E(ln[:18]), E(rn[:18]), "\\\\\\hline\n".join(rows)))
