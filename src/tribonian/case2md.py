@@ -29,6 +29,8 @@ import http.client, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 from tribonian import citemarks               # cite tints in the PDF and the closing "Cites not resolved" part
+from tribonian import rules                    # parsing decisions as ordered lists of named rules
+from tribonian import trace                    # which named rule made each parsing decision (tribonian scotus trace)
 from tribonian import tconfig                  # settings: CL_* variable, else ~/.config/tribonian-us/config.toml, else default
 
 API = "https://www.courtlistener.com/api/rest/v4"
@@ -507,7 +509,8 @@ def esc(s, mode):
     if mode == "tex":
         from tribonian.render import tex_chars
         return tex_chars(s).replace("•", r"\textbullet{}")
-    return "".join(MD_ESC.get(c, c) for c in s)
+    from tribonian.render import MARK_DIGITS
+    return "".join(MD_ESC.get(c, c) for c in s.translate(MARK_DIGITS))
 
 
 _anchors = {}                                    # pdfbookmark names used so far in this PDF (render_tex resets it)
@@ -2876,9 +2879,10 @@ SMALL = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "of", "on", "o
          "v", "vs", "with"}
 # the court's filing stamp atop each page: "Case 2:09-cv-06732 Document 30 ... Page 3 of 7" (district),
 # "USCA4 Appeal: 26-2230  Doc: 30  Filed: 10/07/2026  Pg: 3 of 29" (Fourth Circuit)
-HEADER_RE = re.compile(r"^\s*(?:Case:?\s+\S+.*?\bDoc(?:ument)?\.?\s*(?:#\s*)?:?\s*\d+.*?\bPage"
+HEADER_RE = re.compile(r"^\s*(?:Case:?\s+\S+.*?\b(?:Doc(?:ument)?|DktEntry)\.?\s*(?:#\s*)?:?\s*\d+.*?\bPage"
                        r"|USCA\d+\s+Appeal:\s*\S+.*?\bDoc:\s*\d+.*?\bPg):?\s*(\d+)\s*of\s*\d+", re.I)
 PAGENUM_RE = re.compile(r"^\s*(?:-\s*)?\d{1,3}(?:\s*-)?\s*$")
+STAMP_RE = re.compile(r"^\s*\(\d{1,4} of \d{1,4}\)\s*$")      # a combined PDF's page stamp over the ECF header: "(3 of 26)"
 FNLABEL_RE = re.compile(r"^\s*(\d{1,3})\s*$")
 NUMHEAD_RE = re.compile(r"^([IVX]{1,6}|[A-Z]|\d{1,2})\.\s+(\S.{0,90})$")
 # a table of contents / authorities line: dot leaders, then the page(s) at the right margin
@@ -2976,7 +2980,7 @@ def join_lines(parts):
     return out
 
 
-def split_footnotes(raw, nxt, prev_open):
+def split_footnotes(raw, nxt, prev_open, pi=None):
     """One page's lines -> (body lines, [(label or None, [[lines of a paragraph], ...])], next label).
     The footnotes start at a line holding only the next footnote number. label None = the rest of
     the previous page's last footnote (prev_open: that one does not end a sentence yet)."""
@@ -2991,8 +2995,9 @@ def split_footnotes(raw, nxt, prev_open):
         m = FNLABEL_RE.match(l)
         if m and nxt <= int(m.group(1)) <= nxt + 2 and len(l) - len(l.lstrip()) <= 12 and any(x.strip() for x in raw[:j]) and any(x.strip() for x in raw[j + 1:]):
             k, nxt = j, int(m.group(1))         # a skipped number (lost in the text layer) costs one footnote, not the rest
+            trace.hit("footnote", "start:number-alone-on-line", pi, l)
             break
-    inline = False
+    inline, lifted = False, None
     if k is None:                   # "1  Plaintiffs refer to ...": the number on the same line as the note's text
         # (court of appeals slip opinions); after a blank line, below the page's first lines, the next number only.
         # Double-spaced text has a blank line around every line, so there a number starting a line one blank line
@@ -3008,9 +3013,22 @@ def split_footnotes(raw, nxt, prev_open):
             # tail sits below a gap of 2+ blank lines): "… JA293-294.\n  3 These schools provide …"
             after_tail = prev_open and re.search(r"[.)\]”’\"]\s*$", raw[j - 1]) and \
                 any(not raw[i].strip() and not raw[i + 1].strip() for i in range(max(0, j - 14), j - 1))
-            if m and nxt <= int(m.group(2)) <= nxt + 1 and (not raw[j - 1].strip() or after_tail) and any(x.strip() for x in raw[:j]) and \
-                    not m.group(3)[:1].isdigit() and not NOT_FNTEXT_RE.match(m.group(3)):
+            # pdftotext can lift the tail of a note's first line onto a line of its own above it, far to the right
+            # ("      Avalon Project, Yale Law" over "24 Mass. Const. (1780), pt. I, art. II.,"), under the blank lines
+            stray = j >= 2 and not raw[j - 2].strip() and raw[j - 1].strip() != "" and \
+                len(raw[j - 1]) - len(raw[j - 1].lstrip()) >= 20 and len(raw[j - 1].strip()) < 40
+            # under 2+ blank lines: a skip of up to 3 (a note lost earlier costs that note only), and a note that is
+            # only a cite ("2 142 S. Ct. 2407, 2448 (2022).")
+            wide = j >= 2 and not raw[j - 2].strip() and (stray or not raw[j - 1].strip())
+            foot = sum(1 for x in raw[j + 1:] if x.strip()) <= 4          # the page's last few lines
+            if m and nxt <= int(m.group(2)) <= nxt + (3 if wide else 1) and (not raw[j - 1].strip() or after_tail or stray) and any(x.strip() for x in raw[:j]) and \
+                    not (m.group(3)[:1].isdigit() and not (wide or (int(m.group(2)) == nxt and foot))) and not NOT_FNTEXT_RE.match(m.group(3)):
+                trace.hit("footnote", "start:" + ("lifted-tail-above" if stray else "cite-only" if m.group(3)[:1].isdigit()
+                          else "skip-under-wide-gap" if int(m.group(2)) > nxt + 1 else "after-last-note-tail"
+                          if raw[j - 1].strip() else "after-blank-line"), pi, raw[j], raw[j - 1])
                 k, nxt, inline = j, int(m.group(2)), True
+                if stray:
+                    lifted, raw = raw[j - 1].strip(), raw[:j - 1] + [""] + raw[j:]
                 break
     end = k if k is not None else len(raw)
     fns, body_end = [], end
@@ -3030,18 +3048,26 @@ def split_footnotes(raw, nxt, prev_open):
                 (max(len(x) for x in raw[g_start:g_end]) > widths[len(widths) // 2] * 1.12 or (double and g_end - g_start >= 2)):
             fns.append((None, [[x.strip() for x in raw[g_start:g_end]]]))
             body_end = g_start
+            trace.hit("footnote", "continuation:tail-above-wide-gap", pi, raw[g_start])
     if k is not None:
         cur = None
         prev_blank = True
         for l in raw[k:]:
             m = FNLABEL_RE.match(l)
-            mi = FNSTART_RE.match(l) if inline and prev_blank else None
+            mi = FNSTART_RE.match(l) if inline else None
+            if mi and not prev_blank and not (int(mi.group(2)) == nxt and mi.group(3)[:1].isupper()
+                                              and not NOT_FNTEXT_RE.match(mi.group(3))):
+                mi = None                   # mid-sentence: the note's own text ("at\n5 (referring"); the next number
+                                            # and a capital ("5   Id." under a URL's tail) start the next note
+            was_blank = prev_blank
             prev_blank = not l.strip() or re.search(r"[.)\]”’\"]\s*$", l) is not None   # a note ends a sentence
             if m and int(m.group(1)) == nxt:
+                trace.hit("footnote", "label:number-alone-on-line", pi, l)
                 cur = (m.group(1), [[]])
                 fns.append(cur)
                 nxt += 1
             elif mi and int(mi.group(2)) == nxt:
+                trace.hit("footnote", "label:inline-after-sentence" if was_blank else "label:inline-next-number-capital", pi, l)
                 cur = (mi.group(2), [[mi.group(3).strip()]])
                 fns.append(cur)
                 nxt += 1
@@ -3055,6 +3081,9 @@ def split_footnotes(raw, nxt, prev_open):
         for lab, paras in fns:
             while paras and not paras[-1]:
                 paras.pop()
+        first = next((f for f in fns if f[0] is not None), None)
+        if lifted and first and first[1] and first[1][0]:
+            first[1][0].insert(1, lifted)       # back after the note's first line
     return raw[:body_end], fns, nxt
 
 
@@ -3073,6 +3102,7 @@ def split_ruled_footnotes(raw, rule, nxt):
         m = FNSTART_RE.match(l)
         ind = len(l) - len(l.lstrip())
         if m and int(m.group(2)) in (nxt, nxt + 1):
+            trace.hit("footnote", "label:under-rule", None, l)
             cur = (m.group(2), [[m.group(3).strip()]])
             fns.append(cur)
             nxt, base = int(m.group(2)) + 1, None
@@ -3116,23 +3146,59 @@ def running_feet(text):
     return {k for k, n in seen.items() if n >= need and len(k) < 80}
 
 
+def given_notes(pg, extract):
+    """A page of extract.py's text -> (the page without its notes block, [(label or None, [[lines], ...])]),
+    or (page, None) when it has no block (the text rules find its notes, as for pdftotext's own text)."""
+    lines = pg.split("\n")
+    k = next((i for i, l in enumerate(lines) if l == extract.NOTES_START), None)
+    if k is None:
+        return pg, None
+    notes, cur = [], None
+    for l in lines[k + 1:]:
+        if l.startswith(extract.NOTE_LABEL):
+            cur = (l[len(extract.NOTE_LABEL):], [[]])
+            notes.append(cur)
+        elif not l.strip():
+            if cur is not None and cur[1][-1]:
+                cur[1].append([])
+        else:
+            if cur is None:
+                cur = (None, [[]])               # the rest of the last page's note
+                notes.append(cur)
+            cur[1][-1].append(l.strip())
+    for _, paras in notes:
+        while paras and not paras[-1]:
+            paras.pop()
+    return "\n".join(lines[:k]), notes
+
+
 def layout_pages(text, heads=None):
     """-> (lines, footnotes [[label, page index, paragraphs]], page labels by page index).
     heads: a list to fill with each page's opinion label (Supreme Court slip opinions), else ''."""
     from tribonian.render import FOLD
     text = text.translate(FOLD)
     lines, footnotes, labels, nxt = [], [], [], 1
+    series, last_num = 0, None                  # extracted notes whose numbering starts again: series b, c, ...
     set_vocab(text)
     feet = running_feet(text)
+    from tribonian import extract
     for pi, pg in enumerate(text.replace("\r", "").split("\f")):
+        pg, given = given_notes(pg, extract)
         raw = [l.expandtabs(8).rstrip() for l in pg.split("\n")]
         label, head = str(pi + 1), ""
         for j, l in enumerate(raw):             # running header: "Case 2:09-cv-06732 ... Page 3 of 7"
             if l.strip():
+                if STAMP_RE.match(l):           # above the header: drop it, read the next line
+                    raw[j] = ""
+                    trace.hit("block", "header:page-stamp", pi, l, keep=False)
+                    continue
                 m = HEADER_RE.match(l)
                 ms = SCOTUS_HEAD_RE.match(l)
                 if m:
                     label, raw[j] = m.group(1), ""
+                    k = next((k for k in range(j + 1, min(j + 4, len(raw))) if raw[k].strip()), None)
+                    if k is not None and SLIP_RUNHEAD_RE.match(raw[k]):
+                        raw[k] = ""             # a circuit opinion's running head under it: "WATANABE V. DERR   3"
                 elif ms and (not ms.group(3) or (heads is not None and any(h["head"] for h in heads))
                              or SCOTUS_COURT in pg[:2000]):
                     starts = SCOTUS_COURT in "\n".join(x for x in raw[j:j + 14] if x.strip()) or pi == 0
@@ -3171,7 +3237,21 @@ def layout_pages(text, heads=None):
         margin = min(len(l) - len(l.lstrip()) for l in raw if l.strip())
         raw = [l[margin:] if l.strip() else "" for l in raw]
         prev_open = bool(footnotes) and not re.search(r"[.)”\"’]\s*$", join_lines(footnotes[-1][2][-1] if footnotes[-1][2] else []))
-        body, fns, nxt = split_footnotes(raw, nxt, prev_open)
+        if given is not None:                   # extracted from the PDF's type (extract.py): taken as they are
+            body, fns = raw, []
+            for lab, paras in given:
+                if lab:
+                    num = int(lab)
+                    if last_num is not None and num < last_num:
+                        series += 1             # the numbering starts again: "b1", "b2", ... (labels stay unique)
+                        trace.hit("footnote", "series:numbering-starts-again", pi, keep=False)
+                    last_num = num
+                    lab = (chr(ord("a") + series) if series else "") + lab
+                fns.append((lab, paras))
+                trace.hit("footnote", "label:extracted" if lab else "continuation:extracted", pi, keep=False)
+            nxt = (last_num or 0) + 1
+        else:
+            body, fns, nxt = split_footnotes(raw, nxt, prev_open, pi)
         for lab, paras in fns:
             if lab is None:
                 if footnotes and paras:
@@ -3208,6 +3288,108 @@ def split_caption(lns):
     return 0, None
 
 
+# ---------------------------------------------------------------- the layout rules, in the order they are tried
+# (rules.py: the first rule that holds decides; a rule may assume the ones above it did not)
+
+P = rules.PARAMS
+SENTENCE_END = r"[.:;)”\"]$"
+
+# a run of lines with no blank line between them: what it is, before its lines are read one by one
+RUN = rules.Decision("block")
+
+
+@RUN.rule("signature:rule-or-s-or-judge")       # a rule or /s/, or a judge's name and title in capitals
+def _(c):
+    return bool(re.fullmatch(r"_{5,}", c.t) or c.t.startswith("/s/") or (
+        len(c.run) <= 3 and all(is_caps(l.text) for l in c.run) and re.search(r"JUDGE$", c.run[-1].text)))
+
+
+@RUN.rule("heading:numbered-line-alone")        # "I. Statutory and Regulatory Background", on its own
+def _(c):
+    return len(c.run) == 1 and bool(c.closed or re.search(SENTENCE_END, c.cur["last"].text)) and bool(c.m) \
+        and headingish(c.m.group(2))
+
+
+@RUN.rule("heading:centred-label-alone")
+def _(c):
+    # a centred label alone on its line: "II", or with its period "II." / "A." (the Fourth Circuit) (after a
+    # sentence's end even when that line ran to the margin; well indented counts as centred for a label this
+    # short: a caption or a quotation can move the page's margins)
+    return len(c.run) == 1 and c.ended and c.l.ind >= 8 and valid_label(c.t.rstrip(".")) and \
+        (abs(c.l.ind - c.gap) <= 10 or (c.l.ind >= 20 and len(c.t) <= 5))
+
+
+@RUN.rule("head:centred-line-alone")            # a short title-case line, centred
+def _(c):
+    return len(c.run) == 1 and c.closed and c.l.ind >= 8 and c.gap >= 8 and abs(c.l.ind - c.gap) <= 10 \
+        and len(c.t) <= 70 and headingish(c.t)
+
+
+@RUN.rule("quote:indented-run")                 # indented past the page's margin: a block quotation
+def _(c):
+    if c.double:
+        return len(c.run) >= 3 or (len(c.run) >= 2 and c.mi >= c.b + 4)
+    return len(c.run) >= 2 and c.mi >= c.b + 4
+
+
+# a line inside a run: a heading set with no blank line around it
+IN_RUN = rules.Decision("block")
+
+
+@IN_RUN.rule("heading:centred-label-in-run")    # a centred "II"
+def _(c):
+    return len(c.run) > 1 and c.l.ind >= 8 and valid_label(c.l.text.rstrip(".")) and abs(c.l.ind - c.gap) <= 12
+
+
+@IN_RUN.rule("heading:numbered-in-run")         # "I. Statutory and Regulatory Background"
+def _(c):
+    return bool(c.m) and headingish(c.m.group(2)) and (c.cur is None or bool(re.search(SENTENCE_END, c.cur["last"].text)))
+
+
+# a line of text: does it start a paragraph ("break:...") or go on with the open one ("join:...")
+PARAGRAPH = rules.Decision("paragraph", default="join:continuation", keep=lambda out: out.startswith("break"))
+
+
+@PARAGRAPH.rule("break:after-blank-line-or-block")      # nothing open: a blank line or a heading, quotation... before
+def _(c):
+    return c.cur is None
+
+
+@PARAGRAPH.rule("join:double-spaced-pair")      # single-spaced pair inside double-spaced text: one paragraph
+def _(c):
+    return c.glued
+
+
+@PARAGRAPH.rule("break:short-last-line")        # the open paragraph's last line stopped short of the margin
+def _(c):
+    return c.short(c.cur["last"])
+
+
+@PARAGRAPH.rule("break:enumerated-start")       # "(a) ...", "(iv) ..."
+def _(c):
+    return bool(ENUM_RE.match(c.l.text))
+
+
+@PARAGRAPH.rule("break:bullet-start")           # a bullet starts an item
+def _(c):
+    return bool(BULLET_RE.match(c.l.text))
+
+
+@PARAGRAPH.rule("break:indent-past-continuation")       # indented past the paragraph's own lines (not an item's)
+def _(c):
+    return c.cur["cont"] is not None and c.l.ind > c.cur["cont"] + P.para_indent and not c.item
+
+
+@PARAGRAPH.rule("break:back-to-margin-after-item")      # an item's lines hang under its text; back at the margin: done
+def _(c):
+    return c.item and c.cur["cont"] is not None and c.l.ind < c.cur["cont"] - P.item_dedent
+
+
+@PARAGRAPH.rule("break:indent-after-sentence")  # after a sentence's end, an indent of 2 (booklet briefs indent 2-3)
+def _(c):
+    return c.ended and c.cur["cont"] is not None and c.l.ind >= c.cur["cont"] + P.para_indent
+
+
 def recap_blocks(lines, labels):
     """Lines -> blocks: dicts {kind: p|q|h|title|head|sig, pieces: [(text, page) | El], label}."""
     # right margin: the median end of the longer lines (the max is thrown off by lines that
@@ -3237,7 +3419,7 @@ def recap_blocks(lines, labels):
     cur = None                                  # the paragraph still open
 
     def short(l):
-        return l.end < right[l.pi] - 12
+        return l.end < right[l.pi] - P.short_line
 
     def add(b, l):
         turn = l.pi != st["pi"]
@@ -3258,9 +3440,10 @@ def recap_blocks(lines, labels):
                 b["pieces"].append(El("page-number", {"label": labels[l.pi]}))
             b["pieces"].append((sep + l.text, l.pi))
         b["last"] = l
+        b["first"] = b.get("first") or l.text
 
     def new(kind, **kw):
-        b = dict(dict(kind=kind, pieces=[], last=None, cont=None), **kw)
+        b = dict(dict(kind=kind, pieces=[], last=None, cont=None, first=""), **kw)
         blocks.append(b)
         return b
 
@@ -3271,7 +3454,13 @@ def recap_blocks(lines, labels):
         if not double and cur is None and carry is not None and run[0].gap is None \
                 and run[0].pi != carry["last"].pi and not short(carry["last"]) \
                 and not (valid_label(run[0].text.rstrip(".")) or NUMHEAD_RE.match(run[0].text)):
-            cur = carry
+            # unless the page's first line is indented after a sentence's end: a new paragraph, as on any page
+            if carry["cont"] is not None and run[0].ind >= carry["cont"] + 2 and \
+                    re.search(r"[.:;)”\"][\ue030-\ue039]*$", carry["last"].text):
+                trace.hit("block", "carry-stopped:indent-after-sentence", run[0].pi, run[0].text, carry["last"].text)
+            else:
+                cur = carry
+                trace.hit("block", "carry:full-width-line-at-page-foot", run[0].pi, run[0].text, carry["last"].text)
         carry = None
         if sig is not None:
             # a signature is a few lines on one page; anything past that is a new document
@@ -3282,40 +3471,33 @@ def recap_blocks(lines, labels):
                 sig["n"] += len(run)
                 continue
             sig = None
-        # the signature: a rule or /s/, or a judge's name and title in capitals
-        if re.fullmatch(r"_{5,}", run[0].text) or run[0].text.startswith("/s/") or \
-                (len(run) <= 3 and all(is_caps(l.text) for l in run) and re.search(r"JUDGE$", run[-1].text)):
+        l0 = run[0]
+        closed = cur is None or short(cur["last"])
+        rc = rules.ctx(run=run, l=l0, t=l0.text, cur=cur, closed=closed, m=NUMHEAD_RE.match(l0.text),
+                       ended=closed or bool(re.search(r"[.:;)”\"](?:\s?\d{1,2}|[\ue030-\ue039]+)?$", cur["last"].text)),
+                       gap=right[l0.pi] - l0.end, b=base[l0.pi], mi=min(l.ind for l in run), double=double)
+        kind = RUN.decide(rc, l0.pi, l0.text)
+        if kind == "signature:rule-or-s-or-judge":
             cur, sig = None, new("sig", n=len(run))
             for l in run:
                 if not re.fullmatch(r"_{5,}", l.text):
                     add(sig, l)
             continue
-        if len(run) == 1:
-            l, t = run[0], run[0].text
-            closed = cur is None or short(cur["last"])
-            m = NUMHEAD_RE.match(t)
-            if (closed or re.search(r"[.:;)”\"]$", cur["last"].text)) and m and headingish(m.group(2)):
-                cur = None
-                new("h", label=m.group(1))
-                new("title", pieces=[(m.group(2), l.pi)])
-                continue
-            # a centred label alone on its line: "II", or with its period "II." / "A." (the Fourth Circuit)
-            # (after a sentence's end even when that line ran to the margin; well indented counts as centred for a
-            # label this short: a caption or a quotation can move the page's margins)
-            ended = closed or re.search(r"[.:;)”\"](?:\s?\d{1,2})?$", cur["last"].text)   # "2026). 1": a footnote mark
-            if ended and l.ind >= 8 and valid_label(t.rstrip(".")) and \
-                    (abs(l.ind - (right[l.pi] - l.end)) <= 10 or (l.ind >= 20 and len(t) <= 5)):
-                cur = None
-                new("h", label=t.rstrip("."))
-                continue
-            if closed and l.ind >= 8 and right[l.pi] - l.end >= 8 and abs(l.ind - (right[l.pi] - l.end)) <= 10 \
-                    and len(t) <= 70 and headingish(t):
-                cur = None
-                new("head", pieces=[(t, l.pi)])
-                continue
-        b = base[run[0].pi]
-        mi = min(l.ind for l in run)
-        if (len(run) >= 3 or (len(run) >= 2 and mi >= b + 4)) if double else (len(run) >= 2 and mi >= b + 4):
+        if kind == "heading:numbered-line-alone":
+            cur = None
+            new("h", label=rc.m.group(1))
+            new("title", pieces=[(rc.m.group(2), l0.pi)])
+            continue
+        if kind == "heading:centred-label-alone":
+            cur = None
+            new("h", label=rc.t.rstrip("."))
+            continue
+        if kind == "head:centred-line-alone":
+            cur = None
+            new("head", pieces=[(rc.t, l0.pi)])
+            continue
+        b = rc.b
+        if kind == "quote:indented-run":
             if run[0].gap is None and blocks and blocks[-1]["kind"] == "q":
                 q = blocks[-1]                  # a quotation running on from the previous page
             else:
@@ -3332,21 +3514,25 @@ def recap_blocks(lines, labels):
                     cur, q = None, blocks[-1]
                 elif i - 1 not in qlines:
                     cur, q = None, new("q")
+                    trace.hit("block", "quote:indented-stretch-in-run", l.pi, l.text)
                 add(q, l)
                 continue
-            if len(run) > 1 and l.ind >= 8 and valid_label(l.text.rstrip(".")) and abs(l.ind - (right[l.pi] - l.end)) <= 12:
+            ic = rules.ctx(run=run, l=l, cur=cur, gap=right[l.pi] - l.end,
+                           m=NUMHEAD_RE.match(l.text) if len(run) > 1 and l.ind >= 6 else None)
+            kind = IN_RUN.decide(ic, l.pi, l.text)
+            if kind == "heading:centred-label-in-run":
                 cur = None                      # a centred "II" with no blank line around it
                 new("h", label=l.text.rstrip("."))
                 continue
-            mh = NUMHEAD_RE.match(l.text) if len(run) > 1 and l.ind >= 6 else None
-            if mh and headingish(mh.group(2)) and (cur is None or re.search(r"[.:;)”\"]$", cur["last"].text)):
+            if kind == "heading:numbered-in-run":
                 cur = None                      # "I. Statutory and Regulatory Background", set in the run
-                new("h", label=mh.group(1))
-                new("title", pieces=[(mh.group(2), l.pi)])
+                new("h", label=ic.m.group(1))
+                new("title", pieces=[(ic.m.group(2), l.pi)])
                 continue
-            glued = double and i > 0            # single-spaced pair inside double-spaced text: one paragraph
-            if cur is None or (not glued and (short(cur["last"]) or ENUM_RE.match(l.text)
-                                              or (cur["cont"] is not None and l.ind > cur["cont"] + 2))):
+            pc = rules.ctx(l=l, cur=cur, short=short, glued=double and i > 0,
+                           item=cur is not None and bool(BULLET_RE.match(cur["first"])),
+                           ended=cur is not None and bool(re.search(r"[.:;)”\"][\ue030-\ue039]*$", cur["last"].text)))
+            if PARAGRAPH.decide(pc, l.pi, l.text, cur["last"].text if cur is not None else "").startswith("break"):
                 cur = new("p")
             elif cur["cont"] is None:
                 cur["cont"] = l.ind
@@ -3359,6 +3545,9 @@ def recap_blocks(lines, labels):
 # a list item's first line: a bullet (Word's private-use \uf0b7 too) or "(a)" / "1." / "iv)"; its hanging
 # indent is not a quotation
 BULLET_START = r"^[•\uf0b7\uf0a7▪●◦‣\-–*]|^\(?\w{1,3}[.)]\s"
+
+
+BULLET_RE = re.compile(r"^[•\uf0b7\uf0a7▪●◦‣]\s")
 
 
 def quote_stretches(run, b, goes_on=False):
@@ -3428,29 +3617,48 @@ def _continues_number(pieces, pj):
     return bool(nxt and nxt[0][:1].isdigit())
 
 
+# Where a footnote's number sits in the text, tried in this order (the first found wins): the mark extract.py set
+# in look-alike digits, then the patterns for a plain digit. (name, pattern, only for spaced text: slip opinions'
+# "7(E). 1" and briefs)
+MARK_PATTERNS = [
+    ("mark:extracted", "TOKEN", False),
+    ("mark:after-word", FNMARK, False),
+    ("mark:spaced-after-punctuation", FNMARK_SPACED, True),
+    ("mark:spaced-mid-sentence", FNMARK_MID, True),
+]
+
+
 def place_marks(blocks, footnotes, warn, spaced=False):
     """Put a footnotemark where each footnote's number sits in the text, looking forward from the
     previous mark, no further than the page the footnote is printed on."""
+    from tribonian import extract
     pos = [0, 0, 0]                             # block, piece, character
     for lab, pi, _ in footnotes:
-        for pat in (FNMARK, FNMARK_SPACED, FNMARK_MID) if spaced else (FNMARK,):   # slip opinions: "7(E). 1" too
-            rx = re.compile(pat % re.escape(lab))
+        # extract.py set the mark in look-alike digits: that, wherever it is; else the patterns for a digit
+        num = re.sub(r"\D", "", lab)            # "b1": note 1 of the second series is set as a 1
+        token = num.translate(extract.TO_MARK)
+        for name, pat, only_spaced in MARK_PATTERNS:
+            if only_spaced and not spaced:
+                continue
+            rx = re.compile("(?<![%s])%s(?![%s])" % (extract.MARK_DIGITS, re.escape(token), extract.MARK_DIGITS)
+                            if pat == "TOKEN" else pat % re.escape(num))
             found, last = None, None
             bi, pj, ch = pos
             while bi < len(blocks) and found is None:
                 pieces = blocks[bi]["pieces"]
                 while pj < len(pieces):
                     p = pieces[pj]
-                    if isinstance(p, tuple) and blocks[bi]["kind"] in ("p", "q"):
+                    if isinstance(p, tuple) and (blocks[bi]["kind"] in ("p", "q") or (pat == "TOKEN" and blocks[bi]["kind"] in ("head", "title"))):
                         if p[1] > pi:
                             break
                         last = (bi, pj)
                         m = rx.search(p[0], ch)
-                        while m and ((m.end() == len(p[0]) and _continues_number(pieces, pj))
+                        while m and pat != "TOKEN" and ((m.end() == len(p[0]) and _continues_number(pieces, pj))
                                      or (pat is FNMARK_MID and not fn_mid_ok(p[0], m))):
                             m = rx.search(p[0], m.start() + 1)   # "Act, 4" + "2 U.S.C.": a split number, not a mark
                         if m:
                             found = (bi, pj, m, pat in (FNMARK_SPACED, FNMARK_MID))
+                            found_name = name
                             break
                     pj, ch = pj + 1, 0
                 if found is None:
@@ -3464,6 +3672,7 @@ def place_marks(blocks, footnotes, warn, spaced=False):
         if found:
             bi, pj, m, spaced_mark = found
             text, page = blocks[bi]["pieces"][pj]
+            trace.hit("mark", found_name, pi, text[max(0, m.start() - 40):m.end() + 10])
             before = text[:m.start()].rstrip() if spaced_mark else text[:m.start()]   # "2026). 1" -> "2026).¹"
             blocks[bi]["pieces"][pj:pj + 1] = [(before, page), mark, (text[m.end():], page)]
             pos = [bi, pj + 2, 0]
@@ -3472,13 +3681,16 @@ def place_marks(blocks, footnotes, warn, spaced=False):
             blocks[bi]["pieces"].insert(pj + 1, mark)
             pos = [bi, pj + 2, 0]
             warn("footnote %s: its number was not found in the text; marked at the end of page %s" % (lab, pi + 1))
+            trace.hit("mark", "fallback:end-of-page", pi, "note %s" % lab)
         elif pos[0] < len(blocks) and pos[1] > 0:  # nothing left on its page after the previous mark: beside that mark
             bi, pj = pos[0], min(pos[1], len(blocks[pos[0]]["pieces"]))
             blocks[bi]["pieces"].insert(pj, mark)
             pos = [bi, pj + 1, 0]
             warn("footnote %s: its number was not found in the text; marked after the footnote before it" % lab)
+            trace.hit("mark", "fallback:after-previous-mark", pi, "note %s" % lab)
         else:
             warn("footnote %s: nowhere to attach it; left out" % lab)
+            trace.hit("mark", "fallback:left-out", pi, "note %s" % lab)
 
 
 def _whole_cites(spans):

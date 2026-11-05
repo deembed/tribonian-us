@@ -227,7 +227,10 @@ pub fn read_docket(path: &Path, repo: &Path) -> Result<Docket, String> {
     let qp_txt = s(&v["qp"], "txt");
     if !qp_txt.is_empty() {
         if let Ok(t) = std::fs::read_to_string(repo.join(&qp_txt)) {
-            d.qp_text = t.split_whitespace().collect::<Vec<_>>().join(" ");
+            // extracted text (extract.py): each page's footnotes block and the marks' look-alike digits left out
+            let body: Vec<&str> = t.split('\u{c}').map(|pg| pg.split("\n\u{e010}").next().unwrap_or("")).collect();
+            let body: String = body.join(" ").chars().filter(|c| !('\u{e030}'..='\u{e039}').contains(c)).collect();
+            d.qp_text = body.split_whitespace().collect::<Vec<_>>().join(" ");
         }
     }
     for e in v["entries"].as_array().into_iter().flatten() {

@@ -5,6 +5,8 @@ Used by usc2md, case2md, scotus and cocite_subdoc, so the US Code and the cases 
 tablet. UNMAPPED counts every character tex_safe() had to drop or mark; callers report and clear it.
 """
 
+import re
+
 TEX_ESCAPES = {
     "\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$",
     "#": r"\#", "_": r"\_", "{": r"\{", "}": r"\}",
@@ -55,7 +57,31 @@ def tex_safe(c):
     return r"\texorpdfstring{{\fboxsep0.6pt\fbox{\scriptsize ?}}}{?}"
 
 
+# A URL or an email address is one long word to TeX, so it ran into the margin ("joshua.wesneski@weil.com",
+# a lexisnexis.com link in a parenthetical). Inside such a token a line may break after / . @ ? & = - _ .
+BREAKABLE = re.compile(r"(?:https?://|www\.)\S+|[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+# extract.py's footnote marks (look-alike digits U+E030-E039) are footnote marks by the time text is set; one
+# left over (a mark in a heading line) prints as its digit, never as an unknown character
+MARK_DIGITS = str.maketrans({0xE030 + d: str(d) for d in range(10)})
+
+
 def tex_chars(s):
+    """Escape a string for LaTeX; URLs and email addresses get break points."""
+    s = s.translate(MARK_DIGITS)
+    if "@" not in s and "://" not in s and "www." not in s:
+        return _tex_chars(s)
+    out, last = [], 0
+    for m in BREAKABLE.finditer(s):
+        out.append(_tex_chars(s[last:m.start()]))
+        out.append("".join(_tex_chars(ch) + ("\\allowbreak{}" if ch in "/.@?&=-_" else "") for ch in m.group()))
+        last = m.end()
+    out.append(_tex_chars(s[last:]))
+    return "".join(out)
+
+
+def _tex_chars(s):
     """Escape a string for LaTeX, character by character."""
     out, i = [], 0
     while i < len(s):
