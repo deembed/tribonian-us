@@ -2992,7 +2992,7 @@ def split_footnotes(raw, nxt, prev_open):
         if m and nxt <= int(m.group(1)) <= nxt + 2 and len(l) - len(l.lstrip()) <= 12 and any(x.strip() for x in raw[:j]) and any(x.strip() for x in raw[j + 1:]):
             k, nxt = j, int(m.group(1))         # a skipped number (lost in the text layer) costs one footnote, not the rest
             break
-    inline = False
+    inline, lifted = False, None
     if k is None:                   # "1  Plaintiffs refer to ...": the number on the same line as the note's text
         # (court of appeals slip opinions); after a blank line, below the page's first lines, the next number only.
         # Double-spaced text has a blank line around every line, so there a number starting a line one blank line
@@ -3008,9 +3008,19 @@ def split_footnotes(raw, nxt, prev_open):
             # tail sits below a gap of 2+ blank lines): "… JA293-294.\n  3 These schools provide …"
             after_tail = prev_open and re.search(r"[.)\]”’\"]\s*$", raw[j - 1]) and \
                 any(not raw[i].strip() and not raw[i + 1].strip() for i in range(max(0, j - 14), j - 1))
-            if m and nxt <= int(m.group(2)) <= nxt + 1 and (not raw[j - 1].strip() or after_tail) and any(x.strip() for x in raw[:j]) and \
-                    not m.group(3)[:1].isdigit() and not NOT_FNTEXT_RE.match(m.group(3)):
+            # pdftotext can lift the tail of a note's first line onto a line of its own above it, far to the right
+            # ("      Avalon Project, Yale Law" over "24 Mass. Const. (1780), pt. I, art. II.,"), under the blank lines
+            stray = j >= 2 and not raw[j - 2].strip() and raw[j - 1].strip() != "" and \
+                len(raw[j - 1]) - len(raw[j - 1].lstrip()) >= 20 and len(raw[j - 1].strip()) < 40
+            # under 2+ blank lines: a skip of up to 3 (a note lost earlier costs that note only), and a note that is
+            # only a cite ("2 142 S. Ct. 2407, 2448 (2022).")
+            wide = j >= 2 and not raw[j - 2].strip() and (stray or not raw[j - 1].strip())
+            foot = sum(1 for x in raw[j + 1:] if x.strip()) <= 4          # the page's last few lines
+            if m and nxt <= int(m.group(2)) <= nxt + (3 if wide else 1) and (not raw[j - 1].strip() or after_tail or stray) and any(x.strip() for x in raw[:j]) and \
+                    not (m.group(3)[:1].isdigit() and not (wide or (int(m.group(2)) == nxt and foot))) and not NOT_FNTEXT_RE.match(m.group(3)):
                 k, nxt, inline = j, int(m.group(2)), True
+                if stray:
+                    lifted, raw = raw[j - 1].strip(), raw[:j - 1] + [""] + raw[j:]
                 break
     end = k if k is not None else len(raw)
     fns, body_end = [], end
@@ -3035,7 +3045,11 @@ def split_footnotes(raw, nxt, prev_open):
         prev_blank = True
         for l in raw[k:]:
             m = FNLABEL_RE.match(l)
-            mi = FNSTART_RE.match(l) if inline and prev_blank else None
+            mi = FNSTART_RE.match(l) if inline else None
+            if mi and not prev_blank and not (int(mi.group(2)) == nxt and mi.group(3)[:1].isupper()
+                                              and not NOT_FNTEXT_RE.match(mi.group(3))):
+                mi = None                   # mid-sentence: the note's own text ("at\n5 (referring"); the next number
+                                            # and a capital ("5   Id." under a URL's tail) start the next note
             prev_blank = not l.strip() or re.search(r"[.)\]”’\"]\s*$", l) is not None   # a note ends a sentence
             if m and int(m.group(1)) == nxt:
                 cur = (m.group(1), [[]])
@@ -3055,6 +3069,9 @@ def split_footnotes(raw, nxt, prev_open):
         for lab, paras in fns:
             while paras and not paras[-1]:
                 paras.pop()
+        first = next((f for f in fns if f[0] is not None), None)
+        if lifted and first and first[1] and first[1][0]:
+            first[1][0].insert(1, lifted)       # back after the note's first line
     return raw[:body_end], fns, nxt
 
 
@@ -3258,9 +3275,10 @@ def recap_blocks(lines, labels):
                 b["pieces"].append(El("page-number", {"label": labels[l.pi]}))
             b["pieces"].append((sep + l.text, l.pi))
         b["last"] = l
+        b["first"] = b.get("first") or l.text
 
     def new(kind, **kw):
-        b = dict(dict(kind=kind, pieces=[], last=None, cont=None), **kw)
+        b = dict(dict(kind=kind, pieces=[], last=None, cont=None, first=""), **kw)
         blocks.append(b)
         return b
 
@@ -3345,8 +3363,14 @@ def recap_blocks(lines, labels):
                 new("title", pieces=[(mh.group(2), l.pi)])
                 continue
             glued = double and i > 0            # single-spaced pair inside double-spaced text: one paragraph
-            if cur is None or (not glued and (short(cur["last"]) or ENUM_RE.match(l.text)
-                                              or (cur["cont"] is not None and l.ind > cur["cont"] + 2))):
+            # a bullet starts an item; a line back at the margin ends one (its lines hang under the text, deeper);
+            # after a sentence's end, an indent of 2 starts a paragraph (booklet briefs indent only 2-3)
+            item = cur is not None and bool(BULLET_RE.match(cur["first"]))
+            ended = cur is not None and re.search(r"[.:;)”\"]$", cur["last"].text)
+            if cur is None or (not glued and (short(cur["last"]) or ENUM_RE.match(l.text) or BULLET_RE.match(l.text)
+                                              or (cur["cont"] is not None and l.ind > cur["cont"] + 2 and not item)
+                                              or (item and cur["cont"] is not None and l.ind < cur["cont"] - 2)
+                                              or (ended and cur["cont"] is not None and l.ind >= cur["cont"] + 2))):
                 cur = new("p")
             elif cur["cont"] is None:
                 cur["cont"] = l.ind
@@ -3359,6 +3383,9 @@ def recap_blocks(lines, labels):
 # a list item's first line: a bullet (Word's private-use \uf0b7 too) or "(a)" / "1." / "iv)"; its hanging
 # indent is not a quotation
 BULLET_START = r"^[•\uf0b7\uf0a7▪●◦‣\-–*]|^\(?\w{1,3}[.)]\s"
+
+
+BULLET_RE = re.compile(r"^[•\uf0b7\uf0a7▪●◦‣]\s")
 
 
 def quote_stretches(run, b, goes_on=False):
