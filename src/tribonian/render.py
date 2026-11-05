@@ -181,12 +181,18 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \newcommand{\vfrac}[2]{\kern.08em\textsuperscript{#1}\kern-.12em/\kern-.08em{\scriptsize #2}}
 \AtBeginDocument{\pdfstringdefDisableCommands{\def\vfrac#1#2{#1/#2}}}
 
-% Bold label hangs at the left; wrapped lines align under the body text.
+% Bold label. A short one ("I.", "(a)", "§ 552.") hangs at the left and wrapped lines align under the body text; a
+% long one ("Summary of Argument.") is a line of its own, kept with the text under it, which then runs the full width
+% (hanging it left an empty column a third of the page wide under the label).
 \newsavebox{\labbox}
 \newcommand{\lab}[1]{%
   \sbox{\labbox}{\bfseries #1\ }%
-  \hangindent=\wd\labbox \hangafter=1
-  \usebox{\labbox}}
+  \ifdim\wd\labbox>3em
+    \usebox{\labbox}\par\nobreak
+  \else
+    \hangindent=\wd\labbox \hangafter=1
+    \usebox{\labbox}%
+  \fi}
 
 % enforce breakable is the load-bearing key: a tcolorbox nested inside another
 % is unbreakable by default, which is what made the tall subsections overflow.
