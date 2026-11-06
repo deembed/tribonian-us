@@ -49,6 +49,7 @@ from pathlib import Path
 import numpy as np
 
 from tribonian import casedb
+from tribonian import textcodec
 
 VERSION = 2                                        # 2: control characters in the source text stripped
 SHARD = 50_000                                     # rowids per shard file
@@ -257,7 +258,7 @@ def run_shard(lo, hi, path):
             ops.append((oid, 0, 0, 0, 0, 0, 0, 0))
             continue
         try:
-            r, st, mk = extract(oid, zlib.decompress(blob).decode("utf-8", "replace"), own)
+            r, st, mk = extract(oid, textcodec.unpack(blob), own)
         except Exception as e:                      # one bad opinion must not cost the shard
             print("  opinion %d skipped: %s: %s" % (oid, type(e).__name__, e), file=sys.stderr, flush=True)
             ops.append((oid, -1, 0, 0, 0, 0, 0, 0))   # linked = -1: extractor failed
@@ -703,7 +704,7 @@ def cmd_prox_evidence(args):
     def opinion_text(o):
         if o not in text_cache:
             r = ops_con.execute("SELECT cluster_id, text FROM opinions WHERE id = ?", (o,)).fetchone()
-            text_cache[o] = extract(o, zlib.decompress(r[1]).decode("utf-8", "replace"), r[0])[1]["text"] if r and r[1] else ""
+            text_cache[o] = extract(o, textcodec.unpack(r[1]), r[0])[1]["text"] if r and r[1] else ""
         return text_cache[o]
 
     def window(t, c, w=args.window):
@@ -793,7 +794,7 @@ def cmd_show(oid):
     r = con.execute("SELECT id, cluster_id, field, text FROM opinions WHERE id = ?", (oid,)).fetchone()
     if not r or not r[3]:
         sys.exit("no text for opinion %d" % oid)
-    rows, st, marks = extract(r[0], zlib.decompress(r[3]).decode("utf-8", "replace"), r[1])
+    rows, st, marks = extract(r[0], textcodec.unpack(r[3]), r[1])
     text = st.pop("text")
     print("opinion %d (case %d), %s: %s" % (r[0], r[1], r[2], st))
     print("%-4s %-9s %4s %4s %6s %3s %-8s %-10s  context" % ("seq", "cited", "para", "sent", "char", "fn", "sep", "signal"))
@@ -820,7 +821,7 @@ def cmd_sample(n, seed=1):
             continue
         tot["linked"] += 1
         t0 = time.perf_counter()
-        rows, st, _ = extract(r[0], zlib.decompress(r[3]).decode("utf-8", "replace"), r[1])
+        rows, st, _ = extract(r[0], textcodec.unpack(r[3]), r[1])
         t += time.perf_counter() - t0
         tot["rows"] += len(rows)
         tot["self"] += st["self"]

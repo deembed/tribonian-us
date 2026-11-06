@@ -21,6 +21,7 @@ import importlib.util
 from pathlib import Path
 
 from tribonian import casedb                      # paths only (tconfig: CL_* variable, config file, default); stdlib
+from tribonian import textcodec
 from tribonian import tconfig
 
 HERE = tconfig.WORK                          # the work folder
@@ -398,7 +399,7 @@ def run_ops():
                        (PROBE["cluster"],)).fetchone()
         if not r:
             return c.warn("%s (%s); probe case not found (a --limit sample?)" % (casedb.OPS_DB, gb(casedb.OPS_DB)))
-        t = zlib.decompress(r[2]).decode("utf-8")
+        t = textcodec.unpack(r[2])
         found = "arbitrary and capricious" in t
         msg = "%s (%s); opinion %d: %s characters of %s%s" % (casedb.OPS_DB, gb(casedb.OPS_DB), r[0], n(len(t)), r[1],
                                                               "" if found else ", expected phrase missing")
