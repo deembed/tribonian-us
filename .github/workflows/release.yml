@@ -55,7 +55,7 @@ jobs:
       matrix:
         include:
           - { os: windows-latest, name: windows-x64 }
-          - { os: macos-14, name: macos-universal }
+          - { os: macos-latest, name: macos-universal }
           - { os: ubuntu-22.04, name: linux-x64 }         # the older glibc runs on more distributions (Mint 21 and 22)
     runs-on: ${{ matrix.os }}
     env:
@@ -64,7 +64,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: gui
