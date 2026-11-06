@@ -213,7 +213,8 @@ Case notes read two co-citation views built from appellate citing decisions:
   pairs weighted by same-sentence co-citation.
 - `appellate` (binary): the "likely successor" line in the case profile (`cocite_shift.py` was evaluated there).
 
-Run in this order; each step reads what the one before wrote.
+Steps 1-6 are what View Clusters needs, and the Sync page's **Build clusters** (`tribonian setup clusters`) runs
+them for you, continuing where a failed run stopped. By hand, run in this order; each step reads what the one before wrote.
 
 ```
 tribonian cocite prep                                                    # 1. one pass over the database -> bulk/cocite-cache/

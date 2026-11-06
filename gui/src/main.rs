@@ -1,3 +1,6 @@
+// A release build on Windows is a windowed app: no console window behind it (config::quiet keeps its child
+// processes from opening their own).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 //! lawgui: a read-only browser over what the tribonian-us scripts produced.
 //! Start screen -> View Clusters (areas, lineages, slices, clusters, sub-clusters) and View Opinions,
 //! all leading to one shared case page. See claude/scope-gui.md in the Project.
@@ -38,7 +41,7 @@ fn main() -> eframe::Result<()> {
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1400.0, 900.0])
-            .with_title("Law browser"),
+            .with_title("Tribonian"),
         ..Default::default()
     };
     eframe::run_native("lawgui", opts, Box::new(|cc| Ok(Box::new(App::new(cc)))))

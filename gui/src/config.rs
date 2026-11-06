@@ -126,6 +126,16 @@ pub fn command_prefix() -> Vec<String> {
     std::env::var("TRIBONIAN_COMMAND_PREFIX").unwrap_or_default().split_whitespace().map(String::from).collect()
 }
 
+/// On Windows, run c without a console window of its own (the release app has none to share). Elsewhere a no-op.
+pub fn quiet(c: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    c
+}
+
 /// `python -m tribonian`, from the checkout's src/ whether or not the package is installed (or
 /// `<prefix> tribonian`, see [`command_prefix`]). It runs in the work folder (the CLI changes to it),
 /// so relative paths in arguments are relative to that folder.
@@ -133,10 +143,11 @@ pub fn tribonian(python: &str, repo: &Path) -> Command {
     let prefix = command_prefix();
     if let Some((first, rest)) = prefix.split_first() {
         let mut c = Command::new(first);
-        c.args(rest).arg("tribonian");
+        quiet(&mut c).args(rest).arg("tribonian");
         return c;
     }
     let mut c = Command::new(python);
+    quiet(&mut c);
     let src = repo.join("src");
     if !src.is_dir() {
         c.args(["-m", "tribonian"]);              // the installed package, no checkout

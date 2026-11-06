@@ -9,6 +9,7 @@
     tribonian setup latex [install]         # is pdflatex there with the packages | install TinyTeX and the packages
     tribonian setup download [--only NAME ...] [--date YYYY-MM-DD]   # bulk files, restartable
     tribonian setup update                  # load the downloaded set beside the current database, check it, swap
+    tribonian setup clusters [--force]      # co-citation views and areas for View Clusters (README stage 5, 1-6)
     tribonian setup set KEY [VALUE]         # write one setting to the config file (no VALUE: read stdin)
 
 The Sync page's start-up rule: the app opens on Sync until the required rows pass (Tribonian, LaTeX, and the API
@@ -29,6 +30,13 @@ BULK_FILES = ["courts", "citations", "parentheticals", "citation-map", "opinion-
 GB_DOWNLOADS, GB_MAIN, GB_OPINIONS = 60, 25, 110
 SETTABLE = {"courtlistener_token", "bulk_dir", "opinions_db", "data_mode", "gui.python"}
 RETRIES = (5, 15, 45, 120)            # seconds between attempts after a network error; then stop and show Resume
+
+
+def request(url, headers=None, method=None):
+    """A request that names this program: some hosts refuse Python's default User-Agent."""
+    h = {"User-Agent": "tribonian-us/%s" % version()}
+    h.update(headers or {})
+    return urllib.request.Request(url, headers=h, method=method)
 
 
 # ------------------------------------------------------------------ the config file
@@ -179,8 +187,10 @@ def cmd_test_token(args):
 
 # ------------------------------------------------------------------ LaTeX
 
-TINYTEX = {"posix": "https://yihui.org/tinytex/install-bin-unix.sh",
-           "nt": "https://yihui.org/tinytex/install-bin-windows.bat"}
+# TinyTeX's own install scripts. On Windows the .ps1 itself: the .bat wrapper passes its URL to curl in single
+# quotes, which cmd.exe keeps, so it fails.
+TINYTEX = {"posix": "https://tinytex.yihui.org/install-bin-unix.sh",
+           "nt": "https://tinytex.yihui.org/install-bin-windows.ps1"}
 
 
 def latex_status():
@@ -207,9 +217,12 @@ def missing_file(log):
 
 
 def compile_smoke(say=print, tries=25):
-    """Compile smoke_tex(); with TinyTeX's tlmgr, install each missing package and try again. True on a PDF."""
+    """Compile smoke_tex(); with TinyTeX's tlmgr, install each missing package and try again. True on a PDF.
+    A fresh TinyTeX's tlmgr can be older than its repository accepts, so it updates itself before the first install.
+    Stops on a failed install, or when a package's file is still missing after it was installed."""
     tlmgr = shutil.which("tlmgr")
     tinytex = bool(tlmgr) and "tinytex" in tlmgr.lower()
+    installed, updated = set(), False
     with tempfile.TemporaryDirectory() as d:
         Path(d, "t.tex").write_text(smoke_tex(), encoding="utf-8")
         for _ in range(tries):
@@ -223,13 +236,25 @@ def compile_smoke(say=print, tries=25):
                 say("pdflatex failed%s" % (": missing %s" % f if f else "") + ("" if tinytex else
                     " -- install it with your TeX distribution's package manager"))
                 return False
+            if not updated:
+                say("updating tlmgr (TinyTeX's package manager)")
+                if subprocess.run([tlmgr, "update", "--self"]).returncode:
+                    say("tlmgr update --self failed; see its output above")
+                    return False
+                updated = True
             found = subprocess.run([tlmgr, "search", "--global", "--file", "/" + f], capture_output=True, text=True).stdout
             pkg = next((l.rstrip(":") for l in found.splitlines() if l.endswith(":") and not l.startswith(" ")), None)
             if not pkg:
                 say("no TeX Live package provides %s" % f)
                 return False
+            if pkg in installed:
+                say("%s is still missing after installing %s; stopping" % (f, pkg))
+                return False
             say("installing LaTeX package %s (for %s)" % (pkg, f))
-            subprocess.run([tlmgr, "install", pkg], check=False)
+            if subprocess.run([tlmgr, "install", pkg]).returncode:
+                say("tlmgr install %s failed; see its output above" % pkg)
+                return False
+            installed.add(pkg)
     return False
 
 
@@ -243,9 +268,10 @@ def cmd_latex(args):
         print("installing TinyTeX (per user, no administrator rights) from %s" % url)
         with tempfile.TemporaryDirectory() as d:
             script = Path(d, url.rsplit("/", 1)[1])
-            with urllib.request.urlopen(url, timeout=120) as r:
+            with urllib.request.urlopen(request(url), timeout=120) as r:
                 script.write_bytes(r.read())
-            cmd = ["cmd", "/c", str(script)] if os.name == "nt" else ["sh", str(script)]
+            cmd = (["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)] if os.name == "nt"
+                   else ["sh", str(script)])
             if subprocess.run(cmd).returncode:
                 sys.exit("the TinyTeX installer failed; see its output above")
         tconfig.add_tinytex_to_path()
@@ -262,7 +288,7 @@ def cmd_latex(args):
 def listing(name, base=S3):
     """{date: (size, etag)} of one bulk file's quarterly sets (S3's list API)."""
     url = "%s/?list-type=2&prefix=bulk-data/%s-" % (base, name)
-    with urllib.request.urlopen(url, timeout=60) as r:
+    with urllib.request.urlopen(request(url), timeout=60) as r:
         xml = r.read().decode("utf-8")
     out = {}
     for item in re.findall(r"<Contents>(.*?)</Contents>", xml, re.S):
@@ -281,26 +307,58 @@ def newest_set(sets):
     return max(common) if common else None
 
 
-def bz2_ok(path):
-    """The whole bzip2 stream decompresses (a cut or corrupt download fails here, not halfway through a load)."""
-    tool = next((t for t in ("lbzip2", "pbzip2", "bzip2") if shutil.which(t)), None)
-    if tool:
-        return subprocess.run([tool, "-t", str(path)], capture_output=True).returncode == 0
-    import bz2
+try:                                   # AWS's C library: CRC64-NVME at disk speed (pure Python would be far slower)
+    from awscrt.checksums import crc64nvme as _crc64nvme
+except ImportError:
+    _crc64nvme = None
+
+
+class Crc:
+    """S3's full-object CRC64-NVME, kept up to date as bytes are written; n is how many bytes it covers."""
+    def __init__(self):
+        self.v, self.n = 0, 0
+
+    def add(self, b):
+        self.v, self.n = _crc64nvme(b, self.v), self.n + len(b)
+
+    def reset(self):
+        self.v, self.n = 0, 0
+
+    def cover(self, part):
+        """Make it cover exactly the bytes in part (a resumed download, or a file finished earlier)."""
+        have = part.stat().st_size if part.exists() else 0
+        if self.n == have:
+            return
+        self.reset()
+        with open(part, "rb") as f:
+            while True:
+                b = f.read(1 << 24)
+                if not b:
+                    break
+                self.add(b)
+
+    def b64(self):
+        import base64
+        return base64.b64encode(self.v.to_bytes(8, "big")).decode()
+
+
+def head_checksum(url):
+    """S3's stored full-object CRC64-NVME (base64), or "" when there is none or the HEAD request fails."""
     try:
-        with bz2.open(path, "rb") as f:
-            while f.read(1 << 24):
-                pass
-        return True
-    except (OSError, EOFError, ValueError):
-        return False
+        with urllib.request.urlopen(request(url, {"x-amz-checksum-mode": "ENABLED"}, method="HEAD"), timeout=60) as r:
+            full = (r.headers.get("x-amz-checksum-type") or "FULL_OBJECT").upper() == "FULL_OBJECT"
+            return (r.headers.get("x-amz-checksum-crc64nvme") or "") if full else ""
+    except OSError:
+        return ""
 
 
-def _get(url, part, size, etag, say):
+def _get(url, part, size, etag, say, crc=None):
     have = part.stat().st_size if part.exists() else 0
     if have > size:
         part.unlink()
         have = 0
+    if crc:
+        crc.cover(part)
     if have == size:
         return
     headers = {}
@@ -308,9 +366,11 @@ def _get(url, part, size, etag, say):
         headers["Range"] = "bytes=%d-" % have
         if etag:
             headers["If-Range"] = etag                           # changed on the server: a 200 with the whole file
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=120) as r:
+    with urllib.request.urlopen(request(url, headers), timeout=120) as r:
         if have and r.status != 206:                             # range ignored or file changed: start over
             have = 0
+            if crc:
+                crc.reset()
         step, shown = max(size // 20, 1), have
         with open(part, "ab" if have else "wb") as f:
             while True:
@@ -318,6 +378,8 @@ def _get(url, part, size, etag, say):
                 if not chunk:
                     break
                 f.write(chunk)
+                if crc:
+                    crc.add(chunk)
                 have += len(chunk)
                 if have - shown >= step:
                     shown = have
@@ -328,22 +390,26 @@ def _get(url, part, size, etag, say):
 
 def fetch(url, dest, size, etag="", say=print, delays=RETRIES):
     """Download to dest through <dest>.part, resuming with a Range request. The size and ETag recorded at the start
-    sit in <dest>.part.json; if either changes, the file starts over. Network errors are retried after each delay,
-    then raised. A finished file is checked (size, bzip2 stream) before it gets its real name."""
+    sit in <dest>.part.json with S3's full-file checksum; if the size or ETag changes, the file starts over. Network
+    errors are retried after each delay, then raised. The checksum (CRC64-NVME) is computed as the bytes arrive and
+    compared at the end; a mismatch deletes the file. With no checksum on the server, or no awscrt, only the size is
+    checked and the load is the test (a corrupt stream stops it, and the current database stays as it was)."""
     part = dest.with_name(dest.name + ".part")
     meta = dest.with_name(dest.name + ".part.json")
-    want = {"size": size, "etag": etag}
     try:
         was = json.loads(meta.read_text())
     except (OSError, ValueError):
         was = None
-    if part.exists() and was is not None and was != want:
+    if part.exists() and was is not None and (was.get("size"), was.get("etag")) != (size, etag):
         say("  %s changed on the server: starting over" % dest.name)
         part.unlink()
-    meta.write_text(json.dumps(want))
+        was = None
+    checksum = (was or {}).get("crc64nvme") or head_checksum(url)
+    meta.write_text(json.dumps({"size": size, "etag": etag, "crc64nvme": checksum}))
+    crc = Crc() if checksum and _crc64nvme else None
     for i in range(len(delays) + 1):
         try:
-            _get(url, part, size, etag, say)
+            _get(url, part, size, etag, say, crc)
             break
         except OSError as e:                                      # URLError, timeouts and resets are all OSError
             if i == len(delays):
@@ -353,11 +419,15 @@ def fetch(url, dest, size, etag="", say=print, delays=RETRIES):
     got = part.stat().st_size
     if got != size:
         raise OSError("%s: got %d of %d bytes" % (dest.name, got, size))
-    say("  %s: testing the bzip2 stream" % dest.name)
-    if not bz2_ok(part):
-        part.unlink()
-        meta.unlink(missing_ok=True)
-        raise OSError("%s: the download is corrupt and was deleted; download it again" % dest.name)
+    if crc:
+        crc.cover(part)
+        if crc.b64() != checksum:
+            part.unlink()
+            meta.unlink(missing_ok=True)
+            raise OSError("%s: checksum mismatch, so the download is corrupt and was deleted; download it again" % dest.name)
+        say("  %s: checksum matches" % dest.name)
+    else:
+        say("  %s: size matches (%s)" % (dest.name, "no checksum on the server" if not checksum else "awscrt not installed"))
     part.replace(dest)
     meta.unlink(missing_ok=True)
 
@@ -509,17 +579,90 @@ def space_needed():
 
 def stale_derived():
     """Data built from the bulk set that an update leaves behind (the search index and court indexes are rebuilt by
-    the update itself; match ledger entries are dated by bulk set already)."""
+    the update itself; match ledger entries are dated by bulk set already). All of it is rebuilt by setup clusters."""
     from tribonian import check
-    out = []
-    views = sorted(check.COCITE_BASE.parent.glob("cocite*.sqlite"))
-    if views:
-        out.append({"what": "co-citation clusters", "files": [str(v) for v in views],
-                    "rebuild": "tribonian cocite prep && tribonian cocite build --courts appellate"})
-    pos = check.COCITE_CACHE / "posidx"
-    if pos.is_dir():
-        out.append({"what": "citing-sentence index", "files": [str(pos)], "rebuild": "tribonian cocite positions --index"})
-    return out
+    files = [str(v) for v in sorted(check.COCITE_BASE.parent.glob("cocite*.sqlite"))]
+    files += [str(d) for d in (check.COCITE_CACHE / "pos", check.COCITE_CACHE / "posidx") if d.is_dir()]
+    if not files:
+        return []
+    return [{"what": "co-citation clusters", "files": files, "rebuild": "tribonian setup clusters"}]
+
+
+# ------------------------------------------------------------------ co-citation clusters (README stage 5, steps 1-6)
+
+NOTE_VIEW = ["--courts", "appellate", "--weight", "sentence", "--mix", "0.2"]
+CLUSTER_STEPS = [            # (name, tribonian arguments); each reads what the one before wrote
+    ("prep", ["cocite", "prep"]),
+    ("binary view", ["cocite", "build", "--courts", "appellate"]),
+    ("citation positions", ["cocite", "positions"]),
+    ("position index", ["cocite", "positions", "--index"]),
+    ("note view", ["cocite", "build"] + NOTE_VIEW),
+    ("areas", ["cocite", "areas"] + NOTE_VIEW + ["--method", "cpm", "--resolution", "0.5", "--shrink", "10", "--consensus", "20"]),
+]
+
+
+def clusters_record():
+    from tribonian import check
+    return check.COCITE_CACHE / "setup-clusters.json"
+
+
+def data_stamp():
+    """Which bulk set the database holds: what the clusters were built from."""
+    from tribonian import casedb
+    return loaded_dates(casedb.DB)
+
+
+def clusters_status():
+    """(status, text): ok (built from the current data), stale, partial, none."""
+    from tribonian import check
+    view = check.COCITE_BASE.with_name("cocite-appellate-sentence-m0.2.sqlite")
+    try:
+        rec = json.loads(clusters_record().read_text())
+    except (OSError, ValueError):
+        rec = None
+    stamp = data_stamp()
+    if rec and rec.get("stamp") != stamp or stale_after_update():
+        return "stale", "built from an earlier bulk set: Build clusters again"
+    if rec and len(rec.get("done", [])) < len(CLUSTER_STEPS):
+        return "partial", "%d of %d steps done: Build clusters continues" % (len(rec["done"]), len(CLUSTER_STEPS))
+    if view.exists():
+        return "ok", "built (%s)" % view.name
+    return "none", "not built"
+
+
+def cmd_clusters(args):
+    """README stage 5, steps 1-6: the views and areas View Clusters opens. A step already done for the database's
+    current set is skipped, so a rerun continues where a failure stopped. After a data update it starts over, and
+    clears the old citation positions (positions only redoes shards whose extractor version changed)."""
+    from tribonian import check
+    if not data_level():
+        sys.exit("no local database: load the bulk data first (tribonian setup update)")
+    stamp = data_stamp()
+    try:
+        rec = json.loads(clusters_record().read_text())
+    except (OSError, ValueError):
+        rec = None
+    stale = bool(stale_after_update()) or (rec is not None and rec.get("stamp") != stamp)
+    if args.force or stale or rec is None:
+        rec = {"stamp": stamp, "done": []}
+    if stale:
+        for d in (check.COCITE_CACHE / "pos", check.COCITE_CACHE / "posidx"):
+            if d.is_dir():
+                print("removing citation positions from the previous set: %s" % d)
+                shutil.rmtree(d)
+    clusters_record().parent.mkdir(parents=True, exist_ok=True)
+    for i, (name, step) in enumerate(CLUSTER_STEPS, 1):
+        if name in rec["done"]:
+            print("%d/%d %s: done" % (i, len(CLUSTER_STEPS), name))
+            continue
+        print("%d/%d %s: tribonian %s" % (i, len(CLUSTER_STEPS), name, " ".join(step)), flush=True)
+        if subprocess.run([sys.executable, "-m", "tribonian"] + step).returncode:
+            sys.exit("step %d (%s) failed; Build clusters (tribonian setup clusters) continues from it" % (i, name))
+        rec["done"].append(name)
+        clusters_record().write_text(json.dumps(rec, indent=1))
+    STALE_FILE().unlink(missing_ok=True)
+    print("clusters built: View Clusters is ready")
+    return 0
 
 
 def STALE_FILE():
@@ -654,6 +797,9 @@ def report(remote=False):
             {"id": "key", "required": True, "status": key, "text": key_text},
             {"id": "data", "required": False, "status": "ok" if level else "none",
              "text": {"full": "full: the graph and opinion text", "lite": "lite: the graph, no opinion text"}.get(level, "none installed")}]
+    if level:
+        cs, ct = clusters_status()
+        rows.append({"id": "clusters", "required": False, "status": cs, "text": ct})
     mode_set = "data_mode" in tconfig.FILE or bool(os.environ.get("CL_DATA_MODE"))
     unavailable = ""
     if key == "skipped" and not level:
@@ -708,9 +854,11 @@ def main():
     p.add_argument("--date", help="YYYY-MM-DD: this set instead of the newest")
     p.add_argument("--only", nargs="+", choices=BULK_FILES, help="just these files")
     sub.add_parser("update", help="load the downloaded set beside the current database, check it, swap")
+    p = sub.add_parser("clusters", help="build the co-citation views and areas View Clusters opens (README stage 5)")
+    p.add_argument("--force", action="store_true", help="every step again, even those done for this set")
     args = ap.parse_args()
     return {"set": cmd_set, "key": cmd_key, "test-token": cmd_test_token, "latex": cmd_latex,
-            "download": cmd_download, "update": cmd_update}.get(args.cmd, cmd_status)(args)
+            "download": cmd_download, "update": cmd_update, "clusters": cmd_clusters}.get(args.cmd, cmd_status)(args)
 
 
 if __name__ == "__main__":

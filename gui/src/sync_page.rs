@@ -306,7 +306,7 @@ fn mark(ui: &mut Ui, status: &str) {
     let (t, c) = match status {
         "ok" => ("OK  ", GREEN),
         "skipped" => ("SKIP", AMBER),
-        "fail" => ("TODO", AMBER),
+        "fail" | "partial" | "stale" => ("TODO", AMBER),
         "busy" => ("... ", Color32::GRAY),
         _ => ("--  ", Color32::GRAY),
     };
@@ -492,6 +492,27 @@ pub fn sync_page(app: &mut App, ui: &mut Ui) {
                 });
                 ui.end_row();
             }
+
+            // Co-citation clusters: built from the bulk data (tribonian setup clusters; README stage 5)
+            if let Some(r) = rep.row("clusters") {
+                mark(ui, &r.status);
+                ui.label(RichText::new("Clusters").strong()).on_hover_text("the co-citation views and areas View Clusters opens");
+                ui.vertical(|ui| {
+                    ui.label(&r.text);
+                    if r.status != "ok" {
+                        let label = if r.status == "none" { "Build clusters" } else { "Build clusters again" };
+                        if ui
+                            .add_enabled(!queued, egui::Button::new(label))
+                            .on_hover_text("tribonian setup clusters: prep, both views, the citation positions and the areas; long, and a rerun continues where it stopped")
+                            .on_disabled_hover_text("in the build queue")
+                            .clicked()
+                        {
+                            todo = Some(Do::Queue("clusters", vec![vec!["setup".into(), "clusters".into()]]));
+                        }
+                    }
+                });
+                ui.end_row();
+            }
         });
 
         let Some(rep) = rep else { return };
@@ -623,10 +644,9 @@ fn bulk(ui: &mut Ui, rep: &Report, folders: &mut [Option<String>; 2], queued: bo
         ui.label(RichText::new("Built from the previous set").strong());
         for s in &b.stale {
             ui.horizontal_wrapped(|ui| {
-                ui.label(format!("{}: rebuild with", s.what));
-                ui.label(RichText::new(&s.rebuild).monospace());
-                if ui.small_button("Copy").clicked() {
-                    ui.ctx().copy_text(s.rebuild.clone());
+                ui.label(&s.what);
+                if ui.add_enabled(!queued, egui::Button::new("Rebuild")).on_hover_text(&s.rebuild).clicked() {
+                    *todo = Some(Do::Queue("clusters", vec![vec!["setup".into(), "clusters".into()]]));
                 }
             });
         }
