@@ -10,9 +10,8 @@ name: release
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:          # a dry run: builds everything, uploads the files to the run, makes no release
-  pull_request:               # the same dry run when a pull request changes this file or the app
-    paths: [".github/workflows/release.yml", "gui/**", "pyproject.toml"]
+  workflow_dispatch:          # a dry run (Actions > release > Run workflow): builds everything, keeps the files on the
+                              # run for 7 days, makes no release
 
 permissions:
   contents: write
@@ -47,6 +46,7 @@ jobs:
         with:
           name: wheel
           path: dist/*.whl
+          retention-days: 7         # a tagged release keeps its own copy
 
   app:
     needs: version
@@ -113,6 +113,7 @@ jobs:
         with:
           name: app-${{ matrix.name }}
           path: tribonian-*
+          retention-days: 7
 
   release:
     if: github.ref_type == 'tag'
