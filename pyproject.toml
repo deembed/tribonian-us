@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tribonian-us"
-version = "0.1.0"
+version = "0.2.0"
 description = "Federal law (US Code, cases, pending Supreme Court dockets) as dense reMarkable PDFs and linked Obsidian notes"
 readme = "README.md"
 license = "MIT"
