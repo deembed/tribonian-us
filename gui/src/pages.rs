@@ -213,7 +213,7 @@ pub fn central(app: &mut App, ui: &mut Ui) {
         Page::Docket(n) => return crate::scotus_page::docket_page(app, ui, n),
         Page::SemSearch => return crate::semsearch_page::sem_page(app, ui),
         Page::Check => return crate::check_page::check_page(app, ui),
-        Page::Setup => return crate::setup_page::setup_page(app, ui),
+        Page::Sync => return crate::sync_page::sync_page(app, ui),
         Page::Dockets => return crate::dockets_page::dockets_home(app, ui),
         Page::DocketsFederal => return crate::dockets_page::federal_page(app, ui),
         Page::DocketsState(code) => return crate::dockets_page::state_page(app, ui, code),
@@ -255,7 +255,6 @@ pub fn central(app: &mut App, ui: &mut Ui) {
 }
 
 fn home(app: &mut App, ui: &mut Ui) {
-    crate::setup_page::tick(app);
     ui.add_space(30.0);
     ui.vertical_centered(|ui| {
         ui.heading(RichText::new("What do you want to do?").size(26.0));
@@ -308,13 +307,14 @@ fn home(app: &mut App, ui: &mut Ui) {
         cols[2].vertical_centered(|ui| {
             ui.heading("Setup");
             ui.add_space(12.0);
-            let guide = match app.setup_ui.actions_required() {
-                Some(0) | None => big("Setup guide"),
-                Some(1) => big("Setup: 1 action required").color(Color32::from_rgb(220, 170, 50)),
-                Some(n) => big(&format!("Setup: {n} actions required")).color(Color32::from_rgb(220, 170, 50)),
+            let guide = match (app.cfg.is_none(), app.sync_ui.actions_required()) {
+                (true, _) => big("Sync: install required").color(Color32::from_rgb(220, 170, 50)),
+                (_, Some(0) | None) => big("Sync"),
+                (_, Some(1)) => big("Sync: 1 action required").color(Color32::from_rgb(220, 170, 50)),
+                (_, Some(n)) => big(&format!("Sync: {n} actions required")).color(Color32::from_rgb(220, 170, 50)),
             };
-            if button(ui, guide, "first install, step by step: Python packages, where the data goes, the API token, the database (tribonian setup)") {
-                go = Some(Page::Setup);
+            if button(ui, guide, "setup and CourtListener data: Tribonian, LaTeX, the API key, bulk data (tribonian setup)") {
+                go = Some(Page::Sync);
             }
             ui.add_space(8.0);
             let trouble = app.cfg_err.is_some() || app.view_err.is_some();

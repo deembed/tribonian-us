@@ -159,10 +159,16 @@ fn local_checks(app: &App) -> Vec<Local> {
             status: "warn",
             label: "Data paths".into(),
             detail: format!("the app's own defaults, because {e}"),
-            fix: format!("check that `PYTHONPATH={}/src {} -m tribonian check --paths` runs", cfg.repo_dir.display(), cfg.python),
+            fix: if cfg.installed {
+                format!("check that `{} -m tribonian check --paths` runs, or reinstall on the Sync page", cfg.python)
+            } else {
+                format!("check that `PYTHONPATH={}/src {} -m tribonian check --paths` runs", cfg.repo_dir.display(), cfg.python)
+            },
         }),
     }
-    if cfg.repo_dir.join("src").join("tribonian").join("check.py").is_file() {
+    if cfg.installed {
+        out.push(local("ok", "Scripts", format!("installed tribonian ({})", cfg.python), ""));
+    } else if cfg.repo_dir.join("src").join("tribonian").join("check.py").is_file() {
         out.push(local("ok", "repo_dir", cfg.repo_dir.display().to_string(), ""));
     } else {
         out.push(local("fail", "repo_dir", format!("{}: no src/tribonian/ there", cfg.repo_dir.display()), "set repo_dir in gui.toml to the tribonian-us folder"));
@@ -256,8 +262,8 @@ pub fn check_page(app: &mut App, ui: &mut Ui) {
             start(app);
         }
         ui.checkbox(&mut app.check_ui.api, "include one live CourtListener request");
-        if ui.button("Setup guide").on_hover_text("the first-install steps, with buttons").clicked() {
-            app.goto = Some(Page::Setup);
+        if ui.button("Sync").on_hover_text("setup and CourtListener data, with buttons").clicked() {
+            app.goto = Some(Page::Sync);
         }
         if running {
             ui.spinner();

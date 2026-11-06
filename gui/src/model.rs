@@ -23,8 +23,8 @@ pub enum Page {
     SemSearch,
     /// Check setup: tools and databases there and answering (check_page.rs)
     Check,
-    /// The Setup guide: first-install steps (tribonian setup).
-    Setup,
+    /// Sync: first-run setup and CourtListener bulk data (sync_page.rs, tribonian setup).
+    Sync,
     /// View Dockets: Federal or State (dockets_page.rs)
     Dockets,
     /// the federal courts: Supreme Court, courts of appeals, district, bankruptcy, special
@@ -45,7 +45,7 @@ impl Page {
     /// Which start-screen section a page belongs to (drives the side panel).
     pub fn section(&self) -> Section {
         match self {
-            Page::Home | Page::Check | Page::Setup => Section::Home,
+            Page::Home | Page::Check | Page::Sync => Section::Home,
             Page::Cases => Section::Cases,
             Page::Search { .. } | Page::CoCited(_) => Section::Search,
             Page::Scotus | Page::Docket(_) => Section::Scotus,
@@ -56,7 +56,7 @@ impl Page {
     }
     /// Pages that need the database (everything but the start screen and the case list).
     pub fn needs_db(&self) -> bool {
-        !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::SemSearch | Page::Check | Page::Setup
+        !matches!(self, Page::Home | Page::Cases | Page::Search { .. } | Page::Scotus | Page::Docket(_) | Page::SemSearch | Page::Check | Page::Sync
             | Page::Dockets | Page::DocketsFederal | Page::DocketsState(_) | Page::CourtDockets(_) | Page::RecapDocket(_) | Page::DocketSearch(_) | Page::CaseHistory(_))
     }
 }

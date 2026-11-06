@@ -51,6 +51,10 @@ def main(argv=None):
     if hasattr(signal, "SIGPIPE"):                 # `tribonian ... | head` ends quietly
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["--version"]:
+        from tribonian import setup_guide
+        print("tribonian %s" % setup_guide.version())
+        return 0
     while argv and (argv[0] == "--mode" or argv[0].startswith("--mode=")):
         if "=" in argv[0]:
             mode, argv = argv[0].split("=", 1)[1], argv[1:]

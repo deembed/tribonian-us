@@ -48,6 +48,31 @@ struct ScriptPaths {
     data_mode: Option<String>,
 }
 
+/// Config::load's error when there is neither a checkout nor an installed tribonian: the Sync page's Install button
+/// is the way out.
+pub const NOT_INSTALLED: &str = "Tribonian (the Python pipeline) isn't installed yet: Install it on the Sync page.";
+
+/// The app's own folder: uv, the installed tribonian and its interpreter. tconfig.py's default work folder is the
+/// same place (%LOCALAPPDATA%\tribonian-us on Windows, else $XDG_DATA_HOME or ~/.local/share, then tribonian-us).
+pub fn app_data_dir() -> PathBuf {
+    let base = if cfg!(windows) {
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+    } else {
+        std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(|| home().map(|h| h.join(".local").join("share")))
+    };
+    base.unwrap_or_else(|| PathBuf::from(".")).join("tribonian-us")
+}
+
+pub fn home() -> Option<PathBuf> {
+    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
+}
+
+/// The interpreter of the tribonian that uv installed (bootstrap.rs), whether or not it exists yet.
+pub fn installed_python() -> PathBuf {
+    let tool = app_data_dir().join("tools").join("tribonian-us");
+    if cfg!(windows) { tool.join("Scripts").join("python.exe") } else { tool.join("bin").join("python") }
+}
+
 /// The data modes, in the order the top bar lists them (tconfig.DATA_MODES).
 pub const DATA_MODES: [&str; 5] = ["offline", "full", "complete", "lite", "api"];
 
@@ -87,6 +112,11 @@ pub struct Config {
     pub data_mode: String,
     /// The mode in use: the top bar's choice (remembered), else data_mode. Every script runs with --mode <it>.
     pub mode: String,
+    /// No checkout: the scripts are the release's tribonian, installed by uv (bootstrap.rs), and must match this
+    /// app's version.
+    pub installed: bool,
+    /// Whether a CourtListener key is stored (the Sync page's report); None until it arrives.
+    pub has_key: Option<bool>,
 }
 
 /// TRIBONIAN_COMMAND_PREFIX, split on spaces: when set (e.g. "wsl", or "docker exec -i tribonian"),
@@ -107,7 +137,12 @@ pub fn tribonian(python: &str, repo: &Path) -> Command {
         return c;
     }
     let mut c = Command::new(python);
-    let mut pp = vec![repo.join("src")];
+    let src = repo.join("src");
+    if !src.is_dir() {
+        c.args(["-m", "tribonian"]);              // the installed package, no checkout
+        return c;
+    }
+    let mut pp = vec![src];
     if let Some(old) = std::env::var_os("PYTHONPATH") {
         pp.extend(std::env::split_paths(&old));
     }
@@ -151,15 +186,22 @@ impl Config {
                 break;
             }
         }
-        // The repo: gui.toml, else the folder above gui/ (where this app was built from).
-        let repo_dir = fc.repo_dir.clone().or_else(|| manifest.parent().map(Path::to_path_buf)).unwrap_or_default();
-        if command_prefix().is_empty() && !repo_dir.join("src").join("tribonian").join("check.py").is_file() {
-            return Err(format!(
-                "No tribonian-us code (src/tribonian/) in {}. Set repo_dir in gui.toml (copy gui.toml.example).",
-                repo_dir.display()
-            ));
+        // The repo: gui.toml, else the folder above gui/ (where this app was built from). A released app runs on a
+        // machine without that folder: then the scripts are the tribonian uv installed (Sync page > Install).
+        let mut repo_dir = fc.repo_dir.clone().or_else(|| manifest.parent().map(Path::to_path_buf)).unwrap_or_default();
+        let checkout = repo_dir.join("src").join("tribonian").join("check.py").is_file();
+        let installed = command_prefix().is_empty() && !checkout;
+        if installed {
+            if !installed_python().is_file() {
+                return Err(NOT_INSTALLED.into());
+            }
+            repo_dir = PathBuf::new();
         }
-        let python = fc.python.clone().unwrap_or_else(|| if cfg!(windows) { "python" } else { "python3" }.into());
+        let python = if installed {
+            installed_python().display().to_string()
+        } else {
+            fc.python.clone().unwrap_or_else(|| if cfg!(windows) { "python" } else { "python3" }.into())
+        };
         let (sp, paths_error) = match script_paths(&python, &repo_dir) {
             Ok(sp) => (Some(sp), None),
             Err(e) => (None, Some(e)),
@@ -184,7 +226,7 @@ impl Config {
         let default_view = fc.default_view.clone().or_else(|| g("default_view"));
         let obsidian_vault = fc.obsidian_vault.clone().or_else(|| g("obsidian_vault"));
         let obsidian_cases_dir = fc.obsidian_cases_dir.clone().or_else(|| g("obsidian_cases_dir"));
-        let python = fc.python.clone().or_else(|| g("python")).unwrap_or(python);
+        let python = if installed { python } else { fc.python.clone().or_else(|| g("python")).unwrap_or(python) };
         let config_file = sp.as_ref().and_then(|s| s.config_file.as_ref()).map(PathBuf::from);
         let config_error = sp.as_ref().and_then(|s| s.config_error.clone());
         let data_mode = sp.as_ref().and_then(|s| s.data_mode.clone()).filter(|m| DATA_MODES.contains(&m.as_str())).unwrap_or_else(|| "full".into());
@@ -206,6 +248,8 @@ impl Config {
             config_error,
             mode: crate::recent::load_mode().unwrap_or_else(|| data_mode.clone()),
             data_mode,
+            installed,
+            has_key: None,
         };
         Ok((cfg, file))
     }
@@ -219,6 +263,9 @@ impl Config {
     /// lite needs the main database, full the opinion-text database too. (tribonian check says more.)
     pub fn supports(&self, mode: &str) -> Result<(), String> {
         let have = |p: PathBuf| p.is_file();
+        if mode != "offline" && self.has_key == Some(false) {
+            return Err("needs a CourtListener API key (paste one on the Sync page)".into());
+        }
         match mode {
             "lite" if !have(self.main_db()) => Err("needs the main database (tribonian db load)".into()),
             "full" | "complete" if !have(self.main_db()) => Err("needs the main database (tribonian db load)".into()),

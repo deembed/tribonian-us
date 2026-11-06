@@ -1,0 +1,129 @@
+# Release: on a version tag (v0.2.0), build the Python wheel and the desktop app for Windows, macOS and Linux, and
+# put them on a draft GitHub release to look over and publish by hand.
+#
+# The app's Sync page installs the wheel attached to its own release (gui/src/bootstrap.rs), so the tag, pyproject.toml
+# and gui/Cargo.toml must name the same version: the first job stops the run otherwise.
+# Nothing is signed (claude/scope-sync.md): INSTALL.md shows the Windows "Run anyway" and macOS approval steps.
+# Free on a public repository; macOS minutes cost about ten times Linux's on a private one.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:          # a dry run: builds everything, uploads the files to the run, makes no release
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: |
+          py=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)
+          rs=$(sed -n 's/^version = "\(.*\)"/\1/p' gui/Cargo.toml | head -1)
+          echo "pyproject.toml $py, gui/Cargo.toml $rs, ref $GITHUB_REF_NAME"
+          [ "$py" = "$rs" ] || { echo "pyproject.toml and gui/Cargo.toml disagree"; exit 1; }
+          if [ "$GITHUB_REF_TYPE" = tag ]; then [ "v$py" = "$GITHUB_REF_NAME" ] || { echo "tag is not v$py"; exit 1; }; fi
+          echo "version=$py" >> "$GITHUB_OUTPUT"
+
+  wheel:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build && python -m build --wheel
+      - run: pip install dist/*.whl && tribonian --version | grep -x "tribonian ${{ needs.version.outputs.version }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/*.whl
+
+  app:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows-x64 }
+          - { os: macos-14, name: macos-universal }
+          - { os: ubuntu-22.04, name: linux-x64 }         # the older glibc runs on more distributions (Mint 21 and 22)
+    runs-on: ${{ matrix.os }}
+    env:
+      V: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-14' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui
+      - name: build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: gui
+        run: |
+          cargo build --release
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item target/release/lawgui.exe out/Tribonian.exe
+          Compress-Archive -Path out/Tribonian.exe -DestinationPath "../tribonian-$env:V-${{ matrix.name }}.zip"
+      - name: build (macOS, both chips in one app)
+        if: runner.os == 'macOS'
+        working-directory: gui
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+          app=out/Tribonian.app/Contents
+          mkdir -p $app/MacOS
+          lipo -create -output $app/MacOS/Tribonian target/aarch64-apple-darwin/release/lawgui target/x86_64-apple-darwin/release/lawgui
+          cat > $app/Info.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Tribonian</string>
+            <key>CFBundleExecutable</key><string>Tribonian</string>
+            <key>CFBundleIdentifier</key><string>io.github.deembed.tribonian-us</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>$V</string>
+            <key>CFBundleVersion</key><string>$V</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict></plist>
+          PLIST
+          codesign --force --deep --sign - out/Tribonian.app      # ad hoc only: Apple silicon refuses unsigned code
+          (cd out && ditto -c -k --keepParent Tribonian.app "../../tribonian-$V-${{ matrix.name }}.zip")
+      - name: build (Linux)
+        if: runner.os == 'Linux'
+        working-directory: gui
+        run: |
+          cargo build --release
+          mkdir -p out/tribonian-$V && cp target/release/lawgui out/tribonian-$V/tribonian
+          tar -C out -czf "../tribonian-$V-${{ matrix.name }}.tar.gz" tribonian-$V
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.name }}
+          path: tribonian-*
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, wheel, app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
+            --title "tribonian-us ${{ needs.version.outputs.version }}" dist/*

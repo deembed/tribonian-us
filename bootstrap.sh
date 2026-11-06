@@ -1,11 +1,11 @@
 #!/bin/sh
-# bootstrap.sh -- from a fresh clone to the app's Setup guide (Linux, macOS, WSL). Windows: bootstrap.ps1.
+# bootstrap.sh -- from a fresh clone to the app's Sync page (Linux, macOS, WSL). Windows: bootstrap.ps1.
 #
 #     ./bootstrap.sh            # virtual environment, Python packages, build and open the app
 #     ./bootstrap.sh --no-gui   # the same, but stop before Rust and the app (command line only)
 #
 # Needs no root. When a tool is missing it prints the install command and stops; run that, then run this again.
-# Safe to rerun. An active virtual environment is used instead of .venv. The Setup guide takes over
+# Safe to rerun. An active virtual environment is used instead of .venv. The Sync page takes over
 # from there: where the data goes, the CourtListener API token, the database.
 set -e
 cd "$(dirname "$0")"
@@ -53,6 +53,6 @@ command -v cc >/dev/null 2>&1 ||
 command -v cargo >/dev/null 2>&1 ||
     missing "Rust" "see https://rustup.rs/ and then open a new terminal" "see https://rustup.rs/ and then open a new terminal"
 
-echo "== building and opening the app; its Setup guide is on the start screen"
+echo "== building and opening the app; it opens on its Sync page until setup is done"
 cd gui
 exec cargo run --release

@@ -74,12 +74,13 @@ A case on the day it was argued:
 
 ## Getting started
 
-**The short way:** clone, then run `./bootstrap.sh` (Windows: `bootstrap.ps1`). It makes a virtual environment,
-installs the Python packages, then builds and opens the desktop browser, telling you the install command for
-anything missing (Python, a C compiler, Rust). The start screen's **Setup guide** walks you through where the data
-goes, the CourtListener API token and the local database, and shows how many actions are still required.
-Without the app: `./bootstrap.sh --no-gui`, then `tribonian setup`. The stages below are the same thing by hand,
-plus the US Code, the citation maps and the rest.
+**The short way:** download the app from the [latest release](https://github.com/deembed/tribonian-us/releases/latest)
+and press **Set up everything** on its Sync page ([INSTALL.md](INSTALL.md#the-app-no-terminal)). From a clone instead,
+run `./bootstrap.sh` (Windows: `bootstrap.ps1`): it makes a virtual environment, installs the Python packages, then
+builds and opens the same app. The **Sync** page installs LaTeX, takes the CourtListener API key (or Skip, to start
+offline) and downloads and loads the bulk data. Without the app: `tribonian setup` shows the same rows, and its
+subcommands (`key set`, `latex install`, `download`, `update`) do the same steps. The stages below are the same thing
+by hand, plus the US Code, the citation maps and the rest.
 
 A walk from an empty machine to everything working: US Code PDFs, case notes, the local CourtListener database,
 the co-citation map and the GUI. Each stage works on its own, so you can stop after any of them.
