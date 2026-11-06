@@ -9,7 +9,7 @@
 //! After that every Sync row goes through `tribonian` subcommands, so the same steps work from the command line.
 //! TRIBONIAN_WHEEL overrides the wheel (a local file or another URL), for testing a build before its release.
 
-use crate::config::{app_data_dir, installed_python};
+use crate::config::{app_data_dir, installed_python, quiet};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -30,7 +30,7 @@ pub fn wheel() -> String {
 
 /// The version the installed tribonian reports, or None when it doesn't run.
 pub fn installed_version() -> Option<String> {
-    let o = Command::new(installed_python()).args(["-m", "tribonian", "--version"]).output().ok()?;
+    let o = quiet(&mut Command::new(installed_python())).args(["-m", "tribonian", "--version"]).output().ok()?;
     let t = String::from_utf8_lossy(&o.stdout);
     t.trim().strip_prefix("tribonian ").map(str::to_string)
 }
@@ -80,7 +80,7 @@ fn find_uv(data: &Path) -> Option<PathBuf> {
             return Some(p);
         }
     }
-    let on_path = Command::new("uv").arg("--version").output().is_ok_and(|o| o.status.success());
+    let on_path = quiet(&mut Command::new("uv")).arg("--version").output().is_ok_and(|o| o.status.success());
     on_path.then(|| PathBuf::from("uv"))
 }
 
@@ -104,6 +104,7 @@ fn install_uv(data: &Path, tx: &Sender<Msg>) -> Result<PathBuf, String> {
 
 /// Run c, sending each line of its output (stdout and stderr) as it comes.
 fn logged(mut c: Command, tx: &Sender<Msg>) -> Result<(), String> {
+    quiet(&mut c);
     let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("{c:?}: {e}"))?;
     let err = child.stderr.take().map(|e| {
         let tx = tx.clone();

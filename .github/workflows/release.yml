@@ -74,6 +74,10 @@ jobs:
         working-directory: gui
         run: |
           cargo build --release
+          # a windowed app (PE subsystem 2), not a console one (3): v0.2.0 shipped as a console app by mistake
+          $b = [IO.File]::ReadAllBytes("target/release/lawgui.exe")
+          $s = [BitConverter]::ToUInt16($b, [BitConverter]::ToInt32($b, 0x3c) + 0x5c)
+          if ($s -ne 2) { throw "lawgui.exe has PE subsystem $s; expected 2 (windowed)" }
           New-Item -ItemType Directory -Force out | Out-Null
           Copy-Item target/release/lawgui.exe out/Tribonian.exe
           Compress-Archive -Path out/Tribonian.exe -DestinationPath "../tribonian-$env:V-${{ matrix.name }}.zip"

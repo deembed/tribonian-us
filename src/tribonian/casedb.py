@@ -146,8 +146,12 @@ def newest(name):
     return hits[-1] if hits else None
 
 
+CORRUPT = "%s is corrupt (%s): delete it and download it again (the Sync page, or tribonian setup download)"
+
+
 def rows_of(path):
-    """Stream a .csv.bz2 as dicts. lbzip2/pbzip2 use every core; bzip2 one; Python's own module is the fallback."""
+    """Stream a .csv.bz2 as dicts. lbzip2/pbzip2 use every core; bzip2 one; Python's own module is the fallback.
+    A corrupt or cut file stops the load with a message naming it (never loaded silently)."""
     tool = next((t for t in ("lbzip2", "pbzip2", "bzip2") if shutil.which(t)), None)
     if tool:
         proc = subprocess.Popen([tool, "-dc", str(path)], stdout=subprocess.PIPE, bufsize=1 << 20)
@@ -157,17 +161,20 @@ def rows_of(path):
         proc, raw = None, bz2.open(path, "rb")
     text = io.TextIOWrapper(raw, encoding="utf-8", errors="replace", newline="")
     reader = csv.reader(text, doublequote=False, escapechar="\\")
-    header = next(reader)
-    n = len(header)
-    for row in reader:
-        if len(row) == n:
-            yield dict(zip(header, row))
-        else:
-            yield None                                  # counted as a bad row by the caller
+    try:
+        header = next(reader)
+        n = len(header)
+        for row in reader:
+            if len(row) == n:
+                yield dict(zip(header, row))
+            else:
+                yield None                              # counted as a bad row by the caller
+    except (OSError, EOFError, ValueError) as e:        # Python's bz2: a bad stream or a cut file
+        raise RuntimeError(CORRUPT % (path.name, e))
     if proc:
         proc.stdout.close()
-        if proc.wait():                                 # truncated or corrupt download: never load it silently
-            raise RuntimeError("%s exited %d on %s -- incomplete download?" % (tool, proc.returncode, path.name))
+        if proc.wait():
+            raise RuntimeError(CORRUPT % (path.name, "%s exited %d" % (tool, proc.returncode)))
 
 
 def load(name, con, force=False, limit=None):
@@ -474,6 +481,8 @@ def main():
                 build_opmap(con)                   # no-op unless the opinions changed
         except KeyboardInterrupt:
             print("\ninterrupted: the table being loaded is incomplete and not marked done; rerun the same command to redo it.")
+        except RuntimeError as e:                  # a corrupt download (rows_of): say which, without a traceback
+            sys.exit("load stopped: %s" % e)
         finally:
             lock.unlink(missing_ok=True)
     elif args.cmd == "status":

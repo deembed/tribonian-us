@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tribonian-us"
-version = "0.2.0"
+version = "0.2.1"
 description = "Federal law (US Code, cases, pending Supreme Court dockets) as dense reMarkable PDFs and linked Obsidian notes"
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 # Distro packages work too: sudo apt install python3-lxml python3-numpy python3-scipy python3-igraph
 # Non-Python tools (pdflatex with XCharter/tcolorbox/ulem, pdftotext, secret-tool, rmapi,
 # lbzip2) are listed in README.md; `tribonian check` says which are missing.
-dependencies = ["lxml", "numpy", "scipy", "igraph", "pdfplumber", "keyring", "tomli; python_version < '3.11'"]   # keyring: the API token in the system key store (keystore.py); tomli: state_formulas.toml on 3.10; pdfplumber: extract.py (footnotes from the PDF's type)
+dependencies = ["lxml", "numpy", "scipy", "igraph", "pdfplumber", "keyring", "awscrt", "tomli; python_version < '3.11'"]   # keyring: the API token in the system key store (keystore.py); awscrt: download checksums (CRC64-NVME); tomli: state_formulas.toml on 3.10; pdfplumber: extract.py (footnotes from the PDF's type)
 
 [project.optional-dependencies]
 test = ["pytest"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tribonian setup: config writes, restartable downloads (against a local server), key and data mode, the Sync rows.
+"""tribonian setup: config writes, restartable, checksummed downloads (against a local server), key and data mode, the Sync rows.
 
     python -m pytest tests/test_setup_guide.py
 """
@@ -47,6 +47,14 @@ class ConfigText(unittest.TestCase):
 FILES = {"a": bz2.compress(os.urandom(3000)), "b": bz2.compress(os.urandom(4000))}
 ETAG = {"a": '"e-a"', "b": '"e-b"'}
 FAIL = []            # paths to answer with a dropped connection, once each
+CRC = {}             # name -> the CRC64-NVME the server claims on HEAD (no entry: no checksum header)
+SEEN = {}            # header name -> last value received
+
+
+def crc_of(data):
+    c = setup_guide.Crc()
+    c.add(data)
+    return c.b64()
 LIST = {"a": ("2026-03-31", "2026-06-30"), "b": ("2026-03-31",)}       # only March is complete
 
 
@@ -54,7 +62,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
+    def do_HEAD(self):
+        name = self.path.split("/")[-1].split("-")[0]
+        SEEN["checksum-mode"] = self.headers.get("x-amz-checksum-mode")
+        self.send_response(200)
+        if name in CRC:
+            self.send_header("x-amz-checksum-crc64nvme", CRC[name])
+            self.send_header("x-amz-checksum-type", "FULL_OBJECT")
+        self.send_header("Content-Length", str(len(FILES[name])))
+        self.end_headers()
+
     def do_GET(self):
+        SEEN["user-agent"] = self.headers.get("User-Agent")
         if self.path.startswith("/?"):
             name = self.path.rsplit("/", 1)[1].rstrip("-")
             body = "<r>" + "".join("<Contents><Key>bulk-data/%s-%s.csv.bz2</Key><Size>%d</Size><ETag>%s</ETag></Contents>"
@@ -127,17 +146,56 @@ class Download(unittest.TestCase):
             self.assertTrue(any("trying again" in s for s in said))
             self.assertFalse(list(d.glob("*.part*")))
 
-    def test_a_corrupt_file_is_deleted(self):
+    def test_names_itself(self):
+        with tempfile.TemporaryDirectory() as d:
+            setup_guide.download(d, base=self.base, names=["a", "b"], say=lambda s: None)
+            self.assertTrue(SEEN["user-agent"].startswith("tribonian-us/"))
+
+
+@unittest.skipIf(setup_guide._crc64nvme is None, "awscrt not installed")
+class Checksum(Download):
+    def setUp(self):
+        super().setUp()
+        CRC.clear()
+        CRC.update({n: crc_of(b) for n, b in FILES.items()})
+        self.addCleanup(CRC.clear)
+
+    def test_known_value(self):
+        self.assertEqual(setup_guide.Crc().b64(), "AAAAAAAAAAA=")
+        c = setup_guide.Crc()
+        c.add(b"123456789")
+        self.assertEqual(c.v, 0xAE8B14860A799888)                   # the CRC-64/NVME check value
+
+    def test_matches_after_a_resume_and_a_dropped_connection(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "a-2026-03-31.csv.bz2.part").write_bytes(FILES["a"][:500])      # interrupted earlier
+            FAIL.append("/bulk-data/b-2026-03-31.csv.bz2")
+            said = []
+            setup_guide.download(d, base=self.base, names=["a", "b"], say=said.append, delays=(0,))
+            self.assertEqual(SEEN["checksum-mode"], "ENABLED")
+            self.assertEqual(sum("checksum matches" in s for s in said), 2)
+            self.assertFalse(list(d.glob("*.part*")))
+
+    def test_a_mismatch_deletes_the_file(self):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             good = FILES["a"]
-            FILES["a"] = b"x" * len(good)                              # right size, not bzip2
+            FILES["a"] = bytes(len(good))                              # right size, wrong bytes
             try:
-                with self.assertRaises(OSError):
+                with self.assertRaises(OSError) as e:
                     setup_guide.download(d, base=self.base, names=["a", "b"], only=["a"], say=lambda s: None, delays=())
             finally:
                 FILES["a"] = good
+            self.assertIn("checksum mismatch", str(e.exception))
             self.assertFalse(list(d.iterdir()))
+
+    def test_no_checksum_on_the_server_checks_the_size(self):
+        CRC.pop("a")
+        with tempfile.TemporaryDirectory() as d:
+            said = []
+            setup_guide.download(d, base=self.base, names=["a", "b"], only=["a"], say=said.append, delays=())
+            self.assertTrue(any("no checksum on the server" in s for s in said))
 
 
 class EmptyInstall(unittest.TestCase):
