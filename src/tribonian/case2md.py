@@ -17,8 +17,7 @@ Text source: the Harvard Caselaw Access Project version of each opinion
 (custom tags <author>, <page-number>, <footnotemark>, <footnote>), as served
 by CourtListener in html_with_citations.
 
-Token: environment variable COURTLISTENER_TOKEN, else the GNOME keyring via
-    secret-tool lookup service courtlistener
+Token: keystore.py (COURTLISTENER_TOKEN, the system key store, an older secret-tool entry, the config file).
 """
 import argparse, atexit, json, os, re, shlex, shutil, sqlite3, subprocess, sys, tempfile, time, unicodedata
 from contextlib import contextmanager
@@ -111,17 +110,11 @@ class Unsupported(Exception):
 def token():
     if not tconfig.online():
         return ""                                # offline: call() refuses before any request needs it
-    t = tconfig.get("courtlistener_token")       # COURTLISTENER_TOKEN, or the config file
-    if t:
-        return str(t).strip()
-    try:
-        t = subprocess.run(["secret-tool", "lookup", "service", "courtlistener"],
-                           capture_output=True, text=True, timeout=10).stdout.strip()
-    except (OSError, subprocess.TimeoutExpired):
-        t = ""
+    from tribonian import keystore
+    t, _ = keystore.lookup()                     # COURTLISTENER_TOKEN, key store, secret-tool, config file
     if not t:
-        sys.exit("No token: set COURTLISTENER_TOKEN, put courtlistener_token in %s, or store one with\n"
-                 "  secret-tool store --label='CourtListener API' service courtlistener" % tconfig.config_path())
+        sys.exit("No CourtListener token: paste one on the app's Sync page, or run\n"
+                 "  tribonian setup key set      (reads the token from standard input)")
     return t
 
 

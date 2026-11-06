@@ -1,4 +1,4 @@
-# bootstrap.ps1 -- from a fresh clone to the app's Setup guide (Windows). Linux, macOS, WSL: bootstrap.sh.
+# bootstrap.ps1 -- from a fresh clone to the app's Sync page (Windows). Linux, macOS, WSL: bootstrap.sh.
 #
 #     powershell -ExecutionPolicy Bypass -File bootstrap.ps1            # virtual environment, packages, build and open the app
 #     powershell -ExecutionPolicy Bypass -File bootstrap.ps1 -NoGui     # stop before Rust and the app (command line only)
@@ -56,7 +56,7 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     Missing "Rust" "the installer from https://rustup.rs/ (accept its Visual Studio C++ build tools)"
 }
 
-Write-Host "== building and opening the app; its Setup guide is on the start screen"
+Write-Host "== building and opening the app; it opens on its Sync page until setup is done"
 Set-Location gui
 cargo run --release
 exit $LASTEXITCODE

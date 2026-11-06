@@ -105,7 +105,7 @@ SETTINGS = [
     ("API rate limits", "api_limits", tconfig.get("api_limits", "5,50,125")),
 ]
 GUI_TOML = (tconfig.REPO or HERE) / "gui" / "gui.toml"          # the GUI's old config file, still read (overrides [gui])
-KNOWN = set(tconfig.ENV) | {"gui"}
+KNOWN = set(tconfig.ENV) | {"gui", "token_skipped"}
 GUI_KEYS = {"default_view", "obsidian_vault", "obsidian_cases_dir", "python"}
 
 
@@ -251,15 +251,12 @@ def run_api(live):
 
     @check("api:token", "CourtListener API", "API token")
     def _(c):
-        t = str(tconfig.get("courtlistener_token") or "").strip()
-        src = where("courtlistener_token")[5:] if t else ""
-        if not t and shutil.which("secret-tool"):
-            t = subprocess.run(["secret-tool", "lookup", "service", "courtlistener"],
-                               capture_output=True, text=True, timeout=10).stdout.strip()
-            src = "secret-tool (service courtlistener)"
+        from tribonian import keystore
+        t, src = keystore.lookup()
         if not t:
-            return c.fail("no token", "courtlistener_token in %s (chmod 600), or COURTLISTENER_TOKEN, or "
-                          "secret-tool store --label='CourtListener API' service courtlistener" % tconfig.config_path())
+            if keystore.skipped():
+                return c.skip("skipped on the Sync page: no CourtListener requests until a token is added")
+            return c.fail("no token", "paste one on the app's Sync page, or: tribonian setup key set   (reads standard input)")
         tok["t"] = t
         c.ok("from %s (%d characters)" % (src, len(t)))
 

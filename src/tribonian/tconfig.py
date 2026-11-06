@@ -16,9 +16,10 @@ See config.example.toml. Paths may start with ~; a relative path is relative to 
     search_db            CL_SEARCH_DB           beside main_db
     cocite_db            CL_COCITE_DB           beside main_db (cocite.sqlite; views are cocite-<view>.sqlite)
     api_limits           CL_LIMITS              "5,50,125"  (per minute, hour, day)
-    courtlistener_token  COURTLISTENER_TOKEN    secret-tool lookup service courtlistener
+    courtlistener_token  COURTLISTENER_TOKEN    the system key store (keystore.py); this key is only the fallback
     law_dir              TRIBONIAN_LAW          <work>/law   (downloaded C.F.R. and state law: cfr.py)
-    data_mode            CL_DATA_MODE           "full"  (offline | full | complete | lite | api; `tribonian --mode X` per command)
+    data_mode            CL_DATA_MODE           unset: full with a local database, else api with a token, else offline
+                                                (offline | full | complete | lite | api; `tribonian --mode X` per command)
     cite_engine          CL_CITE_ENGINE         "patterns"  (patterns | eyecite | both: how case cites are found in text; citefind.py)
 
 Standard library only. Python 3.11+ reads the file with tomllib; on 3.10 a small reader handles the
@@ -129,6 +130,28 @@ def _work():
 WORK = _work()
 
 
+def tinytex_bin():
+    """Where a per-user TinyTeX keeps pdflatex (it may not be installed)."""
+    if os.name == "nt":
+        return Path(os.environ.get("APPDATA") or Path.home()) / "TinyTeX" / "bin" / "windows"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "TinyTeX" / "bin" / "universal-darwin"
+    hits = sorted((Path.home() / ".TinyTeX" / "bin").glob("*"))
+    return hits[0] if hits else Path.home() / ".TinyTeX" / "bin" / "x86_64-linux"
+
+
+def add_tinytex_to_path():
+    """An app started from the desktop doesn't get the PATH a shell would, so TinyTeX goes on it here (for this
+    process and everything it runs) when there is no other pdflatex."""
+    import shutil
+    b = tinytex_bin()
+    if b.is_dir() and not shutil.which("pdflatex"):
+        os.environ["PATH"] = str(b) + os.pathsep + os.environ.get("PATH", "")
+
+
+add_tinytex_to_path()
+
+
 def data_file(name, write=False):
     """A tracked data file, data/<name>: the work folder's copy if there is one, else the package's.
     For writing, the package's copy only while it is writable (a checkout), else the work folder's."""
@@ -173,9 +196,21 @@ def source(key, default=None):
 DATA_MODES = ("offline", "full", "complete", "lite", "api")
 
 
+def default_mode():
+    """The mode an install with no data_mode setting gets: full when the main database is there, else api when a
+    token is, else offline. The Sync page writes data_mode on first setup, so this mostly covers installs made
+    before it (and the command line on its own)."""
+    db = get("main_db") or (get("bulk_dir") or WORK / "bulk") / "courtlistener.sqlite"
+    if Path(db).exists():
+        return "full"
+    from tribonian import keystore
+    return "api" if keystore.lookup()[0] else "offline"
+
+
 def data_mode():
-    """The data mode in effect: `tribonian --mode`, else CL_DATA_MODE, else the config file's data_mode, else full."""
-    v = str(get("data_mode", "full") or "full").strip().lower()
+    """The data mode in effect: `tribonian --mode`, else CL_DATA_MODE, else the config file's data_mode, else
+    default_mode()."""
+    v = str(get("data_mode") or "").strip().lower() or default_mode()
     if v not in DATA_MODES:
         sys.exit("data_mode %r: use one of %s (CL_DATA_MODE, the config file, or tribonian --mode)" % (v, ", ".join(DATA_MODES)))
     return v

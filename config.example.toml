@@ -31,6 +31,8 @@
 # Data mode: offline (local only, no API requests), full (the API only for what you ask for),
 # complete (full, plus whatever is newer than the bulk data from the API), lite, api   (CL_DATA_MODE)
 # tribonian --mode <mode> <command> overrides it for one command; the GUI has its own selector.
+# The Sync page sets it on first setup and when the key or the bulk data changes; unset, it is full with a local
+# database, else api with a token, else offline.
 # data_mode = "full"
 
 # How case citations are found in briefs, filings and slip opinions                 (CL_CITE_ENGINE)
@@ -42,9 +44,11 @@
 # CourtListener API limits per minute, hour, day; members raise them          (CL_LIMITS)
 # api_limits = "5,50,125"
 
-# API token, if secret-tool isn't available (WSL, Windows). Keep the file      (COURTLISTENER_TOKEN)
-# private: chmod 600 ~/.config/tribonian-us/config.toml
+# API token: the Sync page or `tribonian setup key set` puts it in the system key store. Only where there is
+# none does it land here (the file then readable only by you). Don't share or commit this file.   (COURTLISTENER_TOKEN)
 # courtlistener_token = "..."
+# Written by the Sync page's Skip: no token on purpose (offline until one is added)
+# token_skipped = true
 
 [gui]
 # View opened at start (a cocite*.sqlite file stem)

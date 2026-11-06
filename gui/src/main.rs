@@ -5,7 +5,8 @@
 mod apisearch;
 mod cases;
 mod check_page;
-mod setup_page;
+mod sync_page;
+mod bootstrap;
 mod cocache;
 mod config;
 mod db;
@@ -154,7 +155,7 @@ pub struct App {
     dsrx: Receiver<dockets::Resp>,
     pub sem_ui: semsearch_page::SemUi,
     pub check_ui: check_page::CheckUi,
-    pub setup_ui: setup_page::SetupUi,
+    pub sync_ui: sync_page::SyncUi,
     egui_ctx: Option<egui::Context>,
     /// Database pages requested and not answered yet (the main window's and every pop-out's).
     inflight: std::collections::HashSet<Page>,
@@ -247,7 +248,7 @@ impl App {
             dsrx,
             sem_ui: Default::default(),
             check_ui: Default::default(),
-            setup_ui: Default::default(),
+            sync_ui: Default::default(),
             egui_ctx: Some(cc.egui_ctx.clone()),
             inflight: Default::default(),
             cocite: Vec::new(),
@@ -255,38 +256,7 @@ impl App {
             popouts: Vec::new(),
             next_popout: 0,
         };
-        match Config::load() {
-            Ok((cfg, path)) => {
-                let ctx = cc.egui_ctx.clone();
-                let (tx, rx) = db::spawn(cfg.labels_file(), cfg.cases_dir(), cfg.main_db(), cfg.opinions_db(), move || ctx.request_repaint());
-                app.tx = Some(tx);
-                app.rx = Some(rx);
-                let ctx2 = cc.egui_ctx.clone();
-                let (stx, srx) = search::spawn(cfg.search_db(), cfg.main_db(), cfg.cases_dir(), move || ctx2.request_repaint());
-                app.stx = Some(stx);
-                app.srx = Some(srx);
-                app.views = db::list_views(&cfg.bulk_dir);
-                app.files = CaseFiles::load(&cfg);
-                app.cfg = Some(cfg.clone());
-                app.load_scotus();
-                app.view_sel = app
-                    .views
-                    .iter()
-                    .position(|v| v.ok && v.stem == cfg.default_view)
-                    .or_else(|| app.views.iter().position(|v| v.ok));
-                if app.view_sel.is_none() {
-                    app.view_err = Some(format!(
-                        "No view with schema {} in {}",
-                        db::SCHEMA,
-                        cfg.bulk_dir.display()
-                    ));
-                }
-                app.cfg = Some(cfg);
-                app.cfg_path = path;
-                app.open_view();
-            }
-            Err(e) => app.cfg_err = Some(e),
-        }
+        app.load_config();
         app
     }
 
@@ -337,6 +307,45 @@ impl App {
 
     /// Queue scotus.py commands for a docket ("fetch", "build" or both, in that order) as one job.
     /// `build` counts as done only when it prints its "wrote pdf/..." line, as for case builds.
+
+    /// Read the config and open the databases: at start, and again after the Sync page installs tribonian.
+    pub fn load_config(&mut self) {
+        let Some(egui_ctx) = self.egui_ctx.clone() else { return };
+        self.cfg_err = None;
+        match Config::load() {
+            Ok((cfg, path)) => {
+                let ctx = egui_ctx.clone();
+                let (tx, rx) = db::spawn(cfg.labels_file(), cfg.cases_dir(), cfg.main_db(), cfg.opinions_db(), move || ctx.request_repaint());
+                self.tx = Some(tx);
+                self.rx = Some(rx);
+                let ctx2 = egui_ctx.clone();
+                let (stx, srx) = search::spawn(cfg.search_db(), cfg.main_db(), cfg.cases_dir(), move || ctx2.request_repaint());
+                self.stx = Some(stx);
+                self.srx = Some(srx);
+                self.views = db::list_views(&cfg.bulk_dir);
+                self.files = CaseFiles::load(&cfg);
+                self.cfg = Some(cfg.clone());
+                self.load_scotus();
+                self.view_sel = self
+                    .views
+                    .iter()
+                    .position(|v| v.ok && v.stem == cfg.default_view)
+                    .or_else(|| self.views.iter().position(|v| v.ok));
+                if self.view_sel.is_none() {
+                    self.view_err = Some(format!(
+                        "No view with schema {} in {}",
+                        db::SCHEMA,
+                        cfg.bulk_dir.display()
+                    ));
+                }
+                self.cfg = Some(cfg);
+                self.cfg_path = path;
+                self.open_view();
+            }
+            Err(e) => self.cfg_err = Some(e),
+        }
+    }
+
     pub fn enqueue_scotus(&mut self, num: &str, what: &[&str]) {
         let steps = what
             .iter()
@@ -838,7 +847,7 @@ impl App {
             Page::Scotus => "SCOTUS".into(),
             Page::SemSearch => "Sub-Cluster Search".into(),
             Page::Check => "Check setup".into(),
-            Page::Setup => "Setup guide".into(),
+            Page::Sync => "Sync".into(),
             Page::Dockets => "View Dockets".into(),
             Page::DocketsFederal => "Federal".into(),
             Page::DocketsState(None) => "State".into(),
@@ -932,7 +941,7 @@ impl App {
             Page::Scotus => {}
             Page::SemSearch => {}
             Page::Check => {}
-            Page::Setup => {}
+            Page::Sync => {}
             Page::Docket(_) => c.push(("SCOTUS".into(), Some(Page::Scotus))),
             Page::Dockets => {}
             Page::DocketSearch(_) => {}
@@ -1007,7 +1016,7 @@ impl App {
                     Page::Scotus => "scotus",
                     Page::SemSearch => "semantic search",
                     Page::Check => "check setup",
-                    Page::Setup => "setup guide",
+                    Page::Sync => "sync",
                     Page::Docket(_) => "docket",
                     Page::Dockets => "dockets",
                     Page::DocketsFederal => "federal courts",
@@ -1110,6 +1119,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.poll();
         self.poll_job();
+        sync_page::tick(self);          // the Sync report, the start-up rule, Set up everything
         let ctx = ui.ctx().clone();
         if ctx.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)) {
             self.back();
