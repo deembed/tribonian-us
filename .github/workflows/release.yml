@@ -11,6 +11,8 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:          # a dry run: builds everything, uploads the files to the run, makes no release
+  pull_request:               # the same dry run when a pull request changes this file or the app
+    paths: [".github/workflows/release.yml", "gui/**", "pyproject.toml"]
 
 permissions:
   contents: write
