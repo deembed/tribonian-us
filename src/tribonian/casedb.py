@@ -359,6 +359,7 @@ def load(name, con, force=False, limit=None):
     if limit:                                                   # testing: never touch the production tables
         sample = OPS_DB if name == "opinions" else DB
         sample = sample.with_name(sample.stem + "-sample.sqlite")
+        sample.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(sample, timeout=600)
         con.executescript(PRAGMAS)
         print("  --limit: loading into %s (production tables untouched)" % sample)
