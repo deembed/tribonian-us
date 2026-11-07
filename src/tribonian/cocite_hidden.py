@@ -94,7 +94,7 @@ DEFAULTS = {
     "reviewed": 0.2,           # weight when a later decision in the same case, from a higher court, cites it
     "review_years": 6,         # how long after it that decision can come
 }
-PROFILE_VERSION = 6
+PROFILE_VERSION = 7
 
 
 def settings(overrides=()):
@@ -172,7 +172,8 @@ def df_of(refs):
     """Decisions citing each case (cited_sorted is sorted: two binary searches each)."""
     cds = cache()["cds"]
     refs = np.asarray(refs, np.int64)
-    return np.searchsorted(cds, refs, "right") - np.searchsorted(cds, refs, "left")
+    q = refs.astype(cds.dtype)                          # the key in the array's type: else numpy casts all 72M rows
+    return np.searchsorted(cds, q, "right") - np.searchsorted(cds, q, "left")
 
 
 def citers_of(refs):
@@ -181,8 +182,9 @@ def citers_of(refs):
     refs = np.asarray(refs, np.int64)
     if not len(refs):
         return np.zeros(0, np.int64), np.zeros(0, np.int64)
-    lo = np.searchsorted(K["cds"], refs, "left")
-    hi = np.searchsorted(K["cds"], refs, "right")
+    q = refs.astype(K["cds"].dtype)
+    lo = np.searchsorted(K["cds"], q, "left").astype(np.int64)
+    hi = np.searchsorted(K["cds"], q, "right").astype(np.int64)
     span = hi - lo
     which = np.repeat(np.arange(len(refs)), span)
     pos = np.repeat(lo - np.cumsum(np.r_[0, span[:-1]]), span) + np.arange(span.sum())
@@ -197,8 +199,9 @@ def refs_of(decs):
     """-> (decision index, cited case) for every reference of these decisions (citing.npy is sorted)."""
     K = cache()
     decs = np.asarray(decs, np.int64)
-    lo = np.searchsorted(K["ci"], decs, "left")
-    hi = np.searchsorted(K["ci"], decs, "right")
+    q = decs.astype(K["ci"].dtype)
+    lo = np.searchsorted(K["ci"], q, "left").astype(np.int64)
+    hi = np.searchsorted(K["ci"], q, "right").astype(np.int64)
     span = hi - lo
     owner = np.repeat(np.arange(len(decs)), span)
     pos = np.repeat(lo - np.cumsum(np.r_[0, span[:-1]]), span) + np.arange(span.sum())
@@ -218,25 +221,73 @@ def slice_subs(db, s):
 _CANON = {}
 
 
-def canon(db, s, node_refs, node_sub):
-    """Node -> the node standing for its case: CourtListener holds some cases twice (State v. Garza, 2003, as
-    150 Wash. 2d 360 and as 77 P.3d 347), and both copies can be nodes of one sub-cluster. Same short name, same
-    year, same sub-cluster = one case; the lowest id stands for it. A decision citing both copies cites it once."""
+def canon(db, s, node_refs, node_sub, con=None):
+    """Node -> the node standing for its case. CourtListener holds some cases twice (State v. Garza, 2003, as
+    150 Wash. 2d 360 and as 77 P.3d 347), and both copies can be nodes of one sub-cluster; a decision citing
+    both would count the case twice. Same short name, sub-cluster, court and filing date = one case (name and year
+    alone merged two different Jones cases of 2007, 494 F.3d 1306 and 502 F.3d 1176), and the copy
+    cited by the most decisions stands for it (its idf is the case's). Every merge is kept for the audit:
+    MERGES[s] = [{"sub", "name", "year", "kept", "copies": [(ref, cite, citing decisions)]}]."""
     if s in _CANON:
         return _CANON[s]
-    first, out = {}, np.array(node_refs, np.int64)
+    groups = {}
     sub_by = dict(zip(node_refs.tolist(), node_sub.tolist()))
-    for r, nm, y in db.execute("SELECT n.ref, nm.name, nm.year FROM nodes n JOIN names nm ON nm.ref = n.ref "
-                               "WHERE n.slice = ? AND n.sub > 0 ORDER BY n.ref", (s,)):
-        if not nm:
+    for r, nm, y, cite in db.execute("SELECT n.ref, nm.name, nm.year, nm.cite FROM nodes n JOIN names nm ON nm.ref = n.ref "
+                                     "WHERE n.slice = ? AND n.sub > 0", (s,)):
+        if nm:
+            groups.setdefault((nm.lower(), y, sub_by.get(r)), []).append((r, nm, cite))
+    con = con or C.main_db()
+    split = {}
+    for (low, y, sb), g in groups.items():              # same name and year: split by court and filing date
+        if len(g) < 2:
             continue
-        k = (nm.lower(), y, sub_by.get(r))
-        if k in first:
-            out[np.searchsorted(node_refs, r)] = first[k]
-        else:
-            first[k] = r
+        ids = [r for r, _, _ in g]
+        when = dict(con.execute("SELECT c.id, coalesce(d.court_id, '') || ' ' || coalesce(c.date_filed, '') FROM clusters c "
+                                "LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id IN (%s)" % ",".join("?" * len(ids)), ids))
+        for x in g:
+            split.setdefault((low, y, sb, when.get(x[0], "")), []).append(x)
+    groups = {k: g for k, g in split.items() if len(g) > 1 and k[3].strip()}
+    out = np.array(node_refs, np.int64)
+    merges = []
+    df_all = df_of(node_refs)                           # one vectorised pass
+    for (low, y, sb, _when), g in groups.items():
+        dfs = [int(df_all[np.searchsorted(node_refs, r)]) for r, _, _ in g]
+        keep = g[int(np.argmax(dfs))][0]
+        for r, _, _ in g:
+            out[np.searchsorted(node_refs, r)] = keep
+        merges.append({"sub": sb, "name": g[0][1], "year": y, "kept": keep,
+                       "copies": [{"cluster": r, "cite": c, "citing": n} for (r, _, c), n in zip(g, dfs)]})
     _CANON[s] = out
+    MERGES[s] = merges
     return out
+
+
+MERGES = {}
+
+
+def merge_audit(s, sub=None, refs=None):
+    """The merges of slice s, of one sub-cluster or touching these refs."""
+    out = MERGES.get(s, [])
+    if sub is not None:
+        out = [m for m in out if m["sub"] == sub]
+    if refs is not None:
+        refs = set(refs)
+        out = [m for m in out if any(c["cluster"] in refs for c in m["copies"])]
+    return out
+
+
+def merges_hit(s, d):
+    """The merges that changed this decision's coupling: it cites two or more copies of one case."""
+    _, r = refs_of(np.array([d]))
+    r = set(r.tolist())
+    return [m for m in MERGES.get(s, []) if sum(c["cluster"] in r for c in m["copies"]) > 1]
+
+
+def merge_line(m, s):
+    return "%s (%s, %s:%s): %s -- counted once, as %s" % (
+        m["name"], m["year"], C.label(s), C.sub_label(m["sub"]),
+        " = ".join("%s [%d citing]" % (c["cite"] or "cluster %d" % c["cluster"], c["citing"]) for c in m["copies"]),
+        next(c["cite"] or "cluster %d" % c["cluster"] for c in m["copies"] if c["cluster"] == m["kept"]))
 
 
 def sub_of(node_refs, node_sub, refs):
@@ -673,6 +724,7 @@ def hidden(db, view, s, j, P, con=None):
                    "inbound": int(inbound[i]), "members_cited": int(nS[i]),
                    "fits_best_here": not subs or subs[0][0] == j,
                    "duplicates": firsts[i] + [x for x in sibs.get(i, []) if x not in firsts[i]], "notes": rnotes.get(i, []),
+                   "merged": [merge_line(m, s) for m in merges_hit(s, d)],
                    "next": [{"sub": b, "code": "%s:%s" % (C.label(s), C.sub_label(b)), "coupling": round(c, 4), "members": n,
                              "name": names.setdefault(b, C.unit_name(db, s, b, "sub")[0])} for b, c, n in nxt]}
             out.append(row)
@@ -681,6 +733,7 @@ def hidden(db, view, s, j, P, con=None):
     res["results"] = rows(best_old, old_score, "overlooked")
     res["new"] = rows(best_new, new_score, "not yet visible")
     res["young_candidates"] = int(young.sum())
+    res["audit"] = {"merged": merge_audit(s, sub=j)}
     if P.get("quoted_top"):
         res["quoted"] = quoted_sources(db, s, j, members, P, s, hi_year, con, node_refs, node_sub)
     if int(P["usage"]):
@@ -765,7 +818,8 @@ def quoted_sources(db, s, j, members, P, lo_year, hi_year, con, node_refs, node_
     if Q is None:
         return None
     a = Q["a"]
-    lo, hi = np.searchsorted(a, members, "left"), np.searchsorted(a, members, "right")
+    mq = np.asarray(members).astype(a.dtype)
+    lo, hi = np.searchsorted(a, mq, "left"), np.searchsorted(a, mq, "right")
     idx = np.concatenate([np.arange(x, y) for x, y in zip(lo.tolist(), hi.tolist())]) if len(members) else np.zeros(0, np.int64)
     if not len(idx):
         return []
@@ -1043,7 +1097,7 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
            "cohort_same": round(float(crank[0, 2]), 4), "cohort_size": int(csize[0]),
            "level": lvl[0], "court_weight": float(cw[0]), "status": stn[0], "status_weight": float(sw[0]),
            "has_cite": bool(hasc[0]), "record_weight": None if young else float(rw[0]), "also_held_as": sib,
-           "reviewed_by": rv, "reviewed_weight": rvw,
+           "reviewed_by": rv, "reviewed_weight": rvw, "merged": [merge_line(m, s) for m in merges_hit(s, ref)],
            "notes": rnotes.get(0, []), "node_in": int(is_node) if is_node > 0 else None,
            "settings": P, "subs": subs[:8]}
     if subs:
@@ -1108,7 +1162,7 @@ def section_md(p, esc=lambda t: t):
          "- " + esc(facts_line(p)),
          "- Against the sub-clusters of %s (%s)%s" % (p["slice_label"], p["slice_is"],
              "; it is itself a member of %s:%s" % (p["slice_label"], C.sub_label(p["node_in"])) if p.get("node_in") else ""),
-         "- Settings: " + esc(settings_line(p["settings"])), "", "| Sub-cluster | Coupling | Members cited | Score |", "|---|---|---|---|"]
+         "- Settings: " + esc(settings_line(p["settings"]))] + ["- Audit: " + esc(m) for m in p.get("merged", [])] + ["", "| Sub-cluster | Coupling | Members cited | Score |", "|---|---|---|---|"]
     for x in p["subs"]:
         L.append("| %s %s | %.3f | %d | %.4f |" % (x["code"], esc(x["name"] or ""), x["coupling"], x["members"], x["score"]))
     L.append("")
@@ -1135,6 +1189,7 @@ def section_tex(p, esc):
                E(facts_line(p)), E(p["slice_label"]), E(p["slice_is"]),
                E("; it is itself a member of %s:%s" % (p["slice_label"], C.sub_label(p["node_in"]))) if p.get("node_in") else ""),
            "{\\scriptsize\\noindent %s\\par}\\vspace{4pt}" % E(settings_line(p["settings"])),
+           "".join("{\\scriptsize\\noindent Audit: %s\\par}" % E(m) for m in p.get("merged", [])),
            "\\noindent{\\small\\begin{tabular}{@{}l p{0.5\\linewidth} r r r@{}}\\textbf{Sub-cluster} & & \\textbf{Coupling} & "
            "\\textbf{Members} & \\textbf{Score}\\\\"]
     for x in p["subs"]:
@@ -1178,6 +1233,15 @@ def print_table(res, src=None):
     for x in res["neighbours"]:
         print("  %-12s %.4f  %5.1f%% of pairs  %s" % (x["code"], x["weight"], 100 * x["share"], x["name"] or ""))
     print()
+    mg = res.get("audit", {}).get("merged", [])
+    if mg:
+        print("Audit: %d case%s held twice among %s's members, each counted once (copy cited most kept):" % (
+            len(mg), "" if len(mg) == 1 else "s", res["code"]))
+        for m in mg[:10]:
+            print("  %s" % merge_line(m, res["slice"]))
+        if len(mg) > 10:
+            print("  ... %d more in the JSON (audit.merged)" % (len(mg) - 10))
+        print()
     print("Overlooked  (filed before %d: had time to be cited; ranked by the full score)" % res["settled_before"])
     print_rows(res["results"])
     print()
@@ -1186,7 +1250,9 @@ def print_table(res, src=None):
     print_rows(res["new"])
     print()
     q = res.get("quoted")
-    if q is None:
+    if not res["settings"].get("quoted_top"):
+        pass
+    elif q is None:
         print("Quoted sources: no citation positions (tribonian cocite positions, then --index)")
     else:
         print("Quoted sources  (words reaching %s's decisions through its members: \"member (quoting X)\"; members left out; "
@@ -1222,6 +1288,8 @@ def print_rows(rows):
               ("; also held as cluster %s" % ", ".join(map(str, r["duplicates"]))) if r.get("duplicates") else ""))
         if r.get("notes"):
             print("     note: %s" % "; ".join(r["notes"]))
+        for m in r.get("merged", []):
+            print("     audit: %s" % m)
         if nxt:
             print("     next: %s %.3f%s%s" % (nxt["code"], nxt["coupling"], ("  " + nxt["name"]) if nxt["name"] else "",
                                           "" if r["fits_best_here"] else "   ** fits better there"))
@@ -1237,6 +1305,8 @@ def print_profile(p):
     print("against %s (%s)%s" % (p["slice_label"], p["slice_is"],
                                  ("; itself a member of %s:%s" % (p["slice_label"], C.sub_label(p["node_in"]))) if p["node_in"] else ""))
     print(settings_line(p["settings"]))
+    for m in p.get("merged", []):
+        print("audit: %s" % m)
     for x in p["subs"]:
         print("  %-12s coupling %.3f (%d members)  score %.4f  %s" % (x["code"], x["coupling"], x["members"], x["score"], x["name"] or ""))
     if p.get("usage"):
