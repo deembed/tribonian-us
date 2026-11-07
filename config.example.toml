@@ -54,8 +54,8 @@
 # Hidden rulings (tribonian cocite hidden, and the Hidden ruling check on case builds):
 # score = coupling x obscurity x court x status x record. Defaults shown; --set key=value overrides for one run.
 # min_members = 2          # cites at least this many of the sub-cluster's members
-# power = 1.0              # obscurity = 1 / (1 + inbound) ^ power   (>= 0)
-# per_year = true          # inbound counted per year since filing
+# power = 1.0              # obscurity = (1 - rank among decisions of its filing year and court level) ^ power   (>= 0)
+# settle_years = 3         # filed within this many years of the bulk data: the Not yet visible list, no obscurity
 # later = true             # also decisions filed after the sub-cluster's slice (marked "after")
 # max_inbound = 10         # leave out decisions cited more than this; unset = no cap
 # top = 30

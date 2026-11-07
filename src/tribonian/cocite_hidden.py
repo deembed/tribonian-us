@@ -14,8 +14,11 @@ court of appeals or the Supreme Court that nobody cites is the interesting kind,
              (a weighted Ochiai / cosine). The square root of the decision's own reference weight is
              what keeps string-cite compilations from topping the list: citing 300 cases hits many
              members by volume alone, and divides by a large number.
-  obscurity  1 / (1 + inbound) ^ power, inbound = decisions citing it, per year since it was filed
-             (per_year = true: a 2023 decision has had less time to be cited than a 1995 one)
+  obscurity  (1 - cohort rank) ^ power: the decision's place among every decision filed the same year in a
+             court of the same level, by decisions citing it (mid-rank on ties). Citations come in years
+             after filing, not at a steady rate, so a count only means something next to decisions of the
+             same age: a 2025 decision cited by no one sits mid-cohort (most of its cohort is cited by no one
+             yet), a 2016 circuit decision cited once sits near the bottom of its own.
   court      a weight per court level of the decision (court.scotus, court.circuit, ...)
   status     a weight per precedential status (status.Published, status.Unpublished, ...): an
              unpublished ruling nobody cites is less of a find, since many courts bar citing it
@@ -28,6 +31,12 @@ court of appeals or the Supreme Court that nobody cites is the interesting kind,
 Every weight is a setting: defaults below (DEFAULTS), then the config file's [hidden] table, then
 --set key=value on the command line (--set court.scotus=5 --set power=0.5). The settings used are
 printed and stored with every result, so two runs can be compared.
+
+Two lists. Overlooked: decisions old enough to have been cited (filed settle_years or more before the
+bulk data), with the score above. Not yet visible: the younger ones, which co-citation cannot see at all
+-- no later decision has had time to cite them beside anything -- while coupling sees them the day they
+are filed (it reads what they cite). They are ranked by coupling x court x status, no obscurity: the
+part of the law co-citation is blind to by construction, shown on its own.
 
 Which decisions: those citing at least min_members of the sub-cluster's members, filed in the
 sub-cluster's slice or (later = true) any time after it. Every row says which ("in slice" / "after"),
@@ -56,8 +65,8 @@ from tribonian import cocite as C, tconfig
 
 DEFAULTS = {
     "min_members": 2,          # cites at least this many of the sub-cluster's members
-    "power": 1.0,              # obscurity = 1 / (1 + inbound) ^ power
-    "per_year": True,          # inbound counted per year since filing
+    "power": 1.0,              # obscurity = (1 - cohort rank) ^ power
+    "settle_years": 3,         # younger than this (years before the bulk data): Not yet visible, no obscurity
     "later": True,             # also decisions filed after the slice
     "max_inbound": None,       # leave out decisions cited more than this (raw count); None = no cap
     "top": 30,                 # rows listed
@@ -69,7 +78,7 @@ DEFAULTS = {
     "status": {"Published": 1.0, "Unpublished": 0.5, "Unknown": 0.8, "other": 0.3},
     "no_cite": 0.25,           # record weight when no reporter citation is on file (inbound count unreliable)
 }
-PROFILE_VERSION = 2
+PROFILE_VERSION = 3
 
 
 def settings(overrides=()):
@@ -274,11 +283,59 @@ def refine(i, d, con, P, data_year, cache_):
     return cache_[d]
 
 
-def obscurity(decs, P, data_year, inbound=None):
+def cohort():
+    """Every citing decision's inbound count, keyed by (filing year, court level), sorted: one int64 per decision,
+    key << 32 | inbound. Cached in cocite-cache/hidden_cohort.npz with the cache's stamp (rebuilt after a prep)."""
+    if "cohort" in _CACHE:
+        return _CACHE["cohort"]
+    K = cache()
+    stamp = (C.CACHE / "stamp.txt").read_text()
+    path = C.CACHE / "hidden_cohort.npz"
+    if path.exists():
+        with np.load(path) as z:
+            if str(z["stamp"]) == stamp:
+                _CACHE["cohort"] = z["keys"]
+                return _CACHE["cohort"]
+    t0 = time.time()
+    top = int(max(int(K["ci"][-1]), int(K["cds"][-1]))) + 1
+    counts = np.zeros(top, np.int32)                     # decisions citing each case, from the cited column
+    ci, cd, step = K["ci"], K["cd"], 8_000_000
+    decs = []
+    for i in range(0, len(cd), step):
+        counts += np.bincount(np.asarray(cd[i:i + step]), minlength=top).astype(np.int32)
+        a = np.asarray(ci[i:i + step])
+        decs.append(np.unique(a))
+    decs = np.unique(np.concatenate(decs)).astype(np.int64)
+    yr = lookup(K["year"], None, decs).astype(np.int64)
+    lv = lookup(K["level"], None, decs).astype(np.int64)
+    keys = np.sort((yr * 8 + lv) << 32 | counts[decs].astype(np.int64))
+    np.savez(path, keys=keys, stamp=np.array(stamp))
+    print("hidden: cohort of %s citing decisions by filing year and court level  (%.0f s) -> %s" % (
+        format(len(keys), ","), time.time() - t0, path.name), file=sys.stderr)
+    _CACHE["cohort"] = keys
+    return keys
+
+
+def cohort_rank(year, level_code, inbound):
+    """Mid-rank of each decision's inbound count in its (year, level) cohort, in [0, 1], and the cohort's size."""
+    S = cohort()
+    g = (np.asarray(year, np.int64) * 8 + np.asarray(level_code, np.int64)) << 32
+    x = g | np.asarray(inbound, np.int64)
+    a, b = np.searchsorted(S, g, "left"), np.searchsorted(S, g + (1 << 32), "left")
+    lo, hi = np.searchsorted(S, x, "left"), np.searchsorted(S, x, "right")
+    n = np.maximum(b - a, 1)
+    return ((lo - a) + (hi - lo) / 2.0) / n, b - a, (lo - a) / n, (hi - lo) / n
+
+
+LEVEL_CODE = {n: i + 1 for i, n in enumerate(C.COURT_LEVELS)}
+
+
+def obscurity(decs, P, levels, inbound=None):
+    """-> inbound, filing year, obscurity = (1 - cohort rank) ^ power, cohort rank, cohort size."""
     inbound = df_of(decs) if inbound is None else np.asarray(inbound)
     yr = lookup(cache()["year"], None, decs).astype(int)
-    rate = inbound / np.maximum(1, data_year - yr + 1) if P["per_year"] else inbound.astype(float)
-    return inbound, yr, (1.0 + rate) ** (-float(P["power"])), rate
+    rank, size, less, same = cohort_rank(yr, [LEVEL_CODE.get(l, 6) for l in levels], inbound)
+    return inbound, yr, (1.0 - rank) ** float(P["power"]), np.c_[rank, less, same], size
 
 
 def court_weight(decs, P):
@@ -390,80 +447,96 @@ def hidden(db, view, s, j, P, con=None):
     cS[o[here]] = cpl[here]
     nS = np.zeros(len(cand), np.int64)
     nS[o[here]] = mc[here]
-    inbound, cyr, obs, rate = obscurity(cand, P, res["data_year"])
     lvl, cw = court_weight(cand, P)
     con = con or C.main_db()
     stn, sw = status_weight(cand, P, con)
     hasc, rw = record_weight(cand, P, con)
     rnotes = apply_reporters(cand, con, P, lvl, cw, stn, sw)
-    score = cS * obs * cw * sw * rw
-    # Preliminary scores use the cheap inbound count; refine() makes it exact for a pool of the best, and can only
-    # lower a score, so the pool grows until no decision left outside it could still beat the N-th: the list is exact.
-    sibs, unpub_by, ref_cache = {}, {}, {}
+    inbound, cyr, obs, crank, csize = obscurity(cand, P, lvl)
+    young = cyr > res["data_year"] - int(P["settle_years"])
+    res["settled_before"] = res["data_year"] - int(P["settle_years"]) + 1
+    old_score = np.where(young, -1.0, cS * obs * cw * sw * rw)
+    new_score = np.where(young, cS * cw * sw, -1.0)
     N = int(P["top"])
-    order = np.argsort(-score, kind="stable")
+    # Overlooked: preliminary scores use the cheap inbound count; refine() makes it exact for a pool of the best and
+    # can only raise the count (so lower the score), so the pool grows until nothing outside it could still beat
+    # the N-th: the list is exact.
+    sibs, ref_cache = {}, {}
+    order = np.argsort(-old_score, kind="stable")
+    order = order[old_score[order] > 0]
     pool = min(len(order), max(4 * N, 50))
-    while True:
-        for i in order[:pool].tolist():
-            if i in sibs:
-                continue
+    while len(order):
+        todo = [i for i in order[:pool].tolist() if i not in sibs]
+        for i in todo:
             n_in, sib = refine(i, int(cand[i]), con, P, res["data_year"], ref_cache)
             sibs[i] = sib
             inbound[i] = n_in
-            _, _, ob, rt = obscurity(cand[i:i + 1], P, res["data_year"], [n_in])
-            obs[i], rate[i] = ob[0], rt[0]
-            score[i] = cS[i] * obs[i] * cw[i] * sw[i] * rw[i]
+        if todo:
+            ix = np.array(todo)
+            _, _, ob, rk, sz = obscurity(cand[ix], P, [lvl[i] for i in todo], inbound[ix])
+            obs[ix], crank[ix], csize[ix] = ob, rk, sz
+            old_score[ix] = cS[ix] * obs[ix] * cw[ix] * sw[ix] * rw[ix]
         if P.get("max_inbound") is not None:
-            score[inbound > int(P["max_inbound"])] = -1
-        top_in = np.sort(score[order[:pool]])[::-1]
-        nth = top_in[min(N, len(top_in)) - 1] if len(top_in) else 0
-        if pool >= len(order) or score[order[pool]] <= nth:
+            old_score[(inbound > int(P["max_inbound"])) & ~young] = -1
+        top_in = np.sort(old_score[order[:pool]])[::-1]
+        nth = top_in[min(N, len(top_in)) - 1]
+        if pool >= len(order) or old_score[order[pool]] <= nth:
             break
         pool = min(len(order), pool * 2)
     res["refined"] = int(pool)
-    best = order[:pool][np.argsort(-score[order[:pool]], kind="stable")][:N]
-    best = best[score[best] > 0]
-    group = {}                                            # one decision held as several clusters: one row
-    for i in best.tolist():
-        group.setdefault(min([int(cand[i])] + sibs.get(i, [])), []).append(i)
-    keep = set(v[0] for v in group.values())
-    dup_of = {v[0]: [int(cand[x]) for x in v[1:]] for v in group.values()}
-    best = np.array([i for i in best.tolist() if i in keep], np.int64)
+    best_old = order[:pool][np.argsort(-old_score[order[:pool]], kind="stable")][:N] if len(order) else order
+    best_old = best_old[old_score[best_old] > 0]
+    order_new = np.argsort(-new_score, kind="stable")
+    best_new = order_new[new_score[order_new] > 0][:N]
+    for i in best_new.tolist():                          # their counts, exact, for the record (not scored)
+        inbound[i], sibs[i] = refine(i, int(cand[i]), con, P, res["data_year"], ref_cache)
+    want = np.r_[best_old, best_new]
     others = {}                                           # decision index -> [(sub, coupling, members)]
-    sel = np.isin(o, best)
+    sel = np.isin(o, want)
     for a, b, c, n in zip(o[sel].tolist(), k[sel].tolist(), cpl[sel].tolist(), mc[sel].tolist()):
         others.setdefault(a, []).append((b, c, n))
-    names, seen = {}, {}
-    rank = 0
-    for i in best.tolist():
-        d = int(cand[i])
-        nm, cite, y, court = C.case_label(con, d)
-        dup = (nm.lower(), court, int(cyr[i]), round(float(score[i]), 6))   # CourtListener holds some decisions twice
-        if dup in seen:
-            seen[dup].setdefault("duplicates", []).append(d)
-            continue
-        rank += 1
-        extra = dup_of.get(i, []) + [x for x in sibs.get(i, []) if x not in dup_of.get(i, [])]
-        subs = sorted(others.get(i, []), key=lambda x: -x[1])
-        best_sub = subs[0][0] if subs else j
-        alt = [x for x in subs if x[0] != j]
-        res["results"].append({
-            "rank": rank, "cluster": d, "name": nm, "cite": cite, "year": int(cyr[i]) or y, "court": court,
-            "level": lvl[i], "when": "in slice" if cyr[i] <= s + C.WIDTH - 1 else "after",
-            "score": round(float(score[i]), 5), "coupling": round(float(cS[i]), 4), "obscurity": round(float(obs[i]), 4),
-            "court_weight": float(cw[i]), "status": stn[i], "status_weight": float(sw[i]),
-            "has_cite": bool(hasc[i]), "record_weight": float(rw[i]), "inbound": int(inbound[i]), "inbound_per_year": round(float(rate[i]), 3),
-            "members_cited": int(nS[i]), "fits_best_here": best_sub == j,
-            "duplicates": extra, "notes": rnotes.get(i, []),
-            "next": [{"sub": b, "code": "%s:%s" % (C.label(s), C.sub_label(b)), "coupling": round(c, 4), "members": n,
-                      "name": names.setdefault(b, C.unit_name(db, s, b, "sub")[0])}
-                     for b, c, n in alt if c >= float(P["min_coupling"])][:5]
-                    or [{"sub": b, "code": "%s:%s" % (C.label(s), C.sub_label(b)), "coupling": round(c, 4), "members": n,
-                         "name": names.setdefault(b, C.unit_name(db, s, b, "sub")[0])} for b, c, n in alt[:1]]})
-        seen[dup] = res["results"][-1]
+    names = {}
+
+    def rows(best, score, listname):
+        group = {}                                        # one decision held as several clusters: one row
+        for i in best.tolist():
+            group.setdefault(min([int(cand[i])] + sibs.get(i, [])), []).append(i)
+        firsts = {v[0]: [int(cand[x]) for x in v[1:]] for v in group.values()}
+        out, seen = [], {}
+        for i in best.tolist():
+            if i not in firsts:
+                continue
+            d = int(cand[i])
+            nm, cite, y, court = C.case_label(con, d)
+            dup = (nm.lower(), court, int(cyr[i]), round(float(score[i]), 6))   # same name, court, year, score
+            if dup in seen:
+                seen[dup]["duplicates"].append(d)
+                continue
+            subs = sorted(others.get(i, []), key=lambda x: -x[1])
+            alt = [x for x in subs if x[0] != j]
+            nxt = [x for x in alt if x[1] >= float(P["min_coupling"])][:5] or alt[:1]
+            row = {"rank": len(out) + 1, "list": listname, "cluster": d, "name": nm, "cite": cite, "year": int(cyr[i]) or y,
+                   "court": court, "level": lvl[i], "when": "in slice" if cyr[i] <= s + C.WIDTH - 1 else "after",
+                   "score": round(float(score[i]), 5), "coupling": round(float(cS[i]), 4),
+                   "obscurity": round(float(obs[i]), 4) if listname == "overlooked" else None,
+                   "cohort_rank": round(float(crank[i, 0]), 4), "cohort_less": round(float(crank[i, 1]), 4),
+                   "cohort_same": round(float(crank[i, 2]), 4), "cohort_size": int(csize[i]),
+                   "court_weight": float(cw[i]), "status": stn[i], "status_weight": float(sw[i]),
+                   "has_cite": bool(hasc[i]), "record_weight": float(rw[i]) if listname == "overlooked" else None,
+                   "inbound": int(inbound[i]), "members_cited": int(nS[i]),
+                   "fits_best_here": not subs or subs[0][0] == j,
+                   "duplicates": firsts[i] + [x for x in sibs.get(i, []) if x not in firsts[i]], "notes": rnotes.get(i, []),
+                   "next": [{"sub": b, "code": "%s:%s" % (C.label(s), C.sub_label(b)), "coupling": round(c, 4), "members": n,
+                             "name": names.setdefault(b, C.unit_name(db, s, b, "sub")[0])} for b, c, n in nxt]}
+            out.append(row)
+            seen[dup] = row
+        return out
+    res["results"] = rows(best_old, old_score, "overlooked")
+    res["new"] = rows(best_new, new_score, "not yet visible")
+    res["young_candidates"] = int(young.sum())
     if int(P["usage"]):
         mset = set(members.tolist())
-        add_usage(res["results"][:int(P["usage"])], mset, con)
+        add_usage(res["results"][:int(P["usage"])] + res["new"][:int(P["usage"])], mset, con)
     res["seconds"] = round(time.time() - t0, 1)
     return res
 
@@ -615,15 +688,16 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
     node_refs, node_sub, node_n = slice_subs(db, s)
     sidf = sub_idf_sums(node_refs, node_sub)
     o, k, cpl, mc, ownw = couplings(np.array([ref]), node_refs, node_sub, sidf)
-    inbound, cyr, obs, rate = obscurity(np.array([ref]), P, data_year_of(db))
     lvl, cw = court_weight(np.array([ref]), P)
     con = con or C.main_db()
     stn, sw = status_weight([ref], P, con)
     hasc, rw = record_weight([ref], P, con)
     n_in, sib = refine(0, int(ref), con, P, data_year_of(db), {})
-    inbound, cyr, obs, rate = obscurity(np.array([ref]), P, data_year_of(db), [n_in])
     rnotes = apply_reporters([ref], con, P, lvl, cw, stn, sw)
-    mult = float(obs[0] * cw[0] * sw[0] * rw[0])
+    inbound, cyr, obs, crank, csize = obscurity(np.array([ref]), P, lvl, [n_in])
+    dy = data_year_of(db)
+    young = bool(y and y > dy - int(P["settle_years"]))
+    mult = float(cw[0] * sw[0]) if young else float(obs[0] * cw[0] * sw[0] * rw[0])
     is_node = sub_of(node_refs, node_sub, np.array([ref]))[0]
     order = np.argsort(-cpl)
     subs = []
@@ -635,9 +709,12 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
                      "members": int(mc[i]), "score": round(float(cpl[i]) * mult, 5)})
     out = {"version": PROFILE_VERSION, "cluster": ref, "view": view, "slice": s, "slice_label": C.label(s),
            "slice_is": "filed in it" if s == own else "newest full slice", "year": y,
-           "inbound": int(inbound[0]), "inbound_per_year": round(float(rate[0]), 3), "obscurity": round(float(obs[0]), 4),
+           "list": "not yet visible" if young else "overlooked", "data_year": dy, "settle_years": int(P["settle_years"]),
+           "inbound": int(inbound[0]), "obscurity": None if young else round(float(obs[0]), 4),
+           "cohort_rank": round(float(crank[0, 0]), 4), "cohort_less": round(float(crank[0, 1]), 4),
+           "cohort_same": round(float(crank[0, 2]), 4), "cohort_size": int(csize[0]),
            "level": lvl[0], "court_weight": float(cw[0]), "status": stn[0], "status_weight": float(sw[0]),
-           "has_cite": bool(hasc[0]), "record_weight": float(rw[0]), "also_held_as": sib,
+           "has_cite": bool(hasc[0]), "record_weight": None if young else float(rw[0]), "also_held_as": sib,
            "notes": rnotes.get(0, []), "node_in": int(is_node) if is_node > 0 else None,
            "settings": P, "subs": subs[:8]}
     if subs:
@@ -654,18 +731,35 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
 
 # ================================================================ output
 
+def cohort_text(r):
+    """'cited by 1 decision; of the 20,524 circuit decisions of 2015, 52% are cited less, 11% as often'.
+    The rank obscurity uses is the middle of that tie: less + same / 2."""
+    return "cited by %d decision%s; of the %s %s decisions of %s, %s are cited less, %s as often" % (
+        r["inbound"], "" if r["inbound"] == 1 else "s", format(r["cohort_size"], ","), r["level"], r["year"],
+        pct(r["cohort_less"]), pct(r["cohort_same"]))
+
+
+def pct(x):
+    return "%.0f%%" % (100 * x) if x >= 0.01 or x == 0 else "%.1f%%" % (100 * x)
+
+
 def facts_line(p):
-    return "Filed %s; %s court (x%g); %s (x%g)%s%s; cited by %d decision%s (%.2f a year) -> obscurity %.3f" % (
-        p["year"], p["level"], p["court_weight"], p["status"], p["status_weight"],
-        "" if p["has_cite"] else "; no reporter citation on file, so the count is unreliable (x%g)" % p["record_weight"],
+    young = p.get("list") == "not yet visible"
+    return "%s list. Filed %s; %s court (x%g); %s (x%g)%s%s; %s%s" % (
+        "Not yet visible" if young else "Overlooked", p["year"], p["level"], p["court_weight"], p["status"], p["status_weight"],
+        "" if p["has_cite"] or young else "; no reporter citation on file, so the count is unreliable (x%g)" % p["record_weight"],
         "".join("; %s" % n for n in p.get("notes", [])) + ("; also held as cluster %s" % ", ".join(map(str, p["also_held_as"]))
                                                            if p.get("also_held_as") else ""),
-        p["inbound"], "" if p["inbound"] == 1 else "s", p["inbound_per_year"], p["obscurity"])
+        cohort_text(p),
+        (". Not yet visible: filed within %d years of the bulk data (%s), too new to be co-cited, so scored without "
+         "obscurity" % (p["settle_years"], p["data_year"])) if young else " -> obscurity %.3f" % p["obscurity"])
 
 
 METHOD = ("Whether this decision is a hidden ruling: how much it leans on each co-citation sub-cluster's cases "
           "(coupling: the share of its references, rare ones weighted up, that are the sub-cluster's members), against how "
-          "little later decisions cite it. Score = coupling x obscurity x court x status x record; every weight is a setting "
+          "little later decisions cite it, next to decisions of its own year and court level. Score = coupling x obscurity x "
+          "court x status x record; a decision too new to have been cited is scored coupling x court x status instead "
+          "(Not yet visible: the part co-citation cannot see yet). Every weight is a setting "
           "(the config file's [hidden] table, or set on the command line for one run).")
 
 
@@ -719,9 +813,9 @@ def section_tex(p, esc):
 def settings_line(P, src=None):
     c = ", ".join("%s %g" % (k, v) for k, v in P["court"].items())
     st = ", ".join("%s %g" % (k, v) for k, v in P["status"].items())
-    t = ("score = coupling x obscurity x court x status x record;  obscurity = 1/(1+inbound%s)^%g;  court: %s;  status: %s;  "
-         "no citation on file %g;  min_members %d") % (
-        " per year" if P["per_year"] else "", float(P["power"]), c, st, float(P["no_cite"]), int(P["min_members"]))
+    t = ("score = coupling x obscurity x court x status x record;  obscurity = (1 - rank in its year and court level)^%g;  "
+         "court: %s;  status: %s;  no citation on file %g;  min_members %d;  settle_years %d") % (
+        float(P["power"]), c, st, float(P["no_cite"]), int(P["min_members"]), int(P["settle_years"]))
     if P.get("max_inbound") is not None:
         t += ";  max_inbound %d" % int(P["max_inbound"])
     if src:
@@ -742,16 +836,30 @@ def print_table(res, src=None):
     for x in res["neighbours"]:
         print("  %-12s %.4f  %5.1f%% of pairs  %s" % (x["code"], x["weight"], 100 * x["share"], x["name"] or ""))
     print()
-    print("Hidden decisions")
-    for r in res["results"]:
+    print("Overlooked  (filed before %d: had time to be cited; ranked by the full score)" % res["settled_before"])
+    print_rows(res["results"])
+    print()
+    print("Not yet visible  (filed %d or later: too new for co-citation to see; coupling x court x status, no obscurity; "
+          "%s such decisions)" % (res["settled_before"], format(res["young_candidates"], ",")))
+    print_rows(res["new"])
+    print()
+    print("(%s s)" % res.get("seconds"))
+
+
+def print_rows(rows):
+    for r in rows:
         nxt = r["next"][0] if r["next"] else None
         print("%3d. %s, %s (%s %s)  [%s]" % (r["rank"], r["name"][:70], r["cite"] or "cluster %d" % r["cluster"],
                                           r["court"], r["year"], r["when"]))
-        print("     score %.4f = coupling %.3f x obscurity %.3f x court %g (%s) x status %g (%s)%s   cited by %d (%.2f/yr)%s, %d members%s" % (
-            r["score"], r["coupling"], r["obscurity"], r["court_weight"], r["level"], r["status_weight"], r["status"],
-            "" if r["has_cite"] else " x record %g (no citation on file)" % r["record_weight"],
-            r["inbound"], r["inbound_per_year"], "" if r["has_cite"] else "?", r["members_cited"],
-            ("   (also held as cluster %s)" % ", ".join(map(str, r["duplicates"]))) if r.get("duplicates") else ""))
+        parts = ["coupling %.3f" % r["coupling"]]
+        if r["obscurity"] is not None:
+            parts.append("obscurity %.3f" % r["obscurity"])
+        parts += ["court %g (%s)" % (r["court_weight"], r["level"]), "status %g (%s)" % (r["status_weight"], r["status"])]
+        if r["record_weight"] is not None and not r["has_cite"]:
+            parts.append("record %g (no citation on file)" % r["record_weight"])
+        print("     score %.4f = %s" % (r["score"], " x ".join(parts)))
+        print("     %s%s; %d members%s" % (cohort_text(r), "" if r["has_cite"] else " (?)", r["members_cited"],
+              ("; also held as cluster %s" % ", ".join(map(str, r["duplicates"]))) if r.get("duplicates") else ""))
         if r.get("notes"):
             print("     note: %s" % "; ".join(r["notes"]))
         if nxt:
@@ -762,8 +870,6 @@ def print_table(res, src=None):
             u = best_use(r.get("uses", []))
             if u:
                 print("       %s: \"%s\"" % (u["name"][:40], u["sentence"][:220]))
-    print()
-    print("(%s s)" % res.get("seconds"))
 
 
 def print_profile(p):
@@ -825,7 +931,7 @@ def add_parser(sub, view):
     p.add_argument("--view", help="results file stem after cocite-, e.g. appellate-sentence-m0.2 (default, the "
                                   "case-note view)")
     p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                   help="override a weight: power=0.5, court.scotus=5, per_year=false, later=false, "
+                   help="override a weight: power=0.5, court.scotus=5, settle_years=5, later=false, "
                         "min_members=3, max_inbound=10 (defaults, then config [hidden], then these)")
     p.add_argument("--top", type=int, help="rows listed (setting top)")
     p.add_argument("--no-usage", action="store_true", help="skip the citing sentences (no text pass)")
