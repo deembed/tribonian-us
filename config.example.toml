@@ -60,6 +60,10 @@
 # max_inbound = 10         # leave out decisions cited more than this; unset = no cap
 # top = 30
 # no_cite = 0.25           # no reporter citation on file: CourtListener can't link later cites to it
+# reviewed = 0.2           # a later decision in the same case, from a higher court (or the same court en banc), cites it
+# review_years = 6         # how long after it that decision can come
+# quoted_top = 15          # Quoted sources listed: cases whose words reach the sub-cluster through its members
+# quoted_min = 2           # carried into at least this many decisions
 # Court and status weights as dotted keys (works on every Python, no sub-tables needed):
 # court.scotus = 3.0
 # court.circuit = 2.0

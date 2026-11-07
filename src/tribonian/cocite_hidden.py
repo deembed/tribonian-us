@@ -5,7 +5,7 @@ the other direction: it CITES the members heavily (bibliographic coupling to the
 itself cited little -- the decisions that applied a body of law and that nobody picked up. One from a
 court of appeals or the Supreme Court that nobody cites is the interesting kind, so the court counts.
 
-    score = coupling x obscurity x court x status x record
+    score = coupling x obscurity x court x status x reviewed x record
 
   coupling   how much of the decision's reference list sits in the sub-cluster, rare references
              weighted up (idf = log(N / decisions citing it), as tribonian map coupling does):
@@ -22,6 +22,10 @@ court of appeals or the Supreme Court that nobody cites is the interesting kind,
   court      a weight per court level of the decision (court.scotus, court.circuit, ...)
   status     a weight per precedential status (status.Published, status.Unpublished, ...): an
              unpublished ruling nobody cites is less of a find, since many courts bar citing it
+  reviewed   the reviewed weight when a later decision in the same case, from a higher court of the same
+             system (or the same court: rehearing, en banc), cites it: later courts cite the decision on
+             review instead, so its own count is low by design (State v. Curry, 199 Wash. App. 43, the #1
+             "overlooked" decision until the Washington Supreme Court's Curry, 191 Wn.2d 475, was found)
   record     no_cite when the decision has no reporter citation on file in CourtListener, else 1.
              Later opinions cite a case by its reporter citation; with none on file, CourtListener
              can't link them to it, so "cited by 0" there mostly means "links missing", not "nobody
@@ -49,6 +53,14 @@ times the members of T they cite: the binary pair support summed over S x T), sh
 W / sqrt(A_S x A_T), A = the sub-cluster's citations in the slice (sum of nodes.n). Binary counts, not the
 view's sentence weights.
 
+Quoted sources (of the sub-cluster): cases whose words reach the sub-cluster's decisions through its members --
+"Member (quoting Source)" -- ranked by decisions carrying them x the share of their citations in the window
+that come that way. Co-citation can't see these: courts cite the member, not the source (State v. Curry,
+191 Wn.2d 475, carries United States v. Arlt, 41 F.3d 516 (9th Cir.), into Washington law). Members are left
+out (they are already visible). Built once from the citation positions into cocite-cache/hidden_quotes.npz
+(the first run takes a few minutes); every "(quoting X)", "(citing X)", "(cited in X)" whose X the source
+text links, with "Id." resolved to the citation before it.
+
 For each listed decision: its other sub-clusters (its coupling to each, so "fits better elsewhere"
 shows), and how it uses the members -- the citing sentence from the position index, whether the
 citation stands alone in its sentence or inside a string cite, and its signal (see, cf., but see ...).
@@ -73,12 +85,16 @@ DEFAULTS = {
     "neighbours": 5,           # nearest sub-clusters listed
     "usage": 30,               # decisions whose citing sentences are read (text pass; the slow part)
     "min_coupling": 0.05,      # a decision's other sub-clusters at or above this coupling are listed
+    "quoted_top": 15,          # quoted sources listed
+    "quoted_min": 2,           # carried into at least this many decisions
     "court": {"scotus": 3.0, "circuit": 2.0, "state-supreme": 1.5, "state-appellate": 1.0,
               "district": 0.7, "other": 0.3},
     "status": {"Published": 1.0, "Unpublished": 0.5, "Unknown": 0.8, "other": 0.3},
     "no_cite": 0.25,           # record weight when no reporter citation is on file (inbound count unreliable)
+    "reviewed": 0.2,           # weight when a later decision in the same case, from a higher court, cites it
+    "review_years": 6,         # how long after it that decision can come
 }
-PROFILE_VERSION = 3
+PROFILE_VERSION = 5
 
 
 def settings(overrides=()):
@@ -235,6 +251,17 @@ def siblings(con, d):
     for v, r, pg in cites:
         ids.update(int(i) for (i,) in con.execute("SELECT cluster_id FROM cites WHERE volume=? AND reporter=? AND page=?",
                                                  (v, r, pg)))
+    # and the same court, the same filing date, a party word in common: a copy with no citation on file has
+    # nothing to share (Thurlby, Wash. 2015: cluster 3152368, no citation, cited by 0; 184 Wash. 2d 618, cited by 17)
+    me = con.execute("SELECT c.date_filed, d.court_id, c.case_name, c.case_name_short, c.case_name_full, d.case_name "
+                     "FROM clusters c LEFT JOIN dockets d ON d.id = c.docket_id WHERE c.id = ?", (int(d),)).fetchone()
+    if me and me[0] and me[1]:
+        mine = name_tokens(*me[2:])
+        for r in con.execute("SELECT c.id, c.case_name, c.case_name_short, c.case_name_full, d.case_name FROM clusters c "
+                             "JOIN dockets d ON d.id = c.docket_id WHERE c.date_filed = ? AND d.court_id = ? AND c.id != ?",
+                             (me[0], me[1], int(d))):
+            if mine & name_tokens(*r[1:]):
+                ids.add(int(r[0]))
     return sorted(ids), {r for _, r, _ in cites}
 
 
@@ -272,15 +299,106 @@ def apply_reporters(decs, con, P, lvl, cw, stn, sw):
 
 
 def refine(i, d, con, P, data_year, cache_):
-    """The exact inbound count (citers of the decision and its siblings, once each), for one decision of the
-    preliminary ranking. It is never below the cheap count, so (power >= 0) it can only lower the score."""
+    """For one decision of the preliminary ranking: the exact inbound count (citers of the decision and its
+    siblings, once each; never below the cheap count, so with power >= 0 it can only lower the score), its
+    siblings, and the later decisions in the same case that reviewed it (reviewed_by)."""
     if d in cache_:
         return cache_[d]
     ids, reps = siblings(con, d)
     D, _ = citers_of(np.array(ids))
-    inbound = int(len(np.setdiff1d(np.unique(D), ids)))
-    cache_[d] = (max(inbound, int(df_of([d])[0])), [x for x in ids if x != d])
+    D = np.setdiff1d(np.unique(D), ids)
+    cache_[d] = (max(int(len(D)), int(df_of([d])[0])), [x for x in ids if x != d], reviewed_by(con, d, D, P))
     return cache_[d]
+
+
+# Review: the same case, later, in a court above it in the same system (or the same court: rehearing, en banc).
+RANK = {"district": 1, "state-appellate": 1, "circuit": 2, "state-supreme": 2, "scotus": 3, "other": 0}
+SYSTEM = {"district": "federal", "circuit": "federal", "state-appellate": "state", "state-supreme": "state", "scotus": "both"}
+NAME_SKIP = {"state", "states", "united", "people", "commonwealth", "city", "county", "department", "dept", "of", "the",
+             "and", "inc", "corp", "co", "llc", "ltd", "et", "al", "jr", "sr", "in", "re", "matter", "ex", "rel", "parte",
+             "personal", "restraint", "detention", "estate", "petition", "v", "vs", "appellant", "respondent", "petitioner",
+             "appellee", "plaintiff", "defendant", "commissioner", "secretary", "attorney", "general", "office", "board",
+             "school", "district", "corporation", "company", "national", "american", "association"}
+
+
+def name_tokens(*names):
+    from tribonian import casemap
+    out = set()
+    for n in names:
+        for w in re.findall(r"[a-z][a-z'-]{2,}", (n or "").lower()):
+            if w not in NAME_SKIP and w not in casemap.STATES:
+                out.add(w)
+    return out
+
+
+def case_rows(con, ids):
+    """id -> (names, court id, year) from clusters and dockets."""
+    out = {}
+    ids = [int(x) for x in ids]
+    for i in range(0, len(ids), 500):
+        ch = ids[i:i + 500]
+        for r in con.execute("SELECT c.id, c.case_name, c.case_name_short, c.case_name_full, d.case_name, d.court_id, "
+                             "substr(c.date_filed, 1, 4) FROM clusters c LEFT JOIN dockets d ON d.id = c.docket_id "
+                             "WHERE c.id IN (%s)" % ",".join("?" * len(ch)), ch):
+            out[r[0]] = (r[1:5], r[5] or "", int(r[6]) if r[6] and r[6].isdigit() else 0)
+    return out
+
+
+def level_name(code):
+    return C.COURT_LEVELS[code - 1] if 1 <= code <= len(C.COURT_LEVELS) else "other"
+
+
+def reviewed_by(con, d, D, P):
+    """Later decisions in the same case from a higher court of the same system (or the same court) citing d:
+    [{"cluster", "name", "cite", "court", "year"}]. Same case = a party word in common, beyond the generic ones
+    (State, United States, City, ...)."""
+    me = case_rows(con, [d]).get(int(d))
+    if not me or not len(D):
+        return []
+    my_lv = level_name(int(lookup(cache()["level"], None, [d])[0]))
+    yrs = lookup(cache()["year"], None, D).astype(int)
+    lv = lookup(cache()["level"], None, D).astype(int)
+    span = int(P["review_years"])
+    pick = [int(x) for x, y, l in zip(D.tolist(), yrs.tolist(), lv.tolist())
+            if me[2] <= y <= me[2] + span and RANK.get(level_name(l), 0) >= RANK.get(my_lv, 0)
+            and (SYSTEM.get(level_name(l)) in (SYSTEM.get(my_lv), "both"))]
+    if not pick:
+        return []
+    mine = name_tokens(*me[0])
+    out = []
+    rows = case_rows(con, pick)
+    for x in pick:
+        r = rows.get(x)
+        if not r:
+            continue
+        higher = RANK.get(level_name(int(lookup(cache()["level"], None, [x])[0])), 0) > RANK.get(my_lv, 0)
+        if not higher and r[1] != me[1]:                 # same level: only the same court (rehearing, en banc)
+            continue
+        if mine & name_tokens(*r[0]):
+            nm, cite, y, court = C.case_label(con, x)
+            out.append({"cluster": x, "name": nm, "cite": cite, "court": court, "year": y})
+    return sorted(out, key=lambda z: z["year"])
+
+
+def exact_top(score, N, fix):
+    """The N best indices of score (> 0), where fix(indices) may lower the scores it is given: fix the best pool,
+    re-rank, and widen the pool until no unfixed score left outside could still beat the N-th. -> (best, pool)."""
+    order = np.argsort(-score, kind="stable")
+    order = order[score[order] > 0]
+    done = set()
+    pool = min(len(order), max(4 * N, 50))
+    while len(order):
+        todo = [i for i in order[:pool].tolist() if i not in done]
+        if todo:
+            fix(todo)
+            done.update(todo)
+        top_in = np.sort(score[order[:pool]])[::-1]
+        nth = top_in[min(N, len(top_in)) - 1]
+        if pool >= len(order) or score[order[pool]] <= nth:
+            break
+        pool = min(len(order), pool * 2)
+    best = order[:pool][np.argsort(-score[order[:pool]], kind="stable")][:N] if len(order) else order
+    return best[score[best] > 0], pool
 
 
 def cohort():
@@ -458,38 +576,35 @@ def hidden(db, view, s, j, P, con=None):
     old_score = np.where(young, -1.0, cS * obs * cw * sw * rw)
     new_score = np.where(young, cS * cw * sw, -1.0)
     N = int(P["top"])
-    # Overlooked: preliminary scores use the cheap inbound count; refine() makes it exact for a pool of the best and
-    # can only raise the count (so lower the score), so the pool grows until nothing outside it could still beat
-    # the N-th: the list is exact.
-    sibs, ref_cache = {}, {}
-    order = np.argsort(-old_score, kind="stable")
-    order = order[old_score[order] > 0]
-    pool = min(len(order), max(4 * N, 50))
-    while len(order):
-        todo = [i for i in order[:pool].tolist() if i not in sibs]
+    # Preliminary scores use the cheap inbound count and no review check; refine() makes both exact for a pool of
+    # the best, and can only lower a score, so the pool grows until nothing outside it could still beat the N-th:
+    # both lists are exact.
+    sibs, revd, ref_cache = {}, {}, {}
+    rvw = np.ones(len(cand))
+
+    def fix_old(todo):
         for i in todo:
-            n_in, sib = refine(i, int(cand[i]), con, P, res["data_year"], ref_cache)
-            sibs[i] = sib
-            inbound[i] = n_in
-        if todo:
-            ix = np.array(todo)
-            _, _, ob, rk, sz = obscurity(cand[ix], P, [lvl[i] for i in todo], inbound[ix])
-            obs[ix], crank[ix], csize[ix] = ob, rk, sz
-            old_score[ix] = cS[ix] * obs[ix] * cw[ix] * sw[ix] * rw[ix]
+            inbound[i], sibs[i], revd[i] = refine(i, int(cand[i]), con, P, res["data_year"], ref_cache)
+            if revd[i]:
+                rvw[i] = float(P["reviewed"])
+        ix = np.array(todo)
+        _, _, ob, rk, sz = obscurity(cand[ix], P, [lvl[i] for i in todo], inbound[ix])
+        obs[ix], crank[ix], csize[ix] = ob, rk, sz
+        old_score[ix] = cS[ix] * obs[ix] * cw[ix] * sw[ix] * rvw[ix] * rw[ix]
         if P.get("max_inbound") is not None:
-            old_score[(inbound > int(P["max_inbound"])) & ~young] = -1
-        top_in = np.sort(old_score[order[:pool]])[::-1]
-        nth = top_in[min(N, len(top_in)) - 1]
-        if pool >= len(order) or old_score[order[pool]] <= nth:
-            break
-        pool = min(len(order), pool * 2)
-    res["refined"] = int(pool)
-    best_old = order[:pool][np.argsort(-old_score[order[:pool]], kind="stable")][:N] if len(order) else order
-    best_old = best_old[old_score[best_old] > 0]
-    order_new = np.argsort(-new_score, kind="stable")
-    best_new = order_new[new_score[order_new] > 0][:N]
-    for i in best_new.tolist():                          # their counts, exact, for the record (not scored)
-        inbound[i], sibs[i] = refine(i, int(cand[i]), con, P, res["data_year"], ref_cache)
+            old_score[ix[inbound[ix] > int(P["max_inbound"])]] = -1
+
+    def fix_new(todo):
+        for i in todo:
+            inbound[i], sibs[i], revd[i] = refine(i, int(cand[i]), con, P, res["data_year"], ref_cache)
+            if revd[i]:
+                rvw[i] = float(P["reviewed"])
+        ix = np.array(todo)
+        new_score[ix] = cS[ix] * cw[ix] * sw[ix] * rvw[ix]
+
+    best_old, pool_old = exact_top(old_score, N, fix_old)
+    best_new, pool_new = exact_top(new_score, N, fix_new)
+    res["refined"] = int(pool_old + pool_new)
     want = np.r_[best_old, best_new]
     others = {}                                           # decision index -> [(sub, coupling, members)]
     sel = np.isin(o, want)
@@ -523,6 +638,7 @@ def hidden(db, view, s, j, P, con=None):
                    "cohort_same": round(float(crank[i, 2]), 4), "cohort_size": int(csize[i]),
                    "court_weight": float(cw[i]), "status": stn[i], "status_weight": float(sw[i]),
                    "has_cite": bool(hasc[i]), "record_weight": float(rw[i]) if listname == "overlooked" else None,
+                   "reviewed_by": revd.get(i, []), "reviewed_weight": float(rvw[i]),
                    "inbound": int(inbound[i]), "members_cited": int(nS[i]),
                    "fits_best_here": not subs or subs[0][0] == j,
                    "duplicates": firsts[i] + [x for x in sibs.get(i, []) if x not in firsts[i]], "notes": rnotes.get(i, []),
@@ -534,11 +650,139 @@ def hidden(db, view, s, j, P, con=None):
     res["results"] = rows(best_old, old_score, "overlooked")
     res["new"] = rows(best_new, new_score, "not yet visible")
     res["young_candidates"] = int(young.sum())
+    if P.get("quoted_top"):
+        res["quoted"] = quoted_sources(db, s, j, members, P, s, hi_year, con, node_refs, node_sub)
     if int(P["usage"]):
         mset = set(members.tolist())
         add_usage(res["results"][:int(P["usage"])] + res["new"][:int(P["usage"])], mset, con)
     res["seconds"] = round(time.time() - t0, 1)
     return res
+
+
+# ================================================================ quoted sources
+
+QUOTE_VERSION = 1
+QUOTE_KINDS = ("quoting", "citing", "cited in")
+
+
+def quotes_meta():
+    from tribonian import cocite_positions as CP
+    return "%d|%d|%s" % (QUOTE_VERSION, CP.VERSION, (C.CACHE / "stamp.txt").read_text())
+
+
+def quotes(build=False):
+    """Every "A (quoting B)" in the citation positions: arrays dec, a, b, kind (0 quoting, 1 citing, 2 cited in),
+    op, char (of B). From the position shards (cocite-cache/pos), each opinion's citations in order: a row with
+    one of those signals is B, the row before it in the same opinion is A ("Id." resolved first, as the position
+    index does). None when not built and build is False."""
+    if "quotes" in _CACHE:
+        return _CACHE["quotes"]
+    from tribonian import cocite_positions as CP
+    path = C.CACHE / "hidden_quotes.npz"
+    if path.exists():
+        z = np.load(path)
+        if str(z["meta"]) == quotes_meta():
+            _CACHE["quotes"] = {k: z[k] for k in ("dec", "a", "b", "kind", "op", "char")}
+            return _CACHE["quotes"]
+    if not build:
+        return None
+    files = sorted(CP.pos_dir().glob("*-*.npz"))
+    if not files:
+        return None
+    t0 = time.time()
+    I = CP.index()                                       # opinion -> decision, from the position index's own columns
+    op2dec = np.full(int(I["op"].max()) + 1, -1, np.int32)
+    step = 10_000_000
+    for i in range(0, len(I["op"]), step):
+        op2dec[np.asarray(I["op"][i:i + step])] = np.asarray(I["dec"][i:i + step])
+    codes = [CP.SIG_CODE[k] for k in QUOTE_KINDS]
+    parts = {k: [] for k in ("dec", "a", "b", "kind", "op", "char")}
+    for n, f in enumerate(files, 1):
+        with np.load(f) as z:
+            op, cited, sig, char = z["op"], z["cited"].copy(), z["signal"], z["char"]
+        isid = cited == CP.ID                            # "Id." -> the citation just before it, same opinion
+        if isid.any():
+            last = np.where(~isid, np.arange(len(op)), -1)
+            np.maximum.accumulate(last, out=last)
+            ok = isid & (last >= 0)
+            ok[ok] = op[last[ok]] == op[ok]
+            cited[ok] = cited[last[ok]]
+        q = np.flatnonzero(np.isin(sig, codes))
+        q = q[q > 0]
+        q = q[(op[q - 1] == op[q]) & (cited[q] >= 0) & (cited[q - 1] >= 0) & (cited[q] != cited[q - 1])]
+        dec = np.where(op[q] < len(op2dec), op2dec[np.minimum(op[q], len(op2dec) - 1)], -1)
+        keep = dec >= 0
+        q, dec = q[keep], dec[keep]
+        kind = np.searchsorted(np.array(codes), sig[q])
+        for k, v in (("dec", dec), ("a", cited[q - 1]), ("b", cited[q]), ("kind", kind), ("op", op[q]), ("char", char[q])):
+            parts[k].append(np.asarray(v))
+        if n % 40 == 0:
+            print("  quotes: %d/%d shards" % (n, len(files)), file=sys.stderr, flush=True)
+    out = {k: np.concatenate(v).astype(np.int8 if k == "kind" else np.int32) for k, v in parts.items()}
+    o = np.argsort(out["a"], kind="stable")              # by A: "what a member passes on" is a binary search
+    out = {k: v[o] for k, v in out.items()}
+    np.savez(path, meta=np.array(quotes_meta()), **out)
+    print("hidden: %s quotations through citations (A quoting/citing B)  (%.0f s) -> %s" % (
+        format(len(out["a"]), ","), time.time() - t0, path.name), file=sys.stderr)
+    _CACHE["quotes"] = out
+    return out
+
+
+def quoted_sources(db, s, j, members, P, lo_year, hi_year, con, node_refs, node_sub):
+    """Cases whose words reach the window's decisions through the sub-cluster's members (members excluded)."""
+    Q = quotes(build=True)
+    if Q is None:
+        return None
+    a = Q["a"]
+    lo, hi = np.searchsorted(a, members, "left"), np.searchsorted(a, members, "right")
+    idx = np.concatenate([np.arange(x, y) for x, y in zip(lo.tolist(), hi.tolist())]) if len(members) else np.zeros(0, np.int64)
+    if not len(idx):
+        return []
+    dec, A, B = Q["dec"][idx].astype(np.int64), Q["a"][idx].astype(np.int64), Q["b"][idx].astype(np.int64)
+    yr = lookup(cache()["year"], None, dec)
+    keep = (yr >= lo_year) & (yr <= hi_year) & ~np.isin(B, members)
+    idx, dec, A, B, yr = idx[keep], dec[keep], A[keep], B[keep], yr[keep]
+    if not len(idx):
+        return []
+    key = np.unique(B * 10**8 + dec)                    # distinct (source, decision)
+    srcs, carried = np.unique(key // 10**8, return_counts=True)
+    ok = carried >= int(P["quoted_min"])
+    srcs, carried = srcs[ok], carried[ok]
+    if not len(srcs):
+        return []
+    D, w = citers_of(srcs)                              # every decision in the window citing the source at all
+    dy = lookup(cache()["year"], None, D)
+    m = (dy >= lo_year) & (dy <= hi_year)
+    allc = np.bincount(w[m], minlength=len(srcs))
+    share = carried / np.maximum(allc, carried)
+    score = carried * share
+    top = np.argsort(-score, kind="stable")[:int(P["quoted_top"])]
+    out = []
+    for i in top.tolist():
+        b = int(srcs[i])
+        sel = B == b
+        carriers, cname = {}, {}
+        for x in A[sel].tolist():                       # by name: a member held twice is one carrier
+            nm_x = cname.setdefault(x, C.case_label(con, x)[0])
+            carriers[nm_x] = carriers.get(nm_x, 0) + 1
+        kinds = np.bincount(Q["kind"][idx[sel]], minlength=3)
+        nm, cite, y, court = C.case_label(con, b)
+        sb = int(sub_of(node_refs, node_sub, np.array([b]))[0])
+        first = idx[sel][np.argmin(yr[sel])]
+        out.append({"cluster": b, "name": nm, "cite": cite, "year": y, "court": court,
+                    "decisions": int(carried[i]), "cited_in_window": int(allc[i]), "share": round(float(share[i]), 3),
+                    "score": round(float(score[i]), 2), "first_year": int(yr[sel].min()),
+                    "kinds": {k: int(n) for k, n in zip(QUOTE_KINDS, kinds.tolist()) if n},
+                    "in_sub": ("%s:%s" % (C.label(s), C.sub_label(sb))) if sb > 0 else None,
+                    "through": [{"name": x, "n": n} for x, n in sorted(carriers.items(), key=lambda kv: -kv[1])[:4]],
+                    "example": {"decision": int(Q["dec"][first]), "op": int(Q["op"][first]), "char": int(Q["char"][first])}})
+    for x in out[:int(P["usage"])]:                     # one sentence each, from the decision that carried it first
+        tx = opinion_text(x["example"]["op"])
+        if tx:
+            bef, aft = sentence_at(tx, x["example"]["char"])
+            x["example"]["sentence"] = re.sub(r"\s+", " ", bef + aft).strip()[:500]
+            x["example"]["name"] = C.case_label(con, x["example"]["decision"])[0]
+    return out
 
 
 # ================================================================ how the members are used
@@ -567,7 +811,7 @@ def opinion_text(o):
 
 SIGNALS = r"see,? e\. ?g\.[.,]?|see also|see generally|but see|but cf\.|cf\.|see|accord|compare|contra|e\. ?g\.[.,]?"
 SIG_START = re.compile(r"^\W*(?:\d+\s+)?(%s)(?=[\s,]|$)" % SIGNALS, re.I)   # at the start of the cite's own clause
-SIG_AFTER = re.compile(r"^[^()]{0,120}?\((quoting|citing|cited in)\b", re.I)     # A (quoting B): A's use
+SIG_AFTER = re.compile(r"^(?:[^()]|\([^()]{0,40}\)){0,200}?\((quoting|citing|cited in)\s+([^()]*?)(?=,\s*\d|\s+\d+\s|\)|$)", re.I)  # A (quoting B): A passes on B
 SIG_INSIDE = re.compile(r"\((quoting|citing|cited in)\s+[^()]{0,120}$", re.I)                   # A (quoting B): B's use
 
 
@@ -625,16 +869,19 @@ def add_usage(rows, members, con):
                 continue
             bef, aft = sentence_at(t, int(chars[i]))
             clause = re.split(r";|\)\s*,\s*(?=[A-Z])", bef)[-1]   # its own place in a string cite
-            sig = SIG_INSIDE.search(bef) or SIG_START.match(clause)
-            sig2 = None if sig else SIG_AFTER.match(aft)
+            inside = SIG_INSIDE.search(bef)                 # the member is the B of "A (quoting B)"
+            sig = None if inside else SIG_START.match(clause)
+            via = SIG_AFTER.match(aft)                      # the member is the A: its words are B's
             if m not in lab:
                 lab[m] = C.case_label(con, m)[0]
             sent = re.sub(r"\s+", " ", (bef + aft)).strip()[:500]
-            if lab[m] in seen:                     # one case held twice in CourtListener: one use
+            if lab[m].lower() in seen:             # one case held twice in CourtListener: one use
                 continue
-            seen.add(lab[m])
+            seen.add(lab[m].lower())
             uses.append({"cluster": m, "name": lab[m], "alone": int(sg_size.get(sgs[i], 1)) == 1,
-                         "signal": norm_signal(sig.group(1) if sig else (sig2.group(1) if sig2 else "")),
+                         "signal": ("quoted inside another's cite" if inside.group(1).lower() == "quoting" else
+                                    "cited inside another's cite") if inside else norm_signal(sig.group(1) if sig else ""),
+                         "via": {"kind": via.group(1).lower(), "name": re.sub(r"\s+", " ", via.group(2)).strip(" ,")} if via else None,
                          "sentence": sent})
         row["uses"] = uses
         row["usage"] = usage_line(uses)
@@ -666,6 +913,9 @@ def usage_line(uses):
         ", ".join("%s x%d" % kv for kv in sorted(sig.items(), key=lambda kv: -kv[1])))
     if adverse:
         t += "; against: " + ", ".join(adverse)
+    vias = ["%s (%s %s)" % (u["name"], u["via"]["kind"], u["via"]["name"]) for u in uses if u.get("via")]
+    if vias:
+        t += "; passing on others' words: " + "; ".join(vias)
     return t
 
 
@@ -692,12 +942,13 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
     con = con or C.main_db()
     stn, sw = status_weight([ref], P, con)
     hasc, rw = record_weight([ref], P, con)
-    n_in, sib = refine(0, int(ref), con, P, data_year_of(db), {})
+    n_in, sib, rv = refine(0, int(ref), con, P, data_year_of(db), {})
     rnotes = apply_reporters([ref], con, P, lvl, cw, stn, sw)
     inbound, cyr, obs, crank, csize = obscurity(np.array([ref]), P, lvl, [n_in])
     dy = data_year_of(db)
     young = bool(y and y > dy - int(P["settle_years"]))
-    mult = float(cw[0] * sw[0]) if young else float(obs[0] * cw[0] * sw[0] * rw[0])
+    rvw = float(P["reviewed"]) if rv else 1.0
+    mult = float(cw[0] * sw[0] * rvw) if young else float(obs[0] * cw[0] * sw[0] * rvw * rw[0])
     is_node = sub_of(node_refs, node_sub, np.array([ref]))[0]
     order = np.argsort(-cpl)
     subs = []
@@ -715,6 +966,7 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
            "cohort_same": round(float(crank[0, 2]), 4), "cohort_size": int(csize[0]),
            "level": lvl[0], "court_weight": float(cw[0]), "status": stn[0], "status_weight": float(sw[0]),
            "has_cite": bool(hasc[0]), "record_weight": None if young else float(rw[0]), "also_held_as": sib,
+           "reviewed_by": rv, "reviewed_weight": rvw,
            "notes": rnotes.get(0, []), "node_in": int(is_node) if is_node > 0 else None,
            "settings": P, "subs": subs[:8]}
     if subs:
@@ -730,6 +982,14 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
 
 
 # ================================================================ output
+
+def reviewed_text(r):
+    rv = r.get("reviewed_by") or []
+    if not rv:
+        return ""
+    return "; reviewed by %s (x%g)" % ("; ".join("%s, %s (%s %s)" % (x["name"], x["cite"] or "cluster %d" % x["cluster"],
+                                                                  x["court"], x["year"]) for x in rv[:3]), r["reviewed_weight"])
+
 
 def cohort_text(r):
     """'cited by 1 decision; of the 20,524 circuit decisions of 2015, 52% are cited less, 11% as often'.
@@ -750,7 +1010,7 @@ def facts_line(p):
         "" if p["has_cite"] or young else "; no reporter citation on file, so the count is unreliable (x%g)" % p["record_weight"],
         "".join("; %s" % n for n in p.get("notes", [])) + ("; also held as cluster %s" % ", ".join(map(str, p["also_held_as"]))
                                                            if p.get("also_held_as") else ""),
-        cohort_text(p),
+        cohort_text(p) + reviewed_text(p),
         (". Not yet visible: filed within %d years of the bulk data (%s), too new to be co-cited, so scored without "
          "obscurity" % (p["settle_years"], p["data_year"])) if young else " -> obscurity %.3f" % p["obscurity"])
 
@@ -758,7 +1018,7 @@ def facts_line(p):
 METHOD = ("Whether this decision is a hidden ruling: how much it leans on each co-citation sub-cluster's cases "
           "(coupling: the share of its references, rare ones weighted up, that are the sub-cluster's members), against how "
           "little later decisions cite it, next to decisions of its own year and court level. Score = coupling x obscurity x "
-          "court x status x record; a decision too new to have been cited is scored coupling x court x status instead "
+          "court x status x reviewed x record; a decision too new to have been cited is scored coupling x court x status instead "
           "(Not yet visible: the part co-citation cannot see yet). Every weight is a setting "
           "(the config file's [hidden] table, or set on the command line for one run).")
 
@@ -779,7 +1039,9 @@ def section_md(p, esc=lambda t: t):
         L += ["**How it uses them:** " + esc(p["usage"]), ""]
         for u in p.get("uses", []):
             how = ", ".join(t for t in (u["signal"], "alone in its sentence" if u["alone"] else "in a string cite") if t)
-            L.append("- **%s** (%s; %s): %s" % (esc(u["name"]), u["sub"], how, esc(u["sentence"])))
+            if u.get("via"):
+                how += "; passes on the words of %s (%s)" % (u["via"]["name"], u["via"]["kind"])
+            L.append("- **%s** (%s; %s): %s" % (esc(u["name"]), u["sub"], esc(how), esc(u["sentence"])))
         L.append("")
     return L
 
@@ -805,6 +1067,8 @@ def section_tex(p, esc):
         out.append("{\\small\\noindent\\textbf{How it uses them:} %s\\par}\\vspace{3pt}" % E(p["usage"]))
         for u in p.get("uses", []):
             how = ", ".join(t for t in (u["signal"], "alone in its sentence" if u["alone"] else "in a string cite") if t)
+            if u.get("via"):
+                how += "; passes on the words of %s (%s)" % (u["via"]["name"], u["via"]["kind"])
             out.append("{\\leftskip=1.2em\\footnotesize\\noindent\\textbf{%s} {\\scriptsize(%s; %s)}: %s\\par}\\vspace{3pt}" % (
                 E(u["name"]), E(u["sub"]), E(how), E(u["sentence"])))
     return "\n".join(out) + "\n"
@@ -813,9 +1077,10 @@ def section_tex(p, esc):
 def settings_line(P, src=None):
     c = ", ".join("%s %g" % (k, v) for k, v in P["court"].items())
     st = ", ".join("%s %g" % (k, v) for k, v in P["status"].items())
-    t = ("score = coupling x obscurity x court x status x record;  obscurity = (1 - rank in its year and court level)^%g;  "
-         "court: %s;  status: %s;  no citation on file %g;  min_members %d;  settle_years %d") % (
-        float(P["power"]), c, st, float(P["no_cite"]), int(P["min_members"]), int(P["settle_years"]))
+    t = ("score = coupling x obscurity x court x status x reviewed x record;  obscurity = (1 - rank in its year and court level)^%g;  "
+         "court: %s;  status: %s;  reviewed %g (within %d years);  no citation on file %g;  min_members %d;  settle_years %d") % (
+        float(P["power"]), c, st, float(P["reviewed"]), int(P["review_years"]), float(P["no_cite"]), int(P["min_members"]),
+        int(P["settle_years"]))
     if P.get("max_inbound") is not None:
         t += ";  max_inbound %d" % int(P["max_inbound"])
     if src:
@@ -843,6 +1108,22 @@ def print_table(res, src=None):
           "%s such decisions)" % (res["settled_before"], format(res["young_candidates"], ",")))
     print_rows(res["new"])
     print()
+    q = res.get("quoted")
+    if q is None:
+        print("Quoted sources: no citation positions (tribonian cocite positions, then --index)")
+    else:
+        print("Quoted sources  (words reaching %s's decisions through its members: \"member (quoting X)\"; members left out; "
+              "share = of the decisions citing X in the window, those that do it this way)" % res["code"])
+        for n, x in enumerate(q, 1):
+            print("%3d. %s, %s (%s %s)%s" % (n, x["name"][:70], x["cite"] or "cluster %d" % x["cluster"], x["court"], x["year"],
+                                            "  [node of %s]" % x["in_sub"] if x["in_sub"] else "  [in no sub-cluster]"))
+            print("     carried into %d decisions (from %d), %s of its %d citations in the window; %s" % (
+                x["decisions"], x["first_year"], pct(x["share"]), x["cited_in_window"],
+                ", ".join("%s %d" % kv for kv in x["kinds"].items())))
+            print("     through: %s" % "; ".join("%s x%d" % (t["name"][:40], t["n"]) for t in x["through"]))
+            if x["example"].get("sentence"):
+                print("       %s: \"%s\"" % (x["example"]["name"][:40], x["example"]["sentence"][:240]))
+    print()
     print("(%s s)" % res.get("seconds"))
 
 
@@ -855,10 +1136,12 @@ def print_rows(rows):
         if r["obscurity"] is not None:
             parts.append("obscurity %.3f" % r["obscurity"])
         parts += ["court %g (%s)" % (r["court_weight"], r["level"]), "status %g (%s)" % (r["status_weight"], r["status"])]
+        if r.get("reviewed_by"):
+            parts.append("reviewed %g" % r["reviewed_weight"])
         if r["record_weight"] is not None and not r["has_cite"]:
             parts.append("record %g (no citation on file)" % r["record_weight"])
         print("     score %.4f = %s" % (r["score"], " x ".join(parts)))
-        print("     %s%s; %d members%s" % (cohort_text(r), "" if r["has_cite"] else " (?)", r["members_cited"],
+        print("     %s%s%s; %d members%s" % (cohort_text(r), "" if r["has_cite"] else " (?)", reviewed_text(r), r["members_cited"],
               ("; also held as cluster %s" % ", ".join(map(str, r["duplicates"]))) if r.get("duplicates") else ""))
         if r.get("notes"):
             print("     note: %s" % "; ".join(r["notes"]))
@@ -882,8 +1165,9 @@ def print_profile(p):
     if p.get("usage"):
         print("uses: %s" % p["usage"])
         for u in p.get("uses", [])[:12]:
-            print("  [%s] %s%s: \"%s\"" % (u["sub"], u["name"], (" (%s)" % u["signal"]) if u["signal"] else "",
-                                         u["sentence"][:200]))
+            print("  [%s] %s%s%s: \"%s\"" % (u["sub"], u["name"], (" (%s)" % u["signal"]) if u["signal"] else "",
+                                           (" [passes on %s, %s]" % (u["via"]["name"], u["via"]["kind"])) if u.get("via") else "",
+                                           u["sentence"][:200]))
 
 
 def out_path(res):
@@ -899,6 +1183,8 @@ def cmd_hidden(args):
         P["top"] = args.top
     if args.no_usage:
         P["usage"] = 0
+    if args.no_quoted:
+        P["quoted_top"] = 0
     db, view = SD.open_db(args)
     if args.cite or args.cluster:
         ref = args.cluster or C.resolve(args.cite)
@@ -935,5 +1221,6 @@ def add_parser(sub, view):
                         "min_members=3, max_inbound=10 (defaults, then config [hidden], then these)")
     p.add_argument("--top", type=int, help="rows listed (setting top)")
     p.add_argument("--no-usage", action="store_true", help="skip the citing sentences (no text pass)")
+    p.add_argument("--no-quoted", action="store_true", help="skip the Quoted sources list")
     p.add_argument("--json", action="store_true", help="print the result as JSON")
     p.set_defaults(func=cmd_hidden)

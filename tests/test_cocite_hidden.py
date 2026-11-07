@@ -47,3 +47,25 @@ def test_cohort_rank(monkeypatch):
     assert less[0] == 0 and same[0] == 0.6 and rank[0] == 0.3          # three of five tied at 0: mid-rank 0.3
     assert less[1] == 0.6 and rank[1] == 0.7
     assert rank[2] == 0.5                                              # alone in its cohort
+
+
+def test_exact_top_widens_until_exact():
+    score = np.array([10.0, 9.0, 8.0, 1.0])
+    def fix(todo):                       # fixing only lowers: index 0 falls below index 3
+        for i in todo:
+            if i == 0:
+                score[i] = 0.5
+    best, pool = H.exact_top(score, 2, fix)
+    assert best.tolist() == [1, 2]
+
+
+def test_same_case_names():
+    a = H.name_tokens("State v. Curry", "State of Washington v. Jerome Curry, Jr.")
+    b = H.name_tokens("State v. Curry")
+    assert a & b == {"curry"}
+    assert not (H.name_tokens("United States v. Smith") & H.name_tokens("State of Washington v. Jones"))
+
+
+def test_passes_on():
+    m = H.SIG_AFTER.match("State v. Curry, 191 Wn.2d 475, 490, 423 P.3d 179 (2018) (quoting United States v. Arlt, 41 F.2d 516)")
+    assert m.group(1) == "quoting" and m.group(2) == "United States v. Arlt"
