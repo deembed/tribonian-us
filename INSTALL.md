@@ -67,7 +67,7 @@ Close PowerShell and open a new one, so the new programs are on the PATH. Then i
 (MiKTeX can also fetch them on first use, but a build running many PDFs at once should not wait on that):
 
 ```
-miktex packages install xcharter tcolorbox ulem
+miktex packages install xcharter tcolorbox ulem cm-super
 ```
 
 If `miktex` is not found, use MiKTeX Console > Packages, search for each, and install it.
@@ -93,7 +93,7 @@ brew install --cask mactex-no-gui
 ```
 
 Open a new terminal afterwards. MacTeX is the full TeX Live, so XCharter, tcolorbox and ulem are already in it.
-With the smaller BasicTeX instead, add them: `sudo tlmgr install xcharter tcolorbox ulem`.
+With the smaller BasicTeX instead, add them: `sudo tlmgr install xcharter tcolorbox ulem cm-super`.
 
 For the desktop browser: `xcode-select --install` (the C compiler Rust needs), then Rust from <https://rustup.rs/>.
 
@@ -102,7 +102,7 @@ The config file is `~/.config/tribonian-us/config.toml`.
 ## Linux (Debian, Ubuntu, Mint)
 
 ```
-sudo apt install python3 python3-venv git texlive-latex-extra texlive-fonts-extra texlive-plain-generic poppler-utils lbzip2 libsecret-tools
+sudo apt install python3 python3-venv git texlive-latex-extra texlive-fonts-extra texlive-plain-generic cm-super poppler-utils lbzip2 libsecret-tools
 ```
 
 For the desktop browser: Rust from <https://rustup.rs/>, plus `sudo apt install build-essential`.

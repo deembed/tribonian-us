@@ -224,15 +224,16 @@ def run_tools():
                 "install MiKTeX (winget install MiKTeX.MiKTeX), then open a new terminal"))
         if not shutil.which("kpsewhich"):
             return c.warn("pdflatex found; kpsewhich missing, packages not checked")
-        missing = [s for s in ("XCharter.sty", "tcolorbox.sty", "ulem.sty")
+        missing = [s for s in ("XCharter.sty", "tcolorbox.sty", "ulem.sty", "sftt1000.pfb")
                    if not subprocess.run(["kpsewhich", s], capture_output=True, text=True).stdout.strip()]
         if missing:
-            c.fail("missing LaTeX packages: " + ", ".join(missing),
-                   by_os("XCharter: texlive-fonts-extra; tcolorbox: texlive-latex-extra; ulem: texlive-plain-generic",
-                         "sudo tlmgr install xcharter tcolorbox ulem",
-                         "miktex packages install xcharter tcolorbox ulem   (or MiKTeX Console > Packages)"))
+            c.fail("missing LaTeX packages: " + ", ".join(m.replace("sftt1000.pfb", "cm-super (typewriter outlines)") for m in missing),
+                   by_os("XCharter: texlive-fonts-extra; tcolorbox: texlive-latex-extra; ulem: texlive-plain-generic; "
+                         "cm-super: cm-super",
+                         "sudo tlmgr install xcharter tcolorbox ulem cm-super",
+                         "tribonian setup latex install (TinyTeX), or: miktex packages install xcharter tcolorbox ulem cm-super"))
         else:
-            c.ok("XCharter, tcolorbox, ulem")
+            c.ok("XCharter, tcolorbox, ulem, cm-super")
 
     @check("tool:pdftotext", "Tools", "pdftotext")
     def _(c):

@@ -103,7 +103,7 @@ Linux (tested on Debian/Ubuntu, Python 3.10). For macOS and Windows, see [INSTAL
 
 ```
 git clone https://github.com/deembed/tribonian-us.git && cd tribonian-us
-sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic \
+sudo apt install texlive-latex-extra texlive-fonts-extra texlive-plain-generic cm-super \
                  poppler-utils curl lbzip2 libsecret-tools
 python3 -m venv ~/.venvs/tribonian && . ~/.venvs/tribonian/bin/activate
 pip install -e '.[test]'            # the `tribonian` command; -e: edits to src/ take effect at once
@@ -558,7 +558,7 @@ tribonian cocite shift --eval --courts appellate                   # the same, s
 Two cases are co-cited when one later decision cites both. Citing decisions are sliced by filing year. In each slice:
 
 - **Nodes:** cases cited by 0.002% of the slice's decisions (`--min-cited-frac`), never fewer than 5 (`--min-cited`). The share keeps slices comparable as court output and coverage grow; `status` shows the cut each slice used.
-- **Pairs:** cited together by `--min-support` (5) or more decisions. Decisions citing more than `--max-cites` (150) nodes are left out.
+- **Pairs:** cited together by `--min-support` (5) or more decisions. Every citing decision counts, however many nodes it cites (until 0.2.2, those citing more than 150 were left out); `--max-cites N` sets a cap.
 - **Clusters:** Leiden (modularity). Each case also gets a share in every cluster, so it can belong to several (`--share`, 0.15, lists it in a non-home cluster). Partners are ranked by cosine; lift is shown alongside.
 - **Sub-clusters:** every cluster of `--split-over` (20) or more is clustered again (`1.3` = sub-cluster 3 of cluster 1). The split is kept only if it beats every one of `--nulls` (5) rewired copies of the cluster and their mean by `--sub-z` (4) standard deviations; otherwise the cluster stays whole.
 - **Chance baseline:** each slice's modularity is compared with its own rewired copies, so `status` column "above" can be compared across slices.

@@ -635,7 +635,7 @@ def cmd_prox_evidence(args):
     rows_u = np.unique(ci)                             # the population slice_pairs used: decisions citing 1..max_cites nodes
     on_node = np.isin(cd, refs)
     per_row = np.bincount(np.searchsorted(rows_u, ci[on_node]), minlength=len(rows_u))
-    pop = rows_u[(per_row >= 1) & (per_row <= p["max_cites"])]
+    pop = rows_u[(per_row >= 1) & (per_row <= p["max_cites"])] if p.get("max_cites") else rows_u[per_row >= 1]
     pa, pb, pw = weighted_pairs("sentence", pop.astype(np.int64), refs.astype(np.int64), 1e-12)[:3]
     bits = max(1, len(refs).bit_length())
     kp = (pa << bits) | pb

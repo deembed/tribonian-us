@@ -205,10 +205,21 @@ def latex_status():
 
 
 def smoke_tex():
-    """A one-line document with the real preamble, so every package the builders load is tested."""
+    """A short document with the real preamble, so every package the builders load is tested. render.PREAMBLE already
+    opens the document (\\begin{document} and the title block), so only the body and the end are added."""
     from tribonian import render
     pre = re.sub(r"__[A-Z]+__", "", render.PREAMBLE.replace("__FONTPKG__", "XCharter"))
-    return pre + "\n\\begin{document}\n\\sout{Tribonian} \\begin{tcolorbox}test\\end{tcolorbox}\n\\end{document}\n"
+    # uncompressed objects, so type3_fonts() can read the font dictionaries; typewriter text in roman and italic,
+    # whose outlines come from cm-super (without it pdflatex quietly draws bitmaps: Type 3 fonts)
+    return ("\\pdfobjcompresslevel=0\\pdfcompresslevel=0\n" + pre +
+            "\\sout{Tribonian} \\texttt{cocite.py} \\textit{\\texttt{cocite.py}}\n"
+            "\\begin{tcolorbox}test\\end{tcolorbox}\n\\end{document}\n")
+
+
+def type3_fonts(pdf):
+    """How many Type 3 (bitmap) fonts a PDF written with uncompressed objects holds."""
+    data = Path(pdf).read_bytes()
+    return len(re.findall(rb"/Subtype\s*/Type3", data))
 
 
 def missing_file(log):
@@ -219,6 +230,7 @@ def missing_file(log):
 def compile_smoke(say=print, tries=25):
     """Compile smoke_tex(); with TinyTeX's tlmgr, install each missing package and try again. True on a PDF.
     A fresh TinyTeX's tlmgr can be older than its repository accepts, so it updates itself before the first install.
+    A PDF with Type 3 (bitmap) fonts counts as a missing package too: cm-super, the typewriter outlines.
     Stops on a failed install, or when a package's file is still missing after it was installed."""
     tlmgr = shutil.which("tlmgr")
     tinytex = bool(tlmgr) and "tinytex" in tlmgr.lower()
@@ -229,10 +241,18 @@ def compile_smoke(say=print, tries=25):
             r = subprocess.run(["pdflatex", "-interaction=nonstopmode", "-halt-on-error", "t.tex"], cwd=d,
                                capture_output=True, text=True, errors="replace")
             if r.returncode == 0 and Path(d, "t.pdf").exists():
-                return True
-            log = Path(d, "t.log").read_text(errors="replace") if Path(d, "t.log").exists() else r.stdout
-            f = missing_file(log)
-            if not f or not tinytex:
+                n3 = type3_fonts(Path(d, "t.pdf"))
+                if not n3:
+                    return True
+                if not tinytex or "cm-super" in installed:
+                    say("%d bitmap (Type 3) font%s in the test PDF: install cm-super with your TeX distribution's "
+                        "package manager, or PDFs will have blurry typewriter text" % (n3, "" if n3 == 1 else "s"))
+                    return False
+                f, pkg = None, "cm-super"                # TinyTeX: install it, then compile again
+            else:
+                log = Path(d, "t.log").read_text(errors="replace") if Path(d, "t.log").exists() else r.stdout
+                f, pkg = missing_file(log), None
+            if not pkg and (not f or not tinytex):
                 say("pdflatex failed%s" % (": missing %s" % f if f else "") + ("" if tinytex else
                     " -- install it with your TeX distribution's package manager"))
                 return False
@@ -242,15 +262,16 @@ def compile_smoke(say=print, tries=25):
                     say("tlmgr update --self failed; see its output above")
                     return False
                 updated = True
-            found = subprocess.run([tlmgr, "search", "--global", "--file", "/" + f], capture_output=True, text=True).stdout
-            pkg = next((l.rstrip(":") for l in found.splitlines() if l.endswith(":") and not l.startswith(" ")), None)
             if not pkg:
-                say("no TeX Live package provides %s" % f)
-                return False
+                found = subprocess.run([tlmgr, "search", "--global", "--file", "/" + f], capture_output=True, text=True).stdout
+                pkg = next((l.rstrip(":") for l in found.splitlines() if l.endswith(":") and not l.startswith(" ")), None)
+                if not pkg:
+                    say("no TeX Live package provides %s" % f)
+                    return False
             if pkg in installed:
-                say("%s is still missing after installing %s; stopping" % (f, pkg))
+                say("%s is still missing after installing %s; stopping" % (f or "a font", pkg))
                 return False
-            say("installing LaTeX package %s (for %s)" % (pkg, f))
+            say("installing LaTeX package %s%s" % (pkg, " (for %s)" % f if f else " (outline fonts for typewriter text)"))
             if subprocess.run([tlmgr, "install", pkg]).returncode:
                 say("tlmgr install %s failed; see its output above" % pkg)
                 return False
@@ -547,7 +568,12 @@ def finish_swap(say=print):
         for live, nxt in pairs:
             if nxt.exists():
                 live.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(nxt, live)
+                try:
+                    os.replace(nxt, live)
+                except PermissionError:          # Windows: another program has the live file open
+                    sys.exit("can't replace %s: another program has it open (the app, or a scan by antivirus software).\n"
+                             "Close it, then run Sync all again (or tribonian setup update): the new data is kept in %s "
+                             "and the swap finishes first." % (live, nxt.parent))
                 say("  %s -> %s" % (nxt, live))
     finally:
         lock.unlink(missing_ok=True)
@@ -689,9 +715,12 @@ def stale_after_update():
 def cmd_update(args):
     from tribonian import casedb
     pairs = staged()
+    before = row_state()
     if (pairs[0][1].parent / "SWAPPING").exists():
         print("finishing an interrupted swap")
         finish_swap()
+        after_change(before)                     # the data row may have just gone from none to full
+        before = row_state()
     files = local_files(casedb.BULK)
     date = complete_set(files)
     if not date:
@@ -704,7 +733,6 @@ def cmd_update(args):
     if short:
         sys.exit("\n".join("%s: %.0f GB free, the new database needs about %.0f GB there (beside the current one)"
                            % s for s in short))
-    before = row_state()
     env = dict(os.environ, CL_DB=str(pairs[0][1]), CL_OPS_DB=str(pairs[1][1]), CL_SEARCH_DB=str(pairs[2][1]))
     for _, nxt in pairs:
         nxt.parent.mkdir(parents=True, exist_ok=True)
