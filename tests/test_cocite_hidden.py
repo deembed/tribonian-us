@@ -69,3 +69,12 @@ def test_same_case_names():
 def test_passes_on():
     m = H.SIG_AFTER.match("State v. Curry, 191 Wn.2d 475, 490, 423 P.3d 179 (2018) (quoting United States v. Arlt, 41 F.2d 516)")
     assert m.group(1) == "quoting" and m.group(2) == "United States v. Arlt"
+
+
+def test_signal_carries_through_string_cite():
+    # In re Detention of A.M. (Wash. Ct. App. 2025): "Cf." opens the string, a parenthetical sits between cites
+    before = 'Cf. In re Harris, 98 Wn.2d 276, 279, 654 P.2d 109 (1982) ("There is no question that due process"); State v. Thomson, '
+    assert H.string_place(before, "123 Wn.2d 877 (1994).") == ("Cf.", True)
+    assert H.norm_signal("Cf.") == "cf."
+    assert H.string_place("Both prerequisites must be met. State v. Woods, ", "143 Wn.2d 561 (2001).") == (None, False)
+    assert H.string_place("State v. A, ", "1 Wn.2d 2 (1990) (holding x); State v. B, 3 Wn.2d 4 (1991).")[1] is True

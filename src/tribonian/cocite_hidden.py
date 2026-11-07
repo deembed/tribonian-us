@@ -94,7 +94,7 @@ DEFAULTS = {
     "reviewed": 0.2,           # weight when a later decision in the same case, from a higher court, cites it
     "review_years": 6,         # how long after it that decision can come
 }
-PROFILE_VERSION = 5
+PROFILE_VERSION = 6
 
 
 def settings(overrides=()):
@@ -215,6 +215,30 @@ def slice_subs(db, s):
     return rows[:, 0], rows[:, 1], rows[:, 2]
 
 
+_CANON = {}
+
+
+def canon(db, s, node_refs, node_sub):
+    """Node -> the node standing for its case: CourtListener holds some cases twice (State v. Garza, 2003, as
+    150 Wash. 2d 360 and as 77 P.3d 347), and both copies can be nodes of one sub-cluster. Same short name, same
+    year, same sub-cluster = one case; the lowest id stands for it. A decision citing both copies cites it once."""
+    if s in _CANON:
+        return _CANON[s]
+    first, out = {}, np.array(node_refs, np.int64)
+    sub_by = dict(zip(node_refs.tolist(), node_sub.tolist()))
+    for r, nm, y in db.execute("SELECT n.ref, nm.name, nm.year FROM nodes n JOIN names nm ON nm.ref = n.ref "
+                               "WHERE n.slice = ? AND n.sub > 0 ORDER BY n.ref", (s,)):
+        if not nm:
+            continue
+        k = (nm.lower(), y, sub_by.get(r))
+        if k in first:
+            out[np.searchsorted(node_refs, r)] = first[k]
+        else:
+            first[k] = r
+    _CANON[s] = out
+    return out
+
+
 def sub_of(node_refs, node_sub, refs):
     i = np.minimum(np.searchsorted(node_refs, refs), len(node_refs) - 1)
     return np.where(node_refs[i] == refs, node_sub[i], 0)
@@ -225,10 +249,15 @@ def idf(refs):
     return np.where(d > 0, np.log(cache()["N"] / np.maximum(d, 1)), 0.0), d
 
 
-def couplings(decs, node_refs, node_sub, sub_idf):
-    """For each decision: its coupling to every sub-cluster it cites into.
-    -> (decision index, sub code, coupling, members cited) arrays, and the decisions' own idf sums."""
+def couplings(decs, node_refs, node_sub, sub_idf, node_canon=None):
+    """For each decision: its coupling to every sub-cluster it cites into (node_canon: a case held twice counts
+    once). -> (decision index, sub code, coupling, members cited) arrays, and the decisions' own idf sums."""
     owner, r = refs_of(decs)
+    if node_canon is not None and len(r):
+        i = np.minimum(np.searchsorted(node_refs, r), len(node_refs) - 1)
+        r = np.where(node_refs[i] == r, node_canon[i], r)
+        u = np.unique(owner * 10**9 + r)
+        owner, r = u // 10**9, u % 10**9
     w, _ = idf(r)
     own = np.bincount(owner, weights=w, minlength=len(decs))
     sb = sub_of(node_refs, node_sub, r)
@@ -489,11 +518,12 @@ def data_year_of(db):
     return C.newest_full_slice(db)
 
 
-def sub_idf_sums(node_refs, node_sub):
+def sub_idf_sums(node_refs, node_sub, node_canon=None):
     w, _ = idf(node_refs)
     out = {}
-    for k, v in zip(node_sub.tolist(), w.tolist()):
-        if k > 0:
+    keep = np.ones(len(node_refs), bool) if node_canon is None else node_canon == node_refs   # each case once
+    for k, v, ok in zip(node_sub.tolist(), w.tolist(), keep.tolist()):
+        if k > 0 and ok:
             out[k] = out.get(k, 0.0) + v
     return out
 
@@ -542,7 +572,8 @@ def hidden(db, view, s, j, P, con=None):
     t0 = time.time()
     node_refs, node_sub, node_n = slice_subs(db, s)
     members = node_refs[node_sub == j]
-    sidf = sub_idf_sums(node_refs, node_sub)
+    ncanon = canon(db, s, node_refs, node_sub)
+    sidf = sub_idf_sums(node_refs, node_sub, ncanon)
     D, which = citers_of(members)
     yr = lookup(cache()["year"], None, D)
     hi_year = 9999 if P["later"] else s + C.WIDTH - 1
@@ -559,7 +590,7 @@ def hidden(db, view, s, j, P, con=None):
     res["neighbours"], res["neighbour_decisions"] = nb, ndec
     if not len(cand):
         return res
-    o, k, cpl, mc, own = couplings(cand, node_refs, node_sub, sidf)
+    o, k, cpl, mc, own = couplings(cand, node_refs, node_sub, sidf, ncanon)
     here = k == j
     cS = np.zeros(len(cand))
     cS[o[here]] = cpl[here]
@@ -779,7 +810,7 @@ def quoted_sources(db, s, j, members, P, lo_year, hi_year, con, node_refs, node_
     for x in out[:int(P["usage"])]:                     # one sentence each, from the decision that carried it first
         tx = opinion_text(x["example"]["op"])
         if tx:
-            bef, aft = sentence_at(tx, x["example"]["char"])
+            bef, aft, _ = sentence_at(tx, x["example"]["char"])
             x["example"]["sentence"] = re.sub(r"\s+", " ", bef + aft).strip()[:500]
             x["example"]["name"] = C.case_label(con, x["example"]["decision"])[0]
     return out
@@ -827,7 +858,40 @@ def sentence_at(t, c):
     _, a = casemap.sentence_window(before, t[c:c + 600])
     a = re.split(r"\s¶\s?\d*", a)[0]                   # a paragraph number starts the next sentence
     b = re.split(r"¶\s?\d*\s", b)[-1]
-    return b[-400:], a
+    own = re.split(r"¶\s?\d*\s", parts[-1])[-1]
+    return b[-400:], a, own
+
+
+def no_parens(s):
+    """The text with parentheticals taken out (nested ones too), so "(once trial has begun ...)" between two
+    citations doesn't hide that they are one string cite."""
+    prev = None
+    while prev != s:
+        prev, s = s, re.sub(r"\([^()]*\)", " ", s)
+    return re.sub(r"\([^)]*$", " ", s)                # an unclosed one at the end: the cite is inside it
+
+
+REPORTER = re.compile(r"\b\d+\s+[A-Z][A-Za-z.'0-9 ]{0,20}?\s+\d+\b")
+
+
+def string_place(own_before, after):
+    """(signal in force, in a string cite?) for the citation at the end of own_before. A signal governs every
+    citation after it in the string until another signal (Bluebook 1.2), so "Cf. A; B; C" makes B and C cf.;
+    a string cite is citations joined by semicolons."""
+    clauses = no_parens(own_before).split(";")
+    sig = None
+    for cl in reversed(clauses):                       # this clause, then back through the string
+        m = SIG_START.match(cl)
+        if m:
+            sig = m.group(1)
+            break
+        if not REPORTER.search(cl) and cl is not clauses[-1]:
+            break                                      # prose: the string ended before it
+    before_in = len(clauses) > 1 and bool(REPORTER.search(clauses[-2]))
+    a = no_parens(after)
+    k = a.find(";")
+    after_in = k >= 0 and bool(REPORTER.search(a[k + 1:k + 160]))
+    return sig, before_in or after_in
 
 
 def add_usage(rows, members, con):
@@ -867,10 +931,9 @@ def add_usage(rows, members, con):
             t = opinion_text(int(ops[i]))
             if not t:
                 continue
-            bef, aft = sentence_at(t, int(chars[i]))
-            clause = re.split(r";|\)\s*,\s*(?=[A-Z])", bef)[-1]   # its own place in a string cite
+            bef, aft, own = sentence_at(t, int(chars[i]))
             inside = SIG_INSIDE.search(bef)                 # the member is the B of "A (quoting B)"
-            sig = None if inside else SIG_START.match(clause)
+            sig, in_string = string_place(own, aft)
             via = SIG_AFTER.match(aft)                      # the member is the A: its words are B's
             if m not in lab:
                 lab[m] = C.case_label(con, m)[0]
@@ -878,13 +941,24 @@ def add_usage(rows, members, con):
             if lab[m].lower() in seen:             # one case held twice in CourtListener: one use
                 continue
             seen.add(lab[m].lower())
-            uses.append({"cluster": m, "name": lab[m], "alone": int(sg_size.get(sgs[i], 1)) == 1,
+            uses.append({"cluster": m, "name": lab[m], "alone": not in_string and int(sg_size.get(sgs[i], 1)) == 1,
                          "signal": ("quoted inside another's cite" if inside.group(1).lower() == "quoting" else
-                                    "cited inside another's cite") if inside else norm_signal(sig.group(1) if sig else ""),
+                                    "cited inside another's cite") if inside else norm_signal(sig or ""),
                          "via": {"kind": via.group(1).lower(), "name": re.sub(r"\s+", " ", via.group(2)).strip(" ,")} if via else None,
                          "sentence": sent})
         row["uses"] = uses
         row["usage"] = usage_line(uses)
+
+
+def around(sentence, name, width=240):
+    """The part of a long sentence that shows the member: from its signal or the start, to past its cite."""
+    if len(sentence) <= width:
+        return sentence
+    k = sentence.find(name.split(",")[0][:30])
+    if k < 0:
+        return sentence[:width] + "…"
+    a = max(0, k - width // 2)
+    return ("…" if a else "") + sentence[a:a + width] + ("…" if a + width < len(sentence) else "")
 
 
 def best_use(uses):
@@ -897,6 +971,8 @@ def best_use(uses):
 def norm_signal(s):
     s = re.sub(r"\s+", " ", s.lower()).strip(" .,")
     s = re.sub(r"e\. ?g", "e.g.", s)
+    if s in ("cf", "but cf"):
+        return s + "."
     return "see, e.g." if s.startswith("see") and "e.g" in s else s
 
 
@@ -936,8 +1012,9 @@ def profile(ref, db=None, view=C.NOTE_VIEW, P=None, con=None, year=None):
     own = y - y % C.WIDTH if y else None
     s = own if own is not None and own <= full and db.execute("SELECT 1 FROM slices WHERE slice=?", (own,)).fetchone() else full
     node_refs, node_sub, node_n = slice_subs(db, s)
-    sidf = sub_idf_sums(node_refs, node_sub)
-    o, k, cpl, mc, ownw = couplings(np.array([ref]), node_refs, node_sub, sidf)
+    ncanon = canon(db, s, node_refs, node_sub)
+    sidf = sub_idf_sums(node_refs, node_sub, ncanon)
+    o, k, cpl, mc, ownw = couplings(np.array([ref]), node_refs, node_sub, sidf, ncanon)
     lvl, cw = court_weight(np.array([ref]), P)
     con = con or C.main_db()
     stn, sw = status_weight([ref], P, con)
@@ -1152,7 +1229,7 @@ def print_rows(rows):
             print("     uses: %s" % r["usage"])
             u = best_use(r.get("uses", []))
             if u:
-                print("       %s: \"%s\"" % (u["name"][:40], u["sentence"][:220]))
+                print("       %s: \"%s\"" % (u["name"][:40], around(u["sentence"], u["name"])))
 
 
 def print_profile(p):
