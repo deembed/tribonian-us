@@ -52,6 +52,8 @@ Commands
     tribonian cocite area-evidence --courts appellate     # build/cocite/areas-*.jsonl, for naming them
     tribonian cocite lineage 17                           # one lineage, slice by slice
     tribonian cocite subdoc 2020-24:2.3 [--goodlaw]       # explain one sub-cluster: note + PDF (cocite_subdoc.py)
+    tribonian cocite hidden 2020-24:2.3 [--set power=0.5] # hidden rulings: lean on it, cited by few (cocite_hidden.py)
+    tribonian cocite hidden --cite "550 U.S. 544"         # one decision against every sub-cluster
     tribonian cocite together --cite "550 U.S. 544" --cite "556 U.S. 662"
                                                      # falsification check: same cluster? pair support, lift
     tribonian cocite shift --cite "375 U.S. 384" --courts appellate
@@ -2884,6 +2886,8 @@ def main():
     p.set_defaults(func=cmd_shift)
     from tribonian import cocite_subdoc
     cocite_subdoc.add_parser(sub, view)
+    from tribonian import cocite_hidden
+    cocite_hidden.add_parser(sub, view)
     from tribonian import cocite_positions
     cocite_positions.add_parser(sub)
     cocite_positions.add_evidence_parser(sub, view)
