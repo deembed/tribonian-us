@@ -5,6 +5,7 @@ database alone; opinion text reads back whichever codec wrote it.
     python -m pytest tests/test_casedb_load.py
 """
 import bz2, json, os, sqlite3, subprocess, sys, tempfile, unittest, zlib
+from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,10 +62,15 @@ def load(d, bulk, tag, *extra, csv=None):
     return r, Path(d) / tag
 
 
+def query(path, sql):
+    """All rows of one query, the connection closed again: Windows can't delete or replace a file left open."""
+    with closing(sqlite3.connect(path)) as con:
+        return con.execute(sql).fetchall()
+
+
 def stored(folder, name="opinions.sqlite"):
-    con = sqlite3.connect(folder / name)
     return [(i, c, t, a, f, textcodec.unpack(x) if x else None)
-            for i, c, t, a, f, x in con.execute("SELECT id, cluster_id, type, author_str, field, text FROM opinions ORDER BY rowid")]
+            for i, c, t, a, f, x in query(folder / name, "SELECT id, cluster_id, type, author_str, field, text FROM opinions ORDER BY rowid")]
 
 
 def have_arrow():
@@ -103,10 +109,10 @@ class PythonPath(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             bulk = write_bulk(d)
             r, out = load(d, bulk, "py", csv="python")
-            before = sqlite3.connect(out / "courtlistener.sqlite").execute("SELECT * FROM loaded ORDER BY name").fetchall()
+            before = query(out / "courtlistener.sqlite", "SELECT * FROM loaded ORDER BY name")
             r, _ = load(d, bulk, "py", "--limit", "2", csv="python")
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            after = sqlite3.connect(out / "courtlistener.sqlite").execute("SELECT * FROM loaded ORDER BY name").fetchall()
+            after = query(out / "courtlistener.sqlite", "SELECT * FROM loaded ORDER BY name")
             self.assertEqual(before, after)
             self.assertFalse((out / "courtlistener.sqlite.loading").exists())
             self.assertEqual(len(stored(out, "opinions-sample.sqlite")), 2)
@@ -123,9 +129,9 @@ class ArrowPath(unittest.TestCase):
             self.assertIn("reading with pyarrow", ra.stdout)
             self.assertIn("2 unreadable rows skipped", ra.stdout)
             self.assertEqual(stored(ar), stored(py))
-            blob = sqlite3.connect(ar / "opinions.sqlite").execute("SELECT text FROM opinions WHERE id=1").fetchone()[0]
+            blob = query(ar / "opinions.sqlite", "SELECT text FROM opinions WHERE id=1")[0][0]
             self.assertEqual(blob[:4], textcodec.ZSTD_MAGIC)
-            n = lambda f: sqlite3.connect(f / "courtlistener.sqlite").execute("SELECT rows FROM loaded WHERE name='opinions'").fetchone()
+            n = lambda f: query(f / "courtlistener.sqlite", "SELECT rows FROM loaded WHERE name='opinions'")
             self.assertEqual(n(ar), n(py))
 
 
