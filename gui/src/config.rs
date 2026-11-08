@@ -126,8 +126,10 @@ pub fn command_prefix() -> Vec<String> {
     std::env::var("TRIBONIAN_COMMAND_PREFIX").unwrap_or_default().split_whitespace().map(String::from).collect()
 }
 
-/// On Windows, run c without a console window of its own (the release app has none to share). Elsewhere a no-op.
+/// On Windows, run c without a console window of its own (the release app has none to share), and Python in UTF-8
+/// mode: without it Python writes a pipe and opens files in cp1252 there, and a single § or ► stops a build.
 pub fn quiet(c: &mut Command) -> &mut Command {
+    c.env("PYTHONUTF8", "1");
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

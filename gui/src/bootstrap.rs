@@ -10,7 +10,6 @@
 //! TRIBONIAN_WHEEL overrides the wheel (a local file or another URL), for testing a build before its release.
 
 use crate::config::{app_data_dir, installed_python, quiet};
-use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
@@ -59,7 +58,16 @@ fn run(tx: &Sender<Msg>) -> Result<(), String> {
     c.args(["tool", "install", "--force", "--python", "3.12", &w])
         .env("UV_TOOL_DIR", data.join("tools"))
         .env("UV_TOOL_BIN_DIR", data.join("bin"));
-    logged(c, tx)?;
+    if let Err((e, lines)) = logged(c, tx) {
+        // the release this app belongs to isn't published (yet, or as a draft): say so instead of uv's 404
+        if std::env::var("TRIBONIAN_WHEEL").is_err() && lines.iter().any(|l| l.contains("404")) {
+            return Err(format!(
+                "no published release for {VERSION} yet ({RELEASES}): publish it, or set TRIBONIAN_WHEEL to a wheel \
+                 file (for example from a release workflow run's artifacts) to install one by hand"
+            ));
+        }
+        return Err(e);
+    }
     match installed_version() {
         Some(v) if v == VERSION => {
             let _ = tx.send(Msg::Line(format!("tribonian {v} is installed")));
@@ -98,30 +106,43 @@ fn install_uv(data: &Path, tx: &Sender<Msg>) -> Result<PathBuf, String> {
         c
     };
     c.env("UV_INSTALL_DIR", &dir).env("UV_NO_MODIFY_PATH", "1").env("INSTALLER_NO_MODIFY_PATH", "1");
-    logged(c, tx)?;
+    logged(c, tx).map_err(|(e, _)| e)?;
     find_uv(data).filter(|p| p.is_absolute()).ok_or_else(|| format!("uv's installer ran, but there is no {} in {}", uv_name(), dir.display()))
 }
 
-/// Run c, sending each line of its output (stdout and stderr) as it comes.
-fn logged(mut c: Command, tx: &Sender<Msg>) -> Result<(), String> {
+/// Run c, sending each line of its output (stdout and stderr) as it comes. Err carries the last lines, so the
+/// caller can tell what went wrong.
+fn logged(mut c: Command, tx: &Sender<Msg>) -> Result<(), (String, Vec<String>)> {
+    use std::sync::{Arc, Mutex};
     quiet(&mut c);
-    let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| format!("{c:?}: {e}"))?;
+    let mut child = c.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| (format!("{c:?}: {e}"), vec![]))?;
+    let tail = Arc::new(Mutex::new(std::collections::VecDeque::<String>::new()));
+    let keep = |tail: &Arc<Mutex<std::collections::VecDeque<String>>>, l: &str| {
+        let mut t = tail.lock().unwrap();
+        t.push_back(l.to_string());
+        if t.len() > 40 {
+            t.pop_front();
+        }
+    };
     let err = child.stderr.take().map(|e| {
-        let tx = tx.clone();
+        let (tx, tail) = (tx.clone(), tail.clone());
         std::thread::spawn(move || {
-            for l in BufReader::new(e).lines().map_while(Result::ok) {
+            crate::jobs::each_line(e, |l| {
+                keep(&tail, &l);
                 let _ = tx.send(Msg::Line(l));
-            }
+            })
         })
     });
     if let Some(o) = child.stdout.take() {
-        for l in BufReader::new(o).lines().map_while(Result::ok) {
+        crate::jobs::each_line(o, |l| {
+            keep(&tail, &l);
             let _ = tx.send(Msg::Line(l));
-        }
+        });
     }
     if let Some(h) = err {
         let _ = h.join();
     }
-    let st = child.wait().map_err(|e| e.to_string())?;
-    if st.success() { Ok(()) } else { Err(format!("{:?} exited with {st}", c.get_program())) }
+    let st = child.wait().map_err(|e| (e.to_string(), vec![]))?;
+    let lines: Vec<String> = tail.lock().unwrap().iter().cloned().collect();
+    if st.success() { Ok(()) } else { Err((format!("{:?} exited with {st}", c.get_program()), lines)) }
 }

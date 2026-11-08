@@ -320,6 +320,9 @@ fn gb(bytes: Option<u64>) -> String {
 /// What a click asks for; done after the report is no longer borrowed.
 enum Do {
     Install,
+    /// Download, then load: two jobs, so the databases stay open for browsing during the download and are only
+    /// released for the load's swap (App::start_next).
+    SyncAll,
     Queue(&'static str, Vec<Vec<String>>),
     Setup(Vec<String>, String),
     Refresh(bool),
@@ -540,6 +543,12 @@ pub fn sync_page(app: &mut App, ui: &mut Ui) {
             let steps = steps.into_iter().map(|s| (s, None)).collect();
             app.enqueue(Queued { r#ref: SYNC_KEY, title: format!("Sync: {title}"), job: QueuedJob::Steps(steps) });
         }
+        Some(Do::SyncAll) => {
+            for (title, step) in [("download", ["setup", "download"]), ("load", ["setup", "update"])] {
+                let steps = vec![(step.iter().map(|s| s.to_string()).collect(), None)];
+                app.enqueue(Queued { r#ref: SYNC_KEY, title: format!("Sync: {title}"), job: QueuedJob::Steps(steps) });
+            }
+        }
         Some(Do::Setup(args, input)) => {
             if let Some(cfg) = &app.cfg {
                 if args.first().map(String::as_str) == Some("key") {
@@ -628,7 +637,7 @@ fn bulk(ui: &mut Ui, rep: &Report, folders: &mut [Option<String>; 2], queued: bo
             .on_hover_text("download what is missing (restartable), then load it beside the current database, check it and swap it in")
             .clicked()
         {
-            *todo = Some(Do::Queue("sync all", vec![vec!["setup".into(), "download".into()], vec!["setup".into(), "update".into()]]));
+            *todo = Some(Do::SyncAll);
         }
         if (newer || b.swap_pending)
             && ui

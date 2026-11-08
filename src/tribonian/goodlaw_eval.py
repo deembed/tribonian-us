@@ -14,6 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from tribonian import tconfig
+from tribonian import textcodec
 from tribonian import casemap as cm
 
 OUT = tconfig.WORK / "build" / "goodlaw-eval"
@@ -103,7 +104,7 @@ def collect_one(con, cite):
         row = con.execute("SELECT field, text FROM ops.opinions WHERE id = ?", (oid,)).fetchone()
         if not row or not row[1]:
             continue
-        raw = zlib.decompress(row[1]).decode("utf-8", "replace")
+        raw = textcodec.unpack(row[1])
         text = cm.marked_text(raw, cid)
         if "\x01" not in text:
             text = cm._cite_marks(cm.marked_text(raw, -1), cites)

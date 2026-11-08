@@ -257,7 +257,7 @@ def split_by_sub(db, s, refs, view):
         return None, "the co-citation cache is newer than this view (rebuild the view)"
     r = db.execute("SELECT params FROM slices WHERE slice=?", (s,)).fetchone()
     params = json.loads(r[0]) if r and r[0] else {}
-    max_cites, min_support = params.get("max_cites", 150), params.get("min_support", 5)
+    max_cites, min_support = params.get("max_cites"), params.get("min_support", 5)     # None: no cap
     codes, _ = C.parse_courts(view)
     # Read whole, not memory-mapped: the lookups below jump all over these arrays (binary searches, every
     # citing decision's row), and on the HDD each jump is a seek. Sequential reads of ~1 GB beat that by far.
@@ -292,7 +292,7 @@ def split_by_sub(db, s, refs, view):
             if lst == 0:
                 a, b = int(np.searchsorted(ci, d)), int(np.searchsorted(ci, d, side="right"))
                 lst = [x for x in np.asarray(cd[a:b]).tolist() if x in node_sub]
-                lst = None if len(lst) > max_cites else lst
+                lst = None if max_cites and len(lst) > max_cites else lst
                 cited_nodes[d] = lst
             for x in lst or ():
                 if x != ref:

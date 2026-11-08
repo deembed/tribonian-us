@@ -10,7 +10,7 @@ Every command runs in the work folder (tconfig.WORK: TRIBONIAN_WORK, else the co
 work_dir, else the checkout), so relative paths in arguments (xml/usc05.xml, cases/<file>.json)
 are relative to it, as they were to the repo before.
 """
-import os, runpy, signal, sys
+import errno, os, runpy, signal, subprocess, sys
 
 # command -> (module, what it does). Order is the order of the help text.
 COMMANDS = {
@@ -35,6 +35,39 @@ COMMANDS = {
     "serve":           ("serve",           "long-running JSON-lines process for the GUI (law text, fetches)"),
 }
 SCRIPTS = {"link_audit"}          # top-level scripts with no main(): run as __main__
+# The work folder's subfolders: a checkout has them in git, an installed copy starts with none, and the scripts
+# write into them without creating them. Not bulk/ or db/: whether db/ exists decides where opinions.sqlite goes
+# by default (casedb.OPS_DB), so those are made only by the download (setup download).
+WORK_DIRS = ("cases", "md", "md-cases", "md-cocite", "md-cfr", "md-state", "pdf", "build", "xml", "law", "state")
+
+
+class QuietStream:
+    """stdout/stderr that stop writing, silently, once the reader is gone: the work goes on (a build whose window
+    was closed still finishes its PDF) instead of dying on a progress line. A closed pipe is BrokenPipeError on
+    Linux and macOS, OSError EINVAL on Windows."""
+    def __init__(self, stream):
+        self._s, self._gone = stream, False
+
+    def write(self, text):
+        if self._gone:
+            return len(text)
+        try:
+            return self._s.write(text)
+        except OSError as e:
+            if isinstance(e, BrokenPipeError) or e.errno in (errno.EPIPE, errno.EINVAL):
+                self._gone = True
+                return len(text)
+            raise
+
+    def flush(self):
+        if not self._gone:
+            try:
+                self._s.flush()
+            except OSError:
+                self._gone = True
+
+    def __getattr__(self, name):
+        return getattr(self._s, name)
 
 
 def usage(out=sys.stdout):
@@ -51,6 +84,22 @@ def main(argv=None):
     if hasattr(signal, "SIGPIPE"):                 # `tribonian ... | head` ends quietly
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
     argv = sys.argv[1:] if argv is None else argv
+    # Windows writes a pipe in cp1252 and opens files in it by default: a § or ► stops a build. UTF-8 mode fixes
+    # both; it can only be chosen at start-up, so a Python started without it runs the command again with it.
+    # (The app sets PYTHONUTF8=1 on every command, so this is for the command line.)
+    if os.name == "nt" and not sys.flags.utf8_mode:
+        os.environ["PYTHONUTF8"] = "1"
+        try:
+            return subprocess.call([sys.executable, "-X", "utf8", "-m", "tribonian"] + argv)
+        except KeyboardInterrupt:                   # Ctrl+C reaches the inner run too; it reports
+            return 130
+    for name in ("stdout", "stderr"):
+        s = getattr(sys, name)
+        try:
+            s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+        setattr(sys, name, QuietStream(s))
     if argv[:1] == ["--version"]:
         from tribonian import setup_guide
         print("tribonian %s" % setup_guide.version())
@@ -74,7 +123,8 @@ def main(argv=None):
         sys.exit("\ntribonian: no command %r" % name)
     module = COMMANDS[name][0]
     from tribonian import tconfig
-    tconfig.WORK.mkdir(parents=True, exist_ok=True)
+    for d in WORK_DIRS:
+        (tconfig.WORK / d).mkdir(parents=True, exist_ok=True)
     os.chdir(tconfig.WORK)
     # Child processes (build jobs, `case find --get`) run `python -m tribonian ...`: same interpreter,
     # same package (installed or not), same work folder.
