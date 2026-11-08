@@ -2017,6 +2017,42 @@ def coupling_note(c, tex=False):
                      "\\texttt{casemap.py coupling}" if tex else "`tribonian map coupling`"))
 
 
+def hidden_path(cid):
+    return CASES / "citedby" / str(cid) / "hidden.json"
+
+
+def hidden_data(cid, compute=False):
+    """The Hidden ruling check (cocite_hidden.profile), cached in cases/citedby/<cluster>/hidden.json like coupling.json;
+    recomputed when the bulk data, the code's version or the weights changed. compute=False (--no-hidden): the cache only."""
+    if cid is None:
+        return None
+    from tribonian import cocite_hidden
+    path = hidden_path(cid)
+    old = None
+    try:
+        old = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        pass
+    if not compute:
+        return old
+    try:
+        con = shared_db()
+        P = cocite_hidden.settings()[0]
+        if old and con is not None and old.get("stamp") == bulk_stamp(con) and old.get("settings") == P \
+                and old.get("version") == cocite_hidden.PROFILE_VERSION:
+            return old
+        res = cocite_hidden.profile(int(cid), P=P, con=con)
+        if res is None:
+            return old
+        res["stamp"] = bulk_stamp(con) if con is not None else None
+        res["computed"] = time.strftime("%Y-%m-%d %H:%M")
+        write_profile(path, res)
+        return res
+    except (ImportError, sqlite3.Error, SystemExit, OSError, ValueError) as e:
+        print("  (hidden ruling check skipped: %s)" % e, file=sys.stderr)
+        return old
+
+
 def coupling_md(meta):
     c = meta.get("coupling")
     if not c or not c.get("results"):
@@ -2569,6 +2605,10 @@ def build(args):
     if frag.exists():
         from tribonian import mdtex
         meta["posttex"] = mdtex.part_tex(frag.read_text(encoding="utf-8"), "Cited by", "citedby") + meta["posttex"]
+    # Hidden ruling check (cocite_hidden.py): a closing part after Quote lineage; --no-hidden uses the cache only
+    from tribonian import cocite_hidden
+    meta["hidden"] = hidden_data(meta.get("cluster"), compute=getattr(args, "hidden", True))
+    meta["posttex"] = cocite_hidden.section_tex(meta["hidden"], esc) + meta["posttex"]
     if qd:
         for o in ops:
             o["ctx"].quotes = [(e["n"], e["compact"], e["k"]) for e in qd["entries"]]
@@ -2585,6 +2625,9 @@ def build(args):
     md_path = ndir / (meta["slug"] + ".md")
     tail = tail_sections(data, index, sketches=getattr(args, "cases", False))
     law_md = "\n".join(lawappendix.md_lines(law, statute_notes()))
+    hid = cocite_hidden.section_md(meta.get("hidden"), lambda t: esc(t, "md"))
+    if hid:
+        tail = "\n".join(hid) + "\n" + tail
     if qd:
         from tribonian import quotelineage
         tail = "\n".join(quotelineage.section_md(qd)) + "\n" + tail
@@ -3016,6 +3059,12 @@ def split_footnotes(raw, nxt, prev_open, pi=None):
     texty = [j for j, x in enumerate(raw) if x.strip()]         # double-spaced body: a blank line after each line
     gaps = Counter(b - a for a, b in zip(texty, texty[1:]))      # (the notes at its foot are single-spaced)
     double = len(texty) > 6 and gaps[2] > gaps[1]
+    if rule is not None:            # a footnote rule has a note under it: the next number, or the last page's note
+        below = next((x for x in raw[rule + 1:] if x.strip()), None)   # running on; a brief's caption rule ("————"
+        m = FNSTART_RE.match(below or "")                               # over its first paragraph) has neither
+        if below is not None and not prev_open and not (m and int(m.group(2)) in (nxt, nxt + 1)):
+            trace.hit("footnote", "rule:no-note-under-it", pi, below, raw[rule])
+            rule = None
     if rule is not None and any(x.strip() for x in raw[rule + 1:]):
         return split_ruled_footnotes(raw, rule, nxt)
     k = None
@@ -4625,6 +4674,10 @@ def main():
     b.add_argument("--coupling", action=argparse.BooleanOptionalAction, default=True,
                    help="Coupled with: the cases citing the most of the same cases, computed when not cached (default; "
                         "--no-coupling shows them only when already cached)")
+    b.add_argument("--hidden", action=argparse.BooleanOptionalAction, default=True,
+                   help="Hidden ruling check: how much the case leans on each co-citation sub-cluster against how little it "
+                        "is cited, computed when not cached (default; --no-hidden shows it only when already cached; weights: "
+                        "tribonian cocite hidden --help)")
     b.set_defaults(func=build)
     sa = sub.add_parser("api-search", help="search CourtListener for cases newer than the local database (1 request, cached)")
     sa.add_argument("words", nargs="+")

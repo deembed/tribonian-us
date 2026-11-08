@@ -72,6 +72,7 @@ code, the two tracked data files (`data/`) and the shell scripts (`sh/`).
 | `casemap.py` | `map` | ~1,450 | Citation graph: cases from the local DB, stubs, cited-by analysis, sentence lineage, good-law check |
 | `usc2md.py` | `usc` | ~1,000 | US Code: USLM → Node tree → MD notes and TeX |
 | `cocite_positions.py`, `cocite_subdoc.py`, `cocite_shift.py` | (`cocite positions`, `subdoc`, `shift`) | ~900 each | Citation positions for proximity weights; sub-cluster explainers; good-law signals from cluster change |
+| `cocite_hidden.py` | (`cocite hidden`) | ~830 | Hidden rulings: decisions coupled to a sub-cluster but little cited; the case builds' Hidden ruling check |
 | `check.py` | `check` | ~500 | Setup and database health; `--paths` is what the GUI reads at start |
 | `casedb.py` | `db` | ~500 | Bulk CSV → SQLite loader, full-text index |
 | `goodlaw_eval.py`, `semsearch.py`, `usc_status.py` | `goodlaw-eval`, `map semsearch`, `usc-status` | ~300 each | Good-law test harness; semantic search; US Code release points |
