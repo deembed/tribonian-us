@@ -29,10 +29,10 @@ commas, a quote inside a value written as \\" (backslash), newlines allowed insi
 values. Checked against the 2026-06-30 files; Python's default CSV dialect
 (doubled quotes) misreads about 5% of rows.
 """
-import argparse, csv, io, json, os, re, shutil, sqlite3, subprocess, sys, time, zlib
+import argparse, collections, contextlib, csv, io, json, os, re, shutil, sqlite3, subprocess, sys, time, zlib
 from pathlib import Path
 
-from tribonian import tconfig                     # each location: CL_* variable, else the config file, else the default here
+from tribonian import tconfig, textcodec          # each location: CL_* variable, else the config file, else the default here
 
 HERE = tconfig.WORK                 # the work folder
 BULK = tconfig.get("bulk_dir", HERE / "bulk")
@@ -53,10 +53,11 @@ def integer(v):
 
 
 def keep_opinion(r):
+    """One opinions row from the CSV's dict: the first non-empty text field, compressed (textcodec: zstd)."""
     for f in TEXT_FIELDS:
         if r.get(f):
             return (integer(r["id"]), integer(r["cluster_id"]), r.get("type"), r.get("author_str"),
-                    f, zlib.compress(r[f].encode("utf-8"), 6))
+                    f, textcodec.pack(r[f].encode("utf-8")))
     return (integer(r["id"]), integer(r["cluster_id"]), r.get("type"), r.get("author_str"), None, None)
 
 
@@ -89,7 +90,7 @@ TABLES = {
                          lambda r: (integer(r["id"]), r["case_name"], r["case_name_short"], r["case_name_full"], r["date_filed"],
                                     integer(r["citation_count"]), integer(r["docket_id"]), r["slug"], r["judges"],
                                     r["precedential_status"], r["scdb_id"], r["other_dates"], r["summary"] or None, r["syllabus"] or None,
-                                    zlib.compress(r["headmatter"].encode("utf-8"), 6) if r["headmatter"] else None),   # zlib, like opinion text
+                                    zlib.compress(r["headmatter"].encode("utf-8"), 6) if r["headmatter"] else None),   # zlib (the GUI reads it); opinion text is zstd (textcodec)
                          ["CREATE UNIQUE INDEX clusters_by_id ON clusters(id)", "CREATE INDEX clusters_by_docket ON clusters(docket_id)",
                           DATE_INDEX]),
     # nature_of_suit / cause sort case notes into folders (case2md.py FOLDERS); the rest lets
@@ -149,32 +150,195 @@ def newest(name):
 CORRUPT = "%s is corrupt (%s): delete it and download it again (the Sync page, or tribonian setup download)"
 
 
-def rows_of(path):
-    """Stream a .csv.bz2 as dicts. lbzip2/pbzip2 use every core; bzip2 one; Python's own module is the fallback.
-    A corrupt or cut file stops the load with a message naming it (never loaded silently)."""
+@contextlib.contextmanager
+def open_stream(path):
+    """The decompressed bytes of a .csv.bz2, as a binary file: lbzip2/pbzip2/bzip2 when one is on PATH (its own process,
+    every core for lbzip2), else indexed_bzip2 (every core, in this process: Windows), else Python's bz2 (one core).
+    Closed on the way out, so a load that stops part way leaves no decompression threads running."""
     tool = next((t for t in ("lbzip2", "pbzip2", "bzip2") if shutil.which(t)), None)
     if tool:
         proc = subprocess.Popen([tool, "-dc", str(path)], stdout=subprocess.PIPE, bufsize=1 << 20)
-        raw = proc.stdout
-    else:
-        import bz2
-        proc, raw = None, bz2.open(path, "rb")
-    text = io.TextIOWrapper(raw, encoding="utf-8", errors="replace", newline="")
-    reader = csv.reader(text, doublequote=False, escapechar="\\")
+        try:
+            yield proc.stdout
+        finally:
+            proc.stdout.close()
+            if proc.poll() is None:                 # stopped before the end: don't wait for the rest of the file
+                proc.kill()
+                proc.wait()
+            elif proc.returncode:                   # truncated or corrupt download: never load it silently
+                raise RuntimeError(CORRUPT % (path.name, "%s exited %d" % (tool, proc.returncode)))
+        return
     try:
-        header = next(reader)
-        n = len(header)
-        for row in reader:
-            if len(row) == n:
-                yield dict(zip(header, row))
-            else:
-                yield None                              # counted as a bad row by the caller
-    except (OSError, EOFError, ValueError) as e:        # Python's bz2: a bad stream or a cut file
-        raise RuntimeError(CORRUPT % (path.name, e))
-    if proc:
-        proc.stdout.close()
-        if proc.wait():
-            raise RuntimeError(CORRUPT % (path.name, "%s exited %d" % (tool, proc.returncode)))
+        import indexed_bzip2
+        raw = indexed_bzip2.open(str(path), parallelization=os.cpu_count() or 1)
+    except ImportError:
+        import bz2
+        raw = bz2.open(path, "rb")
+    try:
+        yield raw
+    finally:
+        raw.close()
+
+
+def rows_of(path):
+    """Stream a .csv.bz2 as dicts (None for a row with the wrong number of fields). A corrupt or cut file stops the
+    load with a message naming it (never loaded silently)."""
+    with open_stream(path) as raw:
+        text = io.TextIOWrapper(raw, encoding="utf-8", errors="replace", newline="")
+        reader = csv.reader(text, doublequote=False, escapechar="\\")
+        try:
+            header = next(reader)
+            n = len(header)
+            for row in reader:
+                if len(row) == n:
+                    yield dict(zip(header, row))
+                else:
+                    yield None                          # counted as a bad row by the caller
+        except (OSError, EOFError, ValueError) as e:    # Python's bz2 or indexed_bzip2: a bad stream or a cut file
+            raise RuntimeError(CORRUPT % (path.name, e))
+        text.detach()                                   # the stream is closed by open_stream, not by the wrapper
+
+
+BAD = object()          # a row with the wrong number of fields
+CHUNK = 256             # rows per task on the worker threads
+
+
+def convert_chunk(fn, rows):
+    """fn over rows: each result is the row tuple, BAD, or the KeyError/ValueError fn raised."""
+    out = []
+    for r in rows:
+        if r is None:
+            out.append(BAD)
+            continue
+        try:
+            out.append(fn(r))
+        except (KeyError, ValueError) as e:
+            out.append(e)
+    return out
+
+
+def converted(rows, fn, workers):
+    """fn over rows in file order. With workers > 1 the rows go to worker threads in chunks: compression releases Python's
+    lock, so the opinions' compression (43% of the load's time, profiled) runs beside the CSV parsing. At most
+    4 chunks per worker are in flight, so memory stays bounded."""
+    if workers <= 1:
+        for r in rows:
+            yield from convert_chunk(fn, (r,))
+        return
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(workers) as pool:
+        waiting, chunk = collections.deque(), []
+        for r in rows:
+            chunk.append(r)
+            if len(chunk) == CHUNK:
+                waiting.append(pool.submit(convert_chunk, fn, chunk))
+                chunk = []
+                if len(waiting) >= 4 * workers:
+                    yield from waiting.popleft().result()
+        if chunk:
+            waiting.append(pool.submit(convert_chunk, fn, chunk))
+        while waiting:
+            yield from waiting.popleft().result()
+
+
+# ---------------------------------------------------------------- opinions through pyarrow's CSV reader
+# Measured on bblinux (2026-11-06), parsing alone with lbzip2 feeding it: Python's csv module 4,238 rows/s, pyarrow
+# 11,880, a Rust csv-crate test 10,271; lbzip2 alone ~512 MB/s. pyarrow reads several blocks at once in C++, and only
+# the columns the opinions table keeps. Every value is read as raw bytes (no UTF-8 check that would reject a row) and
+# decoded the way Python's reader does (bad bytes replaced), so both paths store the same rows.
+# TRIBONIAN_CSV=python forces the Python reader (tests compare the two).
+OPINION_COLUMNS = ["id", "cluster_id", "type", "author_str"] + list(TEXT_FIELDS)
+
+
+def arrow_available():
+    if os.environ.get("TRIBONIAN_CSV") == "python":
+        return False
+    try:
+        import pyarrow.csv  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _text(b):
+    return "" if b is None else b.decode("utf-8", "replace")
+
+
+def _utf8(b):
+    """Stored text bytes as Python's reader would give them: bad UTF-8 replaced (U+FFFD), good bytes as they are."""
+    return b if b.isascii() else b.decode("utf-8", "replace").encode("utf-8")
+
+
+def arrow_chunk(part):
+    """keep_opinion over a slice of a pyarrow batch: the same tuples, BAD never (pyarrow skips wrong-length rows)."""
+    cols = {c: part.column(c).to_pylist() for c in OPINION_COLUMNS}
+    out = []
+    for i in range(part.num_rows):
+        try:
+            head = (integer(_text(cols["id"][i])), integer(_text(cols["cluster_id"][i])),
+                    _text(cols["type"][i]), _text(cols["author_str"][i]))
+        except ValueError as e:
+            out.append(e)
+            continue
+        for f in TEXT_FIELDS:
+            v = cols[f][i]
+            if v:
+                out.append(head + (f, textcodec.pack(_utf8(v))))
+                break
+        else:
+            out.append(head + (None, None))
+    return out
+
+
+def arrow_opinions(path, workers):
+    """The opinions rows in file order, like converted(rows_of(path), keep_opinion, workers): pyarrow parses, the
+    worker threads turn slices into rows and compress, BAD is yielded once per wrong-length row pyarrow skipped."""
+    import pyarrow as pa, pyarrow.csv as pc
+    from concurrent.futures import ThreadPoolExecutor
+    skipped = [0]
+
+    def wrong_length(row):
+        skipped[0] += 1
+        return "skip"
+
+    with open_stream(path) as raw:
+        rd = pc.open_csv(raw, read_options=pc.ReadOptions(block_size=32 << 20, use_threads=True),
+                         parse_options=pc.ParseOptions(double_quote=False, escape_char="\\", newlines_in_values=True,
+                                                       invalid_row_handler=wrong_length),
+                         convert_options=pc.ConvertOptions(include_columns=OPINION_COLUMNS, include_missing_columns=True,
+                                                           column_types={c: pa.binary() for c in OPINION_COLUMNS},
+                                                           strings_can_be_null=False))
+        try:
+            with ThreadPoolExecutor(workers) as pool:
+                waiting = collections.deque()
+                for batch in rd:
+                    for at in range(0, batch.num_rows, CHUNK):
+                        waiting.append(pool.submit(arrow_chunk, batch.slice(at, CHUNK)))
+                        if len(waiting) >= 4 * workers:
+                            yield from waiting.popleft().result()
+                while waiting:
+                    yield from waiting.popleft().result()
+        except (OSError, EOFError, pa.ArrowInvalid) as e:
+            raise RuntimeError(CORRUPT % (path.name, e))
+        finally:
+            rd.close()
+    for _ in range(skipped[0]):
+        yield BAD
+
+
+def table_rows(name, path, fn, workers):
+    """The rows a load inserts, in file order: pyarrow for the opinions when it is installed, else Python's reader."""
+    if name == "opinions" and arrow_available():
+        print("  reading with pyarrow, %d worker threads" % workers)
+        return arrow_opinions(path, workers)
+    if workers > 1:
+        print("  %d worker threads" % workers)
+    return converted(rows_of(path), fn, workers)
+
+
+def workers_for(name):
+    """Worker threads for a table's rows: only the opinions' (compression) are worth it; leave a core for parsing."""
+    return max(1, (os.cpu_count() or 2) - 1) if name == "opinions" else 1
 
 
 def load(name, con, force=False, limit=None):
@@ -183,17 +347,19 @@ def load(name, con, force=False, limit=None):
     if path is None:
         print("%-17s no file in %s" % (name, BULK))
         return
-    done = con.execute("SELECT file, rows FROM loaded WHERE name=?", (name,)).fetchone()
+    done = con.execute("SELECT file, rows FROM loaded WHERE name=?", (name,)).fetchone() if con else None
     if done and done[0] == path.name and not force:
         print("%-17s already loaded (%s rows from %s)" % (name, format(done[1], ","), done[0]))
         return
     print("%-17s loading %s (%.1f GB compressed)" % (name, path.name, path.stat().st_size / 1e9))
-    con.execute("DELETE FROM loaded WHERE name=?", (name,))
-    con.commit()
-    main = con
+    main = con                                                  # None with --limit: the main database is left alone
+    if not limit:
+        con.execute("DELETE FROM loaded WHERE name=?", (name,))
+        con.commit()
     if limit:                                                   # testing: never touch the production tables
         sample = OPS_DB if name == "opinions" else DB
         sample = sample.with_name(sample.stem + "-sample.sqlite")
+        sample.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(sample, timeout=600)
         con.executescript(PRAGMAS)
         print("  --limit: loading into %s (production tables untouched)" % sample)
@@ -209,17 +375,16 @@ def load(name, con, force=False, limit=None):
     sql = "INSERT INTO %s VALUES (%s)" % (table, ",".join("?" * ncol))
     t0, n, bad, batch = time.time(), 0, 0, []
     t_mark = t0
-    for r in rows_of(path):
-        if r is None:
+    for x in table_rows(name, path, fn, workers_for(name)):
+        if x is BAD:
             bad += 1
             continue
-        try:
-            batch.append(fn(r))
-        except (KeyError, ValueError) as e:
+        if isinstance(x, Exception):
             if bad == 0:
-                print("  first unreadable row: %r" % (e,))
+                print("  first unreadable row: %r" % (x,))
             bad += 1
             continue
+        batch.append(x)
         n += 1
         if len(batch) >= 50000:
             con.executemany(sql, batch)
@@ -243,7 +408,8 @@ def load(name, con, force=False, limit=None):
     if not limit:
         main.execute("INSERT OR REPLACE INTO loaded VALUES (?,?,?,?,datetime('now'))", (name, path.name, n, time.time() - t0))
     con.commit()
-    main.commit()
+    if main is not None:
+        main.commit()
     if con is not main:
         con.close()
     print("  done: %s rows in %.1f min%s" % (format(n, ","), (time.time() - t0) / 60,
@@ -471,9 +637,11 @@ def main():
     p.add_argument("names", nargs="*", help="bulk file names, e.g. opinion-clusters (default: every file in bulk/)")
     args = ap.parse_args()
     if args.cmd == "load":
-        con = connect()
+        # --limit loads a sample into *-sample.sqlite and leaves the main database alone: no lock, no bookkeeping
+        con = None if args.limit else connect()
         lock = Path(str(DB) + ".loading")          # casemap.py refuses to read while this exists
-        lock.write_text("casedb.py load, pid %d\n" % os.getpid())
+        if not args.limit:
+            lock.write_text("casedb.py load, pid %d\n" % os.getpid())
         try:
             for name in (args.names or ORDER):
                 load(name, con, args.force, args.limit)
@@ -484,7 +652,8 @@ def main():
         except RuntimeError as e:                  # a corrupt download (rows_of): say which, without a traceback
             sys.exit("load stopped: %s" % e)
         finally:
-            lock.unlink(missing_ok=True)
+            if not args.limit:
+                lock.unlink(missing_ok=True)
     elif args.cmd == "status":
         cmd_status(args)
     elif args.cmd == "courtindex":

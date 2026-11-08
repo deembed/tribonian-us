@@ -132,6 +132,8 @@ pub struct App {
     pub job: Option<jobs::Running>,
     pub job_log: Vec<String>,
     pub queue: std::collections::VecDeque<Queued>,
+    /// The databases were let go for the running job (a load that swaps files in): reopen them when it ends.
+    reopen_after_job: bool,
     /// The current run: builds since the queue last emptied.
     pub run_total: usize,
     pub run_done: usize,
@@ -230,6 +232,7 @@ impl App {
             job: None,
             job_log: Vec::new(),
             queue: std::collections::VecDeque::new(),
+            reopen_after_job: false,
             run_total: 0,
             run_done: 0,
             run_failed: Vec::new(),
@@ -454,6 +457,18 @@ impl App {
         let title = q.label();
         self.job_log.push(format!("── {title}"));
         let py = cfg.py();
+        // `tribonian setup update` renames new database files over the live ones, which Windows refuses while this
+        // app has them open: close the page and search workers' connections now (their threads end when their
+        // channel closes), and reopen everything when the job ends.
+        if let QueuedJob::Steps(steps) = &q.job {
+            if steps.iter().any(|(a, _)| a.len() >= 2 && a[0] == "setup" && a[1] == "update") {
+                self.tx = None;
+                self.rx = None;
+                self.stx = None;
+                self.srx = None;
+                self.reopen_after_job = true;
+            }
+        }
         self.job = Some(match q.job {
             QueuedJob::Build { quick, law } => jobs::build_case(py, q.r#ref, title, quick, law, wake),
             QueuedJob::Script(args) => jobs::run_script(py, q.r#ref, title, args, wake),
@@ -483,6 +498,9 @@ impl App {
                 self.run_failed.push(job.title.clone());
             }
             // the scripts changed notes, PDFs and profiles: reread the files, reload the pages
+            if std::mem::take(&mut self.reopen_after_job) {
+                self.load_config();                // the databases a load swapped in
+            }
             if let Some(cfg) = &self.cfg {
                 self.files = CaseFiles::load(cfg);
             }

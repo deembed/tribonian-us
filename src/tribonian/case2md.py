@@ -3059,6 +3059,12 @@ def split_footnotes(raw, nxt, prev_open, pi=None):
     texty = [j for j, x in enumerate(raw) if x.strip()]         # double-spaced body: a blank line after each line
     gaps = Counter(b - a for a, b in zip(texty, texty[1:]))      # (the notes at its foot are single-spaced)
     double = len(texty) > 6 and gaps[2] > gaps[1]
+    if rule is not None:            # a footnote rule has a note under it: the next number, or the last page's note
+        below = next((x for x in raw[rule + 1:] if x.strip()), None)   # running on; a brief's caption rule ("————"
+        m = FNSTART_RE.match(below or "")                               # over its first paragraph) has neither
+        if below is not None and not prev_open and not (m and int(m.group(2)) in (nxt, nxt + 1)):
+            trace.hit("footnote", "rule:no-note-under-it", pi, below, raw[rule])
+            rule = None
     if rule is not None and any(x.strip() for x in raw[rule + 1:]):
         return split_ruled_footnotes(raw, rule, nxt)
     k = None

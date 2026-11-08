@@ -50,6 +50,7 @@ from datetime import date
 from pathlib import Path
 
 from tribonian import case2md as c
+from tribonian import textcodec
 from tribonian import casedb
 
 
@@ -86,7 +87,7 @@ def db_case(con, cid, with_text):
                "case_name_full": cl["case_name_full"], "date_filed": cl["date_filed"], "judges": cl["judges"] or "",
                "citation_count": cl["citation_count"], "other_dates": cl["other_dates"] or "", "scdb_id": cl["scdb_id"] or "",
                "precedential_status": cl["precedential_status"], "summary": cl.get("summary") or "", "syllabus": cl.get("syllabus") or "",
-               "headmatter": (zlib.decompress(cl["headmatter"]).decode("utf-8", "replace") if isinstance(cl.get("headmatter"), bytes)
+               "headmatter": (textcodec.unpack(cl["headmatter"]) if isinstance(cl.get("headmatter"), bytes)
                               else cl.get("headmatter") or ""),   # stored compressed; older databases have no column
                "absolute_url": "/opinion/%d/%s/" % (cid, cl["slug"] or "x"),
                "citations": [{"volume": v, "reporter": rp, "page": pg, "type": t} for v, rp, pg, t in
@@ -109,7 +110,7 @@ def db_case(con, cid, with_text):
         for oid, typ, author, field, blob in ops:
             o = {"id": oid, "type": typ, "author_str": author or ""}
             if blob:
-                o[field] = zlib.decompress(blob).decode("utf-8", "replace")
+                o[field] = textcodec.unpack(blob)
             opinions.append(o)
     stamp = con.execute("SELECT file FROM loaded WHERE name='opinions'").fetchone()
     return {"cluster": cluster, "docket": docket, "opinions": opinions, "cites": cites,
@@ -516,7 +517,7 @@ def goodlaw_case(con, cid, strat=0, show=None, quick=None):
         row = con.execute("SELECT field, text FROM ops.opinions WHERE id = ?", (oid,)).fetchone()
         if not row or not row[1]:
             continue
-        raw = zlib.decompress(row[1]).decode("utf-8", "replace")
+        raw = textcodec.unpack(row[1])
         wins, sents = opinion_windows(raw, cid, cites, name_rx)
         if show and show.lower() in raw.lower():
             print("\n== %s %s (%s)%s  opinion %d, %d citation marks, %d name mentions" % (
@@ -1056,7 +1057,7 @@ class Lineage:
             if not r or not r[0]:
                 self.words[oid] = None
             else:
-                t = html.unescape(re.sub(r"<[^>]+>", " ", zlib.decompress(r[0]).decode("utf-8", "replace")))
+                t = html.unescape(re.sub(r"<[^>]+>", " ", textcodec.unpack(r[0])))
                 self.words[oid] = (r[1], r[2], r[3] or "", r[4] or "", norm(re.sub(r"(\w)-\n\s*(?=[a-z])", r"\1", t)).split())
         return self.words[oid]
 
@@ -1244,7 +1245,7 @@ def cmd_citedby(args):
         print("  reading %s" % ("all %d citing opinions" % Np if n == Np else "a random sample of %d of %d (sized for ±%d%% at 95%%)" % (n, Np, round(args.margin * 100))))
         for k, oid in enumerate(chosen, 1):
             row = con.execute("SELECT text FROM opinions WHERE id=?", (oid,)).fetchone()
-            text = zlib.decompress(row[0]).decode("utf-8", "replace") if row and row[0] else ""
+            text = textcodec.unpack(row[0]) if row and row[0] else ""
             res = analyze([{"html_with_citations": text}], cid, first_page, last_page, src_norm, src_offsets, parallels)
             res["id"] = oid
             results.append(res)

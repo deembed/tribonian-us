@@ -82,6 +82,7 @@ impl CaseFiles {
                     );
                 }
             }
+            Err(_) if !ip.exists() => {}          // nothing built yet
             Err(e) => cf.error = Some(format!("{}: {e}", ip.display())),
         }
         let slug_ref: HashMap<&str, i64> = cf.index.iter().map(|(r, e)| (e.slug.as_str(), *r)).collect();

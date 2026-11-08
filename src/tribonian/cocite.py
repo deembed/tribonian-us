@@ -133,7 +133,9 @@ def parse_courts(text):
     return codes, tag
 WIDTH = 5
 
-DEFAULTS = dict(min_cited=5, min_cited_frac=2e-5, min_support=5, max_cites=150, resolution=1.0, share=0.15,
+# max_cites: leave out decisions citing more than this many of a slice's nodes; None (the default since 0.2.2) keeps
+# them all. Each slice records its parameters, so a view built with a cap rebuilds by itself when the cap changes.
+DEFAULTS = dict(min_cited=5, min_cited_frac=2e-5, min_support=5, max_cites=None, resolution=1.0, share=0.15,
                 top=20, min_size=3, seed=0, split_over=20, sub_z=4.0, nulls=5)
 SCHEMA_VERSION = "4"      # 4: partners.binary (2026-10)
 
@@ -452,8 +454,9 @@ def slice_pairs(ci, cd, p):
     r, c = r[ok], c[ok]
     refs = cols_u[keep]
     per_row = np.bincount(r, minlength=len(rows_u))
-    pop = (per_row >= 1) & (per_row <= p["max_cites"])
-    skipped = int((per_row > p["max_cites"]).sum())
+    cap = p.get("max_cites")
+    pop = (per_row >= 1) & (per_row <= cap) if cap else per_row >= 1
+    skipped = int((per_row > cap).sum()) if cap else 0
     ok = pop[r]
     r, c = r[ok], c[ok]
     N = int(pop.sum())
@@ -660,10 +663,11 @@ def build_slice(db, s, ci, cd, p, stamp):
                (s, label(s), stamp, json.dumps(p, sort_keys=True), N, skipped, nn, len(ea), K, clustered,
                 q, time.time() - t0, len(s_anchor), mc, q0, q0sd))
     db.commit()
-    print("%s: %s citing decisions (%d left out, > %d cites), %s cases cited %d+ times, %s pairs, %d clusters "
+    print("%s: %s citing decisions (%s), %s cases cited %d+ times, %s pairs, %d clusters "
           "holding %s cases, %d split (%d no better than chance), %d sub-clusters, modularity %.3f vs %.3f by chance"
           "  (%.1f min)" % (
-              label(s), format(N, ","), skipped, p["max_cites"], format(nn, ","), mc, format(len(ea), ","), K,
+              label(s), format(N, ","), "%d left out, > %d cites" % (skipped, p["max_cites"]) if p.get("max_cites") else "no cap",
+              format(nn, ","), mc, format(len(ea), ","), K,
               format(clustered, ","), split, unsplit, len(s_anchor), q, q0, (time.time() - t0) / 60), flush=True)
 
 
@@ -2774,7 +2778,7 @@ def main():
     p.add_argument("--min-support", dest="min_support", type=int, default=DEFAULTS["min_support"],
                    help="a pair needs this many decisions citing both (default %(default)s)")
     p.add_argument("--max-cites", dest="max_cites", type=int, default=DEFAULTS["max_cites"],
-                   help="leave out decisions citing more nodes than this (default %(default)s)")
+                   help="leave out decisions citing more nodes than this (default: no cap; 0 also means no cap)")
     p.add_argument("--resolution", type=float, default=DEFAULTS["resolution"],
                    help="Leiden resolution: higher = more, smaller clusters (default %(default)s)")
     p.add_argument("--share", type=float, default=DEFAULTS["share"],

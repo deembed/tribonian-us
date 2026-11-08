@@ -14,7 +14,7 @@
 //! And a run of commands that stops at the first failure (`run_steps`): the SCOTUS page's
 //! "Fetch & build" queues `tribonian scotus fetch <docket>` then `tribonian scotus build <docket>` as one job.
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::Stdio;
 
@@ -45,6 +45,25 @@ pub fn full_file(work: &Path, r: i64) -> Option<String> {
 /// Run one `tribonian` command (args after `tribonian`); true when it exits 0 and, if `need` is given, printed a line starting with it
 /// (`tribonian case build` prints "wrote pdf/..." only when pdflatex succeeded, and exits 0 either way,
 /// so tribonian build checks for that line too).
+/// Each line of r, decoded as UTF-8 with bad bytes replaced, to the end. `lines()` would stop for good at the first
+/// line that isn't valid UTF-8 and drop the pipe, and the script writing it would then fail on its next print.
+pub fn each_line(r: impl Read, mut f: impl FnMut(String)) {
+    let mut r = BufReader::new(r);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match r.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => return,
+            Ok(_) => {
+                while buf.last().is_some_and(|b| *b == b'\n' || *b == b'\r') {
+                    buf.pop();
+                }
+                f(String::from_utf8_lossy(&buf).into_owned());
+            }
+        }
+    }
+}
+
 fn run_step(py: &Py, args: &[String], need: Option<&str>, tx: &Sender<Msg>, wake: &(dyn Fn() + Send + Sync)) -> bool {
     let mut seen = need.is_none();
     let _ = tx.send(Msg::Line(format!("$ tribonian {}", args.join(" "))));
@@ -67,19 +86,19 @@ fn run_step(py: &Py, args: &[String], need: Option<&str>, tx: &Sender<Msg>, wake
     let err = child.stderr.take().map(|s| {
         let tx = tx.clone();
         std::thread::spawn(move || {
-            for line in BufReader::new(s).lines().map_while(Result::ok) {
+            each_line(s, |line| {
                 let _ = tx.send(Msg::Line(line));
-            }
+            })
         })
     });
     if let Some(out) = child.stdout.take() {
-        for line in BufReader::new(out).lines().map_while(Result::ok) {
+        each_line(out, |line| {
             if need.is_some_and(|n| line.starts_with(n)) {
                 seen = true;
             }
             let _ = tx.send(Msg::Line(line));
             wake();
-        }
+        });
     }
     if let Some(h) = err {
         let _ = h.join();

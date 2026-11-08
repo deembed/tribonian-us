@@ -31,6 +31,7 @@ from pathlib import Path
 import numpy as np
 
 from tribonian import casedb, tconfig
+from tribonian import textcodec
 from tribonian import cocite_positions as cp
 from tribonian.cocite_positions import NO_LINK
 
@@ -136,7 +137,7 @@ def cmd_sample(args):
         if not r or r[1] != "html_with_citations" or not r[2]:
             skipped += 1
             continue
-        c, ex, sh = measure(zlib.decompress(r[2]).decode("utf-8", "replace"))
+        c, ex, sh = measure(textcodec.unpack(r[2]))
         per.append((r[0], c))
         shapes.update(sh)
         for k, v in ex.items():
@@ -441,7 +442,7 @@ def run_usc_shard(lo, hi, path):
         if field != "html_with_citations" or not blob:
             continue
         try:
-            r, p, _, _ = extract_usc(oid, zlib.decompress(blob).decode("utf-8", "replace"), own)
+            r, p, _, _ = extract_usc(oid, textcodec.unpack(blob), own)
         except Exception as e:
             print("  opinion %d skipped: %s: %s" % (oid, type(e).__name__, e), file=sys.stderr, flush=True)
             continue
@@ -461,7 +462,7 @@ def cmd_usc_show(oid):
     r = con.execute("SELECT id, cluster_id, field, text FROM opinions WHERE id = ?", (oid,)).fetchone()
     if not r or not r[3]:
         sys.exit("no text for opinion %d" % oid)
-    rows, pop, st, prow = extract_usc(r[0], zlib.decompress(r[3]).decode("utf-8", "replace"), r[1])
+    rows, pop, st, prow = extract_usc(r[0], textcodec.unpack(r[3]), r[1])
     text, names = st["text"], dict(pop)
     print("opinion %d (case %d): %d positions rows, %d Code references" % (r[0], r[1], len(prow), len(rows)))
     print("%-5s %4s %4s %6s %3s %-16s %-11s %-14s  context" % ("after", "para", "sent", "char", "fn", "how", "part", "ref"))
@@ -482,7 +483,7 @@ def cmd_usc_sample(n, seed=1):
             continue
         ops += 1
         t0 = time.perf_counter()
-        rows, pop, _, _ = extract_usc(r[0], zlib.decompress(r[3]).decode("utf-8", "replace"), r[1])
+        rows, pop, _, _ = extract_usc(r[0], textcodec.unpack(r[3]), r[1])
         t += time.perf_counter() - t0
         for x in rows:
             how[HOW[x[6]]] += 1
