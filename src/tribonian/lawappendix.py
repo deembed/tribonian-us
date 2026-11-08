@@ -86,6 +86,9 @@ def fetch_missing(keys, federal=False, state=False, warnings=None):
         left = [(src, g) for src, g in left if src not in done]
     for _, g in left:
         warnings.extend(_fetch_group(g))
+    if specs:                                    # fetching writes notes (md-cfr/, md-state/): list them again
+        from tribonian import case2md
+        case2md.forget_statute_notes()
     return [(k, lawtext.fetch_hint(k)) for k in todo if lawtext.text_of(k) is None]
 
 

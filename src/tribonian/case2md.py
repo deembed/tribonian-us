@@ -1043,13 +1043,26 @@ def statute_note(text):
     return "%s-usc-%s" % (m.group(1), m.group(2).lower()) if m else None
 
 
+_STATUTE_NOTES = None
+
+
 def statute_notes():
-    """Names of the statute and regulation notes that exist: md/ (US Code), md-cfr/ (C.F.R., cfr.py notes)."""
-    out = set()
-    for d, pat in ((ROOT / "md", "*-usc-*.md"), (ROOT / "md-cfr", "*-cfr-*.md"), (ROOT / "md-state", "*.md")):
-        if d.is_dir():
-            out |= {p.stem for p in d.rglob(pat)}
-    return out
+    """Names of the statute and regulation notes that exist: md/ (US Code), md-cfr/ (C.F.R., cfr.py notes), md-state/.
+    Read once per run (the walk takes seconds, and every note asks); a copy, so callers may add to it.
+    lawappendix.fetch_missing forgets it after fetching, since fetching writes notes."""
+    global _STATUTE_NOTES
+    if _STATUTE_NOTES is None:
+        out = set()
+        for d, mid in ((ROOT / "md", "-usc-"), (ROOT / "md-cfr", "-cfr-"), (ROOT / "md-state", "")):
+            for _, _, files in os.walk(d):
+                out.update(f[:-3] for f in files if f.endswith(".md") and mid in f)
+        _STATUTE_NOTES = out
+    return set(_STATUTE_NOTES)
+
+
+def forget_statute_notes():
+    global _STATUTE_NOTES
+    _STATUTE_NOTES = None
 
 
 def clean(s):
