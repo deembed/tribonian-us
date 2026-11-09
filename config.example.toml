@@ -64,6 +64,9 @@
 # review_years = 6         # how long after it that decision can come
 # quoted_top = 15          # Quoted sources listed: cases whose words reach the sub-cluster through its members
 # quoted_min = 2           # carried into at least this many decisions
+# neighbours = 5           # nearest sub-clusters listed (hidden output, and Adjacent sub-clusters in subdoc)
+# neighbour_min_pairs = 20 # ... only those with at least this many co-citation pairs (a noise floor)
+# neighbour_change = 1.5   # subdoc: a neighbour lineage's share moving by this factor or more is stronger/weaker
 # Court and status weights as dotted keys (works on every Python, no sub-tables needed):
 # court.scotus = 3.0
 # court.circuit = 2.0

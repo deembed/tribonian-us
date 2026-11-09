@@ -820,6 +820,63 @@ def unit_name(db, s, k, level="cluster"):
     return (lab[0] if lab else "around %s" % short(db, r[0])), r[1], (lin[0] if lin else None)
 
 
+_SLICE_NODES = {}
+
+
+def slice_nodes(db, s, built):
+    """A slice's nodes as arrays (refs sorted, cl, sub; NULL -> 0), the last row of a repeated ref winning as a dict
+    would. Read once per run per slice: every case's citing breakdown asks for the same slices."""
+    k = (built, s)
+    if k not in _SLICE_NODES:
+        nm = {r: (c or 0, b or 0) for r, c, b in db.execute("SELECT ref, cl, sub FROM nodes WHERE slice=?", (s,))}
+        keys = np.fromiter(nm.keys(), np.int64, len(nm))
+        cl = np.fromiter((v[0] for v in nm.values()), np.int64, len(nm))
+        sb = np.fromiter((v[1] for v in nm.values()), np.int64, len(nm))
+        o = np.argsort(keys, kind="stable")
+        _SLICE_NODES[k] = (keys[o], cl[o], sb[o])
+    return _SLICE_NODES[k]
+
+
+def breakdown_winners(ref, S, starts, ends, cd, nodes):
+    """For each citing decision i (its slice S[i], its cites cd[starts[i]:ends[i]]): the cluster and the sub-cluster most
+    of its other cites fall in (0: none), ties to the one met first, as Counter.most_common(1) gives. numpy over every
+    cite at once; the per-decision Python loop it replaces took a heavily cited case minutes.
+    nodes(s) -> slice_nodes' (refs sorted, cl, sub) arrays."""
+    n = len(S)
+    wcl, wsub = np.zeros(n, np.int64), np.zeros(n, np.int64)
+    if not n:
+        return wcl, wsub
+    starts, ends = np.asarray(starts, np.int64), np.asarray(ends, np.int64)
+    lens = ends - starts
+    g = np.repeat(np.arange(n), lens)                                   # each cite's decision
+    idx = np.arange(int(lens.sum())) - np.repeat(np.cumsum(lens) - lens, lens) + np.repeat(starts, lens)
+    R = np.asarray(cd)[idx].astype(np.int64) if len(idx) else np.zeros(0, np.int64)
+    C, B = np.zeros(len(R), np.int64), np.zeros(len(R), np.int64)
+    for s in np.unique(S).tolist():
+        keys, cl, sb = nodes(s)
+        if not len(keys):
+            continue
+        at = np.nonzero(S[g] == s)[0]
+        r = R[at]
+        pos = np.minimum(np.searchsorted(keys, r), len(keys) - 1)
+        hit = (keys[pos] == r) & (r != ref)
+        C[at[hit]], B[at[hit]] = cl[pos[hit]], sb[pos[hit]]
+    for vals, w in ((C, wcl), (B, wsub)):
+        m = vals > 0
+        if not m.any():
+            continue
+        gg, vv = g[m], vals[m]
+        base = int(vv.max()) + 1
+        u, first, cnt = np.unique(gg * base + vv, return_index=True, return_counts=True)
+        ug, uv = u // base, u % base
+        o = np.lexsort((first, -cnt, ug))                               # per decision: most cites, then met first
+        ug, uv = ug[o], uv[o]
+        lead = np.ones(len(ug), bool)
+        lead[1:] = ug[1:] != ug[:-1]
+        w[ug[lead]] = uv[lead]
+    return wcl, wsub
+
+
 def citing_breakdown(ref, db, view=NOTE_VIEW):
     """Each slice's decisions citing this case, sorted by the cluster (and sub-cluster) most of their
     other cites fall in: what kinds of cases use it. Cached per case under cocite-cache/notes/."""
@@ -840,7 +897,8 @@ def citing_breakdown(ref, db, view=NOTE_VIEW):
     lvl = np.load(CACHE / "level.npy", mmap_mode="r")
     order = np.load(CACHE / "by_cited.npy", mmap_mode="r")
     cds = np.load(CACHE / "cited_sorted.npy", mmap_mode="r")
-    lo, hi = np.searchsorted(cds, ref), np.searchsorted(cds, ref, side="right")
+    r_ = np.asarray(ref, cds.dtype)            # the array's own type: a wider one makes numpy convert the whole array
+    lo, hi = np.searchsorted(cds, r_), np.searchsorted(cds, r_, side="right")
     rows = np.asarray(order[lo:hi]).astype(np.int64)
     D, Y = np.asarray(ci)[rows] if len(rows) else np.zeros(0, np.int32), np.asarray(y)[rows] if len(rows) else np.zeros(0)
     codes, _ = parse_courts(view)
@@ -848,27 +906,16 @@ def citing_breakdown(ref, db, view=NOTE_VIEW):
         keep = np.isin(np.asarray(lvl)[D], codes)
         D, Y = D[keep], Y[keep]
     starts, ends = np.searchsorted(ci, D), np.searchsorted(ci, D, side="right")
+    S = np.asarray(Y, np.int64) - np.asarray(Y, np.int64) % WIDTH
+    wcl, wsub = breakdown_winners(ref, S, starts, ends, cd, lambda s: slice_nodes(db, s, built))
     out = {}
-    nodes_of = {}
     for i in range(len(D)):
-        s = int(Y[i]) - int(Y[i]) % WIDTH
-        if s not in nodes_of:
-            nodes_of[s] = {r: (c, b) for r, c, b in db.execute("SELECT ref, cl, sub FROM nodes WHERE slice=?", (s,))}
-        nm = nodes_of[s]
-        cls, subs = Counter(), Counter()
-        for r in np.asarray(cd[starts[i]:ends[i]]).tolist():
-            if r != ref and r in nm:
-                c, b = nm[r]
-                if c and c > 0:
-                    cls[c] += 1
-                if b and b > 0:
-                    subs[b] += 1
-        slot = out.setdefault(s, {"n": 0, "cl": Counter(), "sub": Counter(), "none": 0})
+        slot = out.setdefault(int(S[i]), {"n": 0, "cl": Counter(), "sub": Counter(), "none": 0})
         slot["n"] += 1
-        if cls:
-            slot["cl"][cls.most_common(1)[0][0]] += 1
-            if subs:
-                slot["sub"][subs.most_common(1)[0][0]] += 1
+        if wcl[i]:
+            slot["cl"][int(wcl[i])] += 1
+            if wsub[i]:
+                slot["sub"][int(wsub[i])] += 1
         else:
             slot["none"] += 1
     res = {s: {"n": v["n"], "none": v["none"], "cl": dict(v["cl"]), "sub": dict(v["sub"])} for s, v in out.items()}
@@ -2342,7 +2389,7 @@ def area_name(db, area):
     except sqlite3.OperationalError:
         r = None
     if r:
-        lab = {x["key"]: x for x in load_labels()}.get(r[0])
+        lab = labels_by_key().get(r[0])
         if lab:
             return lab["name"]
     a = db.execute("SELECT anchor_lineage FROM areas WHERE area=?", (area,)).fetchone()
@@ -2437,6 +2484,22 @@ def lineage_members(db, lin, level, k=FINGER):
         sql = ("SELECT m.ref, sum(m.weight) w FROM clusters c JOIN members m ON m.slice = c.slice AND m.cl = c.cl "
                "AND m.home = 1 WHERE c.lineage = ? GROUP BY m.ref ORDER BY w DESC LIMIT ?")
     return [r for r, _ in db.execute(sql, (lin, k))]
+
+
+_LABELS_SEEN = (None, {})
+
+
+def labels_by_key():
+    """{key: label}, for looking up only: read again only when the labels file changed (area_name asks per area)."""
+    global _LABELS_SEEN
+    try:
+        st = labels_path().stat()
+        stamp = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {}
+    if _LABELS_SEEN[0] != stamp:
+        _LABELS_SEEN = (stamp, {x["key"]: x for x in load_labels()})
+    return _LABELS_SEEN[1]
 
 
 def load_labels():

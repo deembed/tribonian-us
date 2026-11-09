@@ -91,6 +91,38 @@ def arabic(s):
     return s
 
 
+def needed_literal(rx):
+    """The longest run of literal characters every match of the compiled pattern contains, '' if none is certain:
+    a quick `in` test that lets find_full skip a form. Only plain literals in the pattern's main line (and in groups
+    and repeats of at least one) count; a branch, class or optional part ends a run. Case-insensitive parts give ''."""
+    try:
+        import re._parser as P, re._constants as K
+    except ImportError:                         # Python before 3.11
+        import sre_parse as P, sre_constants as K
+    if rx.flags & re.IGNORECASE:
+        return ""
+    best = ""
+
+    def walk(items):
+        nonlocal best
+        run = ""
+        for op, av in items:
+            if op is K.LITERAL:
+                run += chr(av)
+                continue
+            best, run = max(best, run, key=len), ""
+            if op is K.SUBPATTERN and not (av[1] & re.IGNORECASE):
+                walk(av[-1])
+            elif op in (K.MAX_REPEAT, K.MIN_REPEAT, getattr(K, "POSSESSIVE_REPEAT", None)) and av[0] >= 1:
+                walk(av[2])
+        best = max(best, run, key=len)
+    try:
+        walk(P.parse(rx.pattern, rx.flags))
+    except Exception:                           # an internal the parser changed: no shortcut, same results
+        return ""
+    return best
+
+
 class Table:
     def __init__(self, st, code, f, c):
         self.st, self.code, self.f, self.c = st, code, f, c
@@ -114,6 +146,7 @@ class Table:
                 except re.error as e:
                     print("cite table %s.%s: bad %s form %r: %s" % (st, code, which, form, e), file=sys.stderr)
         self.key_re = _template_re(self.key_t)
+        self.lits = [needed_literal(rx) for rx, _, _ in self.forms]         # a form can't match text without its literal
 
     def _compile(self, form, after):
         rx = form
@@ -380,7 +413,9 @@ def find_full(t, free):
     in no order; `free(a, b)` says a span is not taken yet (the caller marks what it keeps)."""
     out, bare = [], []
     for tb in tables():
-        for rx, is_bare, after in tb.forms:
+        for (rx, is_bare, after), lit in zip(tb.forms, tb.lits):
+            if lit and lit not in t:            # its literal is missing: no match is possible (400+ forms, every text)
+                continue
             for m in rx.finditer(t):
                 v = tb.vals(m)
                 key = tb.key(v)
