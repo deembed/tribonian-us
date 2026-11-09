@@ -299,7 +299,11 @@ def fetch(args):
 # is the fetched JSON (relative to cases/) when the opinion text is on disk,
 # else the case is known only as a stub (cases/stubs/<id>.json: cluster + docket).
 
-_INDEX_SNAP = {}        # id(index) -> deep copy of what load_index() returned, for save_index's merge
+class Index(dict):
+    """The case index as load_index() returns it, carrying `snap`: a deep copy of what was read, for save_index's
+    merge. The copy lives on the index itself, so it goes when the index does (a module-level dict keyed by id()
+    kept one per call, 1,900 notes into a crawl that was 15 GB)."""
+    snap = {}
 
 
 def _read_index():
@@ -307,9 +311,27 @@ def _read_index():
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
+_INDEX_SEEN = (None, None)
+
+
+def index_now():
+    """The index for looking things up only (never change or save it): parsed again only when the file changed.
+    load_index() is for callers that add to it and save."""
+    global _INDEX_SEEN
+    p = CASES / "_index.json"
+    try:
+        st = p.stat()
+        stamp = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return {}
+    if _INDEX_SEEN[0] != stamp:
+        _INDEX_SEEN = (stamp, _read_index())
+    return _INDEX_SEEN[1]
+
+
 def load_index():
-    index = _read_index()
-    _INDEX_SNAP[id(index)] = json.loads(json.dumps(index))
+    index = Index(_read_index())
+    index.snap = json.loads(json.dumps(index))
     return index
 
 
@@ -320,7 +342,7 @@ def save_index(index):
     its load_index() are written over it; everything else keeps the disk value.
     Atomic (temp file, rename over): a parallel build never reads half a file."""
     CASES.mkdir(parents=True, exist_ok=True)
-    snap = _INDEX_SNAP.get(id(index), {})
+    snap = getattr(index, "snap", {})
     with index_lock():
         disk = _read_index()
         for k, v in index.items():
@@ -330,7 +352,8 @@ def save_index(index):
         tmp.write_text(json.dumps(disk, indent=1, ensure_ascii=False), encoding="utf-8")
         os.replace(tmp, CASES / "_index.json")
     index.clear(); index.update(disk)                      # caller sees the merged result
-    _INDEX_SNAP[id(index)] = json.loads(json.dumps(disk))
+    if isinstance(index, Index):
+        index.snap = json.loads(json.dumps(disk))
 
 
 _LOCK_DEPTH = {}        # lock path -> nesting depth; flock is per open file, so re-entry must not reopen
@@ -1827,7 +1850,7 @@ def cocite_md(meta):
         return []
     try:
         from tribonian import cocite
-        return cocite.case_md(int(meta["cluster"]), load_index())
+        return cocite.case_md(int(meta["cluster"]), index_now())
     except (ImportError, sqlite3.Error, SystemExit, OSError) as e:   # view not built / numpy missing; a bug still raises
         print("  (co-citation section skipped: %s)" % e, file=sys.stderr)
         return []
@@ -1875,7 +1898,7 @@ def json_cited(cid, data=None):
     """Opinion ids the case's own JSON says it cites (`opinions_cited` on each opinion). The fallback
     for cases newer than the bulk data: they have no rows in `edges`, but the API copy lists them."""
     if data is None:
-        ent = load_index().get(str(cid), {})
+        ent = index_now().get(str(cid), {})
         f = CASES / ent["full"] if ent.get("full") else None
         try:
             data = json.loads(f.read_text(encoding="utf-8")) if f else {}
