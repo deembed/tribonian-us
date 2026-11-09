@@ -16,11 +16,11 @@ once from script-built evidence (cocite_labels.json) and are marked as such.
     tribonian cocite subdoc 2020-24:2.3 --no-pdf         # the note and the .tex only
     tribonian cocite subdoc 2020:7                       # an unsplit cluster is its own sub-cluster
     tribonian cocite subdoc 2020-24:2.3 --view appellate # another view (default: the case-note view)
-    tribonian cocite subdoc 2020-24:2.3 --set neighbour_floor=0.1   # Adjacent sub-clusters settings (config [hidden])
+    tribonian cocite subdoc 2020-24:2.3 --set neighbour_min_pairs=40   # Adjacent sub-clusters settings (config [hidden])
 
 Adjacent sub-clusters: the nearest sub-clusters here and around the lineage's sub-cluster in the slice
 before, from cocite_hidden.neighbours (same definition as the hidden-rulings output: the top `neighbours`
-by co-citation weight with at least `neighbour_floor` of the outside pairs), matched by lineage, since
+by co-citation weight with at least `neighbour_min_pairs` pairs), matched by lineage, since
 sub-cluster numbers change every slice. Each neighbour lineage is new, gone, stronger, weaker (its share
 moved by `neighbour_change` or more) or steady, with the cases that crossed between it and this lineage.
 Shares, not counts, so a partial slice doesn't read as every tie decaying.
@@ -57,7 +57,7 @@ def add_parser(sub, view):
     p.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     p.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
     p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
-                   help="Adjacent sub-clusters settings for this run: neighbours, neighbour_floor, neighbour_change "
+                   help="Adjacent sub-clusters settings for this run: neighbours, neighbour_min_pairs, neighbour_change "
                    "(defaults and config [hidden] as for tribonian cocite hidden)")
     p.set_defaults(func=cmd_subdoc)
 
@@ -258,7 +258,7 @@ def adjacency_data(db, view, s, j, lin, members, vlin, P):
     import numpy as np
     from tribonian import cocite_hidden as H
     codes = H.view_codes_of(view)
-    top, floor, change = int(P["neighbours"]), float(P["neighbour_floor"]), float(P["neighbour_change"])
+    top, min_pairs, change = int(P["neighbours"]), int(P["neighbour_min_pairs"]), float(P["neighbour_change"])
     lins = {}
 
     def lin_of(t, k):
@@ -269,13 +269,13 @@ def adjacency_data(db, view, s, j, lin, members, vlin, P):
 
     def near(t, k):
         refs, sub, n = H.slice_subs(db, t)
-        nb, ndec = H.neighbours(db, t, k, refs, sub, n, codes, top, floor=floor, full=True)
+        nb, ndec = H.neighbours(db, t, k, refs, sub, n, codes, top, min_pairs=min_pairs, full=True)
         for x in nb:
             x["lineage"] = lin_of(t, x["sub"])
         return nb, ndec, refs, sub
 
     here, nd_here, refs_s, sub_s = near(s, j)
-    out = {"settings": {"neighbours": top, "neighbour_floor": floor, "neighbour_change": change},
+    out = {"settings": {"neighbours": top, "neighbour_min_pairs": min_pairs, "neighbour_change": change},
            "decisions": nd_here, "before": None, "rows": []}
     t = s - C.WIDTH
     prev = db.execute("SELECT sub FROM subs WHERE lineage=? AND slice=?", (lin, t)).fetchone() if lin else None
@@ -659,8 +659,8 @@ def adjacent_intro(d):
     a = d["adjacent"]
     st = a["settings"]
     t = ("Close: the %d nearest sub-clusters by co-citation weight (pairs / square root of (citations here x citations there)) "
-         "holding at least %s of this sub-cluster's outside pairs, from %s decisions in %s" % (
-             st["neighbours"], pct(st["neighbour_floor"]), fmt(a["decisions"]), d["slice_label"]))
+         "with at least %d co-citation pairs, from %s decisions in %s" % (
+             st["neighbours"], st["neighbour_min_pairs"], fmt(a["decisions"]), d["slice_label"]))
     if a["before"]:
         t += ("; and the same around the lineage's %s sub-cluster %s, matched by lineage. Share: the fraction of "
               "the outside pairs. Stronger or weaker: the share moved by a factor of %g or more; new lineage / lineage ended: the neighbour lineage itself starts in this slice or ended before it. Moved: cases that were in this "
@@ -668,7 +668,7 @@ def adjacent_intro(d):
                   a["before"]["label"], a["before"]["code"], st["neighbour_change"], a["before"]["label"]))
     if d["partial"]:
         t += ". A partial slice: compare shares, not counts"
-    return t + ". Settings: config [hidden], or --set neighbours= / neighbour_floor= / neighbour_change=."
+    return t + ". Settings: config [hidden], or --set neighbours= / neighbour_min_pairs= / neighbour_change=."
 
 
 def share_text(cell, share):

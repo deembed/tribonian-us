@@ -51,8 +51,8 @@ Nearest sub-clusters (of the sub-cluster): from the slice's citing decisions in 
 W(S, T) = decisions' co-citations between S's members and T's (sum over decisions of the members of S
 times the members of T they cite: the binary pair support summed over S x T), shown as
 W / sqrt(A_S x A_T), A = the sub-cluster's citations in the slice (sum of nodes.n). Binary counts, not the
-view's sentence weights. Listed: the top `neighbours` by weight among those holding at least
-`neighbour_floor` of S's outside pairs (share = W(S, T) / sum over T of W(S, T)).
+view's sentence weights. Listed: the top `neighbours` by weight among those with at least
+`neighbour_min_pairs` pairs (W(S, T)); share = W(S, T) / sum over T of W(S, T).
 
 Quoted sources (of the sub-cluster): cases whose words reach the sub-cluster's decisions through its members --
 "Member (quoting Source)" -- ranked by decisions carrying them x the share of their citations in the window
@@ -84,7 +84,8 @@ DEFAULTS = {
     "max_inbound": None,       # leave out decisions cited more than this (raw count); None = no cap
     "top": 30,                 # rows listed
     "neighbours": 5,           # nearest sub-clusters listed
-    "neighbour_floor": 0.05,   # ... and only those with at least this share of the sub-cluster's outside pairs
+    "neighbour_min_pairs": 20, # ... and only those with at least this many co-citation pairs (noise floor; a share
+                               # floor would favour big neighbours over tight small ones)
     "neighbour_change": 1.5,   # sub-cluster note: a neighbour's share moving by this factor is stronger/weaker
     "usage": 30,               # decisions whose citing sentences are read (text pass; the slow part)
     "min_coupling": 0.05,      # a decision's other sub-clusters at or above this coupling are listed
@@ -582,9 +583,9 @@ def sub_idf_sums(node_refs, node_sub, node_canon=None):
     return out
 
 
-def neighbours(db, s, j, node_refs, node_sub, node_n, view_codes, top, floor=0.0, full=False):
+def neighbours(db, s, j, node_refs, node_sub, node_n, view_codes, top, min_pairs=0, full=False):
     """Nearest sub-clusters of S: binary co-citation between S's members and T's, from the slice's decisions.
-    Close = the top `top` by weight among those with share >= floor; full=True returns every neighbour,
+    Close = the top `top` by weight among those with pairs >= min_pairs; full=True returns every neighbour,
     the close ones marked "shown" (the sub-cluster note diffs the whole list across slices)."""
     members = node_refs[node_sub == j]
     D, _ = citers_of(members)
@@ -612,7 +613,7 @@ def neighbours(db, s, j, node_refs, node_sub, node_n, view_codes, top, floor=0.0
     tot = sum(W.values()) or 1
     for x in out:
         x["share"] = x["pairs"] / tot
-    shown = [x for x in out if x["share"] >= floor][:top]
+    shown = [x for x in out if x["pairs"] >= min_pairs][:top]
     for x in shown:
         x["name"] = C.unit_name(db, s, x["sub"], "sub")[0] or x["code"]
         x["shown"] = True
@@ -645,7 +646,7 @@ def hidden(db, view, s, j, P, con=None):
            "settings": P, "candidates": int(len(cand)), "data_year": data_year_of(db),
            "window": "filed %d-%s" % (s, "now" if P["later"] else s + C.WIDTH - 1), "results": []}
     nb, ndec = neighbours(db, s, j, node_refs, node_sub, node_n, view_codes_of(view), int(P["neighbours"]),
-                          floor=float(P["neighbour_floor"]))
+                          min_pairs=int(P["neighbour_min_pairs"]))
     res["neighbours"], res["neighbour_decisions"] = nb, ndec
     if not len(cand):
         return res
