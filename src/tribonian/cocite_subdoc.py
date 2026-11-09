@@ -16,6 +16,14 @@ once from script-built evidence (cocite_labels.json) and are marked as such.
     tribonian cocite subdoc 2020-24:2.3 --no-pdf         # the note and the .tex only
     tribonian cocite subdoc 2020:7                       # an unsplit cluster is its own sub-cluster
     tribonian cocite subdoc 2020-24:2.3 --view appellate # another view (default: the case-note view)
+    tribonian cocite subdoc 2020-24:2.3 --set neighbour_min_pairs=40   # Adjacent sub-clusters settings (config [hidden])
+
+Adjacent sub-clusters: the nearest sub-clusters here and around the lineage's sub-cluster in the slice
+before, from cocite_hidden.neighbours (same definition as the hidden-rulings output: the top `neighbours`
+by co-citation weight with at least `neighbour_min_pairs` pairs), matched by lineage, since
+sub-cluster numbers change every slice. Each neighbour lineage is new, gone, stronger, weaker (its share
+moved by `neighbour_change` or more) or steady, with the cases that crossed between it and this lineage.
+Shares, not counts, so a partial slice doesn't read as every tie decaying.
 
 Good law per case: the cached result (cases/citedby/<ref>/profile.json, from a build or --goodlaw;
 "(quick)" when only the newest 100 citing opinions were read), else "not calculated". Grey "dormant": never cited, or no citing decision in the last
@@ -23,7 +31,7 @@ Good law per case: the cached result (cases/citedby/<ref>/profile.json, from a b
 CourtListener's citing count when it is 0, else a live look-up for cases cited at most 300 times.
 """
 import json, os, re, sqlite3, sys, time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from tribonian import cocite as C
@@ -48,6 +56,9 @@ def add_parser(sub, view):
     p.add_argument("--json", action="store_true", help="print the data as JSON; write nothing")
     p.add_argument("--no-pdf", action="store_true", help="skip pdflatex")
     p.add_argument("--font", default="XCharter", help="LaTeX font package (default XCharter)")
+    p.add_argument("--set", action="append", default=[], metavar="KEY=VALUE",
+                   help="Adjacent sub-clusters settings for this run: neighbours, neighbour_min_pairs, neighbour_change "
+                   "(defaults and config [hidden] as for tribonian cocite hidden)")
     p.set_defaults(func=cmd_subdoc)
 
 
@@ -241,6 +252,87 @@ def lineage_data(db, s, j, lin, members, names):
     return out
 
 
+def adjacency_data(db, view, s, j, lin, members, vlin, P):
+    """Close sub-clusters in slice s and around the lineage's sub-cluster in the slice before, matched by
+    lineage: each neighbour lineage new / gone / stronger / weaker / steady, plus the cases that crossed."""
+    import numpy as np
+    from tribonian import cocite_hidden as H
+    codes = H.view_codes_of(view)
+    top, min_pairs, change = int(P["neighbours"]), int(P["neighbour_min_pairs"]), float(P["neighbour_change"])
+    lins = {}
+
+    def lin_of(t, k):
+        if (t, k) not in lins:
+            r = db.execute("SELECT lineage FROM subs WHERE slice=? AND sub=?", (t, k)).fetchone()
+            lins[(t, k)] = r[0] if r else None
+        return lins[(t, k)]
+
+    def near(t, k):
+        refs, sub, n = H.slice_subs(db, t)
+        nb, ndec = H.neighbours(db, t, k, refs, sub, n, codes, top, min_pairs=min_pairs, full=True)
+        for x in nb:
+            x["lineage"] = lin_of(t, x["sub"])
+        return nb, ndec, refs, sub
+
+    here, nd_here, refs_s, sub_s = near(s, j)
+    out = {"settings": {"neighbours": top, "neighbour_min_pairs": min_pairs, "neighbour_change": change},
+           "decisions": nd_here, "before": None, "rows": []}
+    t = s - C.WIDTH
+    prev = db.execute("SELECT sub FROM subs WHERE lineage=? AND slice=?", (lin, t)).fetchone() if lin else None
+    before, went, came = [], Counter(), Counter()
+    if prev:
+        k0 = prev[0]
+        before, nd_before, refs_t, sub_t = near(t, k0)
+        out["before"] = {"slice": t, "label": C.label(t), "code": "%s:%s" % (C.label(t), C.sub_label(k0)),
+                         "decisions": nd_before}
+        was, now = set(refs_t[sub_t == k0].tolist()), set(members)
+        for refs, sub, cases, tt in ((refs_s, sub_s, was - now, s), (refs_t, sub_t, now - was, t)):
+            if cases:
+                ks = H.sub_of(refs, sub, np.array(sorted(cases), np.int64))
+                tally = went if tt == s else came
+                for k in ks.tolist():
+                    if k > 0 and lin_of(tt, k) not in (None, lin):
+                        tally[lin_of(tt, k)] += 1
+    key = lambda x: x["lineage"] if x["lineage"] is not None else ("sub", x["code"])
+    hs, bs, hx, bx = Counter(), Counter(), {}, {}
+    for x in here:
+        hs[key(x)] += x["share"]
+        hx.setdefault(key(x), x)
+    for x in before:
+        bs[key(x)] += x["share"]
+        bx.setdefault(key(x), x)
+    keys = {key(x) for x in here if x.get("shown")} | {key(x) for x in before if x.get("shown")}
+    for L in keys:
+        h, b = hs.get(L, 0.0), bs.get(L, 0.0)
+        if not before:
+            tag = None
+        elif b == 0:
+            tag = "new"
+        elif h == 0:
+            tag = "gone"
+        elif h >= b * change:
+            tag = "stronger"
+        elif h * change <= b:
+            tag = "weaker"
+        else:
+            tag = "steady"
+        if tag in ("new", "gone") and isinstance(L, int):    # the tie, or the lineage itself?
+            span = db.execute("SELECT first_slice, last_slice FROM lineages WHERE lineage=?", (L,)).fetchone()
+            if span and tag == "new" and span[0] == s:
+                tag = "new lineage"
+            elif span and tag == "gone" and span[1] < s:
+                tag = "lineage ended"
+        cell = lambda x, tt: None if x is None else {
+            "code": x["code"], "name": x.get("name") or C.unit_name(db, tt, x["sub"], "sub")[0] or x["code"],
+            "weight": x["weight"], "pairs": x["pairs"], "shown": bool(x.get("shown"))}
+        lid = L if isinstance(L, int) else None
+        out["rows"].append({"lineage": lid, "lineage_note": vlin.get(lid) if lid else None, "change": tag,
+                            "here": cell(hx.get(L), s), "share": h, "before": cell(bx.get(L), t), "share_before": b,
+                            "went": went.get(lid, 0) if lid else 0, "came": came.get(lid, 0) if lid else 0})
+    out["rows"].sort(key=lambda r: -max(r["share"], r["share_before"]))
+    return out
+
+
 def split_by_sub(db, s, refs, view):
     """How each case's co-citations in slice s divide among the slice's sub-clusters: ref -> Counter(sub ->
     weight), weight = decisions citing both, summed over the partners in that sub-cluster (sub -1: nodes in
@@ -335,7 +427,7 @@ def ensure_goodlaw(refs, names, mode="quick"):
         print("    %.0f s" % (time.time() - t0), file=sys.stderr, flush=True)
 
 
-def gather(db, view, s, j, goodlaw=False):
+def gather(db, view, s, j, goodlaw=False, P=None):
     con = case2md.local_db()
     size, anchor, internal, lin = db.execute("SELECT size, anchor, internal, lineage FROM subs WHERE slice=? AND sub=?",
                                              (s, j)).fetchone()
@@ -426,6 +518,7 @@ def gather(db, view, s, j, goodlaw=False):
         "area": {"id": area, "name": C.area_name(db, area), "note": varea.get(area)} if area else None,
         "data_date": stamp, "recent_window": [end - case2md.RECENT + 1, end],
         "lineage": lineage_data(db, s, j, lin, members, short),
+        "adjacent": adjacency_data(db, view, s, j, lin, members, vlin, P) if P else None,
         "fit_source": "cache" if splits is not None else why_no_split,
         "cases": cases,
         "generated": time.strftime("%Y-%m-%d"),
@@ -562,6 +655,31 @@ def side_heads(side, d):
 
 # ================================================================ Markdown
 
+def adjacent_intro(d):
+    a = d["adjacent"]
+    st = a["settings"]
+    t = ("Close: the %d nearest sub-clusters by co-citation weight (pairs / square root of (citations here x citations there)) "
+         "with at least %d co-citation pairs, from %s decisions in %s" % (
+             st["neighbours"], st["neighbour_min_pairs"], fmt(a["decisions"]), d["slice_label"]))
+    if a["before"]:
+        t += ("; and the same around the lineage's %s sub-cluster %s, matched by lineage. Share: the fraction of "
+              "the outside pairs. Stronger or weaker: the share moved by a factor of %g or more; new lineage / lineage ended: the neighbour lineage itself starts in this slice or ended before it. Moved: cases that were in this "
+              "lineage in %s and are in that one now (went), or the reverse (came)" % (
+                  a["before"]["label"], a["before"]["code"], st["neighbour_change"], a["before"]["label"]))
+    if d["partial"]:
+        t += ". A partial slice: compare shares, not counts"
+    return t + ". Settings: config [hidden], or --set neighbours= / neighbour_min_pairs= / neighbour_change=."
+
+
+def share_text(cell, share):
+    return pct(share) if cell else "–"
+
+
+def moved_text(r):
+    return "; ".join(x for x in ("%d went there" % r["went"] if r["went"] else "",
+                                 "%d came from it" % r["came"] if r["came"] else "") if x) or "–"
+
+
 def render_md(d):
     e = lambda s: case2md.esc(str(s), "md")
     title = "Sub-cluster %s · %s" % (d["code"], d["name"])
@@ -632,6 +750,23 @@ def render_md(d):
                     L.append("- **%s** (%d): %s" % (e(move_text(g)), len(g["cases"]),
                                                     "; ".join(e(x["name"]) for x in g["cases"])))
                 L.append("")
+
+    a = d.get("adjacent")
+    if a and a["rows"]:
+        L += ["## Adjacent sub-clusters", "", "*%s*" % e(adjacent_intro(d)), ""]
+        lin_cell = lambda r: ("[[%s]]" % r["lineage_note"] if r["lineage_note"] else str(r["lineage"])) if r["lineage"] else "–"
+        unit = lambda x: "%s %s" % (x["code"], e(x["name"])) if x else "–"
+        if a["before"]:
+            L += ["| Lineage | %s | Share | %s | Share | Change | Moved |" % (d["slice_label"], a["before"]["label"]),
+                  "|---|---|---|---|---|---|---|"]
+            for r in a["rows"]:
+                L.append("| %s | %s | %s | %s | %s | %s | %s |" % (lin_cell(r), unit(r["here"]), share_text(r["here"], r["share"]),
+                         unit(r["before"]), share_text(r["before"], r["share_before"]), r["change"], moved_text(r)))
+        else:
+            L += ["| Lineage | %s | Share |" % d["slice_label"], "|---|---|---|"]
+            for r in a["rows"]:
+                L.append("| %s | %s | %s |" % (lin_cell(r), unit(r["here"]), pct(r["share"])))
+        L.append("")
 
     L += ["## Case details", ""]
     prev = None
@@ -774,6 +909,27 @@ def render_tex(d, font):
                 L.append("\\vspace{3pt}")
         B.append("\n".join(L) + "\n")
 
+    # adjacent sub-clusters
+    a = d.get("adjacent")
+    if a and a["rows"]:
+        unit = lambda x: "\\raggedright %s %s" % (x["code"], t(C.trim(x["name"], 60))) if x else "--"
+        L = ["\\clearpage\\pdfbookmark[1]{Adjacent sub-clusters}{adjacent}\\recordpath{Adjacent sub-clusters}"
+             "{\\large\\bfseries Adjacent sub-clusters}\\par\\vspace{2pt}",
+             "{\\footnotesize\\itshape %s\\par}\\vspace{3pt}" % t(adjacent_intro(d))]
+        if a["before"]:
+            rows = ["%s & %s & %s & %s & %s & %s & %s \\\\" % (
+                r["lineage"] or "--", unit(r["here"]), t(share_text(r["here"], r["share"])), unit(r["before"]),
+                t(share_text(r["before"], r["share_before"])),
+                r["change"], t(moved_text(r))) for r in a["rows"]]
+            L.append("{\\footnotesize\\setlength{\\tabcolsep}{3pt}\n\\begin{longtable}{@{}r p{120pt} r p{120pt} r l p{62pt}@{}}\n"
+                     "Lineage & %s & Share & %s & Share & Change & Moved \\\\ \\hline\\endhead\n%s\n\\end{longtable}}" % (
+                         d["slice_label"], a["before"]["label"], "\n".join(rows)))
+        else:
+            rows = ["%s & %s & %s \\\\" % (r["lineage"] or "--", unit(r["here"]), t(pct(r["share"]))) for r in a["rows"]]
+            L.append("{\\footnotesize\\setlength{\\tabcolsep}{3pt}\n\\begin{longtable}{@{}r p{240pt} r@{}}\n"
+                     "Lineage & %s & Share \\\\ \\hline\\endhead\n%s\n\\end{longtable}}" % (d["slice_label"], "\n".join(rows)))
+        B.append("\n".join(L) + "\n")
+
     # case details
     B.append("\\clearpage\\pdfbookmark[1]{Case details}{details}\\recordpath{Case details}{\\large\\bfseries Case details}\\par\\vspace{3pt}\n")
     prev = None
@@ -834,7 +990,9 @@ def cmd_subdoc(args):
     db, view = open_db(args)
     s, j = resolve(db, args.which)
     t0 = time.time()
-    d = gather(db, view, s, j, goodlaw=args.goodlaw)
+    from tribonian import cocite_hidden as H
+    P, _ = H.settings(args.set)
+    d = gather(db, view, s, j, goodlaw=args.goodlaw, P=P)
     if args.json:
         json.dump(d, sys.stdout, indent=1, ensure_ascii=False)
         print()
