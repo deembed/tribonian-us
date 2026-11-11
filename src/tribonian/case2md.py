@@ -1726,9 +1726,42 @@ def split_separate(o):
     return out
 
 
+# Words written unbroken anywhere in the case (every opinion, the 'combined' copy too). A source's
+# line-break hyphen left mid-line ("disposi-tive") is joined when the joined word appears in the case
+# and no other opinion copy has the hyphenated form (the 'combined' copy keeps a real "fact-finder");
+# the left part needs 4+ letters so prefixes ("re-sign" vs "resign") are left alone.
+_CASE_WORDS = set()
+_CASE_HYPHENS = set()
+
+
+def set_case_words(opinions):
+    texts = [re.sub(r"<[^>]+>", " ", o.get("html_with_citations") or o.get("xml_harvard") or "").lower()
+             for o in opinions]
+    _CASE_WORDS.clear()
+    _CASE_WORDS.update(w for t in texts for w in re.findall(r"[a-z]+", t))
+    seen = {}
+    for t in texts:
+        for h in set(re.findall(r"\b[a-z]+-[a-z]+\b", t)):
+            seen[h] = seen.get(h, 0) + 1
+    _CASE_HYPHENS.clear()
+    _CASE_HYPHENS.update(h for h, n in seen.items() if n > 1)
+
+
+def unbreak(html):
+    """Join stray line-break hyphens in the text (not the tags) of an opinion's HTML."""
+    if not _CASE_WORDS:
+        return html
+    def join(m):
+        a, b = m.group(1), m.group(2)
+        keep = (a + b).lower() not in _CASE_WORDS or ("%s-%s" % (a, b)).lower() in _CASE_HYPHENS
+        return m.group(0) if keep else a + b
+    return re.sub(r"(?<=>)[^<]+|^[^<]+",
+                  lambda t: re.sub(r"\b([A-Za-z]{4,})-([a-z]{2,})\b", join, t.group(0)), html)
+
+
 def read_opinion(op, oi):
     """API opinion dict -> dict with byline pieces, a flat block list, footnotes."""
-    root = html_footnotes(parse_html(op.get("html_with_citations") or op.get("xml_harvard") or ""))
+    root = html_footnotes(parse_html(unbreak(op.get("html_with_citations") or op.get("xml_harvard") or "")))
     body = root.find("opinion") or root
     o = {"oi": oi, "kind": body.attrs.get("type", ""), "author": "", "byline": [],
          "flat": [], "footnotes": {}, "api": op}
@@ -2569,6 +2602,7 @@ def prepare(data, index=None):
             reference += [clean(h) for h in re.findall(r"<h2[^>]*>(.*?)</h2>", o.get("html_with_citations") or "", re.S)]
     reference = [re.sub(r"<[^>]+>", "", h) for h in reference if clean(h).upper() != "NOTES"]
 
+    set_case_words(data["opinions"])
     ops = [part for i, o in enumerate(use) for part in split_separate(read_opinion(o, i))]
     for i, o in enumerate(ops):
         o["oi"] = i                                  # numbered again after the split: footnote keys and anchors

@@ -20,7 +20,9 @@ by filing year (2005-09, 2010-14, ...), and for each slice:
      listed in any other cluster that takes at least --share of its weight.
   5. Lineage: clusters are matched to the next slice by shared members (Jaccard over the
      cases present in both slices). A mutual best match at >= --carry continues the
-     earlier cluster's lineage, and with it the lineage's name.
+     earlier cluster's lineage, and with it the lineage's name, if their cores (--core-k
+     heaviest cases) also overlap by --core-min: otherwise the core turned over and a new
+     lineage starts.
   6. Sub-clusters: modularity merges groups that are tight but small next to the whole graph
      (the "resolution limit"), so in modern slices one cluster holds most of federal civil
      litigation. Every cluster of --split-over (20) cases or more is clustered again on its own
@@ -284,8 +286,15 @@ def cmd_prep(args):
     stamp = source_stamp(con)
     CACHE.mkdir(parents=True, exist_ok=True)
     done = CACHE / "stamp.txt"
-    if done.exists() and done.read_text() == stamp and not args.force:
+    from tribonian import cocite_orders
+    if done.exists() and done.read_text().split(" | ")[0] == stamp and not args.force:
         added = False
+        if not args.keep_orders and not cocite_orders.applied(CACHE):
+            cocite_orders.apply(con, CACHE)    # cache from before orders-list entries were dropped
+            prep_order()
+            added = True
+        elif args.keep_orders and cocite_orders.applied(CACHE):
+            sys.exit("the cache has orders-list entries dropped already; --force --keep-orders reads it again with them")
         if not (CACHE / "level.npy").exists():
             prep_levels(con)                   # cache from before court levels existed: add them only
             added = True
@@ -354,6 +363,11 @@ def cmd_prep(args):
     np.save(CACHE / "cited.npy", cd)
     np.save(CACHE / "year.npy", y)
     done.write_text(stamp)
+    del ci, cd, y
+    if not args.keep_orders:
+        cocite_orders.apply(con, CACHE)
+    y = np.load(CACHE / "year.npy")
+    ci = np.load(CACHE / "citing.npy", mmap_mode="r")
     yrs_seen = y[y > 0]
     print("edges: %s opinion->opinion read, %s decision->case kept, citing years %d-%d  (%.1f min)" % (
         format(n_in, ","), format(len(ci), ","), yrs_seen.min(), yrs_seen.max(), (time.time() - t1) / 60))
@@ -422,13 +436,18 @@ def prep_order():
     print("cited-case index: %s edges  (%.1f min)" % (format(len(cd), ","), (time.time() - t0) / 60))
 
 
+def cache_source(text):
+    """The bulk-load part of the cache's stamp, without the suffix a filter adds (" | orders v1")."""
+    return text.split(" | ")[0]
+
+
 def load_cache(stamp=None, view=None):
     """stamp (build): the main database's load, which the cache must be from. view (read commands): the
     results database being read, which must have been built from this cache (check_cache)."""
     s = CACHE / "stamp.txt"
     if not s.exists():
         sys.exit("No cache yet: run tribonian cocite prep")
-    if stamp is not None and s.read_text() != stamp:
+    if stamp is not None and cache_source(s.read_text()) != stamp:
         sys.exit("The cache is from an older bulk load: run tribonian cocite prep")
     if view is not None:
         check_cache(view)
@@ -676,9 +695,39 @@ def build_slice(db, s, ci, cd, p, stamp):
 LEVELS = (("cluster", "clusters", "cl"), ("sub", "subs", "sub"))
 
 
-def build_lineage(db, carry):
+# calibrated 2026-11-10 on the note view (tools/lineage_calibrate.py): sub-clusters split 6 of 12 lineages a
+# reader had flagged as drifting between doctrines and none of 89 long stable ones; clusters, broad umbrellas
+# with few references, get a looser test so they fragment less (single-slice units 6.8% -> 12.2%, not 17.3%)
+# Similarity, both for the member link (with --carry) and for the core test: "jaccard" |A&B|/|A|B|, or "overlap"
+# (Szymkiewicz-Simpson) |A&B|/min(|A|,|B|), which scores containment. The member link may also be "hybrid":
+# partners chosen by Jaccard, accepted when the overlap coefficient >= carry and the Jaccard >= link_floor.
+# Tested 2026-11-10 (tools/lineage_calibrate.py, LINK=...): overlap as the link lets a small unit wholly inside a
+# large one win the match, so lineages hop topics (83% with a core break, 65-80% single-slice units under the core
+# rule); hybrid 0.5/0.1 was a wash with Jaccard; on two 15-case cores overlap is a rescaling of Jaccard.
+LINEAGE_CORE = dict(core_k=15, core_min=0.1, core_min_cluster=0.05)
+
+
+def similarity(m, a, b, metric):
+    """m shared of sets of sizes a and b."""
+    if metric == "overlap":
+        return m / max(1, min(a, b))
+    return m / max(1, a + b - m)
+
+
+def build_lineage(db, carry, core_k=LINEAGE_CORE["core_k"], core_min=LINEAGE_CORE["core_min"],
+                  core_min_cluster=LINEAGE_CORE["core_min_cluster"], link_metric="jaccard", link_floor=0.1,
+                  core_metric="jaccard"):
+    """Link each slice's clusters (and sub-clusters) to the slice before. A unit continues a lineage when the
+    two are each other's best match by member Jaccard >= carry AND their cores (each one's core_k heaviest
+    cases) have Jaccard >= core_min: without the core test a large cluster could carry its lineage on shared
+    peripheral cases while its leading cases had turned over to another doctrine (27% of lineages of 30+
+    cases had such a break). Sub-clusters rank their core by weight within the sub-cluster (subw), clusters by
+    weight within the cluster (members.weight, home); clusters use core_min_cluster. 0 turns a test off."""
     built = [r[0] for r in db.execute("SELECT slice FROM slices ORDER BY slice")]
     db.execute("BEGIN")
+    meta(db, "lineage_params", json.dumps(dict(carry=carry, core_k=core_k, core_min=core_min, core_min_cluster=core_min_cluster,
+                                               link_metric=link_metric, link_floor=link_floor, core_metric=core_metric),
+                                          sort_keys=True))
     db.execute("DELETE FROM links")
     db.execute("DELETE FROM lineages")
     next_id = 1
@@ -691,6 +740,20 @@ def build_lineage(db, carry):
             if t is not None:
                 here = dict(db.execute("SELECT ref, %s FROM nodes WHERE slice=?" % col, (s,)))
                 before = dict(db.execute("SELECT ref, %s FROM nodes WHERE slice=?" % col, (t,)))
+                cmin = core_min if col == "sub" else core_min_cluster
+                if col == "sub":
+                    rank_sql = "SELECT ref, sub, subw FROM nodes WHERE slice=?"
+                else:
+                    rank_sql = "SELECT ref, cl, weight FROM members WHERE slice=? AND home=1"
+
+                def cores(rows):
+                    by = {}
+                    for r, k, w in rows:
+                        if k and k > 0:
+                            by.setdefault(k, []).append((w or 0.0, r))
+                    return {k: {r for _, r in sorted(v, reverse=True)[:core_k]} for k, v in by.items()}
+                core_s, core_t = ((cores(db.execute(rank_sql, (s,)).fetchall()), cores(db.execute(rank_sql, (t,)).fetchall()))
+                                  if cmin > 0 else ({}, {}))
                 both = here.keys() & before.keys()
                 size_t, size_s, shared = {}, {}, {}
                 for ref in both:
@@ -702,18 +765,28 @@ def build_lineage(db, carry):
                     if kt > 0 and ks > 0:
                         shared[(kt, ks)] = shared.get((kt, ks), 0) + 1
                 jac = {(kt, ks): m / (size_t[kt] + size_s[ks] - m) for (kt, ks), m in shared.items()}
+                pick = jac if link_metric in ("jaccard", "hybrid") else \
+                    {(kt, ks): similarity(m, size_t[kt], size_s[ks], link_metric) for (kt, ks), m in shared.items()}
+                accept = pick if link_metric != "hybrid" else \
+                    {(kt, ks): similarity(m, size_t[kt], size_s[ks], "overlap") for (kt, ks), m in shared.items()}
                 db.executemany("INSERT INTO links VALUES (?,?,?,?,?,?,?)",
                                [(level, t, kt, s, ks, m, jac[(kt, ks)]) for (kt, ks), m in shared.items()
                                 if m >= 3 and jac[(kt, ks)] >= 0.05])
                 best_fwd, best_back = {}, {}
-                for (kt, ks), j in jac.items():
+                for (kt, ks), j in pick.items():
                     if j > best_fwd.get(kt, (None, -1))[1]:
                         best_fwd[kt] = (ks, j)
                     if j > best_back.get(ks, (None, -1))[1]:
                         best_back[ks] = (kt, j)
                 for ks in cur:
                     kt, j = best_back.get(ks, (None, 0))
+                    if kt is not None and link_metric == "hybrid":
+                        j = accept[(kt, ks)] if jac[(kt, ks)] >= link_floor else 0
                     if kt is not None and j >= carry and best_fwd[kt][0] == ks and kt in prev_lin:
+                        if cmin > 0:
+                            a, b = core_t.get(kt, set()), core_s.get(ks, set())
+                            if similarity(len(a & b), len(a), len(b), core_metric) < cmin:
+                                continue          # the core turned over: a new lineage (the links row stays)
                         cur[ks] = prev_lin[kt]
             for ks in sorted(cur):
                 if cur[ks] is None:
@@ -1366,7 +1439,7 @@ def coupling(ref, con, max_df=COUPLING_MAX_DF, top=COUPLING_TOP, opinions=(), re
     N is exact, not estimated. -> dict for coupling.json (case2md.coupling_cache adds the stamp)."""
     if not (CACHE / "cited_sorted.npy").exists():
         sys.exit("No citation cache at %s: run tribonian cocite prep" % CACHE)
-    stale = (CACHE / "stamp.txt").read_text() != source_stamp(con)
+    stale = cache_source((CACHE / "stamp.txt").read_text()) != source_stamp(con)
     # refs: the cited cases to couple on (a Supreme Court docket's side: scotus.coupling_parts), else this case's own
     refs = sorted(set(refs)) if refs is not None else cited_refs(con, ref, opinions)
     # citing.npy whole (about 290 MB, one sequential read): thousands of scattered reads into a
@@ -1732,6 +1805,7 @@ def cmd_build(args):
     con = main_db()
     stamp = source_stamp(con)
     ci_all, cd_all, y_all, cstamp, lvl = load_cache(stamp)
+    stamp = cstamp           # the cache's own stamp (bulk load plus how it was filtered): slices and the view record it
     codes, tag = parse_courts(args.courts)
     if codes:
         ci_np = np.asarray(ci_all)
@@ -1768,7 +1842,8 @@ def cmd_build(args):
             print("%s: no citing decisions" % label(s))
             continue
         build_slice(db, s, np.asarray(ci_all)[sel], np.asarray(cd_all)[sel], p, stamp)
-    build_lineage(db, args.carry)
+    build_lineage(db, args.carry, args.core_k, args.core_min, args.core_min_cluster,
+                  args.link_metric, args.link_floor, args.core_metric)
     fill_names(db, con)
     if labels_path().exists():
         match_labels(db)
@@ -2554,6 +2629,8 @@ def match_labels(db, quiet=False):
     fps = lineage_fingerprints(db, cand)
     by_ref = {}
     for i, lab in enumerate(labels):
+        if lab.get("views") and COCITE_DB.stem not in lab["views"]:
+            continue                      # a label written for another view's lineages only (e.g. appellate-only)
         for r in lab["fingerprint"]:
             by_ref.setdefault(r, []).append(i)
     best, best_any = {}, {}
@@ -2582,8 +2659,8 @@ def match_labels(db, quiet=False):
     attached = {k: (l, j) for l, (k, j) in rows.items()}
     st = []
     for i, lab in enumerate(labels):
-        if lab["level"] == "area":
-            continue
+        if lab["level"] == "area" or (lab.get("views") and COCITE_DB.stem not in lab["views"]):
+            continue                      # areas, and labels written for another view's lineages only
         if lab["key"] in attached:
             l, j = attached[lab["key"]]
             st.append((lab["key"], lab["level"], l, j, "stable" if j >= STABLE else "drifted"))
@@ -2633,6 +2710,15 @@ def label_of(db, lin):
         _LABELS = {lab["key"]: lab for lab in load_labels()}
     lab = _LABELS.get(r[0])
     return (lab["name"], lab["description"]) if lab else None
+
+
+def label_history(db, lin):
+    """The long form of a lineage's label: how its dominant rule was made and changed across the slices
+    (the label's `history`), or None for a label written before that field existed. Read after label_of."""
+    if not lin or label_of(db, lin) is None:
+        return None
+    r = db.execute("SELECT key FROM label_map WHERE lineage=?", (lin,)).fetchone()
+    return (_LABELS.get(r[0]) or {}).get("history") if r else None
 
 
 def family_parents(db):
@@ -2830,6 +2916,8 @@ def main():
                                        "(each has its own results file; needs tribonian cocite positions --index)")
     p = sub.add_parser("prep", help="read the database once into cocite-cache/")
     p.add_argument("--force", action="store_true")
+    p.add_argument("--keep-orders", dest="keep_orders", action="store_true",
+                   help="keep edges to Supreme Court orders-list entries (cert. denied etc.; cocite_orders.py)")
     p.set_defaults(func=cmd_prep)
     p = sub.add_parser("build", parents=[view], help="cluster the slices, then link them into lineages")
     p.add_argument("--slices", help="comma list of start years, e.g. 2005,2010 (default: all)")
@@ -2858,6 +2946,19 @@ def main():
                    help="rewired copies per split test (default %(default)s)")
     p.add_argument("--carry", type=float, default=0.2,
                    help="Jaccard a mutual best match needs to continue a lineage (default %(default)s)")
+    p.add_argument("--core-k", dest="core_k", type=int, default=LINEAGE_CORE["core_k"],
+                   help="cases in a unit's core for the lineage core test (default %(default)s)")
+    p.add_argument("--core-min", dest="core_min", type=float, default=LINEAGE_CORE["core_min"],
+                   help="core Jaccard a sub-cluster lineage link also needs; 0 = no core test (default %(default)s)")
+    p.add_argument("--core-min-cluster", dest="core_min_cluster", type=float, default=LINEAGE_CORE["core_min_cluster"],
+                   help="the same for cluster lineages (default %(default)s)")
+    p.add_argument("--link-metric", dest="link_metric", choices=("jaccard", "overlap", "hybrid"), default="jaccard",
+                   help="member similarity for lineage links: jaccard, overlap (Szymkiewicz-Simpson), or hybrid "
+                        "(partners by Jaccard, accepted by overlap >= --carry); default %(default)s")
+    p.add_argument("--link-floor", dest="link_floor", type=float, default=0.1,
+                   help="hybrid only: the Jaccard a link also needs (default %(default)s)")
+    p.add_argument("--core-metric", dest="core_metric", choices=("jaccard", "overlap"), default="jaccard",
+                   help="similarity for the core test (default %(default)s)")
     p.set_defaults(func=cmd_build)
     p = sub.add_parser("index", parents=[view], help="add missing indexes to a built view (no rebuild)")
     p.set_defaults(func=cmd_index)
