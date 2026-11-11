@@ -225,6 +225,8 @@ tribonian cocite positions --index                                       # 4. so
 tribonian cocite build --courts appellate --weight sentence --mix 0.2    # 5. the note view -> bulk/cocite-appellate-sentence-m0.2.sqlite
 ```
 
+`prep` drops citations of Supreme Court orders-list entries ("cert. denied, 469 U.S. 873"): one such entry covers every case on its page, so it doubled the real case's pairs and bridged unrelated clusters (`cocite_orders.py`; `--keep-orders` keeps them). Merits rulings, summary affirmances included, stay.
+
 `build` re-attaches the tracked lineage labels (`data/cocite_labels.json`) by itself. Then the areas and the vault
 notes, once per view you want them in (the same flags pick the view):
 
@@ -566,7 +568,7 @@ Two cases are co-cited when one later decision cites both. Citing decisions are 
 - **Sub-clusters:** every cluster of `--split-over` (20) or more is clustered again (`1.3` = sub-cluster 3 of cluster 1). The split is kept only if it beats every one of `--nulls` (5) rewired copies of the cluster and their mean by `--sub-z` (4) standard deviations; otherwise the cluster stays whole.
 - **Chance baseline:** each slice's modularity is compared with its own rewired copies, so `status` column "above" can be compared across slices.
 - **Court views:** `--courts` keeps only citing decisions from those levels (scotus, circuit, district, state-supreme, state-appellate, other; shortcuts `appellate`, `federal`). The cited cases can come from any court. Each view has its own results file.
-- **Lineage:** clusters and sub-clusters in adjacent slices that are each other's best match (Jaccard >= `--carry`, 0.2) share a lineage.
+- **Lineage:** clusters and sub-clusters in adjacent slices that are each other's best match (Jaccard >= `--carry`, 0.2) share a lineage, if their cores (the `--core-k` 15 heaviest cases) also overlap: core Jaccard >= `--core-min` 0.1 for sub-clusters, `--core-min-cluster` 0.05 for clusters. Without that test 27% of lineages of 30+ cases had a slice where the leading cases turned over to another doctrine while peripheral cases carried the lineage on; with it, 1-5%. `--link-metric overlap` (Szymkiewicz-Simpson, |A∩B| / min(|A|,|B|)) or `hybrid` (partners by Jaccard, accepted by overlap) and `--core-metric overlap` switch the similarity; Jaccard stayed best when tested (`tools/lineage_calibrate.py`: overlap lets a small unit wholly inside a large one win the match).
 
 Housekeeping: `prep` must be rerun after a bulk load. Read commands (`status`, `case`, `cluster`, `tree`, `note`, `lineage`, `together`, `shift`, ...) open the results read-only and never touch a running build; when the file's schema is older than the code they exit with "rebuild with tribonian cocite build", and after such a schema bump `build` must be rerun in each view (each `--courts`/`--weight`/`--mix` combination is its own file).
 
