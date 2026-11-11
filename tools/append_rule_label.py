@@ -14,6 +14,12 @@ arg = sys.argv[1]
 if arg.startswith("r2-"):                       # round 2: build/cocite/rule-labels/round2/
     D = D / "round2"
     arg = arg[3:]
+elif arg.startswith("v-"):                      # review pass: build/cocite/rule-labels/review/
+    D = D / "review"
+    arg = arg[2:]
+elif arg.startswith("r3-"):                     # round 3, appellate view: round3/
+    D = D / "round3"
+    arg = arg[3:]
 elif arg.startswith("d-"):                      # differentiation pass on round 2: round2/diff/
     D = D / "round2" / "diff"
     arg = arg[2:]
@@ -36,6 +42,26 @@ if sys.argv[2] == "--next":
 text = sys.stdin.read() if sys.argv[2] == "-" else Path(sys.argv[2]).read_text(encoding="utf-8")
 o = json.loads(text)
 err = []
+REVIEW = sys.argv[1].startswith("v-")
+if REVIEW and o.get("verdict") == "ok" and set(o) <= {"key", "verdict", "review_note"}:
+    # a review that needs no change: just the verdict
+    if o.get("key") not in keys:
+        print("REJECTED, nothing written:\n  key %s is not in shard %d" % (o.get("key"), shard)); sys.exit(1)
+    if o["key"] in done and "--replace" not in sys.argv:
+        print("REJECTED, nothing written:\n  key %s is already written (add --replace)" % o["key"]); sys.exit(1)
+    o = {k: o[k] for k in ("key", "verdict", "review_note") if k in o}
+    mode = "replace" if o["key"] in done else "append"
+    if mode == "append":
+        with out.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(o, ensure_ascii=False) + "\n")
+    else:
+        lines = [l for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
+        out.write_text("\n".join(json.dumps(o, ensure_ascii=False) if json.loads(l)["key"] == o["key"] else l for l in lines) + "\n", encoding="utf-8")
+    print("ok %s (verdict ok)" % o["key"]); sys.exit(0)
+if REVIEW and o.get("verdict") != "revised":
+    err.append('a review is {"key", "verdict": "ok"} or the full label with "verdict": "revised" and a "review_note"')
+if REVIEW and not o.get("review_note"):
+    err.append('a revised label needs a "review_note" saying what was fixed')
 for f in ("key", "name", "description", "history", "rule", "changes"):
     if f not in o:
         err.append("missing field %s" % f)
@@ -68,7 +94,8 @@ if not err:
 if err:
     print("REJECTED, nothing written:\n  " + "\n  ".join(err))
     sys.exit(1)
-o = {k: o[k] for k in ("key", "name", "description", "history", "rule", "changes", "phases", "distinct_from") if k in o}
+o = {k: o[k] for k in ("key", "name", "description", "history", "rule", "changes", "phases", "distinct_from",
+                       "verdict", "review_note") if k in o}
 if "--replace" in sys.argv:                      # rewrite the file with this label in place of the saved one
     lines = [l for l in out.read_text(encoding="utf-8").splitlines() if l.strip()]
     lines = [json.dumps(o, ensure_ascii=False) if json.loads(l)["key"] == o["key"] else l for l in lines]

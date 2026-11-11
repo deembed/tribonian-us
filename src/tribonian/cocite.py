@@ -2629,6 +2629,8 @@ def match_labels(db, quiet=False):
     fps = lineage_fingerprints(db, cand)
     by_ref = {}
     for i, lab in enumerate(labels):
+        if lab.get("views") and COCITE_DB.stem not in lab["views"]:
+            continue                      # a label written for another view's lineages only (e.g. appellate-only)
         for r in lab["fingerprint"]:
             by_ref.setdefault(r, []).append(i)
     best, best_any = {}, {}
@@ -2657,8 +2659,8 @@ def match_labels(db, quiet=False):
     attached = {k: (l, j) for l, (k, j) in rows.items()}
     st = []
     for i, lab in enumerate(labels):
-        if lab["level"] == "area":
-            continue
+        if lab["level"] == "area" or (lab.get("views") and COCITE_DB.stem not in lab["views"]):
+            continue                      # areas, and labels written for another view's lineages only
         if lab["key"] in attached:
             l, j = attached[lab["key"]]
             st.append((lab["key"], lab["level"], l, j, "stable" if j >= STABLE else "drifted"))
