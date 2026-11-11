@@ -45,7 +45,11 @@ def etext(e):
 
 n_rev = n_out = 0
 out = {}
+already = {k for k in got if labs[k].get("reviewed")}
+print("%d already applied (skipped)" % len(already))
 for k, r in got.items():
+    if k in already:                     # applied by an earlier run: merging again would overwrite before_review
+        continue
     x = dict(labs[k])
     x["reviewed"] = {"by": "claude-fable-5-2", "date": "2026-11-10", "verdict": r["verdict"]}
     if r["verdict"] == "revised":
