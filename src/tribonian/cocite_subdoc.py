@@ -509,7 +509,8 @@ def gather(db, view, s, j, goodlaw=False, P=None):
         "sub": j, "code": "%s:%s" % (C.label(s), C.sub_label(j)), "split": j % 1000 != 0,
         "size": size, "internal": internal, "anchor": anchor, "anchor_name": short.get(anchor) or C.short(db, anchor),
         "citing_in_slice": srow[0] if srow else None,
-        "label": {"name": lab[0], "description": lab[1], "status": st[0] if st else None} if lab else None,
+        "label": {"name": lab[0], "description": lab[1], "history": C.label_history(db, lin),
+                  "status": st[0] if st else None} if lab else None,
         "name": lab[0] if lab else "around %s" % (short.get(anchor) or C.short(db, anchor)),
         "cluster": {"code": "%s:%d" % (C.label(s), cl), "name": cl_name, "size": cl_size[0] if cl_size else None,
                     "lineage": cl_lin},
@@ -691,7 +692,7 @@ def render_md(d):
     lab = d["label"]
     if lab:
         L += ["> [!abstract] %s%s" % (e(lab["name"]), " · label %s" % lab["status"] if lab["status"] and lab["status"] != "stable" else ""),
-              "> %s" % e(lab["description"]),
+              "> %s" % e(lab.get("history") or lab["description"]),
               "> *Label written once by a language model from script-built evidence (cocite_labels.json); not part of the record.*", ""]
     else:
         L += ["*No label: named after its anchor case.*", ""]
@@ -841,7 +842,7 @@ def render_tex(d, font):
         about.append("\\textbf{%s}%s\\par %s\\par{\\scriptsize\\itshape Label written once by a language model from "
                      "script-built evidence (cocite\\_labels.json); not part of the record.\\par}\\vspace{3pt}" % (
                          t(lab["name"]), " {\\scriptsize(label %s)}" % t(lab["status"]) if lab["status"] and lab["status"] != "stable" else "",
-                         t(lab["description"])))
+                         t(lab.get("history") or lab["description"])))
     else:
         about.append("{\\itshape No label: named after its anchor case.}\\par\\vspace{3pt}")
     about.append("\\textbf{Size:} %d cases%s; %s citing decisions in %s%s.\\par" % (
