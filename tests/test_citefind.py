@@ -239,6 +239,56 @@ class ConstitutionCites(unittest.TestCase):
         self.assertEqual(dict(lawcites.find("the Constitution, art. 1, sec. 10")["cites"]), {})   # whose? not read
 
 
+class LinkChecks(unittest.TestCase):
+    """CourtListener links a cite by its citation alone; the name written before it is checked against the case linked
+    (Cause of Action v. IRS, 253 F. Supp. 3d 149: "Dale v. IRS, 288 F.Supp.2d 99" links to Phillips v. Pembroke)."""
+
+    def setUp(self):
+        from tribonian import scotus
+        self.S = scotus
+        scotus._NAMES.clear(), scotus._NAMED.clear()
+        self.con = sqlite3.connect(":memory:")
+        self.con.executescript("CREATE TABLE clusters(id, case_name, case_name_short, case_name_full, citation_count, docket_id, date_filed);"
+                               "CREATE TABLE cites(cluster_id, volume, reporter, page);")
+        self.con.executemany("INSERT INTO clusters VALUES(?,?,?,?,?,?,?)", [
+            (1, "Phillips v. Pembroke Real Estate, Inc.", "Phillips", "", 7, 1, "2003-10-24"),
+            (2, "Dale v. Internal Revenue Service", "Dale", "", 104, 2, "2002-11-20"),
+            (3, "Lemon v. Kurtzman", "Lemon", "", 9000, 3, "1971-06-28"),
+            (4, "United States v. Eichman", "Eichman", "", 500, 4, "1990-06-11")])
+        self.con.executemany("INSERT INTO cites VALUES(?,?,?,?)", [
+            (1, "288", "F. Supp. 2d", "89"), (1, "288", "F. Supp. 2d", "99"), (2, "238", "F. Supp. 2d", "99"),
+            (3, "403", "U.S.", "602"), (4, "496", "U.S.", "310")])
+
+    def check(self, cid, vol, rep, page, before):
+        return self.S.link_check(self.con, cid, vol, rep, page, before, ", 105 (D.D.C. 2002).")
+
+    def test_party_has(self):
+        ph = self.S.party_has
+        self.assertTrue(ph("irs", "dale v. internal revenue service"))                   # an initialism
+        self.assertTrue(ph("doj", "smith v. united states department of justice"))
+        self.assertTrue(ph("bichman", "united states v. eichman"))                       # a scanning error
+        self.assertTrue(ph("trs", "burt v. board of trustees"))                           # an abbreviation
+        self.assertFalse(ph("dale", "phillips v. pembroke real estate, inc."))
+
+    def test_typo(self):
+        tint, why = self.check(1, "288", "F. Supp. 2d", "99", "within an agency. Dale v. IRS, ")
+        self.assertEqual(tint, "pink")
+        self.assertIn("likely typo for 238 F. Supp. 2d 99", why)
+        self.assertEqual(self.check(2, "238", "F. Supp. 2d", "99", "See Dale v. IRS, "), ("", ""))   # right: no mark
+
+    def test_not_flagged(self):
+        self.assertEqual(self.check(4, "496", "U.S.", "310", "United States v. Bichman, "), ("", ""))
+        self.assertEqual(self.check(1, "288", "F. Supp. 2d", "99", "Phillips v. Pembroke, "), ("", ""))
+
+    def test_other_caption(self):
+        tint, why = self.check(3, "403", "U.S.", "602", "materials); Earley v. DiCenso, ")
+        self.assertEqual(tint, "red")                    # no typo nearby: another caption, or a miscite
+        self.assertIn("another caption", why)
+
+    def test_typo_of(self):
+        self.assertEqual(self.S.typo_of("26", "Va.", "701", "X is at 5 Va. 701"), "")        # two keystrokes: no
+
+
 @unittest.skipUnless(__import__("importlib").util.find_spec("eyecite"), "eyecite not installed")
 class Eyecite(unittest.TestCase):
     def test_same_cites(self):

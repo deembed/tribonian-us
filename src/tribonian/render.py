@@ -134,9 +134,10 @@ PREAMBLE = r"""% __DOCTITLE__ -- compile with pdflatex (twice; tcolorbox places 
 \newcommand\uscmark{\bgroup\markoverwith{\textcolor{yellow}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \newcommand\usclight{\bgroup\markoverwith{\textcolor{yellow!35}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \newcommand\uscstrike{\bgroup\markoverwith{\rlap{\textcolor{yellow}{\rule[-.55ex]{2pt}{2.45ex}}}\rule[.55ex]{2pt}{.5pt}}\ULon}
-% cite tints (citemarks.py): \citeok = resolved; \citebad = likely miscite or not fetched; \citensrc = no source.
+% cite tints (citemarks.py): \citeok = resolved; \citemis = likely typo (pink); \citebad = likely miscite or not fetched; \citensrc = no source.
 \newcommand\citeok{\bgroup\markoverwith{\textcolor{green!12}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \newcommand\citebad{\bgroup\markoverwith{\textcolor{red!22}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
+\newcommand\citemis{\bgroup\markoverwith{\textcolor{magenta!30}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \newcommand\citensrc{\bgroup\markoverwith{\textcolor{orange!35}{\rule[-.55ex]{2pt}{2.45ex}}}\ULon}
 \usepackage{tcolorbox}
 \tcbuselibrary{skins,breakable}   % skins -> "enhanced"; breakable -> page splits

@@ -624,7 +624,9 @@ def inline(node, mode, ctx, marks):
         elif k.tag in ("b", "strong"):
             out.append(wrap(inline(k, mode, ctx, marks), *(("**", "**") if mode == "md" else ("\\textbf{", "}"))))
         elif k.tag == "a" and mode != "md" and re.match(r"/opinion/\d+/", k.attrs.get("href", "")):
-            out.append(citemarks.mark("ok", inline(k, mode, ctx, marks)))    # CourtListener linked it: the case is there
+            inner = inline(k, mode, ctx, marks)          # CourtListener linked it: the case is there, unless the name
+            out.append(citemarks.mark(k.attrs["cm_tint"], inner, k.text(), k.attrs.get("cm_why", ""))   # says otherwise
+                       if k.attrs.get("cm_tint") else citemarks.mark("ok", inner))
         elif k.tag == "quoted":                              # wording later opinions reuse (mark_quotes)
             out.append(quote_tex(inline(k, mode, ctx, marks), k.attrs, ctx))
         elif k.tag == "case" and mode != "md":            # a reporter cite found in the text (mark_cases)
@@ -870,7 +872,8 @@ def resolve_case_cite(con, c, before, after, doc):
     if cid:
         return {"ok": "1"}
     if why:
-        return {"why": why}
+        fix = scotus.typo_of(vol, rep, page, why)
+        return {"why": "likely typo for %s: %s" % (fix, why), "tint": "pink"} if fix else {"why": why}
     return {"why": "Westlaw only: CourtListener has no copy, by citation, name or docket number", "tint": "orange"} \
         if c.rep == "WL" else {}
 
@@ -895,6 +898,33 @@ def unlinked_is_case(text):
     """Does an unlinked CourtListener citation span hold a case cite (not "90 Stat. 331" or "54 Mich. L. Rev. 1")?"""
     from tribonian import citefind
     return any(c.kind in ("full", "pin") for c in citefind.find(text))
+
+
+def check_link(con, a, cid, text, prev, nxt):
+    """A cite CourtListener linked to cluster cid (text: the link's citation span). CourtListener links by the citation
+    alone, so a mistyped volume or page links to whatever case is there ("Dale v. IRS, 288 F.Supp.2d 99" -> Phillips
+    v. Pembroke Real Estate). The name written before it is checked against the linked case (scotus.link_check); a
+    short form CourtListener linked to the same wrong case ("the Dale case") is marked like the cite it followed.
+    Sets cm_tint/cm_why on the link; -> True when flagged."""
+    from tribonian import citefind, scotus
+    full = [c for c in citefind.find(text) if c.kind == "full"]
+    if full:
+        c = full[0]
+        tint, why = scotus.link_check(con, cid, c.vol, c.rep, c.page, prev + text[:c.start], text[c.end:] + nxt)
+        if tint:
+            citemarks.BAD_LINKS[cid] = (tint, why, " ".join(text.split()))
+    elif cid in citemarks.BAD_LINKS and not citefind.find(text):
+        tint, _, cite = citemarks.BAD_LINKS[cid]
+        names = scotus._NAMES.get(cid, ("", ""))[1]
+        words = [w for w in re.findall(r"[a-z]{3,}", scotus._ascii(text).lower()) if w not in scotus.NAME_STOP]
+        if not words or any(scotus.party_has(w, names) for w in words):
+            return False                         # it names the linked case after all
+        why = "CourtListener links this to %s, following the miscite %s" % (scotus._NAMES[cid][0], cite)
+    else:
+        return False
+    if tint:
+        a.attrs.update(cm_tint=tint, cm_why=why)
+    return bool(tint)
 
 
 def mark_cases(node):
@@ -928,11 +958,13 @@ def mark_cases(node):
             if k.tag in ("law", "usc"):                  # a statute between: an Id. after it is the statute's
                 doc.law()
             elif k.tag == "a" and CL_LINK_RE.match(k.attrs.get("href", "")):
-                doc.cite(int(CL_LINK_RE.match(k.attrs["href"]).group(1)))
+                cid = int(CL_LINK_RE.match(k.attrs["href"]).group(1))
+                doc.cite(None if check_link(con, k, cid, flat(k), prev, nxt) else cid)
             elif k.tag == "span" and "citation" in cls:
                 a = k.find("a")
-                if a is not None and CL_LINK_RE.match(a.attrs.get("href", "")):
-                    doc.cite(int(CL_LINK_RE.match(a.attrs["href"]).group(1)))   # CourtListener linked it
+                if a is not None and CL_LINK_RE.match(a.attrs.get("href", "")):    # CourtListener linked it
+                    cid = int(CL_LINK_RE.match(a.attrs["href"]).group(1))
+                    doc.cite(None if check_link(con, a, cid, flat(k), prev, nxt) else cid)
                 elif "no-link" in cls and k.find("law") is None and k.find("usc") is None:
                     t = flat(k)
                     cs = citefind.find(t)
@@ -2380,6 +2412,8 @@ LEGEND_ROWS = [   # (macro that shows it is used, sample, explanation)
      "docket number), or the law's text is stored here"),
     ("\\citebad{", "\\citebad{761 F. App'x 732}", "not found, or not fetched yet: a likely miscite, or law whose text "
      "is not here; listed with the reason in Cites not resolved"),
+    ("\\citemis{", "\\citemis{288 F. Supp. 2d 99}", "likely typo: the case named is at a cite one keystroke "
+     "away (238 F. Supp. 2d 99); listed with the right cite in Cites not resolved"),
     ("\\citensrc{", "\\citensrc{2009 WL 773499}", "no source: it exists, but nothing here can read it (a "
      "LexisNexis-only code, a Westlaw-only decision); listed in Cites not resolved"),
     ("\\uscmark{", "\\uscmark{42 U.S.C. \\S\\ 1983}", "a US Code section changed since the decision, with a tag: "
