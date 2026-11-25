@@ -2,6 +2,8 @@
 "Cites not resolved" part that lists the ones that could not (scope: claude/scope-cite-marks.md).
 
     green   resolved: the case is in CourtListener (a link, or found in the local database), or the law's text is local
+    pink    likely typo: the name written is another case than the cite's, and that case is at a cite one
+            keystroke away (288 for 238); CourtListener's own links are checked too, since it links by citation alone
     red     likely a miscite or misread (no such case or provision found), or not fetched yet
     orange  no source: it exists but nothing here can read it (a LexisNexis-only code, a blocked site, a Westlaw-only
             decision CourtListener does not have)
@@ -14,18 +16,20 @@ import os
 import re
 
 CITE_MARKS = os.environ.get("CITE_MARKS", "1") != "0"
-MACRO = {"ok": "\\citeok", "red": "\\citebad", "orange": "\\citensrc"}
+MACRO = {"ok": "\\citeok", "red": "\\citebad", "orange": "\\citensrc", "pink": "\\citemis"}
 # A tint is ulem's \markoverwith, set word by word: anything that writes to the .aux, sets a target or a footnote
 # mark, or is itself a ulem mark, stays unmarked rather than risk the build.
 UNSAFE = ("\\recordpath", "\\hypertarget", "\\textsuperscript", "\\usc", "\\leaders", "\\footnote", "\\label",
           "\\cite", "\\par", "\\pdfbookmark")
 
-_REG = []                # (status, shown text, reason, label) for every red and orange mark in this document
+_REG = []                # (status, shown text, reason, label) for every pink, red and orange mark in this document
 _LAW = {}                # law key -> (status, reason)
+BAD_LINKS = {}           # cluster id -> (tint, reason, cite text): CourtListener links that fail the name check
 
 
 def reset():
     del _REG[:]
+    BAD_LINKS.clear()
 
 
 def law_status(key):
@@ -46,7 +50,7 @@ def law_status(key):
 
 
 def mark(status, inner, text="", reason=""):
-    """inner (TeX) tinted for status; red and orange are also labelled and listed at the end."""
+    """inner (TeX) tinted for status; pink, red and orange are also labelled and listed at the end."""
     if not CITE_MARKS or not inner.strip() or any(u in inner for u in UNSAFE):
         return inner
     out = "%s{%s}" % (MACRO[status], inner)
@@ -58,10 +62,12 @@ def mark(status, inner, text="", reason=""):
 
 
 def section_tex(esc):
-    """The closing part: every red and orange cite once, with its reason and the pages it is on. '' when none."""
+    """The closing part: every pink, red and orange cite once, with its reason and the pages it is on. '' when none."""
     if not CITE_MARKS or not _REG:
         return ""
-    groups = (("red", "Likely miscites, or not fetched yet",
+    groups = (("pink", "Likely typos in the cite",
+               "The case named is in CourtListener at a cite one keystroke away: the right cite is given."),
+              ("red", "Likely miscites, or not fetched yet",
                "No case or provision was found for these, or its text has not been fetched. Check the cite in the source."),
               ("orange", "No source",
                "These exist, but nothing here can read their text: law with no usable source (see DATASOURCES.md), "
@@ -69,8 +75,8 @@ def section_tex(esc):
     out = ["\\clearpage\\recordcover{none}\\recordstart{Cites not resolved}\\noindent\\tocback"
            "\\tocadd{tocstage}{Cites not resolved}\\pdfbookmark[0]{Cites not resolved}{citesnotresolved}"
            "{\\Large\\bfseries Cites not resolved\\par}\\vspace{4pt}"
-           "{\\scriptsize\\itshape Every cite tinted red or orange in this document, once each, with the pages it is on. "
-           "Green: checked; red: not found or not fetched; orange: no source; yellow: an old US Code cite.\\par}\\vspace{6pt}"]
+           "{\\scriptsize\\itshape Every cite tinted pink, red or orange in this document, once each, with the pages it is on. "
+           "Green: checked; pink: likely typo; red: not found, a wrong case, or not fetched; orange: no source; yellow: an old US Code cite.\\par}\\vspace{6pt}"]
     for status, head, note in groups:
         seen = {}
         for st, text, reason, lab in _REG:
@@ -91,13 +97,13 @@ def section_tex(esc):
 
 
 def section_md(esc):
-    """The note's '## Cites not resolved': the PDF's red and orange cites, once each with their reason and count.
+    """The note's '## Cites not resolved': the PDF's pink, red and orange cites, once each with their reason and count.
     Call after the PDF's render (the marks are registered as it renders). [] when none."""
     if not CITE_MARKS or not _REG:
         return []
     L = ["## Cites not resolved", "",
-         "*Every cite the PDF tints red or orange, once each, with its reason (×n: how many times).*", ""]
-    for status, head in (("red", "Likely miscites, or not fetched yet"), ("orange", "No source")):
+         "*Every cite the PDF tints pink, red or orange, once each, with its reason (×n: how many times).*", ""]
+    for status, head in (("pink", "Likely typos in the cite"), ("red", "Likely miscites, or not fetched yet"), ("orange", "No source")):
         seen = {}
         for st, text, reason, _ in _REG:
             if st == status:

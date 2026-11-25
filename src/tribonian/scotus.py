@@ -1099,7 +1099,7 @@ def resolve_name(con, vol, rep, page, before, after):
     rows = con.execute("SELECT c.id, c.case_name, c.citation_count, d.court_id FROM clusters c LEFT JOIN dockets d ON d.id = c.docket_id "
                        "WHERE c.date_filed BETWEEN ? AND ? AND c.case_name LIKE ?",
                        (lo, hi, "%" + max(words, key=len) + "%")).fetchall()
-    rows = [r for r in rows if (not courts or r[3] in courts) and all(w in _ascii(r[1]).lower() for w in words)]
+    rows = [r for r in rows if (not courts or r[3] in courts) and all(party_has(w, _ascii(r[1]).lower()) for w in words)]
     good, wrong = [], []
     for r in rows:
         there = con.execute("SELECT volume, page FROM cites WHERE cluster_id=? AND reporter=?", (r[0], rep)).fetchall()
@@ -1122,7 +1122,7 @@ def resolve_name(con, vol, rep, page, before, after):
 # ---------------------------------------------------------------- checks on a cite found by its citation
 # The citation table says which case a cite is; these say whether the text agrees: the name written before it, and a
 # pin page inside the case. A cite that fails one is a likely miscite (red, with the reason), not a match.
-NAMED_CITE_RE = re.compile(r"(?:([A-Z][\w.'’&-]*(?:\s+(?:of|the|and|for|&|de|la|ex|rel\.|[A-Z][\w.'’&-]*)){0,7})\s+v\.\s+([^,;()]{1,80})"
+NAMED_CITE_RE = re.compile(r"(?:([A-Z][\w.'’&-]*(?:\s+(?:of|the|and|for|&|de|la|ex|rel\.|[A-Z][\w.'’&-]*)){0,7})\s+v\.\s+((?:(?!\sv\.\s)[^,;()]){1,80})"
                            r"|\b(?:In re|Ex parte|In the Matter of|Matter of)\s+([^,;()]{1,80})),\s*"
                            r"(?:\d{1,4}\s+[^,;()]{1,25}?\s+\d{1,7}(?:,\s*\d{1,6}(?:[-–]\d+)?)?,\s*)?$")
 _NAMES, _STARTS = {}, {}
@@ -1154,9 +1154,120 @@ def name_mismatch(con, cid, vol, rep, page, before):
             r = con.execute("SELECT case_name FROM clusters WHERE id=?", (cid,)).fetchone()
         _NAMES[cid] = (r[0] or "", _ascii(" ".join(x or "" for x in r)).lower()) if r else ("", "")
     name, names = _NAMES[cid]
-    if not names or all(any(w in names for w in side) for side in words):   # each party: one of its words
+    if not names or all(any(party_has(w, names) for w in side) for side in words):   # each party: one of its words
         return ""
     return "likely miscite: %s %s %s is %s" % (vol, rep, page, name)
+
+
+ACRO_SKIP = {"of", "the", "and", "for", "on", "in", "to"}
+_ACROS = {}
+
+
+def _acronyms(names):
+    """Every initialism of a run of 2-6 words in names ('internal revenue service' -> 'irs'; 'department of justice'
+    -> 'doj' and 'dj'), so a name written as 'IRS', 'NLRB' or 'EPA' matches the case's spelled-out name."""
+    if names not in _ACROS:
+        toks, out = re.findall(r"[a-z]+", names), set()
+        for i in range(len(toks)):
+            full = skip = ""
+            for t in toks[i:i + 8]:
+                full += t[0]
+                if t not in ACRO_SKIP:
+                    skip += t[0]
+                for a in (full, skip):
+                    if 2 <= len(a) <= 6:
+                        out.add(a)
+        _ACROS[names] = out
+    return _ACROS[names]
+
+
+def party_has(word, names):
+    """Is a word of a written party name in the case's names: spelled out, as an initialism ('irs'), or, for a word of
+    five letters or more, near enough to be a scanning error ('bichman' for Eichman, 'zawillo' for Zavilla)?"""
+    if word in names or (2 <= len(word) <= 6 and word in _acronyms(names)):
+        return True
+    if 2 <= len(word) <= 5 and any(_abbrev(word, t) for t in re.findall(r"[a-z]{4,}", names)):
+        return True
+    return len(word) >= 5 and any(abs(len(t) - len(word)) <= 2 and SequenceMatcher(None, word, t).ratio() >= 0.7
+                                  for t in re.findall(r"[a-z]{4,}", names))
+
+
+def _abbrev(w, t):
+    """A Bluebook-style abbreviation of t: its letters in order, the first one first ('trs' trustees, 'bd' board,
+    'cnty' county, 'assn' association, 'servs' services)."""
+    if t[0] != w[0] or len(t) < len(w) + 2:
+        return False
+    it = iter(t)
+    return all(c in it for c in w)
+
+
+def near_named(con, vol, rep, page, before, wrong):
+    """After a name mismatch: a case at a cite one keystroke away in the same reporter (one digit of the volume or of
+    the page changed, dropped or added) whose names fit the name written -> '; Wooley v. Maynard is at 430 U.S. 705',
+    else ''. Catches what resolve_name cannot: no year in the parenthetical, or a parallel cite in between."""
+    words = written_name(before)
+    if not words:
+        return ""
+    def variants(x):
+        out = {x[:i] + d + x[i + 1:] for i in range(len(x)) for d in "0123456789"}       # one digit changed
+        out |= {x[:i] + x[i + 1:] for i in range(len(x))}                               # one dropped
+        out |= {x[:i] + d + x[i:] for i in range(len(x) + 1) for d in "0123456789"}     # one added
+        return {v for v in out if v and v[0] != "0" and v != x}
+    tries = [(v, page) for v in variants(vol)] + [(vol, p) for p in variants(page)] if vol.isdigit() and page.isdigit() else []
+    for v, p in tries:
+        for cid, name in con.execute("SELECT c.id, c.case_name FROM cites t JOIN clusters c ON c.id = t.cluster_id "
+                                     "WHERE t.volume=? AND t.reporter=? AND t.page=?", (v, rep, p)):
+            if cid == wrong:
+                continue
+            names = _ascii(name or "").lower()
+            if all(party_has(max(side, key=len), names) for side in words):    # each party's longest word
+                return "; %s is at %s %s %s" % (name, v, rep, p)
+    return ""
+
+
+def _edits(a, b):
+    """Levenshtein distance."""
+    row = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        prev, row[0] = row[0], i
+        for j, cb in enumerate(b, 1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (ca != cb))
+    return row[-1]
+
+
+AT_RE = r"\bis at ((\d{1,4}) %s (\d{1,6}))"
+
+
+def typo_of(vol, rep, page, why):
+    """A miscite whose reason names where the written case really is, in the same reporter, one keystroke away
+    ('288 F. Supp. 2d 99' for '238 F. Supp. 2d 99': one keystroke) -> that cite; else ''. Two keystrokes is too far:
+    old Virginia volumes alone are numbered two ways ('26 Va. 701' is CourtListener's '5 Va. 701'). A typo, not a wrong case: tinted pink."""
+    for m in re.finditer(AT_RE % re.escape(rep), why or ""):
+        if _edits("%s %s" % (vol, page), "%s %s" % (m.group(2), m.group(3))) <= 1:
+            return m.group(1)
+    return ""
+
+
+def link_check(con, cid, vol, rep, page, before, after):
+    """A cite CourtListener linked to cluster cid: does the name written before it fit that case? -> ('', '') when it
+    does (or there is no name to check), else (tint, reason): 'pink' for a typo whose right cite is found, 'red'."""
+    why = name_mismatch(con, cid, vol, rep, page, before)
+    if not why:
+        return "", ""
+    # CourtListener's name is often not the one cited (consolidated cases, an older caption, a first plaintiff), and
+    # a scanned name loses words; a link is flagged only when neither party fits it, nor any other case on that page.
+    words, names = written_name(before), _NAMES[cid][1]
+    if any(any(party_has(w, names) for w in side) for side in words):
+        return "", ""
+    for (other,) in con.execute("SELECT DISTINCT cluster_id FROM cites WHERE volume=? AND reporter=? AND page=?", (vol, rep, page)):
+        if other != cid and not name_mismatch(con, other, vol, rep, page, before):
+            return "", ""
+    why = "CourtListener links it by its citation, but " + why[len("likely miscite: "):] + \
+        named_instead(con, vol, rep, page, before, after, cid)
+    fix = typo_of(vol, rep, page, why)
+    if fix:
+        return "pink", "likely typo for %s: %s" % (fix, why)
+    return "red", "name differs from the case linked: a miscite, or CourtListener files it under another caption: " + why
 
 
 def named_instead(con, vol, rep, page, before, after, wrong):
@@ -1165,6 +1276,9 @@ def named_instead(con, vol, rep, page, before, after, wrong):
     cid, why = resolve_name(con, vol, rep, page, before, after)
     if why:
         return "; " + why
+    near = near_named(con, vol, rep, page, before, wrong)
+    if near:
+        return near
     if cid and cid != wrong:
         r = con.execute("SELECT case_name FROM clusters WHERE id=?", (cid,)).fetchone()
         return "; %s has no %s cite in CourtListener" % (r[0] if r else "the case named", rep)
